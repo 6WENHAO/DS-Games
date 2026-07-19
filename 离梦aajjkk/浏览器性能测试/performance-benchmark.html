@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>浏览器性能检测</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;min-height:100%;background:#0b0e17;color:#dbe4ff;font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+body{padding:18px;background:radial-gradient(1200px 600px at 70% -10%,#1b2340 0%,#0b0e17 55%)}
+a{color:#8fb0ff}
+#top{display:flex;align-items:center;justify-content:space-between;max-width:1180px;margin:0 auto 16px}
+#top h1{font-size:20px;font-weight:600;letter-spacing:2px}
+#top h1 span{color:#5eead4}
+#fpsBadge{font:600 14px/1 Consolas,monospace;padding:9px 14px;border-radius:10px;background:rgba(20,26,44,.8);border:1px solid rgba(94,234,212,.25);color:#5eead4;min-width:96px;text-align:center}
+#fpsBadge.mid{color:#fbbf24;border-color:rgba(251,191,36,.3)}
+#fpsBadge.low{color:#f87171;border-color:rgba(248,113,113,.3)}
+#wrap{display:flex;gap:16px;max-width:1180px;margin:0 auto;align-items:flex-start;flex-wrap:wrap}
+#side{width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:16px}
+#main{flex:1;min-width:320px;display:flex;flex-direction:column;gap:16px}
+.card,.panel{background:rgba(19,25,43,.72);border:1px solid rgba(129,140,248,.14);border-radius:14px;backdrop-filter:blur(10px)}
+.panel{padding:16px}
+.panel h2{font-size:13px;color:#9aa8d8;letter-spacing:2px;margin-bottom:10px;font-weight:600}
+#sysinfo div{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.05)}
+#sysinfo div:last-child{border-bottom:none}
+#sysinfo b{color:#c7d4ff;font-weight:500;text-align:right;word-break:break-all}
+#sysinfo span{color:#8391b8;flex-shrink:0}
+#sparkC{width:100%;height:56px;display:block}
+#scorebox{display:flex;align-items:center;gap:24px;padding:20px 24px;flex-wrap:wrap}
+#gwrap{position:relative;width:210px;height:210px;flex-shrink:0}
+#gwrap svg{transform:rotate(-90deg)}
+.gbg{fill:none;stroke:rgba(255,255,255,.06);stroke-width:14}
+.gfg{fill:none;stroke:url(#gg);stroke-width:14;stroke-linecap:round;stroke-dasharray:553;stroke-dashoffset:553;transition:stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1)}
+#gcenter{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+#totalScore{font:700 40px/1 Consolas,monospace;color:#fff}
+#grade{font:700 18px/1 Consolas,monospace;color:#5eead4}
+#gcenter small{color:#8391b8;font-size:11px;letter-spacing:2px}
+#scoreinfo{flex:1;min-width:200px}
+#scoreinfo p{font-size:12.5px;color:#8391b8;line-height:1.8}
+#btnStart{margin-top:12px;padding:12px 34px;font-size:15px;font-weight:600;letter-spacing:2px;color:#0b0e17;background:linear-gradient(135deg,#5eead4,#818cf8);border:none;border-radius:10px;cursor:pointer;transition:.2s}
+#btnStart:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 24px rgba(94,234,212,.25)}
+#btnStart:disabled{opacity:.55;cursor:wait}
+#best{margin-top:8px;font-size:12px;color:#8391b8}
+#stage{position:relative;height:320px;overflow:hidden;border-radius:14px}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%}
+#stLabel{position:absolute;left:12px;top:10px;z-index:3;font:600 12px/1.6 Consolas,monospace;color:#9adcff;background:rgba(10,14,25,.55);padding:6px 10px;border-radius:8px;pointer-events:none}
+#cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.tcard{padding:14px;transition:.25s}
+.tcard.run{border-color:rgba(94,234,212,.6);box-shadow:0 0 18px rgba(94,234,212,.12)}
+.tcard .cname{font-size:13px;color:#9aa8d8;margin-bottom:8px}
+.tcard .cscore{font:700 26px/1 Consolas,monospace;color:#fff;margin-bottom:8px}
+.tcard .cbar{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;margin-bottom:8px}
+.tcard .cbar i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#5eead4,#818cf8);transition:width .7s ease}
+.tcard .cdetail{font-size:11.5px;color:#8391b8;font-family:Consolas,monospace;min-height:15px}
+.tcard.run .cdetail{color:#5eead4}
+#foot{max-width:1180px;margin:14px auto 4px;font-size:11.5px;color:#5b6785;line-height:1.8}
+@media (max-width:760px){#side{width:100%}}
+</style>
+</head>
+<body>
+<div id="top">
+<h1>浏览器性能检测 <span>BENCHMARK</span></h1>
+<div id="fpsBadge">FPS --</div>
+</div>
+<div id="wrap">
+<div id="side">
+<div class="panel"><h2>系统信息</h2><div id="sysinfo"></div></div>
+<div class="panel"><h2>实时帧率（最近 30 秒）</h2><canvas id="sparkC"></canvas></div>
+</div>
+<div id="main">
+<div class="panel" id="scorebox">
+<div id="gwrap">
+<svg width="210" height="210" viewBox="0 0 210 210">
+<defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#818cf8"/>
+</linearGradient></defs>
+<circle class="gbg" cx="105" cy="105" r="88"/>
+<circle class="gfg" id="gArc" cx="105" cy="105" r="88"/>
+</svg>
+<div id="gcenter"><div id="totalScore">--</div><div id="grade"></div><small>综合分数</small></div>
+</div>
+<div id="scoreinfo">
+<p>测试项目：单核运算 / 多核并行（Web Worker × 逻辑核心）/ 内存带宽 / JSON 处理 / Canvas 2D 渲染 / WebGL 渲染。渲染类测试采用自适应负载，自动排除垂直同步干扰。全程约 20 秒。</p>
+<button id="btnStart">开 始 测 试</button>
+<div id="best"></div>
+</div>
+</div>
+<div class="card" id="stage">
+<div id="stLabel">待机中 · 点击「开始测试」</div>
+<canvas id="c2d"></canvas>
+<canvas id="cgl" style="display:none"></canvas>
+</div>
+<div id="cards"></div>
+</div>
+</div>
+<div id="foot">分数为本工具内的相对参考值，跨设备可比、无绝对意义。测试受浏览器、电源模式、后台负载影响：建议插电、高性能模式、关闭其他标签页后测试。CPU 型号由 WMI 预先核实写入（浏览器 JS 无法直接读取 CPU 型号）。</div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const median=arr=>{if(!arr.length)return 0;const s=[...arr].sort((a,b)=>a-b);return s[s.length>>1];};
+const fmtP=v=>v>=1e6?(v/1e6).toFixed(2)+'M':((v/1000)|0)+'k';
+const CPU_PRESET='AMD Ryzen 9 9955HX（16核/32线程）';
+let refreshHz=0,stageBusy=false,running=false;
+
+function gpuName(){
+  try{
+    const c=document.createElement('canvas');
+    const gl=c.getContext('webgl')||c.getContext('experimental-webgl');
+    if(!gl)return '不支持 WebGL';
+    const ext=gl.getExtension('WEBGL_debug_renderer_info');
+    let n=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'未知';
+    n=n.replace(/^ANGLE \((.*)\)$/,'$1').replace(/Direct3D\d+\s*/i,'').replace(/vs_\d_\d\s*ps_\d_\d/i,'').replace(/,\s*,/g,',').replace(/,\s*$/,'').trim();
+    return n;
+  }catch(e){return '未知';}
+}
+function browserBrief(){
+  const ua=navigator.userAgent;
+  let m;
+  if((m=ua.match(/Edg\/([\d.]+)/)))return 'Edge '+m[1].split('.')[0];
+  if((m=ua.match(/Firefox\/([\d.]+)/)))return 'Firefox '+m[1].split('.')[0];
+  if((m=ua.match(/Chrome\/([\d.]+)/)))return 'Chrome '+m[1].split('.')[0];
+  if((m=ua.match(/Version\/([\d.]+).*Safari/)))return 'Safari '+m[1];
+  return ua.slice(0,40);
+}
+function fillInfo(){
+  const rows=[
+    ['处理器',CPU_PRESET],
+    ['逻辑处理器',navigator.hardwareConcurrency+' 线程（浏览器检测）'],
+    ['内存',navigator.deviceMemory?('≥ '+navigator.deviceMemory+' GB（浏览器报告值）'):'未知'],
+    ['显卡',gpuName()],
+    ['屏幕',screen.width+'×'+screen.height+' · DPR '+(window.devicePixelRatio||1)],
+    ['刷新率',(refreshHz?refreshHz+' Hz':'检测中…')],
+    ['浏览器',browserBrief()]
+  ];
+  $('sysinfo').innerHTML=rows.map(r=>'<div><span>'+r[0]+'</span><b>'+r[1]+'</b></div>').join('');
+}
+
+let fpsNow=0,fpsHist=[],lastT=0,fAcc=0,fCnt=0;
+const sparkC=$('sparkC'),sparkCtx=sparkC.getContext('2d');
+function drawSpark(){
+  const w=sparkC.clientWidth,h=sparkC.clientHeight;
+  if(sparkC.width!==w)sparkC.width=w;
+  if(sparkC.height!==h)sparkC.height=h;
+  sparkCtx.clearRect(0,0,w,h);
+  const maxV=Math.max(refreshHz||60,...fpsHist)*1.1;
+  sparkCtx.beginPath();
+  for(let i=0;i<fpsHist.length;i++){
+    const x=w-(fpsHist.length-1-i)*(w/120);
+    const y=h-fpsHist[i]/maxV*h;
+    i===0?sparkCtx.moveTo(x,y):sparkCtx.lineTo(x,y);
+  }
+  sparkCtx.strokeStyle='#5eead4';
+  sparkCtx.lineWidth=1.5;
+  sparkCtx.stroke();
+  sparkCtx.lineTo(w,h);
+  sparkCtx.lineTo(w-(fpsHist.length-1)*(w/120),h);
+  sparkCtx.closePath();
+  sparkCtx.fillStyle='rgba(94,234,212,0.08)';
+  sparkCtx.fill();
+}
+const refSamples=[];
+function fpsLoop(t){
+  requestAnimationFrame(fpsLoop);
+  if(lastT){
+    const dt=t-lastT;
+    if(dt>0&&dt<500){
+      if(refSamples.length<70){
+        refSamples.push(dt);
+        if(refSamples.length===70){
+          const md=median(refSamples.slice(10));
+          const hz=1000/md;
+          const std=[24,30,60,75,90,120,144,165,200,240,300,360];
+          refreshHz=std.reduce((p,c)=>Math.abs(c-hz)<Math.abs(p-hz)?c:p,Math.round(hz));
+          fillInfo();
+        }
+      }
+      fAcc+=dt;fCnt++;
+      if(fAcc>=250){
+        fpsNow=1000*fCnt/fAcc;
+        fAcc=0;fCnt=0;
+        fpsHist.push(fpsNow);
+        if(fpsHist.length>120)fpsHist.shift();
+        const b=$('fpsBadge');
+        b.textContent='FPS '+fpsNow.toFixed(0);
+        b.className=fpsNow>=50?'':(fpsNow>=28?'mid':'low');
+        drawSpark();
+      }
+    }
+  }
+  lastT=t;
+  idleDraw(t);
+}
+
+const c2d=$('c2d'),cgl=$('cgl'),stage=$('stage');
+let ctx2d=c2d.getContext('2d');
+function fitStage(){
+  const dpr=Math.min(window.devicePixelRatio||1,1.75);
+  const w=stage.clientWidth,h=stage.clientHeight;
+  for(const c of[c2d,cgl]){
+    c.width=Math.round(w*dpr);
+    c.height=Math.round(h*dpr);
+  }
+  ctx2d.setTransform(dpr,0,0,dpr,0,0);
+  return {w,h,dpr};
+}
+window.addEventListener('resize',()=>{if(!stageBusy)fitStage();});
+
+const idleP=[];
+for(let i=0;i<50;i++)idleP.push({x:Math.random(),y:Math.random(),vx:(Math.random()-0.5)*0.02,vy:(Math.random()-0.5)*0.02,r:1+Math.random()*2.5,h:180+Math.random()*90});
+let idleLast=0;
+function idleDraw(t){
+  if(stageBusy)return;
+  const dt=Math.min(0.05,(t-idleLast)/1000)||0.016;
+  idleLast=t;
+  const w=stage.clientWidth,h=stage.clientHeight;
+  ctx2d.clearRect(0,0,w,h);
+  for(const p of idleP){
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.x<0||p.x>1)p.vx*=-1;
+    if(p.y<0||p.y>1)p.vy*=-1;
+    ctx2d.globalAlpha=0.5;
+    ctx2d.fillStyle='hsl('+p.h+',70%,65%)';
+    ctx2d.beginPath();
+    ctx2d.arc(p.x*w,p.y*h,p.r,0,7);
+    ctx2d.fill();
+  }
+  ctx2d.globalAlpha=1;
+}
+
+const WSRC=[
+'function kernel(n){var s=0;for(var i=1;i<=n;i++){s+=Math.sqrt(i)*Math.sin(i*0.001)+Math.cos(i*0.0007);s+=(i*2654435761)%97;}return s;}',
+'self.onmessage=function(e){var d=e.data;var t0=performance.now();',
+'if(d.cmd==="cpu"){var end=t0+d.duration,iters=0,s=0;',
+'  while(performance.now()<end){s+=kernel(50000);iters+=50000;}',
+'  postMessage({iters:iters,elapsed:performance.now()-t0,s:s});}',
+'else if(d.cmd==="mem"){var N=1<<21;var a=new Float64Array(N),b=new Float64Array(N);',
+'  for(var i=0;i<N;i++)a[i]=i*0.5;',
+'  var bytes=0,end=t0+d.duration,sum=0;',
+'  while(performance.now()<end){',
+'    b.set(a);bytes+=N*8;',
+'    var s2=0;for(var j=0;j<N;j+=8)s2+=b[j];sum+=s2;bytes+=N;',
+'    var idx=12345;for(var k=0;k<200000;k++){idx=(idx*1103515245+12345)&(N-1);sum+=a[idx];}bytes+=1600000;',
+'  }',
+'  postMessage({bytes:bytes,elapsed:performance.now()-t0,s:sum});}',
+'else if(d.cmd==="json"){',
+'  var obj={id:1,name:"benchmark-item",price:99.5,active:true,tags:["alpha","beta","gamma","delta"],meta:{x:1.5,y:2.5,z:[1,2,3,4,5],desc:"perf-test-object"},list:[]};',
+'  for(var i=0;i<20;i++)obj.list.push({k:i,v:Math.sqrt(i)});',
+'  var ops=0,end=t0+d.duration,chk=0;',
+'  while(performance.now()<end){var str=JSON.stringify(obj);var back=JSON.parse(str);chk+=back.list.length;obj.id=(obj.id+1)|0;ops++;}',
+'  postMessage({ops:ops,elapsed:performance.now()-t0,s:chk});}',
+'};'
+].join('\n');
+let wUrl=null;
+function spawnWorker(){
+  if(!wUrl)wUrl=URL.createObjectURL(new Blob([WSRC],{type:'text/javascript'}));
+  return new Worker(wUrl);
+}
+function workerRun(w,msg){
+  return new Promise((res,rej)=>{
+    w.onmessage=e=>res(e.data);
+    w.onerror=rej;
+    w.postMessage(msg);
+  });
+}
+
+function setLabel(t){$('stLabel').textContent=t;}
+
+async function renderTest2D(label){
+  stageBusy=true;
+  cgl.style.display='none';
+  c2d.style.display='block';
+  const {w,h}=fitStage();
+  const mk=hue=>{
+    const s=document.createElement('canvas');
+    s.width=s.height=26;
+    const g=s.getContext('2d');
+    const gr=g.createRadialGradient(9,8,1,13,13,13);
+    gr.addColorStop(0,'hsl('+hue+',85%,75%)');
+    gr.addColorStop(1,'hsl('+hue+',75%,40%)');
+    g.fillStyle=gr;
+    g.beginPath();g.arc(13,13,12,0,7);g.fill();
+    return s;
+  };
+  const imgs=[mk(170),mk(255),mk(30)];
+  const sp=[];
+  function ensure(n){
+    while(sp.length<n)sp.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*160,vy:(Math.random()-0.5)*160,img:imgs[sp.length%3]});
+    if(sp.length>n)sp.length=Math.round(n);
+  }
+  let count=300,phase=0,phaseT=0,pt=0,ema=16.7;
+  const cSamp=[],fSamp=[];
+  return new Promise(resolve=>{
+    function tick(t){
+      if(!pt){pt=t;requestAnimationFrame(tick);return;}
+      const dt=Math.min(50,t-pt);pt=t;
+      ema+=(dt-ema)*0.12;
+      const fps=1000/ema;
+      const tgt=57;
+      if(phase===0){
+        if(fps>tgt*1.05)count*=1.07;
+        else if(fps>tgt)count*=1.02;
+        else if(fps<tgt*0.88)count*=0.93;
+      }else{
+        if(fps>tgt)count*=1.012;
+        else if(fps<tgt*0.92)count*=0.985;
+        cSamp.push(count);fSamp.push(fps);
+      }
+      count=clamp(count,50,40000);
+      ensure(count|0);
+      const ds=dt/1000;
+      ctx2d.fillStyle='#0d1120';
+      ctx2d.fillRect(0,0,w,h);
+      for(let i=0;i<sp.length;i++){
+        const p=sp[i];
+        p.x+=p.vx*ds;p.y+=p.vy*ds;
+        if(p.x<0||p.x>w-26)p.vx*=-1;
+        if(p.y<0||p.y>h-26)p.vy*=-1;
+        ctx2d.drawImage(p.img,p.x,p.y);
+      }
+      phaseT+=dt;
+      if(phaseT>150){phaseT-=150;setLabel(label+' · 精灵 '+(count|0)+' · '+fps.toFixed(0)+'fps');}
+      if(phase===0&&t-start>2800){phase=1;}
+      if(phase===1&&cSamp.length>=110){
+        stageBusy=false;
+        const mc=median(cSamp),mf=median(fSamp);
+        resolve({metric:mc*Math.min(1,mf/(tgt-2)),detail:(mc|0)+' 精灵 @ '+mf.toFixed(0)+'fps'});
+        return;
+      }
+      requestAnimationFrame(tick);
+    }
+    const start=performance.now();
+    requestAnimationFrame(tick);
+  });
+}
+
+let glState=null;
+function initGL(){
+  if(glState)return glState;
+  const gl=cgl.getContext('webgl',{antialias:false,alpha:true,powerPreference:'high-performance'});
+  if(!gl)return null;
+  const vs='attribute float aI;uniform float uT;uniform float uOff;uniform vec2 uAsp;varying vec3 vC;'+
+  'float h(float n){return fract(sin(n)*43758.5453);}'+
+  'void main(){float i=aI+uOff;float r1=h(i);float r2=h(i+1.7);float r3=h(i+9.1);'+
+  'float ang=6.2831*r1+uT*(0.2+r2*1.4)*(r3>0.5?1.0:-1.0);'+
+  'float rad=0.06+0.92*sqrt(r2);'+
+  'vec2 p=vec2(cos(ang),sin(ang))*rad;p*=uAsp;'+
+  'gl_Position=vec4(p,0.0,1.0);gl_PointSize=1.0+2.2*r3;'+
+  'vC=vec3(0.3+0.7*r1,0.5+0.5*r2,0.8+0.2*r3);}';
+  const fs='precision mediump float;varying vec3 vC;void main(){gl_FragColor=vec4(vC,0.85);}';
+  function sh(type,src){
+    const s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+  }
+  const prog=gl.createProgram();
+  gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));
+  gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))return null;
+  gl.useProgram(prog);
+  const MAXP=2500000;
+  const buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  const idx=new Float32Array(MAXP);
+  for(let i=0;i<MAXP;i++)idx[i]=i;
+  gl.bufferData(gl.ARRAY_BUFFER,idx,gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(prog,'aI');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc,1,gl.FLOAT,false,0,0);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  glState={gl,prog,MAXP,uT:gl.getUniformLocation(prog,'uT'),uOff:gl.getUniformLocation(prog,'uOff'),uAsp:gl.getUniformLocation(prog,'uAsp')};
+  return glState;
+}
+async function renderTestGL(label){
+  stageBusy=true;
+  fitStage();
+  c2d.style.display='none';
+  cgl.style.display='block';
+  const st=initGL();
+  if(!st){
+    stageBusy=false;
+    c2d.style.display='block';
+    cgl.style.display='none';
+    return {metric:0,detail:'WebGL 不可用'};
+  }
+  const {gl}=st;
+  gl.viewport(0,0,cgl.width,cgl.height);
+  const asp=cgl.width>cgl.height?[cgl.height/cgl.width,1]:[1,cgl.width/cgl.height];
+  gl.uniform2f(st.uAsp,asp[0],asp[1]);
+  let count=30000,phase=0,phaseT=0,pt=0,ema=16.7;
+  const cSamp=[],fSamp=[];
+  return new Promise(resolve=>{
+    function tick(t){
+      if(!pt){pt=t;requestAnimationFrame(tick);return;}
+      const dt=Math.min(50,t-pt);pt=t;
+      ema+=(dt-ema)*0.12;
+      const fps=1000/ema;
+      const tgt=57;
+      if(phase===0){
+        if(fps>tgt*1.05)count*=1.09;
+        else if(fps>tgt)count*=1.02;
+        else if(fps<tgt*0.88)count*=0.92;
+      }else{
+        if(fps>tgt)count*=1.015;
+        else if(fps<tgt*0.92)count*=0.985;
+        cSamp.push(count);fSamp.push(fps);
+      }
+      count=clamp(count,2000,st.MAXP*8);
+      gl.clearColor(0.04,0.05,0.1,1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform1f(st.uT,t/1000);
+      const passes=Math.ceil(count/st.MAXP);
+      const per=Math.min(st.MAXP,Math.ceil(count/passes));
+      for(let p=0;p<passes;p++){
+        gl.uniform1f(st.uOff,p*st.MAXP*1.37);
+        gl.drawArrays(gl.POINTS,0,per);
+      }
+      phaseT+=dt;
+      if(phaseT>150){phaseT-=150;setLabel(label+' · 粒子 '+fmtP(count)+' · '+fps.toFixed(0)+'fps');}
+      if(phase===0&&t-start>2800)phase=1;
+      if(phase===1&&cSamp.length>=110){
+        stageBusy=false;
+        c2d.style.display='block';
+        cgl.style.display='none';
+        const mc=median(cSamp),mf=median(fSamp);
+        resolve({metric:mc*Math.min(1,mf/(tgt-2)),detail:fmtP(mc)+' 粒子 @ '+mf.toFixed(0)+'fps'});
+        return;
+      }
+      requestAnimationFrame(tick);
+    }
+    const start=performance.now();
+    requestAnimationFrame(tick);
+  });
+}
+
+const TESTS=[
+{id:'single',name:'单核运算',weight:1.5,base:25,
+  run:async()=>{
+    setLabel('单核运算 · Web Worker 满载中…');
+    const w=spawnWorker();
+    const r=await workerRun(w,{cmd:'cpu',duration:1800});
+    w.terminate();
+    const m=r.iters/r.elapsed/1000;
+    return {metric:m,detail:m.toFixed(1)+' M ops/s'};
+  }},
+{id:'multi',name:'多核并行',weight:2,base:140,
+  run:async()=>{
+    const n=navigator.hardwareConcurrency||4;
+    setLabel('多核并行 · '+n+' Worker 满载中…');
+    const ws=[];
+    for(let i=0;i<n;i++)ws.push(spawnWorker());
+    const rs=await Promise.all(ws.map(w=>workerRun(w,{cmd:'cpu',duration:2200})));
+    ws.forEach(w=>w.terminate());
+    const iters=rs.reduce((s,r)=>s+r.iters,0);
+    const el=Math.max(...rs.map(r=>r.elapsed));
+    const m=iters/el/1000;
+    return {metric:m,detail:m.toFixed(0)+' M ops/s × '+n+'线程'};
+  }},
+{id:'mem',name:'内存带宽',weight:1,base:6,
+  run:async()=>{
+    setLabel('内存带宽 · 拷贝/遍历/随机访问…');
+    const w=spawnWorker();
+    const r=await workerRun(w,{cmd:'mem',duration:1800});
+    w.terminate();
+    const m=r.bytes/(r.elapsed/1000)/1073741824;
+    return {metric:m,detail:m.toFixed(2)+' GB/s'};
+  }},
+{id:'json',name:'JSON 处理',weight:1,base:80,
+  run:async()=>{
+    setLabel('JSON 序列化/反序列化…');
+    const w=spawnWorker();
+    const r=await workerRun(w,{cmd:'json',duration:1500});
+    w.terminate();
+    const m=r.ops/(r.elapsed/1000)/1000;
+    return {metric:m,detail:m.toFixed(1)+' k ops/s'};
+  }},
+{id:'r2d',name:'2D 渲染',weight:1.25,base:2500,
+  run:()=>renderTest2D('Canvas 2D 压力测试')},
+{id:'rgl',name:'WebGL 渲染',weight:1.25,base:250000,
+  run:()=>renderTestGL('WebGL 压力测试')}
+];
+
+$('cards').innerHTML=TESTS.map(t=>
+'<div class="card tcard" id="card-'+t.id+'">'+
+'<div class="cname">'+t.name+'</div>'+
+'<div class="cscore">—</div>'+
+'<div class="cbar"><i></i></div>'+
+'<div class="cdetail">待测</div></div>').join('');
+
+function setCard(id,state,score,detail){
+  const c=$('card-'+id);
+  c.classList.toggle('run',state==='run');
+  if(state==='run'){
+    c.querySelector('.cscore').textContent='…';
+    c.querySelector('.cdetail').textContent='测试中';
+    c.querySelector('.cbar i').style.width='0%';
+  }else if(state==='done'){
+    c.querySelector('.cscore').textContent=score;
+    c.querySelector('.cdetail').textContent=detail||'';
+    c.querySelector('.cbar i').style.width=clamp(score/4000*100,2,100)+'%';
+  }else{
+    c.querySelector('.cscore').textContent='—';
+    c.querySelector('.cdetail').textContent='待测';
+    c.querySelector('.cbar i').style.width='0%';
+  }
+}
+function gradeOf(s){
+  if(s>=22000)return ['S+','#34d399'];
+  if(s>=15000)return ['S','#5eead4'];
+  if(s>=12000)return ['A+','#5eead4'];
+  if(s>=9500)return ['A','#7dd3fc'];
+  if(s>=7000)return ['B','#a5b4fc'];
+  if(s>=5000)return ['C','#fbbf24'];
+  if(s>=3000)return ['D','#fb923c'];
+  return ['E','#f87171'];
+}
+function showTotal(total){
+  const el=$('totalScore');
+  const t0=performance.now(),from=0,dur=900;
+  function anim(t){
+    const k=Math.min(1,(t-t0)/dur);
+    const e=1-Math.pow(1-k,3);
+    el.textContent=Math.round(from+(total-from)*e);
+    if(k<1)requestAnimationFrame(anim);
+  }
+  requestAnimationFrame(anim);
+  const [g,col]=gradeOf(total);
+  $('grade').textContent='等级 '+g;
+  $('grade').style.color=col;
+  $('gArc').style.strokeDashoffset=553*(1-clamp(total/24000,0.02,1));
+  let best=0;
+  try{best=+localStorage.getItem('bench_best')||0;}catch(e){}
+  if(total>best){
+    try{localStorage.setItem('bench_best',total);}catch(e){}
+    $('best').textContent='新纪录！历史最佳：'+total;
+  }else{
+    $('best').textContent='历史最佳：'+best;
+  }
+}
+try{
+  const b=+localStorage.getItem('bench_best')||0;
+  if(b)$('best').textContent='历史最佳：'+b;
+}catch(e){}
+
+async function runAll(){
+  if(running)return;
+  running=true;
+  const btn=$('btnStart');
+  btn.disabled=true;
+  TESTS.forEach(t=>setCard(t.id,'idle'));
+  $('totalScore').textContent='--';
+  $('grade').textContent='';
+  $('gArc').style.strokeDashoffset=553;
+  const scores={};
+  let done=0;
+  for(const t of TESTS){
+    btn.textContent='测试中 '+(++done)+' / '+TESTS.length;
+    setCard(t.id,'run');
+    await sleep(300);
+    let r;
+    try{r=await t.run();}catch(err){r={metric:0,detail:'测试失败'};}
+    const score=Math.round(r.metric/t.base*1000);
+    scores[t.id]=score;
+    setCard(t.id,'done',score,r.detail);
+  }
+  const sw=TESTS.reduce((s,t)=>s+t.weight,0);
+  const total=Math.round(TESTS.reduce((s,t)=>s+scores[t.id]*t.weight,0)/sw*6);
+  showTotal(total);
+  setLabel('测试完成 · 综合分数 '+total);
+  btn.textContent='重 新 测 试';
+  btn.disabled=false;
+  running=false;
+}
+$('btnStart').addEventListener('click',runAll);
+
+fillInfo();
+fitStage();
+requestAnimationFrame(fpsLoop);
+</script>
+</body>
+</html>
