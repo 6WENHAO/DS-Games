@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方块旷野 VoxelCraft</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* ===== Minecraft 风格 UI：纹理全部由 ui.js 程序化 SVG 注入（--mc-*），零外部图片/图标字体 ===== */
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #000; height: 100%;
+    font-family: "Microsoft YaHei", system-ui, sans-serif; user-select: none; }
+  canvas#game { display: block; width: 100vw; height: 100vh; }
+  img { image-rendering: pixelated; }
+
+  /* 准星：白色像素十字 + 差值混合（亮背景自动反色） */
+  .crosshair { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 5; mix-blend-mode: difference; opacity: .9; }
+  .crosshair svg { display: block; }
+
+  .fpspanel { position: fixed; left: 8px; top: 8px; background: rgba(16,16,16,.45); color: #e0e0e0;
+    font: 12px/1.6 Consolas, monospace; padding: 6px 10px; pointer-events: none; z-index: 6; min-width: 210px;
+    text-shadow: 1px 1px 0 #000; border: 2px solid rgba(0,0,0,.35); }
+
+  /* 物品栏：暗色框体 + 内凹槽位（左上暗右下亮），选中槽白色粗框 */
+  .hotbar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
+    display: flex; background: #1616167a; padding: 3px; z-index: 6;
+    border: 2px solid #000; box-shadow: inset 1px 1px 0 rgba(255,255,255,.25), inset -1px -1px 0 rgba(0,0,0,.5); }
+  .slot { width: 50px; height: 50px; margin: 0 1px;
+    background-image: var(--mc-slot); background-size: 100% 100%; image-rendering: pixelated;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; }
+  .slot.sel { outline: 3px solid #fff; outline-offset: 0; z-index: 1;
+    box-shadow: 0 0 0 1px #000, inset 0 0 0 1px #000; }
+  .slot img { width: 40px; height: 40px; }
+  .waterfx { position: fixed; inset: 0; background: rgba(24,64,168,.34); display: none;
+    pointer-events: none; z-index: 4; }
+
+  /* 提示条：MC 工具提示（暗底 + 紫边） */
+  .hint { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); color: #fff;
+    background: rgba(16,0,16,.94); border: 2px solid #25015a; box-shadow: inset 0 0 0 1px #4d3f8f;
+    padding: 6px 12px; z-index: 5; pointer-events: none; transition: opacity 2s; font-size: 13px;
+    text-shadow: 1px 1px 0 #3f3f3f; }
+
+  /* 主菜单：全屏暗泥土砖 + 标题 + 石质按钮 */
+  .overlay { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+    background-image: var(--mc-dirt); background-size: 64px 64px; image-rendering: pixelated; }
+  .menubox { text-align: center; color: #fff; padding: 24px 40px; }
+  .menubox h1 { margin: 0 0 10px; letter-spacing: 3px; font-size: 44px; color: #fff;
+    text-shadow: 3px 3px 0 #3f3f3f; }
+  .menubox p { color: #a8a8a8; margin: 6px 0 18px; font-size: 14px; text-shadow: 1px 1px 0 #000; }
+  .tips { font-size: 12px !important; color: #8b8b8b !important; }
+
+  /* MC 石质按钮：SVG 石面 + 黑边 + 上亮下暗浮雕；悬停泛蓝白边 */
+  .bigbtn, .smallbtn, .invtab {
+    display: inline-block; color: #e0e0e0; cursor: pointer;
+    background-image: var(--mc-btn); background-size: 100% 100%; image-rendering: pixelated;
+    border: 2px solid #000; text-shadow: 2px 2px 0 #383838;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.35), inset -2px -2px 0 rgba(0,0,0,.35); }
+  .bigbtn { display: block; width: 320px; margin: 8px auto; padding: 12px 0; font-size: 17px; }
+  .smallbtn { padding: 9px 26px; font-size: 14px; margin: 6px; }
+  .bigbtn:hover, .smallbtn:hover, .invtab:hover {
+    background-image: var(--mc-btnhover); color: #ffffa0; border-color: #fff; }
+
+  /* 背包：浅石面板 + 内凹格 */
+  .inv { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 30;
+    width: min(700px, 92vw); max-height: 76vh;
+    background-image: var(--mc-stonepanel); background-size: 48px 48px; image-rendering: pixelated;
+    border: 3px solid #000; box-shadow: inset 2px 2px 0 #ffffff, inset -2px -2px 0 #555555;
+    padding: 12px; color: #3f3f3f; display: flex; flex-direction: column; gap: 8px; }
+  .invhead { display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+    color: #3f3f3f; text-shadow: 1px 1px 0 #ffffff80; }
+  .invsearch { background: #171717; border: 2px solid #000; color: #e0e0e0; padding: 5px 10px; outline: none;
+    box-shadow: inset 1px 1px 0 #373737, inset -1px -1px 0 #ffffff40; font-family: inherit; }
+  .invtabs { display: flex; gap: 3px; flex-wrap: wrap; }
+  .invtab { padding: 7px 16px; font-size: 13px; }
+  .invtab.on { background-image: var(--mc-btngreen); color: #fff; border-color: #fff; }
+  .invgrid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; overflow-y: auto; padding: 6px;
+    background: #16161659; border: 2px solid #000;
+    box-shadow: inset 1px 1px 0 #37373766, inset -1px -1px 0 #ffffff4d; min-height: 130px; }
+  .invcell { aspect-ratio: 1; background-image: var(--mc-slot); background-size: 100% 100%;
+    image-rendering: pixelated; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .invcell:hover { outline: 2px solid #fff; outline-offset: -2px; }
+  .invcell.flash { outline: 3px solid #ffffa0; outline-offset: -3px; }
+  .invcell img { width: 34px; height: 34px; }
+  .invgrid::-webkit-scrollbar { width: 12px; }
+  .invgrid::-webkit-scrollbar-track { background: #171717; border: 1px solid #000; }
+  .invgrid::-webkit-scrollbar-thumb { background: #8b8b8b; border: 1px solid #000;
+    box-shadow: inset 1px 1px 0 #c6c6c6, inset -1px -1px 0 #555; }
+
+  /* 设置面板：浅石面板 + MC 滑杆（内凹轨道 + 石质滑块） */
+  .settings { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 40;
+    width: min(460px, 90vw);
+    background-image: var(--mc-stonepanel); background-size: 48px 48px; image-rendering: pixelated;
+    border: 3px solid #000; box-shadow: inset 2px 2px 0 #ffffff, inset -2px -2px 0 #555555;
+    padding: 18px 28px; color: #3f3f3f; }
+  .settings h2 { color: #3f3f3f; text-shadow: 1px 1px 0 #ffffff80; margin-top: 4px; }
+  .setrow { margin: 16px 0; }
+  .setrow label { display: inline-block; margin-bottom: 6px; color: #3f3f3f; text-shadow: 1px 1px 0 #ffffff66; }
+  .setval { float: right; color: #2a5a1a; font-weight: bold; }
+  .setrow input[type=range] { width: 100%; -webkit-appearance: none; appearance: none; height: 18px;
+    background: #171717; border: 2px solid #000;
+    box-shadow: inset 1px 1px 0 #373737, inset -1px -1px 0 #ffffff40; }
+  .setrow input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+    width: 16px; height: 26px; background-image: var(--mc-btn); background-size: 100% 100%;
+    image-rendering: pixelated; border: 2px solid #000;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.35), inset -1px -1px 0 rgba(0,0,0,.35); cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="lib/three.min.js"></script>
+<script src="js/gen.js"></script>
+<script src="js/mesher.js"></script>
+<script src="js/lod.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/items.js"></script>
+<script src="js/world.js"></script>
+<script src="js/room.js"></script>
+<script src="js/mirror.js"></script>
+<script src="js/characters.js"></script>
+<script src="js/npc.js"></script>
+<script src="js/player.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

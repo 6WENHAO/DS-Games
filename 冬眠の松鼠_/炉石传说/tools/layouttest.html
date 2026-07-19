@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>layouttest</title>
+  <link rel="stylesheet" href="/styles/base.css" />
+  <link rel="stylesheet" href="/styles/board.css" />
+  <link rel="stylesheet" href="/styles/card.css" />
+  <link rel="stylesheet" href="/styles/hand.css" />
+  <link rel="stylesheet" href="/styles/animations.css" />
+  <link rel="stylesheet" href="/styles/tutorial.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="board-root"></div>
+    <canvas id="fx-canvas"></canvas>
+    <div id="overlay-root"></div>
+    <div id="screen-root"></div>
+  </div>
+  <pre id="log" style="position:absolute;left:0;top:0;z-index:999;color:#0f0;background:rgba(0,0,0,0.85);font-size:12px;"></pre>
+  <script type="module">
+    import { Game } from '/src/core/game.js';
+    import { HEROES, DECKS } from '/src/data/cards.js';
+    import { Renderer } from '/src/ui/renderer.js';
+    import { createMinion } from '/src/core/player.js';
+    import { getCard } from '/src/data/cards.js';
+    import { FX } from '/src/ui/fx.js';
+    import { Animator } from '/src/ui/animator.js';
+    import { Interactions } from '/src/ui/interactions.js';
+    import { showTutorial } from '/src/ui/tutorial.js';
+
+    const log = m => document.getElementById('log').textContent += m + '\n';
+    const results = [];
+    const check = (name, cond, detail) => {
+      results.push(cond);
+      log((cond ? 'PASS' : 'FAIL') + ' ' + name + (detail ? ' [' + detail + ']' : ''));
+    };
+
+    try {
+      const game = new Game(
+        { hero: HEROES.mage, deck: DECKS.mage },
+        { hero: HEROES.warrior, deck: DECKS.warrior },
+      );
+      game.start();
+      // 双方各上两个随从（直接注入战场）
+      for (const side of ['p1', 'p2']) {
+        const p = game.players[side];
+        p.maxMana = 10; p.mana = 10;
+        p.board.push(createMinion(side, getCard('yeti')));
+        p.board.push(createMinion(side, getCard('grizzly')));
+      }
+      const r = new Renderer(game);
+      r.updateAll();
+      r.highlightActionables();
+
+      const vw = innerWidth, vh = innerHeight;
+      const table = r.table.getBoundingClientRect();
+      check('play-table 在视口内', table.left >= 0 && table.top >= 0 && table.right <= vw && table.bottom <= vh, `${Math.round(table.width)}x${Math.round(table.height)}`);
+
+      const handCards = document.querySelectorAll('.hand-card');
+      check('手牌数量渲染', handCards.length === game.players.p1.hand.length, `${handCards.length} 张`);
+      if (handCards.length) {
+        const c = handCards[0].querySelector('.card');
+        check('手牌卡尺寸约 130x182', Math.abs(c.offsetWidth - 130) < 8 && Math.abs(c.offsetHeight - 182) < 8, `${c.offsetWidth}x${c.offsetHeight}`);
+      }
+
+      const minions = document.querySelectorAll('.minion');
+      check('战场随从渲染 4 个', minions.length === 4, `${minions.length}`);
+      if (minions.length) {
+        const m = minions[0].getBoundingClientRect();
+        check('随从尺寸约 92x112', Math.abs(m.width - 92) < 6 && Math.abs(m.height - 112) < 6, `${Math.round(m.width)}x${Math.round(m.height)}`);
+      }
+
+      const heroes = document.querySelectorAll('.hero');
+      check('英雄渲染 2 个', heroes.length === 2, `${heroes.length}`);
+      const h1 = heroes[0].getBoundingClientRect(), h2 = heroes[1].getBoundingClientRect();
+      check('英雄上下分区', Math.abs(h1.top - h2.top) > vh * 0.4, `dy=${Math.round(Math.abs(h1.top - h2.top))}`);
+
+      const rowP = r.rowPlayer.getBoundingClientRect();
+      const rowE = r.rowEnemy.getBoundingClientRect();
+      check('随从行在战场内且上下排列', rowE.bottom <= rowP.top + 5, `enemy.bottom=${Math.round(rowE.bottom)} player.top=${Math.round(rowP.top)}`);
+
+      const btn = r.endTurnBtn.getBoundingClientRect();
+      check('结束回合按钮在右侧中部', btn.left > vw * 0.75 && btn.top > vh * 0.3 && btn.bottom < vh * 0.7, `@${Math.round(btn.left)},${Math.round(btn.top)}`);
+
+      const crystals = [...r.manaEls.p1.querySelectorAll('.crystal')].filter(c => c.style.display !== 'none');
+      check('法力水晶显示数=maxMana', crystals.length === game.players.p1.maxMana, `${crystals.length}`);
+
+      const backs = document.querySelectorAll('.card-back');
+      check('对手手牌卡背渲染', backs.length === game.players.p2.hand.length, `${backs.length}`);
+
+      const playableGlow = document.querySelectorAll('.card.playable');
+      check('存在可打出高亮', playableGlow.length > 0, `${playableGlow.length}`);
+
+      const canAtk = document.querySelectorAll('.can-attack');
+      check('可攻击高亮(冲锋前应为0/嘲讽后随从睡眠)', true, `${canAtk.length} 个`);
+
+      // 交互模块实例化 + 模拟指针事件不报错
+      const fx = new FX();
+      const animator = new Animator(game, r, fx);
+      const inter = new Interactions(game, r, fx, animator, { afterAction() {}, onEndTurn() {} });
+      const mid = { clientX: innerWidth / 2, clientY: innerHeight / 2 };
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, ...mid }));
+      const handCard = document.querySelector('.hand-card .card.playable');
+      if (handCard) {
+        const hc = handCard.getBoundingClientRect();
+        handCard.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: hc.x + 10, clientY: hc.y + 10 }));
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, ...mid }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, ...mid }));
+      }
+      check('交互模块拖拽流程无异常', true, inter.mode);
+
+      // 手牌不得遮挡玩家英雄
+      const heroPlayerRect = r.heroEls.p1.getBoundingClientRect();
+      let overlap = 0;
+      for (const hcNode of document.querySelectorAll('.hand-card')) {
+        const cr = hcNode.getBoundingClientRect();
+        const ox = Math.max(0, Math.min(cr.right, heroPlayerRect.right) - Math.max(cr.left, heroPlayerRect.left));
+        const oy = Math.max(0, Math.min(cr.bottom, heroPlayerRect.bottom) - Math.max(cr.top, heroPlayerRect.top));
+        overlap = Math.max(overlap, ox * oy);
+      }
+      check('手牌不遮挡玩家英雄', overlap < 900, `重叠面积=${Math.round(overlap)}px²`);
+
+      const hz = r.handZone.getBoundingClientRect();
+      check('手牌扇形水平居中', Math.abs((hz.left + hz.right) / 2 - vw / 2) < 40, `偏移=${Math.round((hz.left + hz.right) / 2 - vw / 2)}px`);
+
+      // 敌方卡背不得遮挡敌方英雄头像
+      const heroEnemyRect = r.heroEls.p2.getBoundingClientRect();
+      let overlapE = 0;
+      for (const cb of document.querySelectorAll('.card-back')) {
+        const cr = cb.getBoundingClientRect();
+        const ox = Math.max(0, Math.min(cr.right, heroEnemyRect.right) - Math.max(cr.left, heroEnemyRect.left));
+        const oy = Math.max(0, Math.min(cr.bottom, heroEnemyRect.bottom) - Math.max(cr.top, heroEnemyRect.top));
+        overlapE = Math.max(overlapE, ox * oy);
+      }
+      check('敌方卡背不遮挡敌方英雄', overlapE < 900, `重叠面积=${Math.round(overlapE)}px²`);
+
+      // 教程组件：打开 → 翻页到底 → 关闭
+      showTutorial();
+      check('教程面板打开', !!document.querySelector('.tutorial-panel'));
+      for (let i = 0; i < 5; i++) {
+        const btns = [...document.querySelectorAll('.tutorial-nav .t-btn')].filter(b => !b.classList.contains('ghost'));
+        if (btns.length) btns[btns.length - 1].click();
+      }
+      check('教程翻完5页后自动关闭', !document.querySelector('.tutorial-panel'));
+
+      document.title = results.every(Boolean) ? 'LAYOUT-ALL-PASS' : 'LAYOUT-HAS-FAIL';
+    } catch (err) {
+      log('EXCEPTION: ' + err.message + '\n' + err.stack);
+      document.title = 'FAIL ' + err.message;
+    }
+  </script>
+</body>
+</html>

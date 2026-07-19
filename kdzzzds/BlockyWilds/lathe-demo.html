@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SVG 剖面 → 3D 车削/挤出 演示</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#14171c; font-family:"Microsoft YaHei",sans-serif; }
+  #wrap { display:flex; width:100%; height:100%; }
+  #side { width:300px; flex:none; background:#1b1f26; border-right:1px solid #000; padding:16px; overflow-y:auto; }
+  #side h1 { color:#e8e8e8; font-size:16px; letter-spacing:2px; margin-bottom:4px; }
+  #side .sub { color:#6a7180; font-size:11px; line-height:1.7; margin-bottom:14px; }
+  .card { background:#232830; border:1px solid #0d0f13; border-radius:6px; padding:10px; margin-bottom:14px; }
+  .card h2 { color:#ffd85e; font-size:13px; margin-bottom:6px; }
+  .card .note { color:#8a93a3; font-size:11px; line-height:1.6; margin-top:6px; }
+  .card svg { width:100%; background:#161a20; border-radius:4px; }
+  #view { flex:1; position:relative; }
+  #gl { width:100%; height:100%; display:block; cursor:grab; }
+  #tip { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); color:#8a93a3; font-size:12px;
+         background:rgba(20,23,28,.7); padding:6px 14px; border-radius:20px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>2D 剖面 生成 3D</h1>
+    <div class="sub">左侧每条橙色曲线就是唯一的建模输入。<br>回转体 = 剖面绕轴车削 (Lathe)<br>机翼/尾翼 = 平面形状挤出 (Extrude)</div>
+    <div class="card" id="card-vase"><h2>① 陶瓶 · 车削</h2><div class="svgbox"></div><div class="note">一条 9 个控制点的样条曲线，Catmull-Rom 平滑后旋转 360°。釉面纹理同样由 SVG 生成。</div></div>
+    <div class="card" id="card-tower"><h2>② 灯塔 · 车削</h2><div class="svgbox"></div><div class="note">直线段+圆弧混合剖面：基座、收分塔身、瞭望舱、圆顶、避雷针一条线画完。</div></div>
+    <div class="card" id="card-ship"><h2>③ 飞行器机身 · 车削+挤出</h2><div class="svgbox"></div><div class="note">机身是车削回转体；机翼、垂尾、发动机短舱分别是 SVG 形状挤出与小车削件的组装。</div></div>
+  </div>
+  <div id="view">
+    <canvas id="gl"></canvas>
+    <div id="tip">拖动旋转 · 滚轮缩放</div>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script>
+(() => {
+  /* ================= 剖面定义（唯一建模输入） ================= */
+  // 每个剖面: 若干段 {c: 是否曲线, pts:[[x,y]...]}，x=半径, y=高度
+  const PROFILES = {
+    vase: [
+      { c: false, pts: [[0.001, 0], [0.34, 0], [0.40, 0.05], [0.30, 0.13]] },
+      { c: true,  pts: [[0.30, 0.13], [0.50, 0.32], [0.60, 0.62], [0.52, 0.92], [0.30, 1.12], [0.255, 1.28]] },
+      { c: false, pts: [[0.255, 1.28], [0.27, 1.34], [0.36, 1.44], [0.37, 1.50], [0.30, 1.50], [0.27, 1.43]] },
+    ],
+    tower: [
+      { c: false, pts: [[0.001, 0], [1.30, 0], [1.30, 0.42], [1.05, 0.55]] },
+      { c: true,  pts: [[1.05, 0.55], [0.88, 1.6], [0.78, 2.7], [0.74, 3.55]] },
+      { c: false, pts: [[0.74, 3.55], [1.12, 3.62], [1.12, 3.78], [0.98, 3.84], [0.86, 3.92], [0.86, 4.75], [0.95, 4.82]] },
+      { c: true,  pts: [[0.95, 4.82], [0.72, 5.18], [0.28, 5.45], [0.05, 5.52]] },
+      { c: false, pts: [[0.05, 5.52], [0.028, 5.52], [0.028, 6.15], [0.001, 6.2]] },
+    ],
+    ship: [
+      { c: true,  pts: [[0.001, 0], [0.16, 0.35], [0.34, 0.95], [0.48, 1.8], [0.54, 2.8]] },
+      { c: false, pts: [[0.54, 2.8], [0.54, 4.5]] },
+      { c: true,  pts: [[0.54, 4.5], [0.46, 5.4], [0.30, 6.2], [0.10, 6.85]] },
+      { c: false, pts: [[0.10, 6.85], [0.001, 7.0]] },
+    ],
+    nacelle: [
+      { c: false, pts: [[0.10, 0], [0.235, 0.04], [0.25, 0.12]] },
+      { c: true,  pts: [[0.25, 0.12], [0.26, 0.55], [0.20, 1.0]] },
+      { c: false, pts: [[0.20, 1.0], [0.08, 1.08], [0.001, 1.1]] },
+    ],
+    pedestal: [
+      { c: false, pts: [[0.001, 0], [1.35, 0], [1.35, 0.12], [1.18, 0.18], [1.18, 0.66], [1.30, 0.72], [1.30, 0.82], [0.001, 0.82]] },
+    ],
+  };
+
+  // 剖面 → 采样点列（Vector2）
+  function samplePoints(segs, res) {
+    const out = [];
+    for (const s of segs) {
+      let pts;
+      if (s.c) {
+        const curve = new THREE.SplineCurve(s.pts.map(p => new THREE.Vector2(p[0], p[1])));
+        pts = curve.getPoints(res || 28);
+      } else {
+        pts = s.pts.map(p => new THREE.Vector2(p[0], p[1]));
+      }
+      for (const p of pts) {
+        const last = out[out.length - 1];
+        if (!last || last.distanceTo(p) > 1e-4) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  /* ================= 左栏：把剖面画成 SVG ================= */
+  function profileSVG(name, h) {
+    const pts = samplePoints(PROFILES[name], 24);
+    let maxX = 0, maxY = 0;
+    for (const p of pts) { maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
+    const W = 260, H = h || 150, pad = 12;
+    const sc = Math.min((W / 2 - pad) / maxX, (H - pad * 2) / maxY);
+    const cx = W / 2, toY = y => H - pad - y * sc;
+    let d = '', dm = '';
+    pts.forEach((p, i) => {
+      const op = i === 0 ? 'M' : 'L';
+      d += `${op}${(cx + p.x * sc).toFixed(1)} ${toY(p.y).toFixed(1)}`;
+      dm += `${op}${(cx - p.x * sc).toFixed(1)} ${toY(p.y).toFixed(1)}`;
+    });
+    const fill = d + pts.slice().reverse().map(p => `L${(cx - p.x * sc).toFixed(1)} ${toY(p.y).toFixed(1)}`).join('');
+    return `<svg viewBox="0 0 ${W} ${H}">
+      <line x1="${cx}" y1="6" x2="${cx}" y2="${H - 6}" stroke="#3a4150" stroke-dasharray="4 4"/>
+      <path d="${fill}Z" fill="#e8963a" fill-opacity="0.10"/>
+      <path d="${dm}" fill="none" stroke="#5a6272" stroke-width="1.4"/>
+      <path d="${d}" fill="none" stroke="#e8963a" stroke-width="2.4" stroke-linecap="round"/>
+      ${PROFILES[name].map(s => s.pts.map(p =>
+        `<circle cx="${(cx + p[0] * sc).toFixed(1)}" cy="${toY(p[1]).toFixed(1)}" r="2.6" fill="${s.c ? '#ffd85e' : '#9fd8ff'}"/>`).join('')).join('')}
+    </svg>`;
+  }
+  document.querySelector('#card-vase .svgbox').innerHTML = profileSVG('vase', 150);
+  document.querySelector('#card-tower .svgbox').innerHTML = profileSVG('tower', 190);
+  document.querySelector('#card-ship .svgbox').innerHTML = profileSVG('ship', 150);
+
+  /* ================= SVG → 贴图 ================= */
+  function svgTex(svg, anis) {
+    const img = new Image();
+    const tex = new THREE.Texture();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      c.getContext('2d').drawImage(img, 0, 0);
+      tex.image = c; tex.needsUpdate = true;
+    };
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = anis || 4;
+    return tex;
+  }
+  function rand(seed) { let a = seed; return () => (a = (a * 16807) % 2147483647) / 2147483647; }
+
+  // 陶瓶釉面：暖米底 + 笔触 + 赭色带与原创几何纹样
+  function vaseTexSVG() {
+    const r = rand(7);
+    let strokes = '';
+    for (let i = 0; i < 130; i++) {
+      const x = r() * 512, y = r() * 512, w = 20 + r() * 60;
+      strokes += `<rect x="${x}" y="${y}" width="${w}" height="${1 + r() * 3}" fill="#c9bda3" opacity="${0.06 + r() * 0.1}"/>`;
+    }
+    let motif = '';
+    for (let i = 0; i < 16; i++) {
+      const x = i * 32 + 16;
+      motif += `<path d="M${x} 258 l12 16 l-12 16 l-12 -16 Z" fill="none" stroke="#7a4a2e" stroke-width="3"/>
+                <circle cx="${x}" cy="274" r="3.4" fill="#7a4a2e"/>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+      <defs><linearGradient id="g" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#d8c9a8"/><stop offset="0.5" stop-color="#e8dfc8"/><stop offset="1" stop-color="#ddd2b4"/>
+      </linearGradient></defs>
+      <rect width="512" height="512" fill="url(#g)"/>${strokes}
+      <rect y="88" width="512" height="7" fill="#8a5432"/><rect y="102" width="512" height="3" fill="#8a5432"/>
+      <rect y="238" width="512" height="4" fill="#7a4a2e"/>${motif}<rect y="292" width="512" height="4" fill="#7a4a2e"/>
+      <rect y="428" width="512" height="8" fill="#8a5432"/>
+    </svg>`;
+  }
+
+  // 灯塔：混凝土 + 红白环带 + 瞭望舱窗带（v 对应剖面行程）
+  function towerTexSVG() {
+    const r = rand(23);
+    let noise = '';
+    for (let i = 0; i < 400; i++) {
+      noise += `<rect x="${r() * 512}" y="${r() * 512}" width="${1 + r() * 3}" height="${1 + r() * 3}" fill="#000" opacity="${r() * 0.08}"/>`;
+    }
+    let windows = '';
+    for (let i = 0; i < 10; i++) windows += `<rect x="${i * 52 + 10}" y="330" width="30" height="26" rx="3" fill="#101820" stroke="#2a3644" stroke-width="2"/>`;
+    let seams = '';
+    for (let i = 1; i < 7; i++) seams += `<rect y="${i * 44}" width="512" height="1.5" fill="#000" opacity="0.15"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+      <rect width="512" height="512" fill="#c9cdd2"/>${noise}${seams}
+      <rect y="60" width="512" height="52" fill="#c0392b" opacity="0.92"/>
+      <rect y="168" width="512" height="52" fill="#c0392b" opacity="0.92"/>
+      <rect y="300" width="512" height="10" fill="#4a5058"/>${windows}<rect y="362" width="512" height="8" fill="#4a5058"/>
+      <rect y="440" width="512" height="72" fill="#37404c"/>
+    </svg>`;
+  }
+
+  // 机身涂装：铝白 + 双色腰线 + 舷窗排（u=周向, v=纵向）
+  function shipTexSVG() {
+    let win1 = '', win2 = '';
+    for (let i = 0; i < 26; i++) {
+      const y = 150 + i * 26;
+      if (y > 210 && y < 700) {
+        win1 += `<rect x="118" y="${y}" width="14" height="9" rx="4" fill="#0e141c"/>`;
+        win2 += `<rect x="374" y="${y}" width="14" height="9" rx="4" fill="#0e141c"/>`;
+      }
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="1024">
+      <defs><linearGradient id="m" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#e4e8ee"/><stop offset="0.5" stop-color="#f2f5f9"/><stop offset="1" stop-color="#e4e8ee"/>
+      </linearGradient></defs>
+      <rect width="512" height="1024" fill="url(#m)"/>
+      <rect x="98" width="8" height="1024" fill="#1c4e80"/><rect x="140" width="4" height="1024" fill="#c0392b"/>
+      <rect x="354" width="8" height="1024" fill="#1c4e80"/><rect x="396" width="4" height="1024" fill="#c0392b"/>
+      ${win1}${win2}
+      <rect y="30" width="512" height="90" fill="#12181f"/>
+      <rect y="880" width="512" height="60" fill="#1c4e80" opacity="0.9"/>
+    </svg>`;
+  }
+
+  function groundTexSVG() {
+    const r = rand(99);
+    let spots = '';
+    for (let i = 0; i < 240; i++) spots += `<circle cx="${r() * 512}" cy="${r() * 512}" r="${r() * 2.4}" fill="#000" opacity="${r() * 0.12}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+      <rect width="512" height="512" fill="#3d434c"/>${spots}
+      <rect width="512" height="2" fill="#2b3038"/><rect width="2" height="512" fill="#2b3038"/>
+    </svg>`;
+  }
+
+  /* ================= 场景 ================= */
+  const canvas = document.getElementById('gl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x181c23);
+  scene.fog = new THREE.Fog(0x181c23, 18, 46);
+
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+
+  // 灯光：天光 + 主光(带阴影) + 侧逆光
+  scene.add(new THREE.HemisphereLight(0x8fa8c8, 0x2a2620, 0.75));
+  const key = new THREE.DirectionalLight(0xfff2dd, 1.15);
+  key.position.set(6, 10, 5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+  key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
+  key.shadow.bias = -0.0015;
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6a9fd8, 0.5);
+  rim.position.set(-7, 4, -6);
+  scene.add(rim);
+
+  // 地面
+  const gtex = svgTex(groundTexSVG()); gtex.repeat.set(14, 14);
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(34, 48),
+    new THREE.MeshStandardMaterial({ map: gtex, roughness: 0.95, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  function lathe(name, segs, mat) {
+    const geo = new THREE.LatheGeometry(samplePoints(PROFILES[name]), segs);
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = m.receiveShadow = true;
+    return m;
+  }
+  const pedMat = new THREE.MeshStandardMaterial({ color: 0x555c66, roughness: 0.7, metalness: 0.1 });
+  function pedestal(x, z, s) {
+    const p = lathe('pedestal', 48, pedMat);
+    p.position.set(x, 0, z); p.scale.set(s, s, s);
+    scene.add(p);
+    return 0.82 * s;
+  }
+
+  /* ---- ① 陶瓶 ---- */
+  {
+    const top = pedestal(-4.4, 0.4, 1.0);
+    const mat = new THREE.MeshStandardMaterial({ map: svgTex(vaseTexSVG()), roughness: 0.28, metalness: 0.02 });
+    const vase = lathe('vase', 64, mat);
+    vase.scale.set(1.7, 1.7, 1.7);
+    vase.position.set(-4.4, top, 0.4);
+    vase.userData.spin = 0.28;
+    scene.add(vase);
+  }
+
+  /* ---- ② 灯塔 ---- */
+  {
+    const mat = new THREE.MeshStandardMaterial({ map: svgTex(towerTexSVG()), roughness: 0.8, metalness: 0.05 });
+    const tower = lathe('tower', 48, mat);
+    tower.scale.set(0.72, 0.72, 0.72);
+    tower.position.set(0.1, 0, -1.2);
+    tower.userData.spin = 0.1;
+    scene.add(tower);
+    // 瞭望舱顶灯
+    const lamp = new THREE.PointLight(0xffd070, 0.9, 7);
+    lamp.position.set(0.1, 3.55, -1.2);
+    scene.add(lamp);
+  }
+
+  /* ---- ③ 飞行器 ---- */
+  {
+    const grp = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ map: svgTex(shipTexSVG()), roughness: 0.32, metalness: 0.55 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x39424e, roughness: 0.45, metalness: 0.6 });
+    const body = lathe('ship', 56, bodyMat);
+    body.rotation.x = Math.PI / 2; // 轴转水平（机头朝 -z）
+    grp.add(body);
+
+    // 机翼：SVG 式平面形状 → 挤出
+    const wingShape = new THREE.Shape();
+    wingShape.moveTo(0, 0); wingShape.lineTo(2.6, -1.35);
+    wingShape.lineTo(2.6, -1.75); wingShape.lineTo(0, -0.95); wingShape.closePath();
+    const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 0.07, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2 });
+    for (const s of [1, -1]) {
+      const w = new THREE.Mesh(wingGeo, darkMat);
+      w.rotation.x = -Math.PI / 2;
+      w.rotation.z = s === 1 ? 0 : Math.PI;
+      w.position.set(0, -0.05, -3.4);
+      w.castShadow = w.receiveShadow = true;
+      grp.add(w);
+    }
+    // 垂尾
+    const finShape = new THREE.Shape();
+    finShape.moveTo(0, 0); finShape.lineTo(0.25, 1.05); finShape.lineTo(0.62, 1.05); finShape.lineTo(1.15, 0); finShape.closePath();
+    const fin = new THREE.Mesh(new THREE.ExtrudeGeometry(finShape, { depth: 0.06, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2 }), darkMat);
+    fin.rotation.y = Math.PI / 2;
+    fin.position.set(0.03, 0.35, -6.9);
+    fin.castShadow = true;
+    grp.add(fin);
+    // 平尾
+    for (const s of [1, -1]) {
+      const t = new THREE.Mesh(wingGeo, darkMat);
+      t.scale.set(0.38, 0.38, 0.6);
+      t.rotation.x = -Math.PI / 2;
+      t.rotation.z = s === 1 ? 0 : Math.PI;
+      t.position.set(0, 0.22, -6.55);
+      t.castShadow = true;
+      grp.add(t);
+    }
+    // 发动机短舱（小车削件）
+    const nacMat = new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.3, metalness: 0.7 });
+    for (const s of [1, -1]) {
+      const n = lathe('nacelle', 32, nacMat);
+      n.rotation.x = Math.PI / 2;
+      n.position.set(s * 1.35, -0.32, -3.05);
+      grp.add(n);
+      const intake = new THREE.Mesh(new THREE.CircleGeometry(0.235, 24), new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9 }));
+      intake.position.set(s * 1.35, -0.32, -3.06);
+      grp.add(intake);
+    }
+    grp.scale.set(0.62, 0.62, 0.62);
+    grp.position.set(4.3, 1.75, 0.2);
+    grp.rotation.y = 0.5;
+    grp.userData.spin = 0.18;
+    grp.userData.hover = true;
+    scene.add(grp);
+    // 起落支架示意
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.35, 10), pedMat);
+    strut.position.set(4.3, 0.7, 0.2); strut.castShadow = true;
+    scene.add(strut);
+  }
+
+  const spinners = [];
+  scene.traverse(o => { if (o.userData && o.userData.spin) spinners.push(o); });
+
+  /* ================= 交互与渲染 ================= */
+  let yaw = 0.35, pitch = 0.32, dist = 12.5, drag = false, lx = 0, ly = 0;
+  const target = new THREE.Vector3(0, 1.7, 0);
+  canvas.addEventListener('mousedown', e => { drag = true; lx = e.clientX; ly = e.clientY; canvas.style.cursor = 'grabbing'; });
+  addEventListener('mouseup', () => { drag = false; canvas.style.cursor = 'grab'; });
+  addEventListener('mousemove', e => {
+    if (!drag) return;
+    yaw -= (e.clientX - lx) * 0.005; pitch += (e.clientY - ly) * 0.004;
+    pitch = Math.max(0.05, Math.min(1.2, pitch));
+    lx = e.clientX; ly = e.clientY;
+  });
+  canvas.addEventListener('wheel', e => { dist = Math.max(5, Math.min(26, dist + e.deltaY * 0.01)); });
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize);
+
+  let t0 = 0;
+  function frame(t) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - t0) / 1000 || 0.016); t0 = t;
+    if (!drag) yaw += dt * 0.06;
+    for (const s of spinners) {
+      s.rotation.y += dt * s.userData.spin;
+      if (s.userData.hover) s.position.y = 1.75 + Math.sin(t / 1200) * 0.08;
+    }
+    camera.position.set(
+      target.x + Math.sin(yaw) * Math.cos(pitch) * dist,
+      target.y + Math.sin(pitch) * dist,
+      target.z + Math.cos(yaw) * Math.cos(pitch) * dist
+    );
+    camera.lookAt(target);
+    resize();
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

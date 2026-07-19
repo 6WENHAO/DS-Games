@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>autotest</title>
+  <link rel="stylesheet" href="/styles/base.css" />
+  <link rel="stylesheet" href="/styles/board.css" />
+  <link rel="stylesheet" href="/styles/card.css" />
+  <link rel="stylesheet" href="/styles/hand.css" />
+  <link rel="stylesheet" href="/styles/animations.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="board-root"></div>
+    <canvas id="fx-canvas"></canvas>
+    <div id="overlay-root"></div>
+    <div id="screen-root"></div>
+  </div>
+  <pre id="log" style="position:absolute;left:0;top:0;z-index:999;color:#0f0;background:rgba(0,0,0,0.8);font-size:11px;max-height:100vh;overflow:hidden;"></pre>
+  <script type="module">
+    import { Game } from '/src/core/game.js';
+    import { HEROES, DECKS } from '/src/data/cards.js';
+    import { Renderer } from '/src/ui/renderer.js';
+    import { FX } from '/src/ui/fx.js';
+    import { Animator } from '/src/ui/animator.js';
+    import { nextAction, executeAction } from '/src/ai/opponent.js';
+
+    const log = m => {
+      document.getElementById('log').textContent += m + '\n';
+    };
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    window.addEventListener('error', e => {
+      log('JS-ERROR: ' + e.message + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+      document.title = 'FAIL ' + e.message;
+    });
+
+    async function playerTurnAuto(game, animator) {
+      let guard = 0;
+      while (!game.over && game.turn === 'p1' && guard++ < 30) {
+        let acted = false;
+        const p = game.players.p1;
+        for (let i = 0; i < p.hand.length; i++) {
+          const req = game.playRequirements('p1', i);
+          if (!req.playable) continue;
+          const t = req.needsTarget ? req.targets[0] : null;
+          if (req.needsTarget && t == null) continue;
+          const r = game.playCard('p1', i, p.board.length, t);
+          if (r.ok) { await animator.play(r.events); acted = true; break; }
+        }
+        if (game.over) return;
+        if (!acted) {
+          for (const m of [...p.board, p.hero]) {
+            const info = game.attackInfo(m.id);
+            if (info.can && info.targets.length) {
+              const r = game.attack(m.id, info.targets[0]);
+              if (r.ok) { await animator.play(r.events); acted = true; break; }
+            }
+          }
+        }
+        if (game.over) return;
+        if (!acted) {
+          const pr = game.powerRequirements('p1');
+          if (pr.usable) {
+            const t = pr.needsTarget ? pr.targets[0] : null;
+            const r = game.useHeroPower('p1', t);
+            if (r.ok) { await animator.play(r.events); acted = true; }
+          }
+        }
+        if (!acted) break;
+      }
+    }
+
+    async function run() {
+      try {
+        const game = new Game(
+          { hero: HEROES.mage, deck: DECKS.mage },
+          { hero: HEROES.warrior, deck: DECKS.warrior },
+        );
+        const renderer = new Renderer(game);
+        const fx = new FX();
+        const animator = new Animator(game, renderer, fx);
+
+        await animator.play(game.start());
+        log('start OK, hand=' + game.players.p1.hand.length + '/' + game.players.p2.hand.length);
+
+        let rounds = 0;
+        while (!game.over && rounds++ < 30) {
+          await playerTurnAuto(game, animator);
+          if (game.over) break;
+          await animator.play(game.endTurn());
+          let guard = 0;
+          while (!game.over && game.turn === 'p2' && guard++ < 40) {
+            const a = nextAction(game);
+            if (!a) break;
+            const r = executeAction(game, a);
+            if (!r.ok) { log('AI action fail: ' + r.reason); break; }
+            await animator.play(r.events);
+          }
+          if (!game.over && game.turn === 'p2') await animator.play(game.endTurn());
+          renderer.updateAll();
+          const ghosts = [...document.querySelectorAll('.minion')].map(n => {
+            const id = n.dataset.entityId;
+            const onBoard = game.players.p1.board.some(m => m.id == id) || game.players.p2.board.some(m => m.id == id);
+            return onBoard ? null : (id + '@' + (n.parentElement?.className || 'detached') + ':' + (n.className));
+          }).filter(Boolean);
+          if (ghosts.length) log('GHOSTS: ' + ghosts.join(' | '));
+          log('round ' + rounds +
+              ' | p1:' + game.players.p1.hero.hp + 'hp b' + game.players.p1.board.length +
+              ' | p2:' + game.players.p2.hero.hp + 'hp b' + game.players.p2.board.length +
+              ' | minions-dom:' + document.querySelectorAll('.minion').length);
+        }
+        log('over=' + game.over + ' winner=' + game.winner + ' rounds=' + rounds);
+        document.title = game.over ? ('DONE winner=' + game.winner) : 'TIMEOUT';
+      } catch (err) {
+        log('EXCEPTION: ' + err.message + '\n' + err.stack);
+        document.title = 'FAIL ' + err.message;
+      }
+    }
+    run();
+  </script>
+</body>
+</html>
