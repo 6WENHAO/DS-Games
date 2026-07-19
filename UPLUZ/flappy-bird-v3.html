@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>裂界之鸟 · RIFT BIRD</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#000; overflow:hidden;
+    font-family:"PingFang SC","Microsoft YaHei",monospace; }
+  canvas { position:fixed; left:0; top:0; width:100vw; height:100vh;
+    display:block; touch-action:none; cursor:pointer;
+    -webkit-tap-highlight-color:transparent; user-select:none;
+    -webkit-user-select:none; }
+</style>
+</head>
+<body>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+"use strict";
+/* ============================ 基础 ============================ */
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+let W = 400, H = 600, GROUND = 520, BX = 100, SCALE = 1, DPR = 1;
+const R = 13, PW = 68, GAP = 150;
+const TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+const WORLDS = ['classic', 'cyber', 'mc'];
+const NAMES  = { classic:'经典', cyber:'赛博', mc:'方块' };
+const ACC    = { classic:'#ffd93b', cyber:'#00f0ff', mc:'#7cbd4b' };
+const GRAV   = { classic:1400, cyber:1300, mc:1470 };
+const FLAP   = { classic:-380, cyber:-358, mc:-398 };
+const COOLDOWN = .26, RES_MAX = 5, OVER_MAX = 10;
+
+let world = 'classic';
+let transition = null;         // { from, to, cx, cy, r, maxR }
+let state = 'ready';           // ready | play | over
+let tNow = 0, scrollX = 0, overAt = 0, curSpd = 150;
+let bird = { y: 280, vy: 0, lastFlap: -9 };
+let obs = [], obsSeq = 0;
+let orbs = [], orbSeq = 0, shardSeq = 0, shardGot = {};
+let meteors = [], meteorSeq = 0;
+let storm = null, stormNextT = Infinity, stormSpawnT = 0;
+let popups = [], particles = [], trail = [];
+let score = 0, best = +localStorage.getItem('rift_best') || 0;
+let ess = +localStorage.getItem('rift_ess') || 0;
+let ups = {};
+try { ups = JSON.parse(localStorage.getItem('rift_up') || '{}') || {}; } catch(e){ ups = {}; }
+const lv = k => ups[k] || 0;
+const UPG = [
+  { key:'magnet', name:'灵珠磁力', max:3, cost:[25,70,140],  desc:l=>`拾取半径 +${8*l}` },
+  { key:'master', name:'裂界疾切', max:3, cost:[40,100,180], desc:l=>`切界冷却 ${(COOLDOWN-.04*l).toFixed(2)}秒` },
+  { key:'shield', name:'韧性护盾', max:3, cost:[35,90,160],  desc:l=>`破盾无敌 ${(1.2+.4*l).toFixed(1)}秒` },
+  { key:'over',   name:'超载共振', max:3, cost:[50,120,200], desc:l=>`爆发+${5+3*l}分 无敌${(1.5+.5*l).toFixed(1)}秒` }
+];
+function cdTime(){ return COOLDOWN - .04 * lv('master'); }
+let showUp = false, wipeAsk = 0, wipeDone = -9;
+let resonance = 0, invulnUntil = -9;
+let orbCount = 0, switches = 0, deaths = 0;
+let lastSwitch = -9, lastAuto = 0, shake = 0;
+
+const TIPS = [
+  '同色屏障只能在同色世界穿越',
+  '三色碎片集齐引发三界共鸣',
+  '风暴来临前留意预警 提前换界',
+  '赛博世界更飘 方块世界更沉',
+  '集满5格共鸣可抵挡一次撞击',
+  '满盾后灵珠双倍分 再集5颗超载爆发',
+  '得分会转化为灵能 可购买永久升级'
+];
+
+function hash(n){ const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+function clamp(v,a,b){ return v < a ? a : v > b ? b : v; }
+function nextWorld(){ return WORLDS[(WORLDS.indexOf(world) + 1) % 3]; }
+
+function resize(){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  let h = 600, w = h * vw / vh;
+  if (w < 360){ w = 360; h = w * vh / vw; }
+  W = Math.round(w); H = Math.round(h);
+  GROUND = H - 80;
+  BX = Math.round(clamp(W * .25, 80, 180));
+  SCALE = vh / H;
+  cvs.width = Math.round(vw * DPR);
+  cvs.height = Math.round(vh * DPR);
+  for (const ob of obs) if (ob.type === 'pipe')
+    ob.gapY = clamp(ob.gapY, 110, GROUND - 110);
+  for (const o of orbs) o.y = clamp(o.y, 125, GROUND - 80);
+  if (state === 'play' && bird.y + R > GROUND) bird.y = GROUND - R - 2;
+}
+window.addEventListener('resize', resize);
+
+/* ============================ 音频 ============================ */
+/* 全局唯一步进音序器:一首256步组曲(8乐段x4小节,约55秒),
+   三世界共用同一旋律,仅以各自音色/鼓组风格渲染 → 切界无缝续播 */
+let actx = null, masterGain, musicGain, sfxGain, delayNode, delayGain, noiseBuf;
+let muted = false;
+const BPM = 140, STEP_DUR = 60 / BPM / 2;
+const seq = { step: 0, nextTime: 0, timer: null };
+
+/* ---- 共用乐谱:每段32步(4小节),结构 A A' B B' C C' 桥段 尾声 ---- */
+const PH = {
+  A1:[76,0,79,0,81,0,79,76, 74,0,76,74,72,0,69,0, 76,0,79,0,81,0,83,81, 79,76,74,0,72,0,0,0],
+  A2:[76,0,79,0,81,0,79,76, 74,0,76,74,72,0,69,0, 72,74,76,0,79,0,81,83, 84,0,83,81,79,0,76,0],
+  B1:[77,0,76,77,79,0,77,76, 74,0,72,0,71,0,72,74, 77,0,76,77,81,0,79,77, 76,0,74,0,72,0,0,0],
+  B2:[79,0,77,79,81,0,79,77, 76,0,74,76,77,0,74,0, 72,0,74,76,77,79,81,0, 83,81,79,77,76,74,72,0],
+  C1:[81,0,84,0,83,0,81,79, 77,0,79,77,76,0,72,0, 81,0,84,0,86,0,84,83, 81,0,79,0,77,76,74,0],
+  C2:[84,0,83,81,79,0,81,83, 84,0,81,0,79,0,76,0, 77,79,81,0,79,77,76,74, 72,0,74,71,72,0,0,0],
+  D: [64,0,0,0,67,0,0,0, 69,0,0,0,72,0,0,0, 71,0,0,0,67,0,64,0, 62,0,64,67,71,0,72,0],
+  E: [88,0,86,84,83,0,84,86, 88,0,84,0,81,0,79,0, 77,79,81,83,84,86,88,0, 84,0,79,76,72,0,0,0],
+  bA1:[48,0,0,0,55,0,0,0, 45,0,0,0,52,0,0,0, 41,0,0,0,48,0,0,0, 43,0,0,0,50,0,55,0],
+  bA2:[48,0,0,48,55,0,48,0, 45,0,0,45,52,0,45,0, 41,0,0,41,48,0,41,0, 43,0,43,0,50,0,55,0],
+  bB1:[41,0,41,0,48,0,41,0, 43,0,43,0,50,0,43,0, 40,0,40,0,47,0,40,0, 45,0,45,0,52,0,45,0],
+  bB2:[41,0,41,41,48,0,41,0, 43,0,43,43,50,0,43,0, 45,0,45,45,52,0,45,0, 43,0,43,0,43,45,47,0],
+  bC: [45,0,0,45,52,0,45,0, 41,0,0,41,48,0,41,0, 48,0,0,48,55,0,48,0, 43,0,0,43,50,0,55,0],
+  bD: [48,0,0,0,0,0,0,0, 45,0,0,0,0,0,0,0, 41,0,0,0,0,0,0,0, 43,0,0,0,50,0,0,0],
+  bE: [48,0,48,0,45,0,45,0, 41,0,41,0,43,0,43,0, 41,43,45,0,48,0,52,0, 43,0,47,0,48,0,0,0]
+};
+const LEAD = [].concat(PH.A1, PH.A2, PH.B1, PH.B2, PH.C1, PH.C2, PH.D, PH.E);
+const BASS = [].concat(PH.bA1, PH.bA2, PH.bB1, PH.bB2, PH.bC, PH.bC, PH.bD, PH.bE);
+const STEPS = LEAD.length;
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function initAudio(){
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = actx.createGain(); masterGain.gain.value = muted ? 0 : 1;
+  masterGain.connect(actx.destination);
+  musicGain = actx.createGain(); musicGain.gain.value = .8; musicGain.connect(masterGain);
+  sfxGain = actx.createGain(); sfxGain.gain.value = .9; sfxGain.connect(masterGain);
+  delayNode = actx.createDelay(1); delayNode.delayTime.value = STEP_DUR * 1.5;
+  delayGain = actx.createGain(); delayGain.gain.value = .3;
+  delayNode.connect(delayGain); delayGain.connect(delayNode); delayGain.connect(musicGain);
+  noiseBuf = actx.createBuffer(1, actx.sampleRate * .5, actx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  seq.nextTime = actx.currentTime + .06;
+  seq.timer = setInterval(schedule, 25);
+}
+
+function schedule(){
+  while (seq.nextTime < actx.currentTime + .12) {
+    playStep(seq.step, seq.nextTime);
+    seq.step = (seq.step + 1) % STEPS;
+    seq.nextTime += STEP_DUR;
+  }
+}
+
+function tone(o){
+  const t = o.time, a = o.attack ?? .005, d = o.decay ?? .2;
+  const osc = actx.createOscillator();
+  osc.type = o.type || 'square';
+  osc.frequency.setValueAtTime(o.freq, t);
+  if (o.freqEnd) osc.frequency.exponentialRampToValueAtTime(o.freqEnd, t + a + d);
+  if (o.detune) osc.detune.value = o.detune;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(o.vol ?? .1, t + a);
+  g.gain.exponentialRampToValueAtTime(.0001, t + a + d);
+  let node = osc;
+  if (o.filter) { const f = actx.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.value = o.filter; osc.connect(f); node = f; }
+  node.connect(g); g.connect(o.dest || musicGain);
+  if (o.send) { const s = actx.createGain(); s.gain.value = o.send;
+    g.connect(s); s.connect(delayNode); }
+  osc.start(t); osc.stop(t + a + d + .05);
+}
+
+function noise(o){
+  const t = o.time, d = o.decay ?? .05;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf;
+  const f = actx.createBiquadFilter();
+  f.type = o.ftype || 'highpass';
+  f.frequency.setValueAtTime(o.ffreq || 6000, t);
+  if (o.ffreqEnd) f.frequency.exponentialRampToValueAtTime(o.ffreqEnd, t + d);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(o.vol ?? .06, t);
+  g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  src.connect(f); f.connect(g); g.connect(o.dest || musicGain);
+  src.start(t); src.stop(t + d + .05);
+}
+
+const MUSIC = {
+  classic: {   /* 8-bit chiptune */
+    lead(f,t){ tone({freq:f, time:t, type:'square', vol:.06, decay:.16}); },
+    bass(f,t){ tone({freq:f, time:t, type:'triangle', vol:.13, decay:.18}); },
+    drum(s,t){
+      const sec = s >> 5;
+      if (sec === 6){
+        if (s % 4 === 0) noise({time:t, vol:.02, decay:.03});
+        return;
+      }
+      if (s % 8 === 0) tone({freq:150, freqEnd:50, time:t, type:'sine', vol:.16, decay:.1});
+      if (s % 8 === 4) noise({time:t, vol:.08, decay:.08, ffreq:2500, ftype:'bandpass'});
+      if (s % 2 === 0) noise({time:t, vol:.03, decay:.03});
+      if (s % 64 > 59 && s % 2 === 1) noise({time:t, vol:.06, decay:.05, ffreq:2500, ftype:'bandpass'});
+    }
+  },
+  cyber: {     /* 复古合成器浪潮 */
+    lead(f,t){
+      tone({freq:f, time:t, type:'sawtooth', vol:.045, decay:.22, filter:1700, detune:-9, send:.5});
+      tone({freq:f, time:t, type:'sawtooth', vol:.045, decay:.22, filter:1700, detune:9});
+    },
+    bass(f,t){
+      tone({freq:f, time:t, type:'sawtooth', vol:.11, decay:.2, filter:280});
+      tone({freq:f/2, time:t, type:'sine', vol:.09, decay:.22});
+    },
+    drum(s,t){
+      const sec = s >> 5;
+      if (sec === 6){
+        if (s % 8 === 0) tone({freq:160, freqEnd:45, time:t, type:'sine', vol:.2, decay:.12});
+        if (s % 8 === 4) noise({time:t, vol:.03, decay:.05, ffreq:7000});
+        return;
+      }
+      if (s % 2 === 0) tone({freq:160, freqEnd:45, time:t, type:'sine', vol:.22, decay:.11});
+      if (s % 2 === 1) noise({time:t, vol:.045, decay:.06, ffreq:7000});
+      if (s % 8 === 2 || s % 8 === 6) noise({time:t, vol:.1, decay:.12, ffreq:1800, ftype:'bandpass'});
+      if (s % 64 > 60) noise({time:t, vol:.08, decay:.04, ffreq:9000});
+    }
+  },
+  mc: {        /* 柔和音乐盒 */
+    lead(f,t){
+      tone({freq:f, time:t, type:'sine', vol:.075, attack:.02, decay:.55, send:.4});
+      tone({freq:f*2, time:t, type:'sine', vol:.02, attack:.02, decay:.4});
+    },
+    bass(f,t){ tone({freq:f, time:t, type:'sine', vol:.1, attack:.03, decay:.45}); },
+    drum(s,t){
+      const sec = s >> 5;
+      if (s % 8 === 0) noise({time:t, vol:.025, decay:.1, ffreq:900, ftype:'lowpass'});
+      if (sec >= 4 && sec !== 6 && s % 8 === 4)
+        noise({time:t, vol:.015, decay:.06, ffreq:1600, ftype:'lowpass'});
+    }
+  }
+};
+
+function playStep(step, t){
+  const st = MUSIC[world];
+  const l = LEAD[step]; if (l) st.lead(mtof(l), t);
+  const b = BASS[step]; if (b) st.bass(mtof(b), t);
+  st.drum(step, t);
+}
+
+/* 音效 */
+const SFX = {
+  flap(){
+    if (!actx) return; const t = actx.currentTime;
+    if (world === 'classic') tone({freq:420, freqEnd:900, time:t, type:'square', vol:.09, decay:.09, dest:sfxGain});
+    else if (world === 'cyber') tone({freq:300, freqEnd:1100, time:t, type:'sawtooth', vol:.09, decay:.1, filter:2500, dest:sfxGain});
+    else noise({time:t, vol:.14, decay:.12, ffreq:1400, ftype:'lowpass', dest:sfxGain});
+  },
+  score(){
+    if (!actx) return; const t = actx.currentTime;
+    const w = world === 'cyber' ? 'sawtooth' : world === 'mc' ? 'sine' : 'square';
+    tone({freq:1046, time:t, type:w, vol:.08, decay:.09, dest:sfxGain, filter: world==='cyber'?3000:0});
+    tone({freq:1318, time:t+.09, type:w, vol:.08, decay:.14, dest:sfxGain, filter: world==='cyber'?3000:0});
+  },
+  hit(){
+    if (!actx) return; const t = actx.currentTime;
+    noise({time:t, vol:.25, decay:.25, ffreq:800, ftype:'lowpass', dest:sfxGain});
+    tone({freq:220, freqEnd:55, time:t, type:'square', vol:.15, decay:.3, dest:sfxGain});
+  },
+  sw(to){
+    if (!actx) return; const t = actx.currentTime;
+    noise({time:t, vol:.15, decay:.18, ffreq:420, ffreqEnd:5200, ftype:'bandpass', dest:sfxGain});
+    if (to === 'classic') tone({freq:520, freqEnd:1040, time:t+.02, type:'square', vol:.07, decay:.12, dest:sfxGain});
+    else if (to === 'cyber') tone({freq:260, freqEnd:1560, time:t+.02, type:'sawtooth', vol:.08, decay:.16, filter:2600, dest:sfxGain});
+    else { tone({freq:523, time:t+.02, type:'sine', vol:.08, decay:.2, dest:sfxGain});
+           tone({freq:784, time:t+.07, type:'sine', vol:.06, decay:.2, dest:sfxGain}); }
+  },
+  orb(n){
+    if (!actx) return; const t = actx.currentTime;
+    const notes = [659, 784, 880, 1046, 1175];
+    const w = world === 'cyber' ? 'sawtooth' : world === 'mc' ? 'sine' : 'square';
+    tone({freq:notes[n % 5], time:t, type:w, vol:.07, decay:.12, dest:sfxGain,
+      filter: world==='cyber'?2800:0, send:.3});
+  },
+  barrier(){
+    if (!actx) return; const t = actx.currentTime;
+    tone({freq:1046, time:t, type:'triangle', vol:.09, decay:.25, dest:sfxGain, send:.5});
+    tone({freq:1568, time:t+.04, type:'triangle', vol:.07, decay:.3, dest:sfxGain, send:.5});
+  },
+  shield(){
+    if (!actx) return; const t = actx.currentTime;
+    [523, 659, 784].forEach((f,i)=> tone({freq:f, time:t+i*.05, type:'sine', vol:.07, decay:.35, dest:sfxGain, send:.4}));
+  },
+  shieldBreak(){
+    if (!actx) return; const t = actx.currentTime;
+    noise({time:t, vol:.28, decay:.3, ffreq:3000, ffreqEnd:300, ftype:'lowpass', dest:sfxGain});
+    tone({freq:440, freqEnd:110, time:t, type:'sawtooth', vol:.12, decay:.25, dest:sfxGain});
+  },
+  warn(){
+    if (!actx) return; const t = actx.currentTime;
+    tone({freq:220, time:t, type:'square', vol:.1, decay:.16, filter:700, dest:sfxGain});
+    tone({freq:165, time:t+.24, type:'square', vol:.1, decay:.22, filter:700, dest:sfxGain});
+  },
+  fanfare(){
+    if (!actx) return; const t = actx.currentTime;
+    [523, 659, 784, 1046].forEach((f,i)=>{
+      tone({freq:f, time:t+i*.07, type:'square', vol:.08, decay:.18, dest:sfxGain, send:.4});
+      tone({freq:f*2, time:t+i*.07, type:'sine', vol:.04, decay:.2, dest:sfxGain});
+    });
+  }
+};
+
+/* ============================ 三世界绘制 ============================ */
+const UI = {
+  classic: { score:'#fff',    outline:'#4b3621', accent:ACC.classic },
+  cyber:   { score:'#00f0ff', outline:'#1a0533', accent:ACC.cyber },
+  mc:      { score:'#fff',    outline:'#3b3b3b', accent:ACC.mc }
+};
+
+function wrapX(x, f, span){ const s = span + 200;
+  return ((x - scrollX * f) % s + s) % s - 100; }
+
+/* ---------- 经典 ---------- */
+function bgClassic(){
+  const g = ctx.createLinearGradient(0,0,0,GROUND);
+  g.addColorStop(0,'#4ec0ca'); g.addColorStop(1,'#a8e6ef');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,GROUND);
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  for (let i = 0, n = Math.ceil((W + 200) / 150); i < n; i++){
+    const x = wrapX(i * 150, .25, W), y = 80 + hash(i) * 120;
+    ctx.beginPath();
+    ctx.arc(x,y,16,0,7); ctx.arc(x+18,y+4,12,0,7); ctx.arc(x-16,y+5,11,0,7);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#8fd465';
+  for (let i = 0, n = Math.ceil((W + 200) / 90); i < n; i++){
+    const x = wrapX(i * 90, .5, W);
+    ctx.beginPath(); ctx.arc(x, GROUND, 34 + hash(i+40)*24, Math.PI, 0); ctx.fill();
+  }
+  ctx.fillStyle = '#ded895'; ctx.fillRect(0,GROUND,W,H-GROUND);
+  ctx.fillStyle = '#73bf2e'; ctx.fillRect(0,GROUND,W,22);
+  ctx.fillStyle = '#98e04f';
+  const off = scrollX % 36;
+  for (let x = -40; x < W + 40; x += 36){
+    ctx.beginPath();
+    ctx.moveTo(x - off, GROUND); ctx.lineTo(x - off + 18, GROUND);
+    ctx.lineTo(x - off + 8, GROUND + 22); ctx.lineTo(x - off - 10, GROUND + 22);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#5a9623'; ctx.fillRect(0,GROUND+22,W,3);
+}
+function pipeClassic(p){
+  const drawHalf = (y, h, capDown) => {
+    ctx.fillStyle = '#6ac52a'; ctx.fillRect(p.x, y, PW, h);
+    ctx.fillStyle = '#9be352'; ctx.fillRect(p.x + 5, y, 9, h);
+    ctx.fillStyle = '#4e9c1c'; ctx.fillRect(p.x + PW - 12, y, 12, h);
+    ctx.strokeStyle = '#2d5016'; ctx.lineWidth = 2;
+    ctx.strokeRect(p.x + 1, y - 2, PW - 2, h + 4);
+    const cy = capDown ? y + h - 26 : y;
+    ctx.fillStyle = '#6ac52a'; ctx.fillRect(p.x - 4, cy, PW + 8, 26);
+    ctx.fillStyle = '#9be352'; ctx.fillRect(p.x + 1, cy, 9, 26);
+    ctx.fillStyle = '#4e9c1c'; ctx.fillRect(p.x + PW - 8, cy, 12, 26);
+    ctx.strokeRect(p.x - 4, cy, PW + 8, 26);
+  };
+  drawHalf(0, p.gapY - GAP/2, true);
+  drawHalf(p.gapY + GAP/2, GROUND - p.gapY - GAP/2, false);
+}
+function birdClassic(rot){
+  ctx.save(); ctx.translate(BX, bird.y); ctx.rotate(rot);
+  ctx.fillStyle = '#ffd93b';
+  ctx.beginPath(); ctx.arc(0,0,14,0,7); ctx.fill();
+  ctx.strokeStyle = '#c78d1e'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff1b8';
+  ctx.beginPath(); ctx.arc(-2,6,8,0,7); ctx.fill();
+  const fl = tNow - bird.lastFlap;
+  const wy = fl < .35 ? Math.sin(tNow * 40) * 5 : 2;
+  ctx.fillStyle = '#f5a623';
+  ctx.beginPath(); ctx.ellipse(-5, wy, 9, 6, -.3, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#c78d1e'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(6,-5,5,0,7); ctx.fill();
+  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(8,-5,2.4,0,7); ctx.fill();
+  ctx.fillStyle = '#f77b1c'; ctx.fillRect(10,0,10,5);
+  ctx.fillStyle = '#e05a10'; ctx.fillRect(10,5,9,3);
+  ctx.restore();
+}
+
+/* ---------- 赛博朋克 ---------- */
+function bgCyber(){
+  const g = ctx.createLinearGradient(0,0,0,GROUND);
+  g.addColorStop(0,'#05010f'); g.addColorStop(.6,'#1a0533'); g.addColorStop(1,'#3d0d63');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,GROUND);
+  ctx.fillStyle = '#fff';
+  for (let i = 0, n = Math.ceil(W / 10); i < n; i++){
+    const a = .3 + .7 * Math.abs(Math.sin(tNow * 2 + i));
+    ctx.globalAlpha = a * .8;
+    ctx.fillRect(hash(i) * W, hash(i + 99) * GROUND * .58, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+  const sx = W * .68, sy = GROUND - 170;
+  const rg = ctx.createRadialGradient(sx,sy,10,sx,sy,110);
+  rg.addColorStop(0,'rgba(255,45,149,.8)'); rg.addColorStop(1,'rgba(255,45,149,0)');
+  ctx.fillStyle = rg; ctx.fillRect(sx-110,sy-110,220,220);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sx,sy,62,0,7); ctx.clip();
+  const sg = ctx.createLinearGradient(0,sy-62,0,sy+62);
+  sg.addColorStop(0,'#ffd166'); sg.addColorStop(1,'#ff2d95');
+  ctx.fillStyle = sg; ctx.fillRect(sx-62,sy-62,124,124);
+  ctx.fillStyle = '#1a0533';
+  for (let i = 0; i < 5; i++) ctx.fillRect(sx-62, sy + 8 + i*12, 124, 3 + i);
+  ctx.restore();
+  for (let i = 0, n = Math.ceil((W + 200) / 48); i < n; i++){
+    const x = wrapX(i * 48, .15, W), h = 60 + hash(i + 7) * 110;
+    ctx.fillStyle = '#120826'; ctx.fillRect(x, GROUND - h, 40, h);
+    ctx.fillStyle = 'rgba(0,240,255,.5)';
+    for (let r = 0; r < h / 18 - 1; r++)
+      for (let c = 0; c < 3; c++)
+        if (hash(i * 91 + r * 7 + c) > .7)
+          ctx.fillRect(x + 6 + c * 12, GROUND - h + 8 + r * 18, 4, 6);
+  }
+  ctx.fillStyle = '#090114'; ctx.fillRect(0,GROUND,W,H-GROUND);
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 2;
+  ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.moveTo(0,GROUND); ctx.lineTo(W,GROUND); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,45,149,.55)'; ctx.lineWidth = 1;
+  const go = scrollX % 40;
+  for (let x = -60; x < W + 60; x += 40){
+    ctx.beginPath(); ctx.moveTo(x - go, GROUND);
+    ctx.lineTo(x - go + (x - go - W/2) * .55, H); ctx.stroke();
+  }
+  for (let i = 1; i < 5; i++){
+    const y = GROUND + i * i * 4.5;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+}
+function pipeCyber(p){
+  const neon = p.id % 2 ? '#00f0ff' : '#ff2d95';
+  const bld = (y, h, gapEdgeAtBottom) => {
+    ctx.fillStyle = '#141433'; ctx.fillRect(p.x, y, PW, h);
+    ctx.fillStyle = '#0c0c22'; ctx.fillRect(p.x + PW - 10, y, 10, h);
+    for (let r = 0; r < Math.floor((h - 14) / 20); r++)
+      for (let c = 0; c < 4; c++){
+        const v = hash(p.id * 97 + r * 13 + c * 7);
+        ctx.fillStyle = v > .78 ? '#ffd166' : v > .45 ? '#7df9ff' : '#1e1e40';
+        ctx.fillRect(p.x + 6 + c * 15, y + 8 + r * 20, 9, 12);
+      }
+    ctx.shadowColor = neon; ctx.shadowBlur = 12; ctx.fillStyle = neon;
+    const ey = gapEdgeAtBottom ? y + h - 4 : y;
+    ctx.fillRect(p.x - 3, ey, PW + 6, 4);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(0,240,255,.25)'; ctx.lineWidth = 1;
+    ctx.strokeRect(p.x + .5, y + .5, PW - 1, h - 1);
+  };
+  bld(0, p.gapY - GAP/2, true);
+  const by = p.gapY + GAP/2;
+  bld(by, GROUND - by, false);
+  ctx.strokeStyle = '#556'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(p.x + PW/2, by); ctx.lineTo(p.x + PW/2, by - 22); ctx.stroke();
+  if (Math.sin(tNow * 5 + p.id) > 0){
+    ctx.fillStyle = '#ff3355'; ctx.shadowColor = '#ff3355'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(p.x + PW/2, by - 24, 3, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+function birdCyber(rot){
+  ctx.save(); ctx.translate(BX, bird.y); ctx.rotate(rot * .6);
+  const rg = ctx.createRadialGradient(0,10,2,0,10,26);
+  rg.addColorStop(0,'rgba(255,45,149,.5)'); rg.addColorStop(1,'rgba(255,45,149,0)');
+  ctx.fillStyle = rg; ctx.fillRect(-26,-6,52,42);
+  ctx.strokeStyle = '#2b3350'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-4,-2); ctx.lineTo(-16,-9); ctx.moveTo(4,-2); ctx.lineTo(16,-9);
+  ctx.stroke();
+  const spin = Math.abs(Math.sin(tNow * 50));
+  for (const s of [-16, 16]){
+    ctx.fillStyle = 'rgba(170,240,255,.75)';
+    ctx.beginPath(); ctx.ellipse(s,-11, 4 + 9 * spin, 2.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(170,240,255,.3)';
+    ctx.beginPath(); ctx.ellipse(s,-11, 13, 2.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3a4364'; ctx.fillRect(s-2,-12,4,4);
+  }
+  ctx.fillStyle = '#39415e';
+  ctx.beginPath(); ctx.roundRect(-14,-5,28,13,4); ctx.fill();
+  ctx.strokeStyle = '#12172b'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#00e5ff'; ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.arc(10,1,3.2,0,7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ff2d95'; ctx.fillRect(-12,6,24,2);
+  ctx.restore();
+}
+
+/* ---------- 我的世界 ---------- */
+function bgMC(){
+  const g = ctx.createLinearGradient(0,0,0,GROUND);
+  g.addColorStop(0,'#79c6ff'); g.addColorStop(1,'#b8e4ff');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,GROUND);
+  ctx.fillStyle = '#fdf6a3'; ctx.fillRect(W - 90, 40, 44, 44);
+  ctx.fillStyle = 'rgba(253,246,163,.4)'; ctx.fillRect(W - 98, 32, 60, 60);
+  ctx.fillStyle = 'rgba(255,255,255,.88)';
+  for (let i = 0, n = Math.ceil((W + 200) / 130); i < n; i++){
+    const x = wrapX(i * 130, .18, W), y = 60 + hash(i + 3) * 110;
+    ctx.fillRect(x, y, 64, 14); ctx.fillRect(x + 12, y - 12, 40, 12);
+  }
+  const px = 8, off = Math.floor(scrollX / px);
+  for (let gx = -1; gx < W / px + 1; gx++){
+    const wx = gx + off;
+    for (let gy = 0; gy < (H - GROUND) / px; gy++){
+      const v = hash(wx * 53 + gy * 17);
+      let c;
+      if (gy < 2) c = v > .6 ? '#6faf3e' : '#7cbd4b';
+      else c = v > .75 ? '#6f4730' : v > .5 ? '#8a5a3b' : '#815236';
+      ctx.fillStyle = c;
+      ctx.fillRect(gx * px - (scrollX % px), GROUND + gy * px, px + 1, px);
+    }
+  }
+}
+function pipeMC(p){
+  const col = (y, h, seed, gapEdgeAtBottom) => {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(p.x, y, PW, h); ctx.clip();
+    ctx.fillStyle = '#5f5f5f'; ctx.fillRect(p.x, y, PW, h);
+    const bw = PW / 3, bh = 14;
+    for (let r = Math.floor(y / bh) - 1; r < (y + h) / bh + 1; r++){
+      const o = r % 2 ? bw / 2 : 0;
+      for (let c = -1; c < 4; c++){
+        const v = hash(seed * 131 + r * 29 + c * 11);
+        ctx.fillStyle = v > .82 ? '#6f8f5a' : v > .5 ? '#9a9a9a' : '#7d7d7d';
+        ctx.fillRect(p.x + c * bw + o + 1, r * bh + 1, bw - 2, bh - 2);
+      }
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#4a4a4a'; ctx.lineWidth = 2;
+    ctx.strokeRect(p.x + 1, y + 1, PW - 2, h - 2);
+    ctx.fillStyle = '#6e6e6e';
+    const ey = gapEdgeAtBottom ? y + h - 8 : y;
+    ctx.fillRect(p.x - 3, ey, PW + 6, 8);
+    ctx.strokeRect(p.x - 3, ey, PW + 6, 8);
+  };
+  col(0, p.gapY - GAP/2, p.id, true);
+  const by = p.gapY + GAP/2;
+  col(by, GROUND - by, p.id + 999, false);
+}
+function birdMC(rot){
+  ctx.save(); ctx.translate(BX, bird.y); ctx.rotate(rot * .5);
+  const fl = tNow - bird.lastFlap;
+  const wingLift = fl < .35 ? Math.sin(tNow * 30) * 4 : 0;
+  ctx.fillStyle = '#4c4c4c';
+  ctx.save(); ctx.translate(-6, -8 + wingLift); ctx.rotate(-.5);
+  ctx.fillRect(-16, -4, 20, 8); ctx.fillStyle = '#3a3a3a'; ctx.fillRect(-16, -4, 20, 3);
+  ctx.restore();
+  ctx.fillStyle = '#5a5a5a';
+  ctx.save(); ctx.translate(-4, -6 + wingLift * .6); ctx.rotate(-.25);
+  ctx.fillRect(-14, -3, 18, 7); ctx.restore();
+  ctx.fillStyle = '#3548a8'; ctx.fillRect(-20, -4, 11, 9);
+  ctx.fillStyle = '#2b3b8c'; ctx.fillRect(-20, 1, 11, 4);
+  ctx.fillStyle = '#009688'; ctx.fillRect(-9, -5, 13, 11);
+  ctx.fillStyle = '#00857a'; ctx.fillRect(-9, 2, 13, 4);
+  ctx.fillStyle = '#c68863'; ctx.fillRect(-2, 4, 9, 4);
+  ctx.fillStyle = '#c68863'; ctx.fillRect(4, -8, 14, 14);
+  ctx.fillStyle = '#4a2f1d'; ctx.fillRect(4, -8, 14, 4); ctx.fillRect(4, -8, 3, 8);
+  ctx.fillStyle = '#fff'; ctx.fillRect(11, -3, 3, 3); ctx.fillRect(16, -3, 2, 3);
+  ctx.fillStyle = '#3b2fa0'; ctx.fillRect(12, -3, 2, 3); ctx.fillRect(16, -3, 2, 3);
+  ctx.fillStyle = '#a06a4a'; ctx.fillRect(12, 2, 5, 2);
+  ctx.restore();
+}
+
+const THEMES = {
+  classic: { bg: bgClassic, pipe: pipeClassic, player: birdClassic },
+  cyber:   { bg: bgCyber,   pipe: pipeCyber,   player: birdCyber },
+  mc:      { bg: bgMC,      pipe: pipeMC,      player: birdMC }
+};
+
+/* ============================ 裂界元素绘制 ============================ */
+function glyph(w, x, y, s, color, alpha){
+  ctx.save();
+  ctx.globalAlpha = alpha ?? 1;
+  ctx.fillStyle = color;
+  if (w === 'classic'){ ctx.beginPath(); ctx.arc(x, y, s, 0, 7); ctx.fill(); }
+  else if (w === 'cyber'){
+    ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y);
+    ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill();
+  }
+  else ctx.fillRect(x - s, y - s, s * 2, s * 2);
+  ctx.restore();
+}
+
+function drawBarrier(b, sw){
+  const c = ACC[b.attuned];
+  if (b.attuned === sw){
+    /* 当前世界与屏障同频:化作可穿越的微光门 */
+    ctx.save();
+    ctx.globalAlpha = .14; ctx.fillStyle = c;
+    ctx.fillRect(b.x, 0, b.bw, GROUND);
+    ctx.globalAlpha = .55; ctx.fillStyle = c;
+    for (let i = 0; i < 12; i++){
+      const yy = (hash(b.id * 31 + i) * GROUND + tNow * 42) % GROUND;
+      ctx.fillRect(b.x + 3 + hash(i + b.id) * (b.bw - 8), GROUND - yy, 3, 3);
+    }
+    ctx.globalAlpha = .7; ctx.fillStyle = c;
+    ctx.fillRect(b.x - 2, 0, b.bw + 4, 6);
+    ctx.fillRect(b.x - 2, GROUND - 6, b.bw + 4, 6);
+    ctx.restore();
+  } else {
+    ctx.save();
+    const pulse = .72 + .14 * Math.sin(tNow * 5 + b.id);
+    ctx.globalAlpha = .25; ctx.shadowColor = c; ctx.shadowBlur = 18;
+    ctx.fillStyle = c; ctx.fillRect(b.x - 4, 0, b.bw + 8, GROUND);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = pulse; ctx.fillStyle = c;
+    ctx.fillRect(b.x, 0, b.bw, GROUND);
+    ctx.globalAlpha = .35; ctx.fillStyle = '#000';
+    for (let y = 0; y < GROUND; y += 12)
+      if (Math.sin(tNow * 8 - y * .12) > .1) ctx.fillRect(b.x, y, b.bw, 5);
+    ctx.globalAlpha = .95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b.x, 0); ctx.lineTo(b.x, GROUND);
+    ctx.moveTo(b.x + b.bw, 0); ctx.lineTo(b.x + b.bw, GROUND);
+    ctx.stroke();
+    for (let y = 70; y < GROUND; y += 112){
+      ctx.globalAlpha = .9; ctx.fillStyle = 'rgba(0,0,0,.6)';
+      ctx.beginPath(); ctx.roundRect(b.x + b.bw/2 - 11, y - 11, 22, 22, 5); ctx.fill();
+      glyph(b.attuned, b.x + b.bw/2, y, 6, c, 1);
+    }
+    ctx.restore();
+  }
+}
+
+function star4(x, y, r, rot){
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++){
+    const ang = rot + i * Math.PI / 4;
+    const rad = i % 2 ? r * .42 : r;
+    const px = x + Math.cos(ang) * rad, py = y + Math.sin(ang) * rad;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawOrb(o, sw){
+  const y = o.y + Math.sin(tNow * 2.6 + o.id) * 4;
+  const c = ACC[o.world];
+  const rr = o.kind === 'shard' ? 10 : 8;
+  if (o.world === sw){
+    ctx.save();
+    const glow = ctx.createRadialGradient(o.x, y, 2, o.x, y, rr * 3);
+    glow.addColorStop(0, c); glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = .35 + (o.kind === 'shard' ? .15 * Math.sin(tNow * 6 + o.id) : 0);
+    ctx.fillStyle = glow;
+    ctx.fillRect(o.x - rr*3, y - rr*3, rr*6, rr*6);
+    ctx.globalAlpha = 1;
+    if (o.kind === 'shard'){
+      ctx.fillStyle = c;
+      star4(o.x, y, rr + 2, tNow * 2 + o.id);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      star4(o.x, y, (rr + 2) * .45, -tNow * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.arc(o.x, y, rr, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.beginPath(); ctx.arc(o.x - rr*.3, y - rr*.3, rr*.32, 0, 7); ctx.fill();
+      glyph(o.world, o.x, y, rr * .42, 'rgba(0,0,0,.5)', 1);
+    }
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.globalAlpha = .32; ctx.strokeStyle = c; ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    if (o.kind === 'shard'){ star4(o.x, y, rr + 2, tNow * 2 + o.id); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.arc(o.x, y, rr, 0, 7); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.restore();
+    glyph(o.world, o.x, y, rr * .4, c, .5);
+  }
+}
+
+function drawMeteor(m, sw){
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(m.x + 7, m.y - 26); ctx.lineTo(m.x, m.y); ctx.stroke();
+  if (sw === 'classic'){
+    ctx.fillStyle = '#8a5a33';
+    ctx.beginPath(); ctx.arc(m.x, m.y, 9, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#3e2712'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#5d3a1e';
+    ctx.beginPath(); ctx.arc(m.x - 3, m.y - 2, 2.2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.x + 3, m.y + 3, 1.6, 0, 7); ctx.fill();
+  } else if (sw === 'cyber'){
+    ctx.translate(m.x, m.y); ctx.rotate(tNow * 6 + m.id);
+    ctx.shadowColor = '#ff2d95'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#ff2d95';
+    ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(7, 0); ctx.lineTo(0, 11);
+    ctx.lineTo(-7, 0); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff'; ctx.fillRect(-2, -2, 4, 4);
+  } else {
+    ctx.fillStyle = '#8d8d8d'; ctx.fillRect(m.x - 9, m.y - 9, 18, 18);
+    for (let r = 0; r < 4; r++) for (let c2 = 0; c2 < 4; c2++){
+      const v = hash(m.id * 17 + r * 5 + c2);
+      if (v > .55){ ctx.fillStyle = v > .8 ? '#9c9c9c' : '#767676';
+        ctx.fillRect(m.x - 9 + c2 * 4.5, m.y - 9 + r * 4.5, 4.5, 4.5); }
+    }
+    ctx.strokeStyle = '#4c4c4c'; ctx.lineWidth = 2;
+    ctx.strokeRect(m.x - 9, m.y - 9, 18, 18);
+  }
+  ctx.restore();
+}
+
+function drawTrail(sw){
+  if (state !== 'play') return;
+  const c = ACC[sw];
+  ctx.save();
+  for (let i = 0; i < trail.length; i++){
+    const p = trail[i], a = (i + 1) / trail.length;
+    ctx.globalAlpha = a * .25; ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.5 + a * 4, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawShield(){
+  if (state === 'over') return;
+  ctx.save();
+  if (tNow < invulnUntil){
+    if (Math.sin(tNow * 30) > 0){
+      ctx.strokeStyle = '#fff'; ctx.globalAlpha = .85; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(BX, bird.y, 21, 0, 7); ctx.stroke();
+    }
+  } else if (resonance >= RES_MAX){
+    const oc = resonance > RES_MAX ? '#ffd93b' : '#fff';
+    ctx.strokeStyle = oc; ctx.shadowColor = oc; ctx.shadowBlur = 10;
+    ctx.globalAlpha = .45 + .2 * Math.sin(tNow * 6); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(BX, bird.y, 20, 0, 7); ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+function vignette(){
+  const r1 = Math.min(W, H) * .28, r2 = Math.max(W, H) * .82;
+  const g = ctx.createRadialGradient(W/2, H/2, r1, W/2, H/2, r2);
+  g.addColorStop(0, 'rgba(255,60,40,0)');
+  g.addColorStop(1, `rgba(255,50,30,${.22 + .1 * Math.abs(Math.sin(tNow * 5))})`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================ 游戏逻辑 ============================ */
+function addPopup(x, y, txt, color){ popups.push({x, y, txt, color, t: 0}); }
+function burst(x, y, color, n){
+  for (let i = 0; i < n; i++)
+    particles.push({x, y, vx: (Math.random()*2-1)*130, vy: (Math.random()*2-1)*130 - 40,
+      t: 0, life: .45 + Math.random()*.35, color});
+}
+
+function randGap(){ return 110 + Math.random() * (GROUND - 220); }
+
+function spawnCluster(cx){
+  const r = Math.random();
+  const wpick = WORLDS[(Math.random() * 3) | 0];
+  const baseY = clamp(140 + Math.random() * (GROUND - 230), 135, GROUND - 90);
+  if (score >= 5 && r < .16){
+    const ws = [...WORLDS].sort(() => Math.random() - .5);
+    const gid = ++shardSeq;
+    for (let i = 0; i < 3; i++)
+      orbs.push({x: cx + i*52, y: clamp(baseY + (i%2 ? 26 : -8), 125, GROUND - 80),
+        world: ws[i], kind:'shard', val:1, gid, id: orbSeq++, taken:false});
+  } else if (r < .55){
+    for (let i = 0; i < 3; i++)
+      orbs.push({x: cx + i*40, y: baseY - (i===1 ? 28 : 0),
+        world: wpick, kind:'orb', val:1, id: orbSeq++, taken:false});
+  } else if (r < .8){
+    for (let i = 0; i < 3; i++)
+      orbs.push({x: cx, y: clamp(baseY - 44 + i*44, 125, GROUND - 75),
+        world: wpick, kind:'orb', val:1, id: orbSeq++, taken:false});
+  } else {
+    orbs.push({x: cx + 20, y: baseY, world: wpick, kind:'orb', val:1, id: orbSeq++, taken:false});
+  }
+}
+
+function spawnObstacle(){
+  const first = !obs.length;
+  const x = first ? W + 170 : W + 40;
+  let type = 'pipe';
+  if (!first && score >= 3)
+    type = Math.random() < (score < 8 ? .35 : .48) ? 'barrier' : 'pipe';
+
+  if (type === 'pipe'){
+    obs.push({type:'pipe', x, id: obsSeq++, passed:false, gapY: randGap()});
+  } else {
+    const attuned = WORLDS[(Math.random() * 3) | 0];
+    obs.push({type:'barrier', x, bw: 26, id: obsSeq++, attuned, passed:false});
+    if (score >= 12 && Math.random() < .32){
+      const others = WORLDS.filter(w => w !== attuned);
+      obs.push({type:'barrier', x: x + 150, bw: 26, id: obsSeq++,
+        attuned: others[(Math.random()*2)|0], passed:false});
+    }
+  }
+  if (Math.random() < .75) spawnCluster(x - 155);
+}
+
+function reset(){
+  bird = { y: GROUND * .5, vy: 0, lastFlap: -9 };
+  obs = []; orbs = []; meteors = []; shardGot = {};
+  popups = []; particles = []; trail = [];
+  storm = null; stormNextT = Infinity; stormSpawnT = 0;
+  score = 0; resonance = 0; invulnUntil = -9;
+  orbCount = 0; switches = 0;
+  lastSwitch = -9; shake = 0;
+  state = 'ready'; lastAuto = tNow;
+}
+
+function flap(){
+  initAudio();
+  if (state === 'over'){
+    if (tNow - overAt > .6) reset();
+    return;
+  }
+  if (state === 'ready') state = 'play';
+  bird.vy = FLAP[world];
+  bird.lastFlap = tNow;
+  SFX.flap();
+}
+
+function die(){
+  if (state === 'over') return;
+  state = 'over'; overAt = tNow; deaths++;
+  SFX.hit(); shake = 7;
+  ess += score; localStorage.setItem('rift_ess', ess);
+  if (score > best){ best = score; localStorage.setItem('rift_best', best); }
+}
+
+function hit(){
+  if (tNow < invulnUntil) return;
+  if (resonance >= RES_MAX){
+    resonance = 0; invulnUntil = tNow + 1.2 + .4 * lv('shield');
+    SFX.shieldBreak(); shake = 5;
+    addPopup(BX, bird.y - 24, '护盾破碎', '#fff');
+    burst(BX, bird.y, '#fff', 12);
+    bird.vy = -330;
+    return;
+  }
+  die();
+}
+
+function update(dt){
+  if (transition){
+    transition.r += transition.maxR * 2.6 * dt;
+    if (transition.r > transition.maxR) transition = null;
+  }
+  shake = Math.max(0, shake - dt * 9);
+  if (joy.pid !== null) joySelect();
+  for (const p of popups){ p.t += dt; p.y -= 34 * dt; }
+  popups = popups.filter(p => p.t < 1);
+  for (const p of particles){ p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 320 * dt; }
+  particles = particles.filter(p => p.t < p.life);
+
+  curSpd = (150 + Math.min(72, score * 1.6)) * (world === 'cyber' ? 1.045 : 1);
+  if (state !== 'over') scrollX += curSpd * dt;
+
+  if (state === 'ready'){
+    bird.y = GROUND * .5 + Math.sin(tNow * 3) * 8;
+    if (tNow - lastAuto > 2.4) setWorld(nextWorld(), true);
+    return;
+  }
+
+  bird.vy = Math.min(bird.vy + GRAV[world] * dt, 640);
+  bird.y += bird.vy * dt;
+  if (bird.y < R){ bird.y = R; bird.vy = 0; }
+
+  if (state === 'over'){
+    if (bird.y + R > GROUND){ bird.y = GROUND - R; bird.vy = 0; }
+    return;
+  }
+
+  trail.push({x: BX - 13, y: bird.y});
+  if (trail.length > 14) trail.shift();
+  for (const p of trail) p.x -= curSpd * dt;
+
+  if (!obs.length || obs[obs.length - 1].x < W - 238) spawnObstacle();
+
+  for (const ob of obs){
+    ob.x -= curSpd * dt;
+    if (ob.type === 'pipe'){
+      if (!ob.passed && ob.x + PW < BX){ ob.passed = true; score++; SFX.score(); }
+      const gy = ob.gapY;
+      if (BX + R > ob.x && BX - R < ob.x + PW &&
+          (bird.y - R < gy - GAP/2 || bird.y + R > gy + GAP/2)) hit();
+    } else {
+      if (!ob.passed && ob.x + ob.bw < BX){
+        ob.passed = true;
+        if (ob.attuned === world){
+          score++; SFX.barrier();
+          addPopup(BX, bird.y - 26, '穿越 +1', ACC[ob.attuned]);
+          burst(BX - 10, bird.y, ACC[ob.attuned], 6);
+        } else addPopup(BX, bird.y - 26, '硬闯!', '#fff');
+      }
+      if (ob.attuned !== world && BX + R > ob.x && BX - R < ob.x + ob.bw) hit();
+    }
+  }
+  obs = obs.filter(ob => ob.x > -120);
+
+  for (const o of orbs){
+    o.x -= curSpd * dt;
+    if (!o.taken && o.world === world){
+      const oy = o.y + Math.sin(tNow * 2.6 + o.id) * 4;
+      if (Math.hypot(BX - o.x, bird.y - oy) < R + 10 + 8 * lv('magnet')){
+        o.taken = true; orbCount++;
+        const wasFull = resonance >= RES_MAX;
+        const gain = o.val * (wasFull ? 2 : 1);
+        score += gain;
+        resonance = Math.min(OVER_MAX, resonance + (o.kind === 'shard' ? 2 : 1));
+        if (!wasFull && resonance >= RES_MAX){
+          SFX.shield(); addPopup(BX, bird.y - 40, '护盾就绪', '#fff');
+        }
+        burst(o.x, oy, ACC[o.world], 8);
+        addPopup(o.x, oy - 14, (wasFull ? '超载 +' : '+') + gain,
+          wasFull ? '#ffd93b' : ACC[o.world]);
+        SFX.orb(orbCount);
+        if (resonance >= OVER_MAX){
+          resonance = RES_MAX;
+          const bAdd = 5 + 3 * lv('over'), bInv = 1.5 + .5 * lv('over');
+          score += bAdd; invulnUntil = Math.max(invulnUntil, tNow + bInv);
+          SFX.fanfare(); shake = 4;
+          addPopup(BX, bird.y - 70, `超载爆发 +${bAdd} 无敌!`, '#ffd93b');
+          burst(BX, bird.y, '#ffd93b', 16);
+        }
+        if (o.kind === 'shard'){
+          shardGot[o.gid] = (shardGot[o.gid] || 0) + 1;
+          if (shardGot[o.gid] === 3){
+            score += 5; resonance = Math.max(resonance, RES_MAX);
+            SFX.fanfare(); shake = 3;
+            addPopup(BX, bird.y - 56, '三界共鸣 +5', '#fff');
+            burst(BX, bird.y, '#fff', 18);
+          }
+        }
+      }
+    }
+  }
+  orbs = orbs.filter(o => !o.taken && o.x > -40);
+
+  if (stormNextT === Infinity && score >= 8) stormNextT = tNow + 5;
+  if (!storm && tNow > stormNextT){
+    storm = { world: WORLDS[(Math.random()*3)|0], startAt: tNow + 2.4, endAt: tNow + 8.9 };
+    SFX.warn(); stormSpawnT = 0;
+  }
+  if (storm){
+    if (tNow > storm.endAt){
+      storm = null; meteors.length = 0;
+      stormNextT = tNow + 15 + Math.random() * 9;
+    } else if (tNow > storm.startAt){
+      stormSpawnT -= dt;
+      if (stormSpawnT <= 0){
+        stormSpawnT = .3;
+        meteors.push({x: 60 + Math.random() * (W - 70), y: -26,
+          vy: 280 + Math.random() * 170, vx: -(40 + Math.random() * 60), id: meteorSeq++});
+      }
+    }
+  }
+  for (const m of meteors){
+    m.y += m.vy * dt; m.x += m.vx * dt * .5 - curSpd * dt * .25;
+    if (storm && storm.world === world && tNow > storm.startAt &&
+        Math.hypot(BX - m.x, bird.y - m.y) < R + 10){ hit(); m.y = 9999; }
+  }
+  meteors = meteors.filter(m => m.y < GROUND + 40);
+
+  if (bird.y + R > GROUND){
+    bird.y = GROUND - R;
+    if (tNow < invulnUntil){ bird.vy = -340; }
+    else if (resonance >= RES_MAX){
+      resonance = 0; invulnUntil = tNow + 1.2 + .4 * lv('shield'); bird.vy = -340;
+      SFX.shieldBreak(); shake = 5;
+      addPopup(BX, bird.y - 22, '护盾破碎', '#fff');
+    }
+    else die();
+  }
+}
+
+/* ============================ 渲染 ============================ */
+function textStroke(str, x, y, size, fill, outline, blur){
+  ctx.font = `bold ${size}px "Courier New", monospace`;
+  ctx.textAlign = 'center';
+  if (blur){ ctx.shadowColor = fill; ctx.shadowBlur = 14; }
+  ctx.lineWidth = size / 8; ctx.strokeStyle = outline;
+  ctx.strokeText(str, x, y);
+  ctx.fillStyle = fill; ctx.fillText(str, x, y);
+  ctx.shadowBlur = 0;
+}
+
+function drawScene(sw){
+  const T = THEMES[sw];
+  T.bg();
+  for (const ob of obs){
+    if (ob.type === 'pipe') T.pipe({x: ob.x, gapY: ob.gapY, id: ob.id});
+    else drawBarrier(ob, sw);
+  }
+  for (const o of orbs) drawOrb(o, sw);
+  const stormActive = storm && tNow > storm.startAt;
+  if (stormActive && storm.world === sw)
+    for (const m of meteors) drawMeteor(m, sw);
+  drawTrail(sw);
+  const rot = state === 'ready' ? 0 : clamp(bird.vy / 600, -.45, 1.1);
+  T.player(rot);
+  drawShield();
+  if (stormActive && storm.world === sw) vignette();
+}
+
+function drawParticles(){
+  ctx.save();
+  for (const p of particles){
+    ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+  ctx.restore();
+}
+
+function drawPopups(){
+  ctx.save();
+  for (const p of popups){
+    ctx.globalAlpha = Math.max(0, 1 - p.t);
+    ctx.font = 'bold 15px "Courier New", monospace'; ctx.textAlign = 'center';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+    ctx.strokeText(p.txt, p.x, p.y);
+    ctx.fillStyle = p.color; ctx.fillText(p.txt, p.x, p.y);
+  }
+  ctx.restore();
+}
+
+function drawResonance(){
+  if (state !== 'play') return;
+  const full = resonance >= RES_MAX;
+  const x0 = W/2 - (RES_MAX - 1) * 17 / 2;
+  ctx.save();
+  for (let i = 0; i < RES_MAX; i++){
+    const x = x0 + i * 17, y = 108;
+    const over = resonance > RES_MAX + i;
+    let s = 6;
+    if (over){
+      s = 7;
+      ctx.fillStyle = '#ffd93b'; ctx.shadowColor = '#ffd93b'; ctx.shadowBlur = 9;
+    } else if (i < resonance){
+      ctx.fillStyle = '#fff';
+      if (full){ ctx.shadowColor = ACC[world]; ctx.shadowBlur = 8; }
+    } else ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s); ctx.lineTo(x + s - 1, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s + 1, y);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  if (resonance > RES_MAX){
+    ctx.font = 'bold 10px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.textAlign = 'center'; ctx.fillStyle = '#ffd93b'; ctx.globalAlpha = .9;
+    ctx.fillText(`超载 ${resonance - RES_MAX}/${RES_MAX}`, W/2, 126);
+  } else if (full){
+    ctx.font = 'bold 10px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.globalAlpha = .6;
+    ctx.fillText('续吃灵珠 双倍分', W/2, 126);
+  }
+  ctx.restore();
+}
+
+function hintWorld(){
+  for (const ob of obs)
+    if (ob.type === 'barrier' && !ob.passed && ob.x + ob.bw > BX &&
+        ob.x < BX + 250 && ob.attuned !== world) return ob.attuned;
+  return null;
+}
+
+/* 三世界按钮(桌面端指示器,键盘 1 2 3 直选) */
+const wbX = 16, wbW = 42, wbYoff = 0;
+function worldBtnRects(){
+  const y = H - 38 - wbYoff, top = y - 28, bot = y + 24;
+  return WORLDS.map((w, i) => ({
+    w, x: wbX + i * (wbW + 4), y, top, left: wbX + i * (wbW + 4) - wbW/2,
+    right: wbX + i * (wbW + 4) + wbW/2, bot
+  }));
+}
+
+/* 三角摇杆(触屏):按住拖向任一角即切换对应世界 */
+const JOY_R = 80, JOY_DEAD = 28;
+const JOY_ANG = { classic: -Math.PI/2, cyber: Math.PI/6, mc: Math.PI*5/6 };
+const joy = { pid: null, dx: 0, dy: 0 };
+function joyCenter(){ return { x: 110, y: H - 130 }; }
+
+function joySelect(){
+  if (Math.hypot(joy.dx, joy.dy) < JOY_DEAD) return;
+  const ang = Math.atan2(joy.dy, joy.dx);
+  let pick = null, bd = 9;
+  for (const w of WORLDS){
+    let d = Math.abs(ang - JOY_ANG[w]);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    if (d < bd){ bd = d; pick = w; }
+  }
+  if (pick) trySet(pick);
+}
+function joyMove(mx, my){
+  const c = joyCenter();
+  joy.dx = mx - c.x; joy.dy = my - c.y;
+  joySelect();
+}
+
+function drawJoystick(hintW){
+  const c = joyCenter();
+  const order = ['classic', 'cyber', 'mc'];
+  const P = order.map(w => ({ x: c.x + Math.cos(JOY_ANG[w]) * JOY_R,
+                              y: c.y + Math.sin(JOY_ANG[w]) * JOY_R }));
+  const M = P.map((p, i) => ({ x: (p.x + P[(i+1)%3].x) / 2, y: (p.y + P[(i+1)%3].y) / 2 }));
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(M[2].x, M[2].y);
+  for (let i = 0; i < 3; i++) ctx.arcTo(P[i].x, P[i].y, M[i].x, M[i].y, 20);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(8,10,18,.55)'; ctx.fill();
+  ctx.strokeStyle = joy.pid !== null ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.28)';
+  ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1.5;
+  for (const p of P){ ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+
+  for (const w of order){
+    const a = JOY_ANG[w];
+    const gx = c.x + Math.cos(a) * (JOY_R - 24), gy = c.y + Math.sin(a) * (JOY_R - 24);
+    const act = w === world;
+    let s = act ? 13 : 10.5;
+    if (hintW === w) s += 3 + Math.sin(tNow * 10) * 1.8;
+    glyph(w, gx, gy, s, ACC[w], act ? 1 : .6);
+    if (act){
+      const f = clamp((tNow - lastSwitch) / cdTime(), 0, 1);
+      ctx.strokeStyle = '#fff'; ctx.globalAlpha = .9; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(gx, gy, 19, -Math.PI/2, -Math.PI/2 + f * Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (storm && storm.world === w && Math.sin(tNow * 9) > 0){
+      ctx.strokeStyle = '#ff4030'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(gx, gy, 23, 0, 7); ctx.stroke();
+    }
+  }
+
+  let kx = joy.dx, ky = joy.dy;
+  const kd = Math.hypot(kx, ky), km = JOY_R - 32;
+  if (kd > km){ kx *= km / kd; ky *= km / kd; }
+  ctx.beginPath(); ctx.arc(c.x + kx, c.y + ky, 19, 0, 7);
+  ctx.fillStyle = ACC[world];
+  ctx.globalAlpha = joy.pid !== null ? .95 : .75; ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2; ctx.stroke();
+  glyph(world, c.x + kx, c.y + ky, 7.5, 'rgba(0,0,0,.45)', 1);
+
+  if (state === 'ready'){
+    ctx.font = 'bold 12px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)';
+    for (const w of order){
+      const a = JOY_ANG[w];
+      const tx = c.x + Math.cos(a) * (JOY_R + 16);
+      const ty = c.y + Math.sin(a) * (JOY_R + 16) + (w === 'classic' ? -4 : 11);
+      ctx.strokeText(NAMES[w], tx, ty);
+      ctx.fillStyle = ACC[w]; ctx.fillText(NAMES[w], tx, ty);
+    }
+  }
+  ctx.restore();
+}
+
+function drawWorldBtns(hintW){
+  const rects = worldBtnRects();
+  ctx.save();
+  const bgX = wbX - wbW/2 - 6;
+  ctx.fillStyle = 'rgba(8,10,18,.55)';
+  ctx.beginPath(); ctx.roundRect(bgX, rects[0].top - 6, (wbW + 4) * 3 + 12, rects[0].bot - rects[0].top + 12, 14); ctx.fill();
+  for (const r of rects){
+    const act = r.w === world;
+    let s = act ? 10 : 7;
+    if (hintW === r.w) s += 3 + Math.sin(tNow * 10) * 1.5;
+    glyph(r.w, r.x, r.y, s, ACC[r.w], act ? 1 : .55);
+    if (act){
+      const f = clamp((tNow - lastSwitch) / cdTime(), 0, 1);
+      ctx.strokeStyle = '#fff'; ctx.globalAlpha = .9; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(r.x, r.y, 15, -Math.PI/2, -Math.PI/2 + f * Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (storm && storm.world === r.w && Math.sin(tNow * 9) > 0){
+      ctx.strokeStyle = '#ff4030'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(r.x, r.y, 18, 0, 7); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawEssChip(){
+  const txt = '' + ess;
+  ctx.save();
+  ctx.font = 'bold 14px "Courier New", monospace';
+  const tw = ctx.measureText(txt).width;
+  const w = tw + 46;
+  ctx.globalAlpha = .92;
+  ctx.fillStyle = 'rgba(0,0,0,.42)';
+  ctx.beginPath(); ctx.roundRect(10, 12, w, 30, 15); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,217,59,.65)'; ctx.lineWidth = 1.5; ctx.stroke();
+  const dx = 27, dy = 27;
+  ctx.fillStyle = '#ffd93b'; ctx.shadowColor = '#ffd93b'; ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.moveTo(dx, dy - 7); ctx.lineTo(dx + 5.5, dy); ctx.lineTo(dx, dy + 7); ctx.lineTo(dx - 5.5, dy);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+  ctx.fillText(txt, dx + 12, dy + 5);
+  ctx.restore();
+}
+
+function drawIcons(){
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '20px monospace';
+  ctx.globalAlpha = .9;
+  ctx.fillText(muted ? '🔇' : '🔊', W - 32, 32);
+  ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(W - 80, 31, 13, 0, 7); ctx.stroke();
+  ctx.font = 'bold 15px "Courier New", monospace'; ctx.fillStyle = '#fff';
+  ctx.fillText('?', W - 80, 32);
+  ctx.strokeStyle = '#ffd93b';
+  ctx.beginPath(); ctx.arc(W - 128, 31, 13, 0, 7); ctx.stroke();
+  ctx.font = 'bold 13px "PingFang SC","Microsoft YaHei",monospace';
+  ctx.fillStyle = '#ffd93b';
+  ctx.fillText('升', W - 128, 32);
+  ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+}
+
+function pillText(x, y, txt){
+  ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",monospace';
+  const w = ctx.measureText(txt).width + 30;
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.roundRect(x - w/2, y - 17, w, 34, 17); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.fillText(txt, x, y + 5);
+}
+
+function drawZoneHints(){
+  ctx.save();
+  if (TOUCH){
+    const c = joyCenter();
+    pillText(Math.max(c.x + 26, 100), c.y - JOY_R - 46, '划向角落 切换世界');
+  } else {
+    ctx.font = '12px "Courier New", monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.fillText('空格 飞行 · 1 2 3 切界 · U 升级 · H 玩法', W/2, H - 26);
+  }
+  ctx.restore();
+}
+
+function drawHelp(){
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.85)'; ctx.fillRect(0, 0, W, H);
+  const lines = [
+    TOUCH ? '右半屏 点击 · 飞行' : '空格 / 点击 · 飞行',
+    TOUCH ? '左下摇杆 · 划向角落换界' : '1 2 3 键 · 直选世界',
+    TOUCH ? '一手飞行 一手切界' : 'M · 静音切换',
+    '§legend',
+    '同色屏障 · 切到同色世界穿过',
+    '灵珠 · 只在同色世界可拾取',
+    '三色碎片集齐 · 共鸣爆发 +5',
+    '◆x5 共鸣 · 护盾抵挡一次撞击',
+    '满盾续吃 · 双倍分 集5颗超载爆发',
+    '得分化灵能 · 「升」购永久强化',
+    '风暴预警 · 速切离风暴世界'
+  ];
+  const lh = 30;
+  let y = Math.max(H/2 - (lines.length * lh)/2 - 6, 78);
+  textStroke('玩 法', W/2, y - 30, 24, '#ffd93b', '#4b3621');
+  for (const ln of lines){
+    if (ln === '§legend'){
+      WORLDS.forEach((w, i) => {
+        const x = W/2 + (i - 1) * 88;
+        glyph(w, x - 22, y - 5, 7, ACC[w], 1);
+        ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",monospace';
+        ctx.textAlign = 'center'; ctx.fillStyle = ACC[w];
+        ctx.fillText(NAMES[w], x + 10, y);
+      });
+    } else {
+      ctx.font = '14px "PingFang SC","Microsoft YaHei",monospace';
+      ctx.textAlign = 'center'; ctx.fillStyle = '#ddd';
+      ctx.fillText(ln, W/2, y);
+    }
+    y += lh;
+  }
+  if (Math.sin(tNow * 4) > -0.3){
+    ctx.font = '13px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    ctx.fillText('点击任意处 继续', W/2, Math.min(y + 12, H - 26));
+  }
+  ctx.restore();
+}
+
+function upgRects(){
+  const bw = Math.min(W - 36, 332);
+  const x0 = W/2 - bw/2, rh = 62, gap = 10;
+  const y0 = Math.max(50, H/2 - (96 + UPG.length * (rh + gap) + 30) / 2);
+  return { bw, x0, y0,
+    rows: UPG.map((u, i) => ({ u, x: x0 + 12, y: y0 + 96 + i * (rh + gap), w: bw - 24, h: rh })),
+    wipe: { x: W/2 - 92, y: y0 + 96 + UPG.length * (rh + gap) + 52, w: 184, h: 30 } };
+}
+
+function drawUpgrades(){
+  const L = upgRects();
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.88)'; ctx.fillRect(0, 0, W, H);
+  textStroke('升 级', W/2, L.y0 + 36, 24, '#ffd93b', '#4b3621');
+  ctx.font = 'bold 15px "PingFang SC","Microsoft YaHei",monospace';
+  ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+  ctx.fillText(`灵能 ${ess}`, W/2, L.y0 + 66);
+  for (let i = 0; i < L.rows.length; i++){
+    const r = L.rows[i], u = r.u, lvl = lv(u.key);
+    const maxed = lvl >= u.max, cost = maxed ? 0 : u.cost[lvl];
+    const can = !maxed && ess >= cost;
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 10); ctx.fill();
+    ctx.strokeStyle = can ? '#ffd93b' : 'rgba(255,255,255,.22)';
+    ctx.lineWidth = can ? 2 : 1.5; ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`${i + 1}. ${u.name}`, r.x + 12, r.y + 24);
+    for (let p = 0; p < u.max; p++){
+      const px = r.x + 122 + p * 14, py = r.y + 19;
+      ctx.fillStyle = p < lvl ? '#ffd93b' : 'rgba(255,255,255,.25)';
+      ctx.beginPath();
+      ctx.moveTo(px, py - 5); ctx.lineTo(px + 4, py); ctx.lineTo(px, py + 5); ctx.lineTo(px - 4, py);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.font = '12px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    ctx.fillText(maxed ? u.desc(lvl) : `下一级 ${u.desc(lvl + 1)}`, r.x + 12, r.y + 46);
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillStyle = maxed ? 'rgba(255,255,255,.5)' : can ? '#ffd93b' : '#ff7060';
+    ctx.fillText(maxed ? 'MAX' : cost, r.x + r.w - 12, r.y + 28);
+  }
+  const last = L.rows[L.rows.length - 1];
+  ctx.font = '12px "PingFang SC","Microsoft YaHei",monospace';
+  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.fillText('每局得分自动转化为灵能', W/2, last.y + last.h + 24);
+  ctx.fillText(TOUCH ? '点击条目购买 · 点空白处关闭' : '点击/数字键购买 · U 或空白处关闭',
+    W/2, last.y + last.h + 42);
+  const wr = L.wipe;
+  const asking = tNow < wipeAsk;
+  const done = tNow - wipeDone < 1.6;
+  ctx.beginPath(); ctx.roundRect(wr.x, wr.y, wr.w, wr.h, 15);
+  ctx.fillStyle = asking ? 'rgba(255,64,48,.85)' : 'rgba(255,255,255,.05)';
+  ctx.fill();
+  ctx.strokeStyle = asking ? '#ff4030' : 'rgba(255,96,80,.5)';
+  ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.font = 'bold 13px "PingFang SC","Microsoft YaHei",monospace';
+  ctx.fillStyle = asking ? '#fff' : done ? '#7cbd4b' : '#ff7060';
+  ctx.fillText(done ? '存档已清除' : asking ? '再点一次 确认清除!' : '清除存档数据',
+    wr.x + wr.w/2, wr.y + wr.h/2 + 5);
+  ctx.restore();
+}
+
+function buyUpg(u){
+  const lvl = lv(u.key);
+  if (lvl >= u.max || ess < u.cost[lvl]){ SFX.warn(); return; }
+  ess -= u.cost[lvl]; ups[u.key] = lvl + 1;
+  localStorage.setItem('rift_ess', ess);
+  localStorage.setItem('rift_up', JSON.stringify(ups));
+  SFX.shield();
+}
+
+function wipeSave(){
+  for (const k of ['rift_best', 'rift_ess', 'rift_up', 'rift_seen'])
+    localStorage.removeItem(k);
+  best = 0; ess = 0; ups = {};
+  wipeAsk = 0; wipeDone = tNow;
+  SFX.shieldBreak();
+}
+
+function render(){
+  const u = UI[world];
+  ctx.save();
+  if (shake > 0)
+    ctx.translate((Math.random()*2-1) * shake, (Math.random()*2-1) * shake);
+
+  if (transition){
+    drawScene(transition.from);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(transition.cx, transition.cy, transition.r, 0, 7);
+    ctx.clip();
+    drawScene(transition.to);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(transition.cx, transition.cy, transition.r, 0, 7);
+    ctx.lineWidth = 5; ctx.strokeStyle = ACC[transition.to];
+    ctx.shadowColor = ACC[transition.to]; ctx.shadowBlur = 18;
+    ctx.stroke(); ctx.shadowBlur = 0;
+  } else {
+    drawScene(world);
+  }
+
+  drawParticles();
+  drawPopups();
+
+  if (state === 'play' || state === 'over')
+    textStroke(score, W/2, 80, 44, u.score, u.outline, world === 'cyber');
+
+  drawResonance();
+  if (state !== 'over'){
+    const hw = state === 'play' ? hintWorld() : null;
+    if (TOUCH) drawJoystick(hw); else drawWorldBtns(hw);
+  }
+
+  if (state === 'play' && storm){
+    const c = ACC[storm.world];
+    const blink = Math.sin(tNow * 8) > 0;
+    if (tNow < storm.startAt){
+      if (blink) textStroke(`⚠ ${NAMES[storm.world]}风暴逼近`, W/2, 152, 16, c, '#000');
+    } else if (storm.world === world){
+      if (blink) textStroke('⚠ 快切换世界!', W/2, 152, 18, '#ff5040', '#000');
+    } else {
+      textStroke(`${NAMES[storm.world]}风暴中`, W/2, 148, 12, c, '#000');
+    }
+  }
+
+  if (state === 'ready'){
+    textStroke('裂 界 之 鸟', W/2, H * .26, 40, u.accent, u.outline, world === 'cyber');
+    ctx.font = '13px "Courier New", monospace';
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.fillText('R I F T   B I R D', W/2, H * .26 + 26);
+    if (best > 0){
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.fillStyle = 'rgba(255,255,255,.75)';
+      ctx.fillText(`最佳 ${best}`, W/2, H * .26 + 48);
+    }
+    ctx.font = 'bold 13px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.fillStyle = '#ffd93b';
+    ctx.fillText('右上「升」永久强化', W/2, H * .26 + (best > 0 ? 70 : 48));
+    if (Math.sin(tNow * 4) > -0.3)
+      textStroke(TOUCH ? '点击右侧 开始' : '点击 / 空格 开始', W/2, H * .58, 18, '#fff', u.outline);
+    drawZoneHints();
+  }
+
+  if (state === 'over' && tNow - overAt > .4){
+    const px0 = Math.round(W/2 - 142), py0 = Math.round(H/2 - 118);
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = world === 'cyber' ? 'rgba(20,20,51,.95)' : 'rgba(245,238,208,.95)';
+    ctx.strokeStyle = u.accent; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(px0, py0, 284, 236, 12); ctx.fill(); ctx.stroke();
+    const tc = world === 'cyber' ? '#e8e8ff' : '#4b3621';
+    textStroke('裂界坠落', W/2, py0 + 42, 26, u.accent, world === 'cyber' ? '#000' : '#fff', world === 'cyber');
+    ctx.font = 'bold 19px "Courier New", monospace';
+    ctx.fillStyle = tc; ctx.textAlign = 'center';
+    ctx.fillText(`得分  ${score}`, W/2, py0 + 80);
+    ctx.fillText(`最佳  ${best}`, W/2, py0 + 106);
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText(`灵珠 ${orbCount}   穿梭 ${switches}次`, W/2, py0 + 132);
+    ctx.fillStyle = '#d4a017';
+    ctx.fillText(`灵能 +${score} · 共 ${ess}`, W/2, py0 + 154);
+    ctx.fillStyle = tc;
+    ctx.font = '11px "PingFang SC","Microsoft YaHei",monospace';
+    ctx.globalAlpha = .75;
+    ctx.fillText('小贴士: ' + TIPS[deaths % TIPS.length], W/2, py0 + 178);
+    ctx.globalAlpha = 1;
+    if (Math.sin(tNow * 4) > -0.3){
+      ctx.font = '14px "PingFang SC","Microsoft YaHei",monospace';
+      ctx.fillText('点击重新开始 · 右上「升」升级', W/2, py0 + 206);
+    }
+  }
+
+  if (state !== 'play') drawIcons();
+  drawEssChip();
+  if (showHelp) drawHelp();
+  if (showUp) drawUpgrades();
+  ctx.restore();
+}
+
+let last = performance.now();
+function loop(now){
+  const dt = Math.min((now - last) / 1000, .033);
+  last = now; tNow += dt;
+  update(dt);
+  ctx.setTransform(DPR * SCALE, 0, 0, DPR * SCALE, 0, 0);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ============================ 输入 / 世界切换 ============================ */
+function setWorld(t, silent){
+  if (!THEMES[t] || t === world) return;
+  const from = world; world = t;
+  const dist = Math.hypot(W, H) * .75;
+  transition = { from, to: t, cx: BX, cy: bird.y, r: 0, maxR: dist };
+  lastAuto = tNow;
+  if (!silent){
+    lastSwitch = tNow;
+    if (state === 'play') switches++;
+    SFX.sw(t);
+    burst(BX, bird.y, ACC[t], 10);
+  }
+  /* 音序器 step/nextTime 不变,切世界只换音色 → 音乐无缝续播 */
+}
+
+function trySet(t){
+  if (state === 'over' || t === world) return;
+  if (tNow - lastSwitch < cdTime()) return;
+  initAudio();
+  setWorld(t);
+}
+
+let showHelp = !localStorage.getItem('rift_seen');
+function closeHelp(){
+  if (!showHelp) return;
+  showHelp = false;
+  localStorage.setItem('rift_seen', '1');
+}
+function toggleMute(){
+  initAudio();
+  muted = !muted;
+  if (masterGain) masterGain.gain.setTargetAtTime(muted ? 0 : 1, actx.currentTime, .02);
+}
+
+cvs.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  initAudio();
+  const rect = cvs.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / SCALE;
+  const my = (e.clientY - rect.top) / SCALE;
+  if (showHelp){ closeHelp(); return; }
+  if (showUp){
+    const L = upgRects();
+    const wr = L.wipe;
+    if (mx > wr.x && mx < wr.x + wr.w && my > wr.y && my < wr.y + wr.h){
+      if (tNow < wipeAsk) wipeSave();
+      else { wipeAsk = tNow + 3; SFX.warn(); }
+      return;
+    }
+    for (const r of L.rows)
+      if (mx > r.x && mx < r.x + r.w && my > r.y && my < r.y + r.h){ buyUpg(r.u); return; }
+    showUp = false; wipeAsk = 0; return;
+  }
+  if (state !== 'play' && my < 60){
+    if (Math.hypot(mx - (W - 32), my - 32) < 26){ toggleMute(); return; }
+    if (Math.hypot(mx - (W - 80), my - 31) < 26){ showHelp = true; return; }
+    if (Math.hypot(mx - (W - 128), my - 31) < 26){ showUp = true; return; }
+  }
+  if (TOUCH && state !== 'over'){
+    const c = joyCenter();
+    if (Math.hypot(mx - c.x, my - c.y) < JOY_R + 36){
+      joy.pid = e.pointerId;
+      try { cvs.setPointerCapture(e.pointerId); } catch(_) {}
+      joyMove(mx, my);
+      return;
+    }
+  }
+  flap();
+});
+cvs.addEventListener('pointermove', e => {
+  if (joy.pid !== e.pointerId) return;
+  e.preventDefault();
+  const rect = cvs.getBoundingClientRect();
+  joyMove((e.clientX - rect.left) / SCALE, (e.clientY - rect.top) / SCALE);
+});
+function joyEnd(e){
+  if (joy.pid === e.pointerId){ joy.pid = null; joy.dx = joy.dy = 0; }
+}
+window.addEventListener('pointerup', joyEnd);
+window.addEventListener('pointercancel', joyEnd);
+cvs.addEventListener('contextmenu', e => { e.preventDefault(); });
+
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (showHelp){
+    if (e.key === 'm' || e.key === 'M'){ toggleMute(); return; }
+    e.preventDefault(); closeHelp(); return;
+  }
+  if (showUp){
+    if (e.key === 'm' || e.key === 'M'){ toggleMute(); return; }
+    const n = parseInt(e.key);
+    if (n >= 1 && n <= UPG.length){ buyUpg(UPG[n - 1]); return; }
+    e.preventDefault(); showUp = false; wipeAsk = 0; return;
+  }
+  if (e.code === 'Space' || e.code === 'ArrowUp'){ e.preventDefault(); flap(); }
+  else if (e.key === '1') trySet('classic');
+  else if (e.key === '2') trySet('cyber');
+  else if (e.key === '3') trySet('mc');
+  else if (e.key === 'm' || e.key === 'M') toggleMute();
+  else if ((e.key === 'u' || e.key === 'U') && state !== 'play'){ initAudio(); showUp = true; }
+  else if (e.key === 'h' || e.key === 'H' || e.key === '?'){ initAudio(); showHelp = true; }
+});
+
+resize();
+</script>
+</body>
+</html>

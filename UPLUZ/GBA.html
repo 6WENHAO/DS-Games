@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>DeepBoy Advance - 网页版掌机</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; }
+  body {
+    background: radial-gradient(circle at 50% 30%, #2b3450, #14182a 70%);
+    display:flex; align-items:center; justify-content:center;
+    font-family:"Helvetica Neue", Arial, "PingFang SC", sans-serif;
+    overflow:hidden;
+  }
+  /* ============ 机身 ============ */
+  .console {
+    position:relative;
+    width:780px; max-width:96vw;
+    background: linear-gradient(160deg, #7b68ee 0%, #6a5acd 40%, #5747b8 100%);
+    border-radius:70px 70px 90px 90px / 60px 60px 110px 110px;
+    padding:34px 30px 44px;
+    box-shadow:
+      0 25px 60px rgba(0,0,0,.55),
+      inset 0 2px 3px rgba(255,255,255,.35),
+      inset 0 -8px 18px rgba(0,0,0,.35);
+  }
+  .shoulder {
+    position:absolute; top:-14px; width:150px; height:34px;
+    background:linear-gradient(#8d7cf0,#5d4fc0);
+    border-radius:20px 20px 8px 8px;
+    box-shadow:0 3px 6px rgba(0,0,0,.4), inset 0 2px 2px rgba(255,255,255,.3);
+    color:#e8e4ff; font-weight:bold; text-align:center; line-height:30px; font-size:14px;
+    cursor:pointer; z-index:0;
+  }
+  .shoulder:active { transform:translateY(2px); }
+  #btnL { left:40px; } #btnR { right:40px; }
+
+  .top-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding:0 10px; }
+  .brand { color:#d9d3ff; font-style:italic; font-weight:800; letter-spacing:1px; font-size:15px; text-shadow:0 1px 1px rgba(0,0,0,.4); }
+  .power-led { display:flex; align-items:center; gap:6px; color:#cfc8ff; font-size:11px; }
+  .led { width:10px; height:10px; border-radius:50%; background:#3a3350; box-shadow:inset 0 1px 2px rgba(0,0,0,.6); transition:.3s; }
+  .led.on { background:#4dff6a; box-shadow:0 0 8px #4dff6a; }
+  .led.low { background:#ff5252; box-shadow:0 0 8px #ff5252; }
+
+  /* ============ 屏幕 ============ */
+  .screen-bezel {
+    background:linear-gradient(160deg,#2e2a45,#1c1930);
+    border-radius:26px;
+    padding:24px 90px 30px;
+    box-shadow: inset 0 3px 10px rgba(0,0,0,.7), 0 1px 2px rgba(255,255,255,.2);
+    position:relative;
+  }
+  .bezel-text { position:absolute; top:6px; left:0; right:0; text-align:center; color:#8f86c9; font-size:10px; letter-spacing:3px; }
+  .screen-wrap {
+    position:relative;
+    width:480px; max-width:100%;
+    margin:8px auto 0;
+    aspect-ratio:3/2;
+    background:#000;
+    border-radius:6px;
+    overflow:hidden;
+    box-shadow: inset 0 0 12px rgba(0,0,0,.9);
+  }
+  canvas#screen { width:100%; height:100%; display:block; image-rendering:pixelated; }
+  .screen-off {
+    position:absolute; inset:0; background:#0c0f14;
+    background-image:linear-gradient(135deg, rgba(255,255,255,.04) 0%, transparent 40%);
+    transition:opacity .4s;
+  }
+  .scanlines {
+    position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.13) 0 1px, transparent 1px 3px);
+    mix-blend-mode:multiply;
+  }
+  .glare {
+    position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(115deg, rgba(255,255,255,.09) 0%, rgba(255,255,255,.03) 25%, transparent 45%);
+  }
+
+  /* ============ 控制区 ============ */
+  .controls { display:flex; justify-content:space-between; align-items:center; margin-top:26px; padding:0 14px; }
+
+  .dpad { position:relative; width:150px; height:150px; }
+  .dpad .arm {
+    position:absolute; background:linear-gradient(#3c3654,#241f38);
+    box-shadow:0 3px 5px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.15);
+    display:flex; align-items:center; justify-content:center; color:#8f86c9; font-size:16px; cursor:pointer;
+  }
+  .dpad .arm:active, .dpad .arm.pressed { background:#1b1728; transform:scale(.96); }
+  .d-up    { left:50px; top:0;    width:50px; height:55px; border-radius:10px 10px 0 0; }
+  .d-down  { left:50px; bottom:0; width:50px; height:55px; border-radius:0 0 10px 10px; }
+  .d-left  { left:0;   top:50px;  width:55px; height:50px; border-radius:10px 0 0 10px; }
+  .d-right { right:0;  top:50px;  width:55px; height:50px; border-radius:0 10px 10px 0; }
+  .d-center{ left:50px; top:50px; width:50px; height:50px; position:absolute; background:#2e2944;
+             display:flex; align-items:center; justify-content:center; }
+  .d-center::after { content:''; width:26px; height:26px; border-radius:50%;
+             background:radial-gradient(circle at 35% 30%, #453e63, #221d36); }
+
+  .ab { display:flex; gap:22px; transform:rotate(-18deg); }
+  .btn-round {
+    width:62px; height:62px; border-radius:50%;
+    background:radial-gradient(circle at 35% 28%, #ff7b9c, #d81b60 70%);
+    box-shadow:0 5px 8px rgba(0,0,0,.5), inset 0 2px 3px rgba(255,255,255,.4);
+    color:#fff; font-weight:800; font-size:20px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    text-shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  .btn-round:active, .btn-round.pressed { transform:scale(.92); box-shadow:0 2px 4px rgba(0,0,0,.5); }
+  #btnB { margin-top:26px; }
+
+  .mid-buttons { position:absolute; bottom:70px; left:50%; transform:translateX(-50%); display:flex; gap:30px; }
+  .pill {
+    width:64px; height:18px; border-radius:10px; transform:rotate(-18deg);
+    background:linear-gradient(#4a4468,#2c2745);
+    box-shadow:0 3px 5px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.2);
+    cursor:pointer; position:relative;
+  }
+  .pill:active, .pill.pressed { transform:rotate(-18deg) scale(.94); }
+  .pill span { position:absolute; top:20px; left:50%; transform:translateX(-50%); color:#cfc8ff; font-size:9px; letter-spacing:1px; }
+
+  .speaker { position:absolute; right:46px; bottom:48px; display:grid; grid-template-columns:repeat(3,10px); gap:9px; transform:rotate(-18deg); }
+  .speaker i { width:10px; height:10px; border-radius:50%; background:#3a3355; box-shadow:inset 0 2px 3px rgba(0,0,0,.7); }
+
+  .power-switch {
+    position:absolute; left:40px; bottom:44px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .power-switch .track {
+    width:70px; height:24px; border-radius:12px; background:#241f38;
+    box-shadow:inset 0 2px 5px rgba(0,0,0,.8); position:relative; cursor:pointer;
+  }
+  .power-switch .knob {
+    position:absolute; top:2px; left:2px; width:32px; height:20px; border-radius:10px;
+    background:linear-gradient(#8d7cf0,#5d4fc0); transition:left .2s;
+    box-shadow:0 2px 3px rgba(0,0,0,.5);
+  }
+  .power-switch.on .knob { left:36px; background:linear-gradient(#6effa0,#22c55e); }
+  .power-switch label { color:#cfc8ff; font-size:9px; letter-spacing:2px; }
+
+  .hint { color:#8f86c9; font-size:12px; text-align:center; margin-top:14px; line-height:1.7; }
+  .hint kbd { background:#2c2745; border-radius:4px; padding:1px 6px; font-size:11px; color:#d9d3ff; box-shadow:0 1px 0 #000; }
+
+  @media (max-width:820px) {
+    .console { padding:26px 14px 40px; border-radius:40px; }
+    .screen-bezel { padding:20px 20px 26px; }
+    .dpad { width:126px; height:126px; }
+    .d-up{left:42px;width:42px;height:47px} .d-down{left:42px;width:42px;height:47px}
+    .d-left{top:42px;width:47px;height:42px} .d-right{top:42px;width:47px;height:42px}
+    .d-center{left:42px;top:42px;width:42px;height:42px}
+    .btn-round { width:54px; height:54px; }
+    .mid-buttons { bottom:56px; }
+    .speaker { display:none; }
+    .power-switch { left:20px; bottom:30px; }
+    .hint { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="console">
+  <div class="shoulder" id="btnL">L</div>
+  <div class="shoulder" id="btnR">R</div>
+
+  <div class="top-row">
+    <div class="brand">DEEPBOY <span style="font-weight:400">ADVANCE</span></div>
+    <div class="power-led"><div class="led" id="led"></div>POWER · BATTERY <span id="battTxt">100%</span></div>
+  </div>
+
+  <div class="screen-bezel">
+    <div class="bezel-text">DEEPBOY ADVANCE · TFT COLOR 240×160</div>
+    <div class="screen-wrap">
+      <canvas id="screen" width="240" height="160"></canvas>
+      <div class="scanlines"></div>
+      <div class="glare"></div>
+      <div class="screen-off" id="screenOff"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="dpad">
+      <div class="arm d-up"    data-k="up">▲</div>
+      <div class="arm d-down"  data-k="down">▼</div>
+      <div class="arm d-left"  data-k="left">◀</div>
+      <div class="arm d-right" data-k="right">▶</div>
+      <div class="d-center"></div>
+    </div>
+    <div class="ab">
+      <div class="btn-round" id="btnB" data-k="b">B</div>
+      <div class="btn-round" id="btnA" data-k="a">A</div>
+    </div>
+  </div>
+
+  <div class="mid-buttons">
+    <div class="pill" data-k="select"><span>SELECT</span></div>
+    <div class="pill" data-k="start"><span>START</span></div>
+  </div>
+
+  <div class="power-switch" id="powerSwitch">
+    <div class="track"><div class="knob"></div></div>
+    <label>OFF · ON</label>
+  </div>
+
+  <div class="speaker">
+    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+  </div>
+
+  <div class="hint">
+    键盘：<kbd>↑↓←→</kbd> 方向　<kbd>Z</kbd>/<kbd>K</kbd> = A　<kbd>X</kbd>/<kbd>J</kbd> = B　<kbd>Enter</kbd> = START　<kbd>Shift</kbd> = SELECT　<kbd>Q</kbd>/<kbd>E</kbd> = L/R　<kbd>P</kbd> = 电源<br>
+    游戏中按 <kbd>START</kbd> 暂停，暂停中按 <kbd>SELECT</kbd> 返回主菜单
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =========================================================
+   DeepBoy Advance —— 网页版掌机模拟
+   系统：开机/关机、开机动画、主菜单、设置(音量/色调/亮度)、
+        电池模拟、暂停菜单、最高分存档(localStorage)
+   游戏：贪吃蛇 / 砖块弹球 / 方块下落消除 / 星际射手
+========================================================= */
+const cv = document.getElementById('screen');
+const ctx = cv.getContext('2d');
+const W = 240, H = 160;
+
+/* ---------------- 音频 ---------------- */
+const AudioSys = {
+  ctx: null, volume: 0.5, muted: false,
+  ensure() { if (!this.ctx) this.ctx = new (window.AudioContext||window.webkitAudioContext)(); if (this.ctx.state==='suspended') this.ctx.resume(); },
+  beep(freq=440, dur=0.08, type='square', vol=1, slide=0) {
+    if (this.muted || this.volume<=0) return;
+    try {
+      this.ensure();
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,freq+slide), t+dur);
+      g.gain.setValueAtTime(0.15*this.volume*vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+      o.connect(g).connect(this.ctx.destination);
+      o.start(t); o.stop(t+dur+0.02);
+    } catch(e){}
+  },
+  sfx(name) {
+    const m = {
+      move:   ()=>this.beep(300,.04,'square',.6),
+      ok:     ()=>{this.beep(660,.06);setTimeout(()=>this.beep(990,.09),60);},
+      back:   ()=>this.beep(330,.08,'square',.8,-120),
+      eat:    ()=>this.beep(760,.06,'square',.9, 300),
+      hit:    ()=>this.beep(200,.1,'sawtooth',.9,-100),
+      die:    ()=>{this.beep(300,.15,'sawtooth',1,-200);setTimeout(()=>this.beep(180,.25,'sawtooth',1,-120),120);},
+      clear:  ()=>{this.beep(523,.07);setTimeout(()=>this.beep(659,.07),70);setTimeout(()=>this.beep(784,.12),140);},
+      shoot:  ()=>this.beep(880,.05,'square',.5,-400),
+      boom:   ()=>this.beep(120,.2,'sawtooth',1,-80),
+      pause:  ()=>this.beep(520,.09,'triangle'),
+      boot1:  ()=>this.beep(392,.12,'triangle',1),
+      boot2:  ()=>{this.beep(523,.1,'triangle');setTimeout(()=>this.beep(784,.28,'triangle'),110);},
+    };
+    (m[name]||(()=>{}))();
+  }
+};
+
+/* ---------------- 输入 ---------------- */
+const Input = {
+  down:{}, pressed:{},
+  press(k){ if(!this.down[k]) this.pressed[k]=true; this.down[k]=true; },
+  release(k){ this.down[k]=false; },
+  consume(k){ if(this.pressed[k]){ this.pressed[k]=false; return true;} return false; },
+  flush(){ this.pressed={}; }
+};
+const KEYMAP = {
+  ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+  KeyW:'up', KeyS:'down', KeyA:'left', KeyD:'right',
+  KeyZ:'a', KeyK:'a', KeyX:'b', KeyJ:'b',
+  Enter:'start', ShiftLeft:'select', ShiftRight:'select',
+  KeyQ:'l', KeyE:'r'
+};
+addEventListener('keydown', e=>{
+  if (e.code==='KeyP'){ togglePower(); e.preventDefault(); return; }
+  const k = KEYMAP[e.code];
+  if (k){ Input.press(k); e.preventDefault(); }
+});
+addEventListener('keyup', e=>{ const k=KEYMAP[e.code]; if(k) Input.release(k); });
+
+document.querySelectorAll('[data-k]').forEach(el=>{
+  const k = el.dataset.k;
+  const on = e=>{ e.preventDefault(); AudioSys.ensure(); Input.press(k); el.classList.add('pressed'); };
+  const off= e=>{ e.preventDefault(); Input.release(k); el.classList.remove('pressed'); };
+  el.addEventListener('mousedown',on); el.addEventListener('mouseup',off); el.addEventListener('mouseleave',off);
+  el.addEventListener('touchstart',on,{passive:false}); el.addEventListener('touchend',off); el.addEventListener('touchcancel',off);
+});
+
+/* ---------------- 存档 ---------------- */
+const Save = {
+  key:'deepboy_save',
+  data:null,
+  load(){ try{ this.data = JSON.parse(localStorage.getItem(this.key))||{}; }catch(e){ this.data={}; }
+          this.data.hiscores = this.data.hiscores||{}; this.data.settings = this.data.settings||{}; },
+  save(){ try{ localStorage.setItem(this.key, JSON.stringify(this.data)); }catch(e){} },
+  hi(game){ return this.data.hiscores[game]||0; },
+  setHi(game,v){ if(v>this.hi(game)){ this.data.hiscores[game]=v; this.save(); return true;} return false; }
+};
+Save.load();
+
+/* ---------------- 系统状态 ---------------- */
+const Sys = {
+  on:false, state:'off',   // off | boot | menu | settings | game | pause
+  bootT:0, menuIdx:0, setIdx:0, pauseIdx:0,
+  battery: Save.data.battery ?? 100,
+  brightness: Save.data.settings.brightness ?? 1,
+  palette: Save.data.settings.palette ?? 0,
+  volume: Save.data.settings.volume ?? 5,
+  game:null, gameId:null,
+  frame:0
+};
+AudioSys.volume = Sys.volume/10;
+
+const PALETTES = [
+  { name:'标准彩色', filter:null },
+  { name:'复古绿屏', filter:(r,g,b)=>{const l=(r*.3+g*.59+b*.11); return [l*0.35+10, l*0.75+40, l*0.35+10];} },
+  { name:'琥珀单色', filter:(r,g,b)=>{const l=(r*.3+g*.59+b*.11); return [l*0.9+30, l*0.6+20, l*0.15];} },
+  { name:'灰阶液晶', filter:(r,g,b)=>{const l=(r*.3+g*.59+b*.11); return [l*0.8+20, l*0.85+25, l*0.75+30];} },
+];
+
+/* ---------------- 电源 ---------------- */
+const led = document.getElementById('led');
+const screenOff = document.getElementById('screenOff');
+const powerSwitch = document.getElementById('powerSwitch');
+const battTxt = document.getElementById('battTxt');
+
+function togglePower(){
+  AudioSys.ensure();
+  Sys.on = !Sys.on;
+  powerSwitch.classList.toggle('on', Sys.on);
+  if (Sys.on){
+    if (Sys.battery <= 0){ Sys.battery = 100; }
+    Sys.state='boot'; Sys.bootT=0;
+    screenOff.style.opacity = 0;
+    AudioSys.sfx('boot1');
+  } else {
+    Sys.state='off'; Sys.game=null;
+    screenOff.style.opacity = 1;
+    led.className='led';
+    Save.data.battery = Sys.battery; Save.save();
+  }
+}
+powerSwitch.addEventListener('click', togglePower);
+
+setInterval(()=>{ // 电池模拟
+  if (Sys.on){
+    Sys.battery = Math.max(0, Sys.battery - 0.05);
+    if (Sys.battery<=0) togglePower();
+  }
+  battTxt.textContent = Math.round(Sys.battery)+'%';
+  if (Sys.on) led.className = 'led ' + (Sys.battery<20?'low':'on');
+}, 1000);
+
+/* ---------------- 绘图辅助 ---------------- */
+function rect(x,y,w,h,c){ ctx.fillStyle=c; ctx.fillRect(x|0,y|0,w|0,h|0); }
+function text(s,x,y,c='#fff',size=8,align='left',bold=false){
+  ctx.fillStyle=c; ctx.font=`${bold?'bold ':''}${size}px "Courier New", monospace`;
+  ctx.textAlign=align; ctx.textBaseline='top'; ctx.fillText(s,x|0,y|0);
+}
+function cnText(s,x,y,c='#fff',size=9,align='left',bold=false){
+  ctx.fillStyle=c; ctx.font=`${bold?'bold ':''}${size}px "PingFang SC","Microsoft YaHei",sans-serif`;
+  ctx.textAlign=align; ctx.textBaseline='top'; ctx.fillText(s,x|0,y|0);
+}
+
+/* =========================================================
+   游戏 1：贪吃蛇
+========================================================= */
+function GameSnake(){
+  const CS=8, GW=28, GH=16, OX=(W-GW*CS)/2, OY=24;
+  let snake, dir, ndir, food, score, dead, tick, speed;
+  function reset(){
+    snake=[{x:14,y:8},{x:13,y:8},{x:12,y:8}]; dir={x:1,y:0}; ndir=dir;
+    score=0; dead=false; tick=0; speed=9; placeFood();
+  }
+  function placeFood(){
+    do { food={x:(Math.random()*GW)|0, y:(Math.random()*GH)|0}; }
+    while (snake.some(s=>s.x===food.x&&s.y===food.y));
+  }
+  reset();
+  return {
+    name:'贪吃蛇', id:'snake',
+    update(){
+      if (dead){
+        if (Input.consume('a')||Input.consume('start')){ AudioSys.sfx('ok'); reset(); }
+        return;
+      }
+      if (Input.consume('up')&&dir.y===0) ndir={x:0,y:-1};
+      if (Input.consume('down')&&dir.y===0) ndir={x:0,y:1};
+      if (Input.consume('left')&&dir.x===0) ndir={x:-1,y:0};
+      if (Input.consume('right')&&dir.x===0) ndir={x:1,y:0};
+      if (++tick < Math.max(3, speed)) return;
+      tick=0; dir=ndir;
+      const h={x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+      if (h.x<0||h.x>=GW||h.y<0||h.y>=GH||snake.some(s=>s.x===h.x&&s.y===h.y)){
+        dead=true; AudioSys.sfx('die'); Save.setHi('snake',score); return;
+      }
+      snake.unshift(h);
+      if (h.x===food.x&&h.y===food.y){
+        score+=10; AudioSys.sfx('eat'); placeFood();
+        if (score%50===0 && speed>3) speed--;
+      } else snake.pop();
+    },
+    draw(){
+      rect(0,0,W,H,'#12331a');
+      rect(OX-2,OY-2,GW*CS+4,GH*CS+4,'#0a1f0f');
+      rect(OX,OY,GW*CS,GH*CS,'#173d20');
+      for(let i=0;i<GW;i+=2)for(let j=0;j<GH;j+=2)
+        rect(OX+i*CS,OY+j*CS,CS,CS,'rgba(255,255,255,.02)');
+      rect(OX+food.x*CS+1,OY+food.y*CS+1,CS-2,CS-2,'#ff5252');
+      rect(OX+food.x*CS+2,OY+food.y*CS,2,2,'#8bc34a');
+      snake.forEach((s,i)=>{
+        rect(OX+s.x*CS+1,OY+s.y*CS+1,CS-2,CS-2, i===0?'#b6ff5e':'#6fdc3c');
+        if(i===0){ rect(OX+s.x*CS+2,OY+s.y*CS+3,2,2,'#123'); rect(OX+s.x*CS+5,OY+s.y*CS+3,2,2,'#123'); }
+      });
+      rect(0,0,W,18,'#0a1f0f');
+      cnText('贪吃蛇',6,4,'#b6ff5e',9,'left',true);
+      text('SCORE '+score, 120,5,'#fff',8,'center');
+      text('HI '+Math.max(score,Save.hi('snake')), 234,5,'#ffd54f',8,'right');
+      if (dead){
+        rect(30,55,180,50,'rgba(0,0,0,.82)');
+        cnText('游戏结束',120,62,'#ff5252',13,'center',true);
+        cnText('得分 '+score+'   按 A 重新开始',120,84,'#fff',9,'center');
+      }
+    }
+  };
+}
+
+/* =========================================================
+   游戏 2：砖块弹球
+========================================================= */
+function GameBreakout(){
+  let paddle, ball, bricks, score, lives, dead, win, level, launched;
+  const COLORS=['#ff5252','#ff9800','#ffd54f','#66bb6a','#42a5f5'];
+  function buildBricks(){
+    bricks=[];
+    for(let r=0;r<5;r++)for(let c=0;c<10;c++)
+      bricks.push({x:10+c*22, y:26+r*10, w:20, h:8, c:COLORS[r], hp:1+((r<2&&level>1)?1:0)});
+  }
+  function resetBall(){ ball={x:paddle.x+paddle.w/2, y:130, vx:0, vy:0}; launched=false; }
+  function reset(all=true){
+    if(all){ score=0; lives=3; level=1; }
+    paddle={x:100,w:40}; dead=false; win=false;
+    buildBricks(); resetBall();
+  }
+  reset();
+  return {
+    name:'砖块弹球', id:'breakout',
+    update(){
+      if (dead||win){
+        if (Input.consume('a')||Input.consume('start')){
+          AudioSys.sfx('ok');
+          if (win){ level++; reset(false); } else reset(true);
+        }
+        return;
+      }
+      const sp=3.2;
+      if (Input.down['left']) paddle.x=Math.max(4,paddle.x-sp);
+      if (Input.down['right']) paddle.x=Math.min(W-4-paddle.w,paddle.x+sp);
+      if (!launched){
+        ball.x=paddle.x+paddle.w/2; ball.y=136;
+        if (Input.consume('a')){ launched=true; const a=-Math.PI/3-Math.random()*Math.PI/3; ball.vx=2.2*Math.cos(a); ball.vy=2.2*Math.sin(a); AudioSys.sfx('shoot'); }
+        return;
+      }
+      ball.x+=ball.vx; ball.y+=ball.vy;
+      if (ball.x<4||ball.x>W-4){ ball.vx*=-1; ball.x=Math.max(4,Math.min(W-4,ball.x)); AudioSys.sfx('move'); }
+      if (ball.y<20){ ball.vy*=-1; ball.y=20; AudioSys.sfx('move'); }
+      if (ball.y>142 && ball.vy>0 && ball.x>paddle.x-3 && ball.x<paddle.x+paddle.w+3 && ball.y<150){
+        const rel=(ball.x-(paddle.x+paddle.w/2))/(paddle.w/2);
+        const ang=-Math.PI/2+rel*1.05;
+        const spd=Math.min(4.2, Math.hypot(ball.vx,ball.vy)*1.03);
+        ball.vx=spd*Math.sin(ang); ball.vy=-spd*Math.cos(ang);
+        AudioSys.sfx('hit');
+      }
+      if (ball.y>H+6){
+        lives--; AudioSys.sfx('die');
+        if (lives<=0){ dead=true; Save.setHi('breakout',score); } else resetBall();
+        return;
+      }
+      for (const b of bricks){
+        if (b.hp>0 && ball.x>b.x-3&&ball.x<b.x+b.w+3&&ball.y>b.y-3&&ball.y<b.y+b.h+3){
+          b.hp--;
+          const ox=Math.min(ball.x-(b.x-3), (b.x+b.w+3)-ball.x);
+          const oy=Math.min(ball.y-(b.y-3), (b.y+b.h+3)-ball.y);
+          if (ox<oy) ball.vx*=-1; else ball.vy*=-1;
+          if (b.hp<=0){ score+=10; AudioSys.sfx('eat'); } else AudioSys.sfx('hit');
+          break;
+        }
+      }
+      if (bricks.every(b=>b.hp<=0)){ win=true; score+=100; AudioSys.sfx('clear'); Save.setHi('breakout',score); }
+    },
+    draw(){
+      rect(0,0,W,H,'#101830');
+      rect(0,0,W,18,'#0a0f20');
+      cnText('砖块弹球 L'+level,6,4,'#42a5f5',9,'left',true);
+      text('SCORE '+score,130,5,'#fff',8,'center');
+      cnText('♥'.repeat(Math.max(0,lives)),234,4,'#ff5252',9,'right');
+      bricks.forEach(b=>{ if(b.hp>0){ rect(b.x,b.y,b.w,b.h,b.hp>1?'#b0bec5':b.c); rect(b.x,b.y,b.w,2,'rgba(255,255,255,.35)'); }});
+      rect(paddle.x,144,paddle.w,5,'#e0e0e0'); rect(paddle.x,144,paddle.w,2,'#fff');
+      ctx.beginPath(); ctx.arc(ball.x,ball.y,3,0,7); ctx.fillStyle='#ffd54f'; ctx.fill();
+      if (!launched&&!dead&&!win) cnText('按 A 发射',120,100,'#90caf9',9,'center');
+      if (dead||win){
+        rect(30,55,180,50,'rgba(0,0,0,.82)');
+        cnText(win?'过关！':'游戏结束',120,62,win?'#66bb6a':'#ff5252',13,'center',true);
+        cnText('得分 '+score+'   按 A 继续',120,84,'#fff',9,'center');
+      }
+    }
+  };
+}
+
+/* =========================================================
+   游戏 3：方块工坊（下落消行）
+========================================================= */
+function GameBlocks(){
+  const CS=8, GW=10, GH=17, OX=60, OY=H-GH*CS-2;
+  const SHAPES=[
+    [[1,1,1,1]], [[1,1],[1,1]], [[0,1,0],[1,1,1]],
+    [[1,0,0],[1,1,1]], [[0,0,1],[1,1,1]], [[1,1,0],[0,1,1]], [[0,1,1],[1,1,0]]
+  ];
+  const SC=['#26c6da','#ffd54f','#ab47bc','#ff9800','#42a5f5','#ef5350','#66bb6a'];
+  let grid, cur, next, score, lines, level, dead, dropT, moveT;
+  function newPiece(){
+    const i=(Math.random()*SHAPES.length)|0;
+    return { s:SHAPES[i].map(r=>[...r]), c:SC[i], x:3, y:0 };
+  }
+  function fits(p,dx,dy,s){
+    s=s||p.s;
+    for(let r=0;r<s.length;r++)for(let c=0;c<s[r].length;c++){
+      if(!s[r][c]) continue;
+      const x=p.x+c+dx, y=p.y+r+dy;
+      if(x<0||x>=GW||y>=GH) return false;
+      if(y>=0&&grid[y][x]) return false;
+    }
+    return true;
+  }
+  function rotated(s){ return s[0].map((_,i)=>s.map(r=>r[i]).reverse()); }
+  function lock(){
+    cur.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v&&cur.y+r>=0) grid[cur.y+r][cur.x+c]=cur.c; }));
+    let cleared=0;
+    for(let r=GH-1;r>=0;r--){
+      if(grid[r].every(v=>v)){ grid.splice(r,1); grid.unshift(Array(GW).fill(null)); cleared++; r++; }
+    }
+    if(cleared){ score+=[0,100,300,500,800][cleared]*level; lines+=cleared; level=1+(lines/10|0); AudioSys.sfx('clear'); }
+    else AudioSys.sfx('hit');
+    cur=next; next=newPiece();
+    if(!fits(cur,0,0)){ dead=true; AudioSys.sfx('die'); Save.setHi('blocks',score); }
+  }
+  function reset(){
+    grid=Array.from({length:GH},()=>Array(GW).fill(null));
+    cur=newPiece(); next=newPiece();
+    score=0; lines=0; level=1; dead=false; dropT=0; moveT=0;
+  }
+  reset();
+  return {
+    name:'方块工坊', id:'blocks',
+    update(){
+      if (dead){
+        if (Input.consume('a')||Input.consume('start')){ AudioSys.sfx('ok'); reset(); }
+        return;
+      }
+      if (Input.consume('left')&&fits(cur,-1,0)){ cur.x--; AudioSys.sfx('move'); moveT=0; }
+      if (Input.consume('right')&&fits(cur,1,0)){ cur.x++; AudioSys.sfx('move'); moveT=0; }
+      moveT++;
+      if (moveT>12){
+        if (Input.down['left']&&moveT%4===0&&fits(cur,-1,0)) cur.x--;
+        if (Input.down['right']&&moveT%4===0&&fits(cur,1,0)) cur.x++;
+      }
+      if (!Input.down['left']&&!Input.down['right']) moveT=0;
+      if (Input.consume('a')||Input.consume('up')){
+        const r=rotated(cur.s);
+        if (fits(cur,0,0,r)) { cur.s=r; AudioSys.sfx('move'); }
+        else if (fits(cur,-1,0,r)) { cur.x--; cur.s=r; }
+        else if (fits(cur,1,0,r)) { cur.x++; cur.s=r; }
+      }
+      if (Input.consume('b')){ while(fits(cur,0,1)) cur.y++; lock(); return; }
+      const spd = Input.down['down'] ? 3 : Math.max(4, 26-level*3);
+      if (++dropT>=spd){
+        dropT=0;
+        if (fits(cur,0,1)) cur.y++;
+        else lock();
+      }
+    },
+    draw(){
+      rect(0,0,W,H,'#1a1030');
+      rect(OX-2,OY-2,GW*CS+4,GH*CS+4,'#0d0820');
+      rect(OX,OY,GW*CS,GH*CS,'#241545');
+      for(let r=0;r<GH;r++)for(let c=0;c<GW;c++)
+        if(grid[r][c]){ rect(OX+c*CS,OY+r*CS,CS-1,CS-1,grid[r][c]); rect(OX+c*CS,OY+r*CS,CS-1,2,'rgba(255,255,255,.3)'); }
+      let gy=cur.y; while(fits({...cur,y:gy},0,1)) gy++;
+      cur.s.forEach((row,r)=>row.forEach((v,c)=>{
+        if(!v) return;
+        if (gy!==cur.y && gy+r>=0) rect(OX+(cur.x+c)*CS,OY+(gy+r)*CS,CS-1,CS-1,'rgba(255,255,255,.12)');
+        if (cur.y+r>=0){ rect(OX+(cur.x+c)*CS,OY+(cur.y+r)*CS,CS-1,CS-1,cur.c); rect(OX+(cur.x+c)*CS,OY+(cur.y+r)*CS,CS-1,2,'rgba(255,255,255,.35)'); }
+      }));
+      cnText('方块工坊',6,6,'#ab47bc',9,'left',true);
+      text('SCORE',6,26,'#888'); text(''+score,6,36,'#fff',9);
+      text('LINES',6,52,'#888'); text(''+lines,6,62,'#fff',9);
+      text('LEVEL',6,78,'#888'); text(''+level,6,88,'#fff',9);
+      text('HI '+Math.max(score,Save.hi('blocks')),6,108,'#ffd54f',8);
+      cnText('下个',158,26,'#888',8);
+      next.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v) rect(160+c*7,40+r*7,6,6,next.c); }));
+      cnText('A 旋转',158,90,'#aaa',8);
+      cnText('B 速降',158,102,'#aaa',8);
+      cnText('↓ 加速',158,114,'#aaa',8);
+      if (dead){
+        rect(30,55,180,50,'rgba(0,0,0,.85)');
+        cnText('游戏结束',120,62,'#ff5252',13,'center',true);
+        cnText('得分 '+score+'   按 A 重新开始',120,84,'#fff',9,'center');
+      }
+    }
+  };
+}
+
+/* =========================================================
+   游戏 4：星际射手
+========================================================= */
+function GameShooter(){
+  let ship, bullets, enemies, ebullets, stars, score, lives, dead, wave, spawnT, inv;
+  function reset(){
+    ship={x:120,y:140}; bullets=[]; enemies=[]; ebullets=[];
+    stars=Array.from({length:40},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.5+0.4}));
+    score=0; lives=3; dead=false; wave=1; spawnT=0; inv=0;
+  }
+  function spawnWave(){
+    const n=4+Math.min(6,wave);
+    for(let i=0;i<n;i++){
+      enemies.push({x:20+(i%6)*36+Math.random()*10, y:-20-((i/6)|0)*24, vy:0.35+wave*0.06+Math.random()*0.3,
+                    vx:(Math.random()-0.5)*0.8, hp:1+(wave>3&&Math.random()<0.3?1:0), t:Math.random()*99});
+    }
+  }
+  reset(); spawnWave();
+  let shootCd=0;
+  return {
+    name:'星际射手', id:'shooter',
+    update(){
+      if (dead){
+        if (Input.consume('a')||Input.consume('start')){ AudioSys.sfx('ok'); reset(); spawnWave(); }
+        return;
+      }
+      stars.forEach(s=>{ s.y+=s.s; if(s.y>H){s.y=0;s.x=Math.random()*W;} });
+      const sp=2.4;
+      if (Input.down['left']) ship.x=Math.max(8,ship.x-sp);
+      if (Input.down['right']) ship.x=Math.min(W-8,ship.x+sp);
+      if (Input.down['up']) ship.y=Math.max(70,ship.y-sp);
+      if (Input.down['down']) ship.y=Math.min(H-10,ship.y+sp);
+      if (shootCd>0) shootCd--;
+      if (Input.down['a'] && shootCd<=0){ bullets.push({x:ship.x,y:ship.y-6}); shootCd=8; AudioSys.sfx('shoot'); }
+      bullets.forEach(b=>b.y-=4.5); bullets=bullets.filter(b=>b.y>-6);
+      if (inv>0) inv--;
+      enemies.forEach(e=>{
+        e.t+=0.05; e.x+=e.vx+Math.sin(e.t)*0.6; e.y+=e.vy;
+        if (e.x<10||e.x>W-10) e.vx*=-1;
+        if (e.y>20 && Math.random()<0.004+wave*0.0008) ebullets.push({x:e.x,y:e.y+5,vy:1.6+wave*0.1});
+      });
+      ebullets.forEach(b=>b.y+=b.vy); ebullets=ebullets.filter(b=>b.y<H+6);
+      for (const b of bullets){
+        for (const e of enemies){
+          if (Math.abs(b.x-e.x)<8 && Math.abs(b.y-e.y)<8){
+            e.hp--; b.y=-99;
+            if (e.hp<=0){ e.deadFlag=true; score+=20; AudioSys.sfx('boom'); } else AudioSys.sfx('hit');
+          }
+        }
+      }
+      enemies=enemies.filter(e=>!e.deadFlag && e.y<H+16);
+      const hitBy = p=>Math.abs(p.x-ship.x)<7 && Math.abs(p.y-ship.y)<7;
+      if (inv<=0){
+        let hurt=false;
+        ebullets.forEach(b=>{ if(hitBy(b)){ hurt=true; b.y=999; } });
+        enemies.forEach(e=>{ if(hitBy(e)){ hurt=true; e.deadFlag=true; } });
+        if (hurt){
+          lives--; inv=90; AudioSys.sfx('die');
+          if (lives<=0){ dead=true; Save.setHi('shooter',score); }
+        }
+      }
+      if (enemies.length===0){
+        if (++spawnT>60){ wave++; score+=50; spawnT=0; spawnWave(); AudioSys.sfx('clear'); }
+      }
+    },
+    draw(){
+      rect(0,0,W,H,'#050514');
+      stars.forEach(s=>rect(s.x,s.y,1,1,s.s>1.2?'#fff':'#667'));
+      if (!(inv>0 && (Sys.frame>>2)%2)){
+        ctx.fillStyle='#4dd0e1';
+        ctx.beginPath(); ctx.moveTo(ship.x,ship.y-7); ctx.lineTo(ship.x-6,ship.y+6); ctx.lineTo(ship.x+6,ship.y+6); ctx.closePath(); ctx.fill();
+        rect(ship.x-2,ship.y+6,4,3,(Sys.frame>>1)%2?'#ff9800':'#ffd54f');
+      }
+      bullets.forEach(b=>rect(b.x-1,b.y-4,2,5,'#b6ff5e'));
+      ebullets.forEach(b=>rect(b.x-1,b.y,2,4,'#ff5252'));
+      enemies.forEach(e=>{
+        ctx.fillStyle = e.hp>1?'#b0bec5':'#ef5350';
+        ctx.beginPath(); ctx.moveTo(e.x,e.y+6); ctx.lineTo(e.x-6,e.y-5); ctx.lineTo(e.x+6,e.y-5); ctx.closePath(); ctx.fill();
+        rect(e.x-3,e.y-3,2,2,'#111'); rect(e.x+1,e.y-3,2,2,'#111');
+      });
+      rect(0,0,W,16,'rgba(0,0,0,.6)');
+      cnText('星际射手 W'+wave,6,3,'#4dd0e1',9,'left',true);
+      text('SCORE '+score,130,4,'#fff',8,'center');
+      cnText('♥'.repeat(Math.max(0,lives)),234,3,'#ff5252',9,'right');
+      if (dead){
+        rect(30,55,180,50,'rgba(0,0,0,.85)');
+        cnText('飞船坠毁',120,62,'#ff5252',13,'center',true);
+        cnText('得分 '+score+'   按 A 重新出击',120,84,'#fff',9,'center');
+      }
+    }
+  };
+}
+
+/* ---------------- 游戏目录 ---------------- */
+const GAMES = [
+  { id:'snake',    title:'贪吃蛇',   sub:'SNAKE',        color:'#66bb6a', make:GameSnake,
+    icon:(x,y)=>{ rect(x+4,y+14,6,6,'#b6ff5e');rect(x+10,y+14,6,6,'#6fdc3c');rect(x+16,y+14,6,6,'#6fdc3c');rect(x+16,y+8,6,6,'#6fdc3c');rect(x+24,y+4,4,4,'#ff5252'); } },
+  { id:'breakout', title:'砖块弹球', sub:'BREAKER',      color:'#42a5f5', make:GameBreakout,
+    icon:(x,y)=>{ ['#ff5252','#ffd54f','#42a5f5'].forEach((c,i)=>{rect(x+3,y+3+i*5,12,4,c);rect(x+17,y+3+i*5,12,4,c);}); rect(x+10,y+24,12,3,'#eee'); ctx.beginPath();ctx.arc(x+22,y+20,2.5,0,7);ctx.fillStyle='#ffd54f';ctx.fill(); } },
+  { id:'blocks',   title:'方块工坊', sub:'BLOCK CRAFT',  color:'#ab47bc', make:GameBlocks,
+    icon:(x,y)=>{ rect(x+4,y+18,7,7,'#26c6da');rect(x+12,y+18,7,7,'#26c6da');rect(x+12,y+10,7,7,'#ffd54f');rect(x+20,y+18,7,7,'#ef5350');rect(x+20,y+10,7,7,'#ef5350'); } },
+  { id:'shooter',  title:'星际射手', sub:'STAR GUNNER',  color:'#4dd0e1', make:GameShooter,
+    icon:(x,y)=>{ ctx.fillStyle='#4dd0e1';ctx.beginPath();ctx.moveTo(x+16,y+6);ctx.lineTo(x+8,y+24);ctx.lineTo(x+24,y+24);ctx.closePath();ctx.fill(); rect(x+15,y+0,2,5,'#b6ff5e'); rect(x+5,y+8,1,1,'#fff');rect(x+26,y+14,1,1,'#fff'); } },
+];
+
+/* ---------------- 系统界面 ---------------- */
+function drawBoot(){
+  Sys.bootT++;
+  rect(0,0,W,H,'#fff');
+  const t=Sys.bootT;
+  const drop=Math.min(1, t/50);
+  const y = -30 + (H/2-16)*easeOut(drop) + 30*easeOut(drop);
+  ctx.save();
+  ctx.translate(0, y-(H/2-16));
+  cnText('DEEPBOY',W/2,H/2-16,'#5747b8',22,'center',true);
+  ctx.restore();
+  if (t>55){
+    const a=Math.min(1,(t-55)/20);
+    ctx.globalAlpha=a;
+    text('ADVANCE  GAME  SYSTEM',W/2,H/2+14,'#9c94d8',8,'center');
+    ctx.globalAlpha=1;
+  }
+  if (t===56) AudioSys.sfx('boot2');
+  if (t>130){ Sys.state='menu'; Input.flush(); }
+}
+function easeOut(x){ return 1-Math.pow(1-x,3); }
+
+function drawMenu(){
+  // 背景
+  rect(0,0,W,H,'#1c1936');
+  for(let i=0;i<12;i++){
+    const yy=(i*20 + Sys.frame*0.3)%(H+20)-10;
+    rect(0,yy,W,1,'rgba(255,255,255,.03)');
+  }
+  rect(0,0,W,22,'#141128');
+  cnText('DEEPBOY 主菜单',6,6,'#d9d3ff',10,'left',true);
+  const now=new Date();
+  text(('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2),200,7,'#8f86c9',8);
+  // 电池图标
+  rect(218,7,14,8,'#8f86c9'); rect(232,9,2,4,'#8f86c9'); rect(219,8,12*(Sys.battery/100),6, Sys.battery<20?'#ff5252':'#4dff6a');
+
+  const items = GAMES.length+1; // + 设置
+  if (Input.consume('right')||Input.consume('down')){ Sys.menuIdx=(Sys.menuIdx+1)%items; AudioSys.sfx('move'); }
+  if (Input.consume('left')||Input.consume('up')){ Sys.menuIdx=(Sys.menuIdx-1+items)%items; AudioSys.sfx('move'); }
+
+  // 游戏卡片 2x2
+  const cw=104, ch=46;
+  GAMES.forEach((g,i)=>{
+    const x=10+(i%2)*(cw+12), y=30+((i/2)|0)*(ch+8);
+    const sel = Sys.menuIdx===i;
+    rect(x-2,y-2,cw+4,ch+4, sel?g.color:'transparent');
+    rect(x,y,cw,ch, sel?'#2e2952':'#242044');
+    g.icon(x+4,y+8);
+    cnText(g.title,x+40,y+8, sel?'#fff':'#bbb',10,'left',sel);
+    text(g.sub,x+40,y+22,'#7d75b0',6);
+    text('HI '+Save.hi(g.id),x+40,y+32,'#ffd54f',7);
+  });
+  // 设置项
+  const sy=30+2*(ch+8)+2;
+  const selS = Sys.menuIdx===items-1;
+  rect(8,sy-2,224+4,18+4, selS?'#ffd54f':'transparent');
+  rect(10,sy,224,18, selS?'#2e2952':'#242044');
+  cnText('⚙ 系统设置',120,sy+4,selS?'#fff':'#bbb',9,'center',selS);
+
+  if (Input.consume('a')||Input.consume('start')){
+    AudioSys.sfx('ok');
+    if (Sys.menuIdx===items-1){ Sys.state='settings'; Sys.setIdx=0; }
+    else {
+      const g=GAMES[Sys.menuIdx];
+      Sys.game=g.make(); Sys.gameId=g.id; Sys.state='game';
+    }
+    Input.flush();
+  }
+}
+
+const SETTING_ITEMS = ['音量','屏幕色调','亮度','清除所有存档','返回主菜单'];
+function drawSettings(){
+  rect(0,0,W,H,'#1c1936');
+  rect(0,0,W,22,'#141128');
+  cnText('系统设置',6,6,'#ffd54f',10,'left',true);
+  cnText('B 返回',234,7,'#8f86c9',8,'right');
+
+  if (Input.consume('down')){ Sys.setIdx=(Sys.setIdx+1)%SETTING_ITEMS.length; AudioSys.sfx('move'); }
+  if (Input.consume('up')){ Sys.setIdx=(Sys.setIdx-1+SETTING_ITEMS.length)%SETTING_ITEMS.length; AudioSys.sfx('move'); }
+
+  SETTING_ITEMS.forEach((it,i)=>{
+    const y=34+i*22, sel=Sys.setIdx===i;
+    if (sel) rect(8,y-4,224,18,'#2e2952');
+    cnText((sel?'▶ ':'  ')+it, 14,y, sel?'#fff':'#999',9,'left',sel);
+    if (i===0){ // 音量条
+      for(let v=0;v<10;v++) rect(130+v*9,y+1,7,8, v<Sys.volume?'#4dff6a':'#3a3355');
+    }
+    if (i===1) cnText('◀ '+PALETTES[Sys.palette].name+' ▶',180,y,'#90caf9',9,'center');
+    if (i===2){ for(let v=0;v<5;v++) rect(150+v*12,y+1,10,8, v<Math.round(Sys.brightness*5)?'#ffd54f':'#3a3355'); }
+  });
+  cnText('模拟电量：'+Math.round(Sys.battery)+'%（每秒消耗，归零自动关机）',120,146,'#665f95',8,'center');
+
+  const chg = dir=>{
+    if (Sys.setIdx===0){ Sys.volume=Math.max(0,Math.min(10,Sys.volume+dir)); AudioSys.volume=Sys.volume/10; AudioSys.sfx('ok'); }
+    if (Sys.setIdx===1){ Sys.palette=(Sys.palette+dir+PALETTES.length)%PALETTES.length; AudioSys.sfx('move'); }
+    if (Sys.setIdx===2){ Sys.brightness=Math.max(0.2,Math.min(1,+(Sys.brightness+dir*0.2).toFixed(1))); AudioSys.sfx('move'); }
+    Save.data.settings={volume:Sys.volume,palette:Sys.palette,brightness:Sys.brightness}; Save.save();
+  };
+  if (Input.consume('left')) chg(-1);
+  if (Input.consume('right')) chg(1);
+  if (Input.consume('a')){
+    if (Sys.setIdx===3){ Save.data.hiscores={}; Save.save(); AudioSys.sfx('back'); }
+    if (Sys.setIdx===4){ Sys.state='menu'; AudioSys.sfx('back'); }
+    if (Sys.setIdx<3) chg(1);
+  }
+  if (Input.consume('b')||Input.consume('select')){ Sys.state='menu'; AudioSys.sfx('back'); Input.flush(); }
+}
+
+const PAUSE_ITEMS=['继续游戏','重新开始','返回主菜单'];
+function drawPause(){
+  Sys.game.draw();
+  rect(0,0,W,H,'rgba(0,0,10,.72)');
+  rect(60,38,120,84,'#1c1936'); rect(60,38,120,16,'#141128');
+  cnText('暂停',120,41,'#ffd54f',10,'center',true);
+  if (Input.consume('down')){ Sys.pauseIdx=(Sys.pauseIdx+1)%3; AudioSys.sfx('move'); }
+  if (Input.consume('up')){ Sys.pauseIdx=(Sys.pauseIdx+2)%3; AudioSys.sfx('move'); }
+  PAUSE_ITEMS.forEach((it,i)=>{
+    const sel=Sys.pauseIdx===i;
+    if(sel) rect(66,60+i*18-2,108,14,'#2e2952');
+    cnText((sel?'▶ ':'')+it,120,60+i*18,sel?'#fff':'#999',9,'center',sel);
+  });
+  if (Input.consume('start')||Input.consume('b')){ Sys.state='game'; AudioSys.sfx('pause'); Input.flush(); }
+  else if (Input.consume('a')){
+    AudioSys.sfx('ok');
+    if (Sys.pauseIdx===0) Sys.state='game';
+    if (Sys.pauseIdx===1){ const g=GAMES.find(g=>g.id===Sys.gameId); Sys.game=g.make(); Sys.state='game'; }
+    if (Sys.pauseIdx===2){ Sys.game=null; Sys.state='menu'; }
+    Input.flush();
+  }
+  if (Input.consume('select')){ Sys.game=null; Sys.state='menu'; AudioSys.sfx('back'); Input.flush(); }
+}
+
+/* ---------------- 后期滤镜（色调/亮度） ---------------- */
+function applyFilter(){
+  const pal=PALETTES[Sys.palette];
+  if (!pal.filter && Sys.brightness>=1) return;
+  const img=ctx.getImageData(0,0,W,H), d=img.data;
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i],g=d[i+1],b=d[i+2];
+    if (pal.filter){ [r,g,b]=pal.filter(r,g,b); }
+    d[i]=r*Sys.brightness; d[i+1]=g*Sys.brightness; d[i+2]=b*Sys.brightness;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+/* ---------------- 低电量提示 ---------------- */
+function drawBatteryWarn(){
+  if (Sys.battery<15 && (Sys.frame>>5)%2===0 && Sys.state!=='boot'){
+    rect(W-60,H-14,56,11,'rgba(0,0,0,.7)');
+    cnText('电量不足!',W-32,H-12,'#ff5252',7,'center',true);
+  }
+}
+
+/* ---------------- 主循环 ---------------- */
+let last=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  if (t-last < 1000/60) return;
+  last=t;
+  Sys.frame++;
+  if (!Sys.on){ return; }
+
+  switch (Sys.state){
+    case 'boot': drawBoot(); break;
+    case 'menu': drawMenu(); break;
+    case 'settings': drawSettings(); break;
+    case 'game':
+      if (Input.consume('start')){ Sys.state='pause'; Sys.pauseIdx=0; AudioSys.sfx('pause'); Input.flush(); break; }
+      Sys.game.update();
+      Sys.game.draw();
+      break;
+    case 'pause': drawPause(); break;
+  }
+  drawBatteryWarn();
+  applyFilter();
+  Input.flush();
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

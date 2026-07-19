@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SPH 3D 流体模拟</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #060a14; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: #cfe9ff; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  #panel {
+    position: fixed; top: 12px; left: 12px; width: 292px; z-index: 10;
+    background: rgba(8, 16, 30, 0.78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(77, 216, 255, 0.22); border-radius: 14px;
+    padding: 14px 16px; max-height: calc(100vh - 24px); overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  #panel h1 { font-size: 16px; font-weight: 600; color: #4dd8ff; letter-spacing: 1px; margin-bottom: 10px; }
+  #panel h1 small { color: #6c88a6; font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .sec { font-size: 11px; color: #6c88a6; margin: 10px 0 6px; letter-spacing: 2px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  button {
+    flex: 1; min-width: 60px; padding: 7px 4px; font-size: 12px; color: #cfe9ff;
+    background: rgba(77, 216, 255, 0.10); border: 1px solid rgba(77, 216, 255, 0.30);
+    border-radius: 8px; cursor: pointer; transition: background 0.15s; font-family: inherit;
+  }
+  button:hover { background: rgba(77, 216, 255, 0.22); }
+  button:active { background: rgba(77, 216, 255, 0.35); }
+  button.on { background: rgba(77, 216, 255, 0.38); border-color: #4dd8ff; color: #fff; }
+  button.warn { border-color: rgba(255, 160, 80, 0.4); background: rgba(255, 160, 80, 0.10); }
+  button.warn:hover { background: rgba(255, 160, 80, 0.22); }
+  .slider { margin-bottom: 8px; }
+  .slider .lab { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #a8c8e8; }
+  .slider .lab b { color: #4dd8ff; font-weight: 600; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; height: 22px; -webkit-appearance: none; background: transparent; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(77,216,255,0.25); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #4dd8ff; margin-top: -5px; box-shadow: 0 0 8px rgba(77,216,255,0.8); cursor: pointer;
+  }
+  .toggles { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; margin: 4px 0; }
+  .toggles label { display: flex; align-items: center; gap: 4px; cursor: pointer; color: #a8c8e8; }
+  .toggles input { accent-color: #4dd8ff; }
+
+  #stats {
+    position: fixed; top: 12px; right: 12px; z-index: 10; text-align: right;
+    background: rgba(8, 16, 30, 0.7); backdrop-filter: blur(10px);
+    border: 1px solid rgba(77, 216, 255, 0.18); border-radius: 10px;
+    padding: 8px 12px; font-size: 12px; line-height: 1.7; color: #a8c8e8;
+    font-variant-numeric: tabular-nums;
+  }
+  #stats b { color: #4dd8ff; }
+
+  #hint {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 10;
+    font-size: 12px; color: #6c88a6; background: rgba(8,16,30,0.6); backdrop-filter: blur(8px);
+    padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(77,216,255,0.12);
+    white-space: nowrap;
+  }
+  #panelToggle {
+    position: fixed; top: 12px; left: 12px; z-index: 11; width: 38px; height: 38px; min-width: 0;
+    display: none; font-size: 18px; flex: none; border-radius: 10px;
+    background: rgba(8, 16, 30, 0.8);
+  }
+  @media (max-width: 700px) {
+    #panel { display: none; width: min(292px, calc(100vw - 24px)); top: 56px; }
+    #panel.show { display: block; }
+    #panelToggle { display: block; }
+    #hint { display: none; }
+    #stats { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<button id="panelToggle">⚙</button>
+<div id="panel">
+  <h1>SPH 流体模拟<small>3D 光滑粒子流体动力学</small></h1>
+
+  <div class="sec">场 景 预 设</div>
+  <div class="row">
+    <button id="pDam" class="on">溃坝</button>
+    <button id="pDrop">水滴</button>
+    <button id="pTwin">双水墙</button>
+    <button id="pPool">浅池</button>
+  </div>
+
+  <div class="sec">渲 染 模 式</div>
+  <div class="row">
+    <button id="rParticle" class="on">粒子</button>
+    <button id="rWater">真实水面</button>
+  </div>
+
+  <div class="sec">物 理 参 数</div>
+  <div class="slider"><div class="lab"><span>刚度（声速）</span><b id="vStiff"></b></div>
+    <input type="range" id="sStiff" min="30" max="120" step="5" value="50"></div>
+  <div class="slider"><div class="lab"><span>粘度</span><b id="vVisc"></b></div>
+    <input type="range" id="sVisc" min="0" max="1.5" step="0.01" value="0.15"></div>
+  <div class="slider"><div class="lab"><span>重力</span><b id="vGrav"></b></div>
+    <input type="range" id="sGrav" min="0" max="80" step="1" value="40"></div>
+  <div class="slider"><div class="lab"><span>时间步长</span><b id="vDt"></b></div>
+    <input type="range" id="sDt" min="0.001" max="0.008" step="0.0005" value="0.0045"></div>
+  <div class="slider"><div class="lab"><span>每帧子步数</span><b id="vSub"></b></div>
+    <input type="range" id="sSub" min="1" max="5" step="1" value="3"></div>
+  <div class="slider"><div class="lab"><span>粒子大小（视觉）</span><b id="vSize"></b></div>
+    <input type="range" id="sSize" min="0.15" max="0.55" step="0.01" value="0.30"></div>
+
+  <div class="sec">交 互</div>
+  <div class="row">
+    <button id="btnPause">⏸ 暂停</button>
+    <button id="btnReset" class="warn">↺ 重置</button>
+  </div>
+  <div class="row">
+    <button id="btnAdd">💧 按住加水</button>
+    <button id="btnDrain">🕳 按住排水</button>
+  </div>
+  <div class="toggles">
+    <label><input type="checkbox" id="chkShake"> 摇晃容器</label>
+    <label><input type="checkbox" id="chkWave"> 造浪机</label>
+    <label><input type="checkbox" id="chkStir"> 单指搅水</label>
+  </div>
+</div>
+
+<div id="stats">
+  FPS <b id="stFps">--</b><br>
+  粒子 <b id="stN">0</b><br>
+  物理 <b id="stMs">--</b> ms
+</div>
+<div id="hint">左键拖动旋转 · 滚轮缩放 · 右键 / Shift+左键 搅水 · 空格暂停 · R 重置</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  if (!window.THREE) { alert('Three.js 加载失败，请检查网络'); return; }
+
+  // ================= SPH 常量与数据 =================
+  var H = 1.0, H2 = H * H;                 // 光滑核半径
+  var SPACING = 0.5;                        // 初始粒子间距
+  var MASS = 0.125;                         // = rho0 * spacing^3
+  var RHO0 = 1.0;                           // 静止密度
+  var POLY6 = 315 / (64 * Math.PI);         // h=1 归一化
+  var SPIKY = 45 / Math.PI;
+  var VLAP = 45 / Math.PI;
+
+  var X0 = -8, X1 = 8, Y0 = 0, Y1 = 12, Z0 = -4, Z1 = 4;   // 容器
+  var GX = 16, GY = 12, GZ = 8, NCELL = GX * GY * GZ;
+
+  var MAXN = 10000, MAXNB = 80;
+
+  var px = new Float32Array(MAXN), py = new Float32Array(MAXN), pz = new Float32Array(MAXN);
+  var vx = new Float32Array(MAXN), vy = new Float32Array(MAXN), vz = new Float32Array(MAXN);
+  var bpx = new Float32Array(MAXN), bpy = new Float32Array(MAXN), bpz = new Float32Array(MAXN);
+  var bvx = new Float32Array(MAXN), bvy = new Float32Array(MAXN), bvz = new Float32Array(MAXN);
+  var rho = new Float32Array(MAXN), pr2 = new Float32Array(MAXN), irho = new Float32Array(MAXN);
+  var pcell = new Uint16Array(MAXN);
+  var cellStart = new Uint32Array(NCELL + 1);
+  var cellCursor = new Uint32Array(NCELL);
+  var nbr = new Int32Array(MAXN * MAXNB);
+  var nbrCnt = new Uint8Array(MAXN);
+  var N = 0;
+  var XSPH = 0.4;   // 速度平滑系数，抑制粒子抖动
+
+  // 可调参数
+  var params = {
+    stiff: 50, visc: 0.15, grav: 40, dt: 0.0045, sub: 3, size: 0.30
+  };
+
+  var simT = 0, paused = false;
+  var shakeOn = false, waveOn = false;
+  var waveX = X0, waveV = 0;
+  var stir = { active: false, x: 0, y: 2, z: 0, vx: 0, vy: 0, vz: 0 };
+
+  // ================= 粒子生成 =================
+  function addParticle(x, y, z, vx0, vy0, vz0) {
+    if (N >= MAXN) return;
+    var j = 0.02;
+    px[N] = x + (Math.random() - 0.5) * j;
+    py[N] = y + (Math.random() - 0.5) * j;
+    pz[N] = z + (Math.random() - 0.5) * j;
+    vx[N] = vx0 || 0; vy[N] = vy0 || 0; vz[N] = vz0 || 0;
+    N++;
+  }
+  function spawnBox(x0, x1, y0, y1, z0, z1) {
+    for (var x = x0 + SPACING / 2; x < x1; x += SPACING)
+      for (var y = y0 + SPACING / 2; y < y1; y += SPACING)
+        for (var z = z0 + SPACING / 2; z < z1; z += SPACING)
+          addParticle(x, y, z, 0, 0, 0);
+  }
+  function spawnSphere(cx, cy, cz, r) {
+    for (var x = cx - r; x <= cx + r; x += SPACING)
+      for (var y = cy - r; y <= cy + r; y += SPACING)
+        for (var z = cz - r; z <= cz + r; z += SPACING) {
+          var dx = x - cx, dy = y - cy, dz = z - cz;
+          if (dx * dx + dy * dy + dz * dz <= r * r) addParticle(x, y, z, 0, 0, 0);
+        }
+  }
+
+  var currentPreset = 'dam';
+  function loadPreset(name) {
+    N = 0; simT = 0; currentPreset = name;
+    if (name === 'dam') {
+      spawnBox(X0 + 0.1, -1.5, Y0, 8, Z0 + 0.1, Z1 - 0.1);
+    } else if (name === 'drop') {
+      spawnBox(X0 + 0.1, X1 - 0.1, Y0, 1.6, Z0 + 0.1, Z1 - 0.1);
+      spawnSphere(0, 8, 0, 2.2);
+    } else if (name === 'twin') {
+      spawnBox(X0 + 0.1, -3.8, Y0, 8, Z0 + 0.1, Z1 - 0.1);
+      spawnBox(3.8, X1 - 0.1, Y0, 8, Z0 + 0.1, Z1 - 0.1);
+    } else if (name === 'pool') {
+      spawnBox(X0 + 0.1, X1 - 0.1, Y0, 3.2, Z0 + 0.1, Z1 - 0.1);
+    }
+  }
+
+  // ================= 邻居网格（计数排序 + 内存重排，提升缓存命中） =================
+  function buildGrid() {
+    var PX = px, PY = py, PZ = pz, VX = vx, VY = vy, VZ = vz;
+    var BX = bpx, BY = bpy, BZ = bpz, BVX = bvx, BVY = bvy, BVZ = bvz;
+    var i, c, k, ix, iy, iz;
+    for (c = 0; c < NCELL; c++) cellCursor[c] = 0;
+    for (i = 0; i < N; i++) {
+      ix = (PX[i] - X0) | 0; if (ix < 0) ix = 0; else if (ix >= GX) ix = GX - 1;
+      iy = (PY[i] - Y0) | 0; if (iy < 0) iy = 0; else if (iy >= GY) iy = GY - 1;
+      iz = (PZ[i] - Z0) | 0; if (iz < 0) iz = 0; else if (iz >= GZ) iz = GZ - 1;
+      c = ix + GX * (iy + GY * iz);
+      pcell[i] = c;
+      cellCursor[c]++;
+    }
+    var sum = 0;
+    for (c = 0; c < NCELL; c++) { cellStart[c] = sum; sum += cellCursor[c]; cellCursor[c] = cellStart[c]; }
+    cellStart[NCELL] = sum;
+    for (i = 0; i < N; i++) {
+      k = cellCursor[pcell[i]]++;
+      BX[k] = PX[i]; BY[k] = PY[i]; BZ[k] = PZ[i];
+      BVX[k] = VX[i]; BVY[k] = VY[i]; BVZ[k] = VZ[i];
+    }
+    var t;
+    t = px; px = bpx; bpx = t; t = py; py = bpy; bpy = t; t = pz; pz = bpz; bpz = t;
+    t = vx; vx = bvx; bvx = t; t = vy; vy = bvy; bvy = t; t = vz; vz = bvz; bvz = t;
+  }
+
+  // ================= 密度 + 邻居表（粒子已按网格排序，x 向单元连续合并遍历） =================
+  function computeDensity() {
+    var PX = px, PY = py, PZ = pz, RHO = rho, PR2 = pr2, IRHO = irho, NBR = nbr, CNT = nbrCnt, CS = cellStart;
+    var i, k, kEnd, yy, zz, c0;
+    var xi, yi, zi, dx, dy, dz, r2, w, d, nb, base;
+    var ix, iy, iz, x0c, y0c, z0c, x1c, y1c, z1c, xspan;
+    var B = params.stiff * params.stiff * RHO0 / 7;   // Tait: B = c0^2 * rho0 / 7
+    for (i = 0; i < N; i++) {
+      xi = PX[i]; yi = PY[i]; zi = PZ[i];
+      ix = (xi - X0) | 0; if (ix < 0) ix = 0; else if (ix >= GX) ix = GX - 1;
+      iy = (yi - Y0) | 0; if (iy < 0) iy = 0; else if (iy >= GY) iy = GY - 1;
+      iz = (zi - Z0) | 0; if (iz < 0) iz = 0; else if (iz >= GZ) iz = GZ - 1;
+      x0c = ix > 0 ? ix - 1 : 0; x1c = ix < GX - 1 ? ix + 1 : GX - 1;
+      y0c = iy > 0 ? iy - 1 : 0; y1c = iy < GY - 1 ? iy + 1 : GY - 1;
+      z0c = iz > 0 ? iz - 1 : 0; z1c = iz < GZ - 1 ? iz + 1 : GZ - 1;
+      xspan = x1c - x0c + 1;
+      d = H2 * H2 * H2;   // 自身贡献 (h^2)^3
+      nb = 0; base = i * MAXNB;
+      for (zz = z0c; zz <= z1c; zz++)
+        for (yy = y0c; yy <= y1c; yy++) {
+          c0 = x0c + GX * (yy + GY * zz);
+          k = CS[c0]; kEnd = CS[c0 + xspan];
+          for (; k < kEnd; k++) {
+            if (k === i) continue;
+            dx = xi - PX[k]; dy = yi - PY[k]; dz = zi - PZ[k];
+            r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 < H2) {
+              w = H2 - r2;
+              d += w * w * w;
+              if (nb < MAXNB) { NBR[base + nb] = k; nb++; }
+            }
+          }
+        }
+      CNT[i] = nb;
+      d *= MASS * POLY6;
+      RHO[i] = d;
+      var ir = 1 / d;
+      IRHO[i] = ir;
+      var rr = d / RHO0, rr2 = rr * rr, rr4 = rr2 * rr2;
+      w = B * (rr4 * rr2 * rr - 1);   // Tait EOS, gamma = 7
+      PR2[i] = w > 0 ? w * ir * ir : 0;   // p / rho^2 预除
+    }
+  }
+
+  // ================= 力 + XSPH + 积分 + 边界（读前缓冲，写后缓冲） =================
+  function computeForcesAndIntegrate(dt) {
+    var PX = px, PY = py, PZ = pz, VX = vx, VY = vy, VZ = vz;
+    var BX = bpx, BY = bpy, BZ = bpz, BVX = bvx, BVY = bvy, BVZ = bvz;
+    var PR2 = pr2, IRHO = irho, NBR = nbr, CNT = nbrCnt;
+    var i, j, k, base, nb;
+    var xi, yi, zi, vxi, vyi, vzi, dx, dy, dz, r2, r, t, f, lap;
+    var axi, ayi, azi, xvx, xvy, xvz, pi_r2, irhoi, invr, wp;
+    var visc = params.visc, g = params.grav;
+    var VISCM = visc * MASS * VLAP;
+    var XK = MASS * POLY6 * XSPH;
+    var gxv = 0, gyv = -g, gzv = 0;
+    if (shakeOn) {
+      var thz = 0.45 * Math.sin(simT * 1.7);
+      gxv = g * Math.sin(thz);
+      gyv = -g * Math.cos(thz);
+      gzv = g * 0.5 * Math.sin(simT * 1.15 + 1.0);
+    }
+    var vmax = 0.4 / dt, vmax2 = vmax * vmax;
+    var damp = -0.25, fric = 0.998;
+    var xlo = waveOn ? waveX + 0.05 : X0 + 0.05;
+    var xhi = X1 - 0.05, ylo = Y0 + 0.05, yhi = Y1 - 0.05, zlo = Z0 + 0.05, zhi = Z1 - 0.05;
+
+    var sOn = stir.active, sx = stir.x, sy = stir.y, sz = stir.z;
+    var svx = stir.vx, svy = stir.vy, svz = stir.vz;
+    var SR2 = 2.4 * 2.4;
+
+    for (i = 0; i < N; i++) {
+      xi = PX[i]; yi = PY[i]; zi = PZ[i];
+      vxi = VX[i]; vyi = VY[i]; vzi = VZ[i];
+      axi = gxv; ayi = gyv; azi = gzv;
+      xvx = 0; xvy = 0; xvz = 0;
+      irhoi = IRHO[i];
+      pi_r2 = PR2[i];
+      base = i * MAXNB; nb = CNT[i];
+      for (k = 0; k < nb; k++) {
+        j = NBR[base + k];
+        dx = xi - PX[j]; dy = yi - PY[j]; dz = zi - PZ[j];
+        r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 >= H2) continue;
+        r = Math.sqrt(r2);
+        if (r < 0.08) { r = 0.08; dx = 0.08 * (Math.random() - 0.5); dy = 0.08 * (Math.random() - 0.5); dz = 0.08 * (Math.random() - 0.5); }
+        t = H - r;
+        invr = 1 / r;
+        // 压力（动量对称形式，p/rho^2 已预除）
+        f = MASS * (pi_r2 + PR2[j]) * SPIKY * t * t * invr;
+        axi += f * dx; ayi += f * dy; azi += f * dz;
+        // 粘度 + XSPH 速度平滑
+        lap = VISCM * t * IRHO[j] * irhoi;
+        wp = H2 - r2;
+        wp = XK * wp * wp * wp * IRHO[j];
+        dx = VX[j] - vxi; dy = VY[j] - vyi; dz = VZ[j] - vzi;
+        axi += lap * dx; ayi += lap * dy; azi += lap * dz;
+        xvx += wp * dx; xvy += wp * dy; xvz += wp * dz;
+      }
+      vxi += axi * dt; vyi += ayi * dt; vzi += azi * dt;
+
+      // 搅水
+      if (sOn) {
+        dx = xi - sx; dy = yi - sy; dz = zi - sz;
+        r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 < SR2) {
+          f = (1 - r2 / SR2) * 0.35;
+          vxi += (svx - vxi) * f;
+          vyi += (svy - vyi) * f;
+          vzi += (svz - vzi) * f;
+        }
+      }
+
+      // 限速
+      r2 = vxi * vxi + vyi * vyi + vzi * vzi;
+      if (r2 > vmax2) { f = vmax / Math.sqrt(r2); vxi *= f; vyi *= f; vzi *= f; }
+
+      xi += (vxi + xvx) * dt; yi += (vyi + xvy) * dt; zi += (vzi + xvz) * dt;
+
+      // 边界
+      if (xi < xlo) {
+        xi = xlo;
+        if (waveOn) { if (vxi < waveV) vxi = waveV + (vxi - waveV) * damp; }
+        else if (vxi < 0) vxi *= damp;
+      } else if (xi > xhi) { xi = xhi; if (vxi > 0) vxi *= damp; }
+      if (yi < ylo) { yi = ylo; if (vyi < 0) vyi *= damp; vxi *= fric; vzi *= fric; }
+      else if (yi > yhi) { yi = yhi; if (vyi > 0) vyi *= damp; }
+      if (zi < zlo) { zi = zlo; if (vzi < 0) vzi *= damp; }
+      else if (zi > zhi) { zi = zhi; if (vzi > 0) vzi *= damp; }
+
+      // NaN 防护
+      if (xi !== xi || yi !== yi || zi !== zi) {
+        xi = (Math.random() - 0.5) * 4; yi = Y1 - 1; zi = (Math.random() - 0.5) * 4;
+        vxi = vyi = vzi = 0;
+      }
+
+      BX[i] = xi; BY[i] = yi; BZ[i] = zi;
+      BVX[i] = vxi; BVY[i] = vyi; BVZ[i] = vzi;
+    }
+    var tt;
+    tt = px; px = bpx; bpx = tt; tt = py; py = bpy; bpy = tt; tt = pz; pz = bpz; bpz = tt;
+    tt = vx; vx = bvx; bvx = tt; tt = vy; vy = bvy; bvy = tt; tt = vz; vz = bvz; bvz = tt;
+  }
+
+  function step(dt) {
+    if (waveOn) {
+      waveX = X0 + 2.6 * (0.5 + 0.5 * Math.sin(simT * 2.0));
+      waveV = 2.6 * Math.cos(simT * 2.0);
+    } else { waveX = X0; waveV = 0; }
+    buildGrid();
+    computeDensity();
+    computeForcesAndIntegrate(dt);
+    simT += dt;
+  }
+
+  // ================= Three.js 场景 =================
+  var canvas = document.getElementById('c');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x060a14);
+  scene.fog = new THREE.Fog(0x060a14, 55, 110);
+  var camera = new THREE.PerspectiveCamera(55, 1, 0.1, 300);
+
+  // 轨道相机（自实现）
+  var cam = { theta: 0.65, phi: 1.15, r: 30, target: new THREE.Vector3(0, 5, 0) };
+  function updateCamera() {
+    var sp = Math.sin(cam.phi), x = cam.r * sp * Math.sin(cam.theta), y = cam.r * Math.cos(cam.phi), z = cam.r * sp * Math.cos(cam.theta);
+    camera.position.set(cam.target.x + x, cam.target.y + y, cam.target.z + z);
+    camera.lookAt(cam.target);
+  }
+
+  // 容器
+  var boxGeo = new THREE.BoxGeometry(X1 - X0, Y1 - Y0, Z1 - Z0);
+  var boxMesh = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({
+    color: 0x224466, transparent: true, opacity: 0.10, side: THREE.BackSide, depthWrite: false
+  }));
+  boxMesh.position.set(0, (Y1 - Y0) / 2, 0);
+  scene.add(boxMesh);
+  var edges = new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo),
+    new THREE.LineBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.35 }));
+  edges.position.copy(boxMesh.position);
+  scene.add(edges);
+  var grid = new THREE.GridHelper(70, 35, 0x1a3a55, 0x0d2038);
+  grid.position.y = -0.02;
+  scene.add(grid);
+
+  // 造浪墙
+  var waveMesh = new THREE.Mesh(new THREE.PlaneGeometry(Z1 - Z0, Y1 - Y0),
+    new THREE.MeshBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }));
+  waveMesh.rotation.y = Math.PI / 2;
+  waveMesh.position.set(X0, (Y1 - Y0) / 2, 0);
+  waveMesh.visible = false;
+  scene.add(waveMesh);
+
+  // 搅水指示
+  var stirMarker = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.85 }));
+  stirMarker.visible = false;
+  scene.add(stirMarker);
+
+  // 粒子（点精灵球体着色）
+  var posAttr = new Float32Array(MAXN * 3);
+  var spdAttr = new Float32Array(MAXN);
+  var pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(posAttr, 3).setUsage(THREE.DynamicDrawUsage));
+  pGeo.setAttribute('aSpeed', new THREE.BufferAttribute(spdAttr, 1).setUsage(THREE.DynamicDrawUsage));
+  pGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 6, 0), 40);
+  var pMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uSize: { value: params.size * 2 },
+      uScale: { value: 600 }
+    },
+    vertexShader: [
+      'uniform float uSize;',
+      'uniform float uScale;',
+      'attribute float aSpeed;',
+      'varying float vSpeed;',
+      'void main(){',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  gl_PointSize = uSize * uScale / max(0.1, -mv.z);',
+      '  vSpeed = aSpeed;',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'varying float vSpeed;',
+      'void main(){',
+      '  vec2 uv = gl_PointCoord * 2.0 - 1.0;',
+      '  float r2 = dot(uv, uv);',
+      '  if (r2 > 1.0) discard;',
+      '  float z = sqrt(1.0 - r2);',
+      '  vec3 n = normalize(vec3(uv.x, -uv.y, z));',
+      '  vec3 L = normalize(vec3(0.4, 0.75, 0.55));',
+      '  float diff = max(dot(n, L), 0.0);',
+      '  float t = clamp(vSpeed / 14.0, 0.0, 1.0);',
+      '  vec3 deep = vec3(0.02, 0.22, 0.80);',
+      '  vec3 mid  = vec3(0.10, 0.60, 1.00);',
+      '  vec3 foam = vec3(0.88, 0.97, 1.00);',
+      '  vec3 base = t < 0.5 ? mix(deep, mid, t * 2.0) : mix(mid, foam, (t - 0.5) * 2.0);',
+      '  float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 36.0);',
+      '  float rim = pow(1.0 - z, 2.0) * 0.30;',
+      '  vec3 col = base * (0.35 + 0.75 * diff) + spec * 0.55 + rim * vec3(0.5, 0.8, 1.0);',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n')
+  });
+  var points = new THREE.Points(pGeo, pMat);
+  points.frustumCulled = false;
+  scene.add(points);
+
+  // ================= 屏幕空间水面渲染（深度平滑 + 法线重建 + 折射/反射） =================
+  var waterMode = false;
+  var ssf = null;
+  var LIGHT_W = new THREE.Vector3(0.5, 0.8, 0.45).normalize();
+  var WATER_R_MUL = 1.8;   // 深度/厚度 pass 的粒子半径放大，保证球体重叠成连续面
+
+  var FS_VERT = [
+    'varying vec2 vUv;',
+    'void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }'
+  ].join('\n');
+
+  var SPRITE_VERT = [
+    'uniform float uSize;',
+    'uniform float uScale;',
+    'varying float vDepth;',
+    'varying float vRadius;',
+    'void main(){',
+    '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+    '  float d = -mv.z;',
+    '  gl_PointSize = uSize * uScale / max(0.1, d);',
+    '  vDepth = d;',
+    '  vRadius = uSize * 0.5;',
+    '  gl_Position = projectionMatrix * mv;',
+    '}'
+  ].join('\n');
+
+  function initSSF() {
+    if (ssf) return true;
+    if (!renderer.capabilities.isWebGL2) return false;
+
+    function makeRT(w, h, useDepth) {
+      return new THREE.WebGLRenderTarget(w, h, {
+        type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+        minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+        depthBuffer: useDepth, stencilBuffer: false
+      });
+    }
+    var o = {};
+    o.w = 4; o.h = 4;
+    o.envRT = new THREE.WebGLRenderTarget(4, 4, { depthBuffer: true, stencilBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    o.depthRT = makeRT(4, 4, true);
+    o.rtA = makeRT(4, 4, false);
+    o.rtB = makeRT(4, 4, false);
+    o.thickRT = makeRT(4, 4, false);
+
+    o.depthMat = new THREE.ShaderMaterial({
+      uniforms: { uSize: { value: params.size * 2 * WATER_R_MUL }, uScale: { value: 600 } },
+      vertexShader: SPRITE_VERT,
+      fragmentShader: [
+        'varying float vDepth;',
+        'varying float vRadius;',
+        'void main(){',
+        '  vec2 uv = gl_PointCoord * 2.0 - 1.0;',
+        '  float r2 = dot(uv, uv);',
+        '  if (r2 > 1.0) discard;',
+        '  float d = vDepth - sqrt(1.0 - r2) * vRadius;',
+        '  gl_FragColor = vec4(d, 0.0, 0.0, 1.0);',
+        '}'
+      ].join('\n')
+    });
+    o.thickMat = new THREE.ShaderMaterial({
+      uniforms: { uSize: { value: params.size * 2 * WATER_R_MUL }, uScale: { value: 300 } },
+      vertexShader: SPRITE_VERT,
+      fragmentShader: [
+        'varying float vRadius;',
+        'void main(){',
+        '  vec2 uv = gl_PointCoord * 2.0 - 1.0;',
+        '  float r2 = dot(uv, uv);',
+        '  if (r2 > 1.0) discard;',
+        '  gl_FragColor = vec4(vRadius * 1.6 * sqrt(1.0 - r2), 0.0, 0.0, 1.0);',
+        '}'
+      ].join('\n'),
+      blending: THREE.AdditiveBlending, transparent: true,
+      depthTest: false, depthWrite: false
+    });
+
+    o.blurMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTex: { value: null }, uDir: { value: new THREE.Vector2(0, 0) },
+        uPxPerUnit: { value: 600 }, uWorldWidth: { value: 1.1 }, uDepthSig: { value: 0.55 }
+      },
+      vertexShader: FS_VERT,
+      fragmentShader: [
+        'uniform sampler2D uTex;',
+        'uniform vec2 uDir;',
+        'uniform float uPxPerUnit;',
+        'uniform float uWorldWidth;',
+        'uniform float uDepthSig;',
+        'varying vec2 vUv;',
+        'const int MAXR = 12;',
+        'void main(){',
+        '  float d0 = texture2D(uTex, vUv).r;',
+        '  if (d0 <= 0.0) { gl_FragColor = vec4(0.0); return; }',
+        '  float radPx = clamp(uWorldWidth * uPxPerUnit / d0, 1.0, float(MAXR));',
+        '  float sig2 = radPx * radPx * 0.25;',
+        '  float sum = d0, wsum = 1.0;',
+        '  for (int i = 1; i <= MAXR; i++) {',
+        '    float fi = float(i);',
+        '    if (fi > radPx) break;',
+        '    float wS = exp(-fi * fi / (2.0 * sig2));',
+        '    float dp = texture2D(uTex, vUv + uDir * fi).r;',
+        '    float dm = texture2D(uTex, vUv - uDir * fi).r;',
+        '    float ep = (dp - d0) / uDepthSig;',
+        '    float em = (dm - d0) / uDepthSig;',
+        '    float wp = dp > 0.0 ? wS * exp(-ep * ep) : 0.0;',
+        '    float wm = dm > 0.0 ? wS * exp(-em * em) : 0.0;',
+        '    sum += dp * wp + dm * wm;',
+        '    wsum += wp + wm;',
+        '  }',
+        '  gl_FragColor = vec4(sum / wsum, 0.0, 0.0, 1.0);',
+        '}'
+      ].join('\n')
+    });
+
+    o.compMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uDepth: { value: null }, uThick: { value: null }, uEnv: { value: null },
+        uTexel: { value: new THREE.Vector2(1 / 800, 1 / 600) },
+        uTanFov: { value: Math.tan(camera.fov * Math.PI / 360) },
+        uAspect: { value: 1 },
+        uCamRot: { value: new THREE.Matrix3() },
+        uLightView: { value: new THREE.Vector3(0, 1, 0) }
+      },
+      vertexShader: FS_VERT,
+      fragmentShader: [
+        'precision highp float;',
+        'uniform sampler2D uDepth;',
+        'uniform sampler2D uThick;',
+        'uniform sampler2D uEnv;',
+        'uniform vec2 uTexel;',
+        'uniform float uTanFov;',
+        'uniform float uAspect;',
+        'uniform mat3 uCamRot;',
+        'uniform vec3 uLightView;',
+        'varying vec2 vUv;',
+        'vec3 eyePos(vec2 uv, float d){',
+        '  vec2 ndc = uv * 2.0 - 1.0;',
+        '  return vec3(ndc.x * uTanFov * uAspect * d, ndc.y * uTanFov * d, -d);',
+        '}',
+        'void main(){',
+        '  vec3 env = texture2D(uEnv, vUv).rgb;',
+        '  float d = texture2D(uDepth, vUv).r;',
+        '  if (d <= 0.05) { gl_FragColor = vec4(env, 1.0); return; }',
+        '  vec2 tx = vec2(uTexel.x, 0.0), ty = vec2(0.0, uTexel.y);',
+        '  float dR = texture2D(uDepth, vUv + tx).r;',
+        '  float dL = texture2D(uDepth, vUv - tx).r;',
+        '  float dT = texture2D(uDepth, vUv + ty).r;',
+        '  float dB = texture2D(uDepth, vUv - ty).r;',
+        '  vec3 pC = eyePos(vUv, d);',
+        '  vec3 dpx = dR > 0.0 ? eyePos(vUv + tx, dR) - pC : pC - eyePos(vUv - tx, max(dL, d));',
+        '  vec3 dpx2 = dL > 0.0 ? pC - eyePos(vUv - tx, dL) : dpx;',
+        '  if (abs(dpx2.z) < abs(dpx.z)) dpx = dpx2;',
+        '  vec3 dpy = dT > 0.0 ? eyePos(vUv + ty, dT) - pC : pC - eyePos(vUv - ty, max(dB, d));',
+        '  vec3 dpy2 = dB > 0.0 ? pC - eyePos(vUv - ty, dB) : dpy;',
+        '  if (abs(dpy2.z) < abs(dpy.z)) dpy = dpy2;',
+        '  vec3 n = normalize(cross(dpx, dpy));',
+        '  if (n.z < 0.0) n = -n;',
+        '  float thick = texture2D(uThick, vUv).r;',
+        '  vec3 v = normalize(-pC);',
+        '  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);',
+        '  vec2 refrUv = vUv - n.xy * clamp(thick, 0.0, 2.0) * 0.05;',
+        '  vec3 refr = texture2D(uEnv, refrUv).rgb;',
+        '  vec3 absorb = exp(-vec3(0.42, 0.15, 0.075) * thick);',
+        '  float diff = 0.40 + 0.75 * max(dot(n, uLightView), 0.0);',
+        '  float back = 0.25 * max(dot(n, -uLightView), 0.0);',
+        '  vec3 body = vec3(0.10, 0.44, 0.62) * diff + vec3(0.04, 0.18, 0.26) * back;',
+        '  refr = refr * absorb + body * (1.0 - absorb);',
+        '  vec3 rdir = reflect(-v, n);',
+        '  vec3 rdirW = uCamRot * rdir;',
+        '  vec3 sky = mix(vec3(0.10, 0.16, 0.26), vec3(0.55, 0.75, 0.95), smoothstep(-0.3, 0.7, rdirW.y));',
+        '  float spec = pow(max(dot(rdir, uLightView), 0.0), 90.0);',
+        '  vec3 col = mix(refr, sky, fres * 0.9) + spec * vec3(1.0, 1.0, 0.95);',
+        '  float cover = smoothstep(0.04, 0.55, thick);',
+        '  gl_FragColor = vec4(mix(env, col, cover), 1.0);',
+        '}'
+      ].join('\n')
+    });
+
+    o.sceneDepth = new THREE.Scene();
+    o.pointsDepth = new THREE.Points(pGeo, o.depthMat);
+    o.pointsDepth.frustumCulled = false;
+    o.sceneDepth.add(o.pointsDepth);
+
+    o.sceneThick = new THREE.Scene();
+    o.pointsThick = new THREE.Points(pGeo, o.thickMat);
+    o.pointsThick.frustumCulled = false;
+    o.sceneThick.add(o.pointsThick);
+
+    o.fsScene = new THREE.Scene();
+    o.fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+    o.fsMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), o.blurMat);
+    o.fsMesh.frustumCulled = false;
+    o.fsScene.add(o.fsMesh);
+
+    ssf = o;
+    renderer.setClearColor(0x000000, 1);
+    resizeSSF();
+
+    // 检查半浮点渲染目标是否可用
+    var gl = renderer.getContext();
+    renderer.setRenderTarget(ssf.depthRT);
+    renderer.clear();
+    var ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    renderer.setRenderTarget(null);
+    if (!ok) { ssf = null; return false; }
+    return true;
+  }
+
+  function resizeSSF() {
+    if (!ssf) return;
+    var w = Math.max(2, Math.floor(window.innerWidth));
+    var h = Math.max(2, Math.floor(window.innerHeight));
+    ssf.w = w; ssf.h = h;
+    var db = new THREE.Vector2();
+    renderer.getDrawingBufferSize(db);
+    ssf.envRT.setSize(db.x, db.y);
+    ssf.depthRT.setSize(w, h);
+    ssf.rtA.setSize(w, h);
+    ssf.rtB.setSize(w, h);
+    ssf.thickRT.setSize(w >> 1, h >> 1);
+    var fovRad = camera.fov * Math.PI / 180;
+    var pxPerUnit = h / (2 * Math.tan(fovRad / 2));
+    ssf.depthMat.uniforms.uScale.value = pxPerUnit;
+    ssf.thickMat.uniforms.uScale.value = (h >> 1) / (2 * Math.tan(fovRad / 2));
+    ssf.blurMat.uniforms.uPxPerUnit.value = pxPerUnit;
+    ssf.compMat.uniforms.uTexel.value.set(1 / w, 1 / h);
+    ssf.compMat.uniforms.uAspect.value = w / h;
+    ssf.compMat.uniforms.uTanFov.value = Math.tan(fovRad / 2);
+  }
+
+  var _lightView = new THREE.Vector3();
+  function renderWater() {
+    var o = ssf;
+    points.visible = false;
+    renderer.setRenderTarget(o.envRT);
+    renderer.render(scene, camera);
+    points.visible = true;
+
+    renderer.setRenderTarget(o.depthRT);
+    renderer.render(o.sceneDepth, camera);
+
+    o.fsMesh.material = o.blurMat;
+    var src = o.depthRT;
+    for (var it = 0; it < 2; it++) {
+      o.blurMat.uniforms.uTex.value = src.texture;
+      o.blurMat.uniforms.uDir.value.set(1 / o.w, 0);
+      renderer.setRenderTarget(o.rtA);
+      renderer.render(o.fsScene, o.fsCam);
+
+      o.blurMat.uniforms.uTex.value = o.rtA.texture;
+      o.blurMat.uniforms.uDir.value.set(0, 1 / o.h);
+      renderer.setRenderTarget(o.rtB);
+      renderer.render(o.fsScene, o.fsCam);
+      src = o.rtB;
+    }
+
+    renderer.setRenderTarget(o.thickRT);
+    renderer.render(o.sceneThick, camera);
+
+    var u = o.compMat.uniforms;
+    u.uDepth.value = o.rtB.texture;
+    u.uThick.value = o.thickRT.texture;
+    u.uEnv.value = o.envRT.texture;
+    u.uCamRot.value.setFromMatrix4(camera.matrixWorld);
+    _lightView.copy(LIGHT_W).transformDirection(camera.matrixWorldInverse);
+    u.uLightView.value.copy(_lightView);
+    o.fsMesh.material = o.compMat;
+    renderer.setRenderTarget(null);
+    renderer.render(o.fsScene, o.fsCam);
+  }
+
+  function syncBuffers() {
+    for (var i = 0; i < N; i++) {
+      var i3 = i * 3;
+      posAttr[i3] = px[i]; posAttr[i3 + 1] = py[i]; posAttr[i3 + 2] = pz[i];
+      var s = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]);
+      spdAttr[i] = s;
+    }
+    pGeo.setDrawRange(0, N);
+    pGeo.attributes.position.needsUpdate = true;
+    pGeo.attributes.aSpeed.needsUpdate = true;
+  }
+
+  function resize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    var fovRad = camera.fov * Math.PI / 180;
+    pMat.uniforms.uScale.value = renderer.domElement.height / (2 * Math.tan(fovRad / 2));
+    resizeSSF();
+  }
+  window.addEventListener('resize', resize);
+
+  // ================= 交互 =================
+  var pointers = {};
+  var stirPointerId = null, orbitPointerId = null;
+  var lastStirPoint = null;
+  var pinchDist = 0;
+  var chkStir = document.getElementById('chkStir');
+
+  function screenRay(cx, cy) {
+    var ndc = new THREE.Vector2((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+    var rc = new THREE.Raycaster();
+    rc.setFromCamera(ndc, camera);
+    return rc.ray;
+  }
+  function stirPointFromScreen(cx, cy) {
+    var ray = screenRay(cx, cy);
+    var n = new THREE.Vector3();
+    camera.getWorldDirection(n);
+    var C = new THREE.Vector3(0, 3.5, 0);
+    var denom = ray.direction.dot(n);
+    if (Math.abs(denom) < 1e-5) return null;
+    var tt = C.clone().sub(ray.origin).dot(n) / denom;
+    if (tt < 0) return null;
+    var p = ray.origin.clone().addScaledVector(ray.direction, tt);
+    p.x = Math.max(X0 + 0.5, Math.min(X1 - 0.5, p.x));
+    p.y = Math.max(Y0 + 0.3, Math.min(Y1 - 0.5, p.y));
+    p.z = Math.max(Z0 + 0.5, Math.min(Z1 - 0.5, p.z));
+    return p;
+  }
+  function beginStir(e) {
+    stirPointerId = e.pointerId;
+    var p = stirPointFromScreen(e.clientX, e.clientY);
+    if (p) {
+      stir.active = true;
+      stir.x = p.x; stir.y = p.y; stir.z = p.z;
+      stir.vx = stir.vy = stir.vz = 0;
+      lastStirPoint = { p: p, t: performance.now() };
+    }
+  }
+  function endStir() {
+    stirPointerId = null;
+    stir.active = false;
+    lastStirPoint = null;
+  }
+
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  canvas.addEventListener('pointerdown', function (e) {
+    canvas.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var ids = Object.keys(pointers);
+    if (e.pointerType === 'touch') {
+      if (ids.length === 2) {
+        endStir(); orbitPointerId = null;
+        var a = pointers[ids[0]], b = pointers[ids[1]];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      } else if (ids.length === 1) {
+        if (chkStir.checked) beginStir(e);
+        else orbitPointerId = e.pointerId;
+      }
+    } else {
+      if (e.button === 2 || e.shiftKey) beginStir(e);
+      else if (e.button === 0) orbitPointerId = e.pointerId;
+    }
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    var prev = pointers[e.pointerId];
+    if (!prev) return;
+    var dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var ids = Object.keys(pointers);
+    if (ids.length === 2 && e.pointerType === 'touch') {
+      var a = pointers[ids[0]], b = pointers[ids[1]];
+      var d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDist > 0) {
+        cam.r *= pinchDist / d;
+        cam.r = Math.max(10, Math.min(70, cam.r));
+      }
+      pinchDist = d;
+      return;
+    }
+    if (e.pointerId === orbitPointerId) {
+      cam.theta -= dx * 0.005;
+      cam.phi -= dy * 0.005;
+      cam.phi = Math.max(0.15, Math.min(1.5, cam.phi));
+    } else if (e.pointerId === stirPointerId && stir.active) {
+      var p = stirPointFromScreen(e.clientX, e.clientY);
+      if (p && lastStirPoint) {
+        var now = performance.now();
+        var dt = Math.max(0.008, (now - lastStirPoint.t) / 1000);
+        var svx = (p.x - stir.x) / dt, svy = (p.y - stir.y) / dt, svz = (p.z - stir.z) / dt;
+        var sm = Math.sqrt(svx * svx + svy * svy + svz * svz);
+        var cap = 38;
+        if (sm > cap) { svx *= cap / sm; svy *= cap / sm; svz *= cap / sm; }
+        stir.vx = stir.vx * 0.5 + svx * 0.5;
+        stir.vy = stir.vy * 0.5 + svy * 0.5;
+        stir.vz = stir.vz * 0.5 + svz * 0.5;
+        stir.x = p.x; stir.y = p.y; stir.z = p.z;
+        lastStirPoint = { p: p, t: now };
+      }
+    }
+  });
+  function pointerUp(e) {
+    delete pointers[e.pointerId];
+    if (e.pointerId === orbitPointerId) orbitPointerId = null;
+    if (e.pointerId === stirPointerId) endStir();
+    if (Object.keys(pointers).length < 2) pinchDist = 0;
+  }
+  canvas.addEventListener('pointerup', pointerUp);
+  canvas.addEventListener('pointercancel', pointerUp);
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    cam.r *= Math.exp(e.deltaY * 0.0012);
+    cam.r = Math.max(10, Math.min(70, cam.r));
+  }, { passive: false });
+
+  // ================= UI =================
+  function $(id) { return document.getElementById(id); }
+  var btnPause = $('btnPause');
+
+  function bindSlider(sid, vid, key, fmt) {
+    var s = $(sid), v = $(vid);
+    function upd() {
+      params[key] = parseFloat(s.value);
+      v.textContent = fmt(params[key]);
+      if (key === 'size') {
+        pMat.uniforms.uSize.value = params.size * 2;
+        if (ssf) {
+          ssf.depthMat.uniforms.uSize.value = params.size * 2 * WATER_R_MUL;
+          ssf.thickMat.uniforms.uSize.value = params.size * 2 * WATER_R_MUL;
+        }
+      }
+    }
+    s.addEventListener('input', upd);
+    upd();
+  }
+  bindSlider('sStiff', 'vStiff', 'stiff', function (x) { return x.toFixed(0); });
+  bindSlider('sVisc', 'vVisc', 'visc', function (x) { return x.toFixed(2); });
+  bindSlider('sGrav', 'vGrav', 'grav', function (x) { return x.toFixed(0); });
+  bindSlider('sDt', 'vDt', 'dt', function (x) { return x.toFixed(4); });
+  bindSlider('sSub', 'vSub', 'sub', function (x) { return x.toFixed(0); });
+  bindSlider('sSize', 'vSize', 'size', function (x) { return x.toFixed(2); });
+
+  var presetBtns = { dam: $('pDam'), drop: $('pDrop'), twin: $('pTwin'), pool: $('pPool') };
+  function selectPreset(name) {
+    loadPreset(name);
+    for (var k in presetBtns) presetBtns[k].classList.toggle('on', k === name);
+    if (name === 'pool' && !waveOn) { $('chkWave').checked = true; setWave(true); }
+  }
+  presetBtns.dam.onclick = function () { selectPreset('dam'); };
+  presetBtns.drop.onclick = function () { selectPreset('drop'); };
+  presetBtns.twin.onclick = function () { selectPreset('twin'); };
+  presetBtns.pool.onclick = function () { selectPreset('pool'); };
+
+  var btnRP = $('rParticle'), btnRW = $('rWater');
+  function setWaterMode(w) {
+    if (w && !initSSF()) {
+      alert('当前浏览器不支持水面渲染（需要 WebGL2 + 半浮点渲染目标）');
+      return;
+    }
+    waterMode = w;
+    btnRP.classList.toggle('on', !w);
+    btnRW.classList.toggle('on', w);
+  }
+  btnRP.onclick = function () { setWaterMode(false); };
+  btnRW.onclick = function () { setWaterMode(true); };
+
+  function setPaused(p) {
+    paused = p;
+    btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+    btnPause.classList.toggle('on', paused);
+  }
+  btnPause.onclick = function () { setPaused(!paused); };
+  $('btnReset').onclick = function () { loadPreset(currentPreset); };
+
+  var adding = false, draining = false;
+  function holdButton(btn, setter) {
+    var on = function (e) { e.preventDefault(); setter(true); btn.classList.add('on'); };
+    var off = function () { setter(false); btn.classList.remove('on'); };
+    btn.addEventListener('pointerdown', on);
+    btn.addEventListener('pointerup', off);
+    btn.addEventListener('pointerleave', off);
+    btn.addEventListener('pointercancel', off);
+  }
+  holdButton($('btnAdd'), function (v) { adding = v; });
+  holdButton($('btnDrain'), function (v) { draining = v; });
+
+  $('chkShake').addEventListener('change', function () { shakeOn = this.checked; });
+  function setWave(v) { waveOn = v; waveMesh.visible = v; }
+  $('chkWave').addEventListener('change', function () { setWave(this.checked); });
+
+  $('panelToggle').onclick = function () {
+    document.getElementById('panel').classList.toggle('show');
+  };
+
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space') { e.preventDefault(); setPaused(!paused); }
+    else if (e.code === 'KeyR') loadPreset(currentPreset);
+  });
+
+  // ================= 主循环 =================
+  var stFps = $('stFps'), stN = $('stN'), stMs = $('stMs');
+  var lastT = performance.now(), fpsEma = 60, msEma = 0, statT = 0;
+
+  function emit() {
+    if (adding) {
+      for (var k = 0; k < 12 && N < MAXN; k++) {
+        var a = Math.random() * Math.PI * 2, rr = Math.random() * 0.9;
+        addParticle(Math.cos(a) * rr, Y1 - 1.2, Math.sin(a) * rr, (Math.random() - 0.5) * 2, -7, (Math.random() - 0.5) * 2);
+      }
+    }
+    if (draining && N > 0) N = Math.max(0, N - 14);
+  }
+
+  function animate(t) {
+    requestAnimationFrame(animate);
+    var frameDt = Math.min((t - lastT) / 1000, 0.05);
+    lastT = t;
+    if (frameDt > 0) fpsEma += (1 / frameDt - fpsEma) * 0.05;
+
+    if (!paused) {
+      emit();
+      var t0 = performance.now();
+      var sub = params.sub | 0;
+      for (var s = 0; s < sub; s++) step(params.dt);
+      msEma += (performance.now() - t0 - msEma) * 0.1;
+    }
+
+    waveMesh.position.x = waveX;
+    stirMarker.visible = stir.active;
+    if (stir.active) stirMarker.position.set(stir.x, stir.y, stir.z);
+
+    syncBuffers();
+    updateCamera();
+    if (waterMode && ssf) {
+      renderWater();
+    } else {
+      points.visible = true;
+      renderer.render(scene, camera);
+    }
+
+    statT += frameDt;
+    if (statT > 0.25) {
+      statT = 0;
+      stFps.textContent = fpsEma.toFixed(0);
+      stN.textContent = N;
+      stMs.textContent = msEma.toFixed(1);
+    }
+  }
+
+  // ================= 启动 =================
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1);
+  if (isMobile) {
+    $('sSub').value = '2';
+    $('sSub').dispatchEvent(new Event('input'));
+    selectPreset('drop');
+  } else {
+    selectPreset('dam');
+  }
+  resize();
+  updateCamera();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
