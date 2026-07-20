@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>华强买瓜 · 像素挑瓜指南</title>
+<style>
+  @font-face {
+    font-family: 'Zpix';
+    src: url('zpix.ttf') format('truetype');
+    font-display: swap;
+  }
+  :root {
+    --ink: #0d1f0c;
+    --panel: #1e3a1a;
+    --panel2: #16290f;
+    --paper: #f5eeda;
+    --red: #e53935;
+    --red-dk: #8e1b1b;
+    --green: #4caf50;
+    --green-dk: #1b5e20;
+    --yellow: #ffd54f;
+    --sky: #7ec8e3;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { image-rendering: pixelated; }
+  body {
+    font-family: 'Zpix', 'Courier New', monospace;
+    background: #101f0e;
+    background-image:
+      radial-gradient(rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 4px 4px;
+    color: var(--paper);
+    line-height: 1.75;
+    font-size: 14px;
+  }
+  canvas, img { image-rendering: pixelated; }
+
+  /* ===== 像素边框 ===== */
+  .pxb {
+    border: 3px solid var(--ink);
+    box-shadow:
+      inset -3px -3px 0 rgba(0,0,0,.28),
+      inset 3px 3px 0 rgba(255,255,255,.10),
+      6px 6px 0 rgba(0,0,0,.4);
+  }
+
+  /* ===== 头部横幅 ===== */
+  header {
+    background: var(--green-dk);
+    background-image: repeating-linear-gradient(-45deg, #1b5e20 0 18px, #2e7d32 18px 36px);
+    border-bottom: 4px solid var(--ink);
+    padding: 34px 16px 30px;
+    text-align: center;
+  }
+  header .title-row { display: inline-flex; align-items: center; gap: 16px; }
+  header h1 {
+    font-size: 34px; color: #fff; letter-spacing: 4px;
+    text-shadow: 3px 3px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink);
+  }
+  #logo-melon { width: 56px; height: 56px; }
+  header .quote {
+    display: inline-block; margin-top: 16px;
+    background: var(--paper); color: var(--red-dk);
+    font-size: 18px; padding: 8px 22px;
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.4);
+  }
+
+  main { max-width: 1000px; margin: 0 auto; padding: 34px 16px 70px; }
+  section { margin-top: 46px; }
+  h2 {
+    font-size: 22px; color: var(--yellow);
+    text-shadow: 2px 2px 0 var(--ink);
+    margin-bottom: 16px;
+  }
+  h2::before { content: "▶ "; color: var(--red); }
+
+  /* ===== 游戏舞台 ===== */
+  .stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    background: #0a1408;
+  }
+  .stage canvas { position: absolute; display: block; }
+  #bg { inset: 0; width: 100%; height: 100%; }
+  #fx { inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 8; }
+  #gl { z-index: 4; cursor: grab; touch-action: none; }
+  #gl:active { cursor: grabbing; }
+  .actor { z-index: 3; transition: left 1.1s steps(12), right 1.1s steps(12); }
+  #prop-hand { z-index: 5; pointer-events: none; display: none; }
+  #prop-hand.clickable { pointer-events: auto; cursor: pointer; }
+  #prop-knife { z-index: 6; pointer-events: none; display: none; }
+  #cutL, #cutR { z-index: 5; pointer-events: none; display: none; transition: transform .55s steps(9); }
+
+  /* 扫描线 + 暗角,复古味 */
+  .stage::after {
+    content: ""; position: absolute; inset: 0; z-index: 9; pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 2px, transparent 2px 4px),
+      radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.38) 100%);
+  }
+
+  /* 进度追踪 */
+  #tracker {
+    position: absolute; top: 10px; left: 10px; z-index: 7;
+    background: rgba(13,31,12,.92);
+    border: 3px solid var(--ink);
+    box-shadow: 3px 3px 0 rgba(0,0,0,.4);
+    padding: 8px 12px; font-size: 15px; color: #fff;
+    text-shadow: 1px 1px 0 #000;
+  }
+  #tracker b { color: var(--yellow); font-weight: normal; margin: 0 2px; }
+  .tdot {
+    display: inline-block; width: 13px; height: 13px; margin: 0 3px;
+    background: #33452f; border: 2px solid var(--ink); vertical-align: -2px;
+  }
+  .tdot.on { background: var(--yellow); }
+
+  /* 顶部提示 */
+  #hint {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 7; background: rgba(13,31,12,.92);
+    border: 3px solid var(--ink); padding: 7px 18px;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.4);
+    font-size: 16px; color: #ffd54f; text-shadow: 1px 1px 0 #000;
+    white-space: nowrap;
+  }
+
+  /* 通关弹窗 */
+  #endmodal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(6, 14, 5, .82);
+    display: none; align-items: center; justify-content: center;
+  }
+  #endmodal.show { display: flex; }
+  #endmodal .mbox {
+    background: var(--panel); width: min(480px, 88vw);
+    padding: 30px 28px; text-align: center;
+  }
+  #endmodal .mtitle { font-size: 24px; color: var(--yellow); text-shadow: 2px 2px 0 var(--ink); margin-bottom: 14px; }
+  #endmodal .mtext { font-size: 15px; color: var(--paper); margin-bottom: 20px; line-height: 1.9; }
+
+  /* 人物台词气泡 */
+  .say {
+    position: absolute; z-index: 7; max-width: 250px;
+    background: var(--paper); color: #23301c;
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.4);
+    padding: 8px 12px; font-size: 13px; line-height: 1.6;
+    display: none;
+  }
+  .say.show { display: block; }
+  .say::after {
+    content: ""; position: absolute; bottom: -10px; width: 10px; height: 10px;
+    background: var(--paper); border-right: 3px solid var(--ink); border-bottom: 3px solid var(--ink);
+    transform: rotate(45deg);
+  }
+  #say-buyer { left: 3%; bottom: 34%; }
+  #say-buyer::after { left: 26px; }
+  #say-farmer { right: 3%; bottom: 36%; }
+  #say-farmer::after { right: 26px; }
+
+  /* 对白框(PvZ 式) */
+  #dialog {
+    position: absolute; left: 14px; right: 14px; bottom: 12px; z-index: 10;
+    background: rgba(13,26,10,.94);
+    border: 3px solid var(--ink);
+    box-shadow: inset 0 0 0 3px rgba(255,255,255,.07), 5px 5px 0 rgba(0,0,0,.45);
+    padding: 12px 16px;
+    display: none; cursor: pointer;
+    min-height: 92px;
+  }
+  #dialog.show { display: flex; gap: 14px; align-items: flex-start; }
+  .pavatar {
+    width: 72px; height: 72px; flex: none;
+    border: 3px solid var(--ink); background: #2a3d26;
+    overflow: hidden; position: relative;
+  }
+  .pavatar img {
+    width: 20px; height: 20px; object-fit: cover;
+    image-rendering: pixelated;
+    transform: scale(3.6); transform-origin: top left;
+  }
+  .pavatar.buyer img { object-position: 72% 12%; }
+  .pavatar.farmer img { object-position: 30% 8%; }
+  .pavatar.narr { display: none; }
+  #dlg-body { flex: 1; min-width: 0; }
+  #dlg-name { font-size: 13px; color: var(--yellow); margin-bottom: 2px; }
+  #dlg-text { font-size: 15px; color: var(--paper); min-height: 40px; }
+  #dlg-text .gib { color: #9fd495; }
+  #dlg-text .tr { color: #8fae88; font-size: 12px; margin-top: 4px; }
+  #dlg-next {
+    position: absolute; right: 14px; bottom: 8px;
+    font-size: 12px; color: var(--yellow);
+    animation: blink .7s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* 像素按钮 */
+  .px-btn {
+    font-family: inherit; font-size: 16px; color: #fff;
+    background: var(--red); border: 3px solid var(--ink);
+    box-shadow: 0 5px 0 var(--red-dk), 6px 8px 0 rgba(0,0,0,.4);
+    padding: 8px 26px; cursor: pointer;
+  }
+  .px-btn:hover { filter: brightness(1.1); }
+  .px-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--red-dk), 2px 3px 0 rgba(0,0,0,.4); }
+  .px-btn.ghost { background: #3c5a34; box-shadow: 0 5px 0 #24401e, 6px 8px 0 rgba(0,0,0,.4); }
+  .px-btn.ghost:active { box-shadow: 0 1px 0 #24401e, 2px 3px 0 rgba(0,0,0,.4); }
+  #dlg-actions { margin-top: 10px; display: none; gap: 12px; }
+
+  .stage-note {
+    margin-top: 10px; font-size: 12px; color: #7d9a76; text-align: center;
+  }
+
+  /* ===== 六式卡片 ===== */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .cards.four { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .card {
+    background: var(--panel); padding: 18px;
+    transition: transform .1s steps(3);
+  }
+  .card:hover { transform: translate(-2px, -2px); }
+  .card h3 { font-size: 17px; color: var(--yellow); margin-bottom: 8px; }
+  .card h3 .no {
+    display: inline-block; background: var(--red); color: #fff;
+    border: 2px solid var(--ink); padding: 0 7px; margin-right: 8px; font-size: 14px;
+  }
+  .card p { font-size: 15px; color: #c8dcbf; }
+  .card .verdict { margin-top: 8px; font-size: 13px; color: #ff9d9a; }
+  .card.trap h3 { color: #ff8a80; }
+
+  /* ===== 称号徽章(页面右上角,图鉴之上) ===== */
+  #title-badge {
+    position: fixed; top: 12px; right: 12px; z-index: 60;
+    width: 204px; box-sizing: border-box;
+    background: rgba(13,31,12,.92);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.45);
+    padding: 6px 10px;
+    font-size: 14px; font-weight: bold; color: var(--yellow);
+    text-shadow: 2px 2px 0 var(--ink);
+  }
+  #title-badge canvas { width: 18px; height: 18px; vertical-align: -4px; }
+
+  /* ===== 开瓜图鉴(页面右上角) ===== */
+  #collection {
+    position: fixed; top: 50px; right: 12px; z-index: 60;
+    width: 204px; box-sizing: border-box;
+    background: rgba(13,31,12,.92);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.45);
+    padding: 8px 10px 6px;
+  }
+  #collection .coll-title { font-size: 13px; color: var(--yellow); margin-bottom: 6px; }
+  #collection.all .coll-title { color: #ffd54f; }
+  #coll-items { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .coll-item { text-align: center; }
+  .coll-item canvas { width: 40px; height: 40px; display: block; border: 2px solid var(--ink); background: #24401e; }
+  .coll-item .lbl { font-size: 11px; color: var(--paper); margin-top: 1px; display: block; }
+  #coll-count { font-size: 12px; color: #8fae88; margin-top: 6px; }
+
+  /* 图鉴可折叠(点标题展开/收起,手机端默认收起) */
+  #collection .coll-title { cursor: pointer; }
+  #collection .coll-title::after { content: ' ▾'; }
+  #collection.collapsed .coll-title::after { content: ' ▸'; }
+  #collection.collapsed #coll-items, #collection.collapsed #coll-count { display: none; }
+
+  /* 追踪点呼吸提示("对准了,别动") */
+  .tdot.pulse { background: #7d9a76; animation: pulse .5s steps(2) infinite; }
+  @keyframes pulse { 50% { background: var(--yellow); } }
+
+  footer {
+    text-align: center; color: #5c7a55; font-size: 12px;
+    padding: 26px 16px 36px; border-top: 3px solid #1e3a1a;
+  }
+
+  /* ===== 手机端适配 ===== */
+  body { touch-action: manipulation; }
+  .stage { -webkit-user-select: none; user-select: none; }
+
+  @media (max-width: 640px) {
+    header { padding: 22px 10px 18px; }
+    header h1 { font-size: 20px; }
+    header .quote { font-size: 15px; padding: 6px 14px; }
+    #logo-melon, #logo-melon2 { width: 34px; height: 34px; }
+    main { padding: 20px 10px 50px; }
+    section { margin-top: 34px; }
+    h2 { font-size: 18px; }
+
+    /* 竖屏舞台加高,瓜更大更好转 */
+    .stage { aspect-ratio: 4 / 5; }
+    #tracker { font-size: 12px; padding: 5px 8px; top: 8px; left: 8px; }
+    .tdot { width: 10px; height: 10px; margin: 0 2px; }
+    #hint {
+      font-size: 12px; top: 42px; padding: 5px 10px;
+      white-space: normal; text-align: center;
+      width: max-content; max-width: 96%;
+    }
+    .say { max-width: 170px; font-size: 12px; }
+
+    /* 对白框+按钮窄屏适配 */
+    #dialog { left: 8px; right: 8px; bottom: 8px; padding: 10px; min-height: 84px; }
+    .pavatar { width: 54px; height: 54px; }
+    .pavatar img { transform: scale(2.7); }
+    #dlg-text { font-size: 14px; }
+    #dlg-actions { flex-wrap: wrap; gap: 8px; }
+    .px-btn { font-size: 14px; padding: 8px 14px; }
+
+    /* 图鉴卡片:六式单列,避坑两列 */
+    .cards { grid-template-columns: 1fr; }
+    .cards.four { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+    /* 右上角面板:手机端改为舞台上方文流内,不遮挡 */
+    #title-badge, #collection {
+      position: static; width: auto; margin: 0 0 10px;
+    }
+    #title-badge { font-size: 13px; display: inline-block; margin-right: 8px; }
+    .coll-item canvas { width: 29px; height: 29px; }
+    .coll-item .lbl { font-size: 10px; }
+    #coll-count { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <canvas id="logo-melon" width="28" height="28"></canvas>
+    <h1>华强买瓜 · 像素挑瓜指南</h1>
+    <canvas id="logo-melon2" width="28" height="28"></canvas>
+  </div>
+  <div class="quote">“这瓜保熟吗?”</div>
+</header>
+
+<main>
+  <!-- ========== 拍瓜实战 ========== -->
+  <section id="game">
+    <h2>拍瓜实战 · 瓜摊一日游</h2>
+
+    <!-- 称号徽章+开瓜图鉴:桌面端固定右上角;手机端在舞台上方文流内 -->
+    <div id="title-badge">称号 · <canvas id="title-icon" width="16" height="16"></canvas> <span id="title-text">生瓜蛋子</span></div>
+    <div id="collection">
+      <div class="coll-title">🍉 开瓜图鉴</div>
+      <div id="coll-items"></div>
+      <div id="coll-count">共开 0 个瓜</div>
+    </div>
+    <div class="stage pxb" id="stage">
+      <canvas id="bg" width="480" height="300"></canvas>
+      <canvas id="actor-farmer" class="actor" width="60" height="96"></canvas>
+      <canvas id="actor-buyer" class="actor" width="60" height="96"></canvas>
+      <canvas id="gl"></canvas>
+      <canvas id="cutL" width="80" height="80"></canvas>
+      <canvas id="cutR" width="80" height="80"></canvas>
+      <canvas id="prop-hand" width="40" height="30"></canvas>
+      <canvas id="prop-knife" width="30" height="52"></canvas>
+      <canvas id="fx" width="480" height="300"></canvas>
+      <div id="tracker"></div>
+      <div id="hint"></div>
+      <div class="say" id="say-buyer"></div>
+      <div class="say" id="say-farmer"></div>
+      <div id="dialog">
+        <div class="pavatar" id="dlg-avatar"><img id="dlg-img" src="瓜农.jpg" alt=""></div>
+        <div id="dlg-body">
+          <div id="dlg-name"></div>
+          <div id="dlg-text"></div>
+          <div id="dlg-actions"></div>
+        </div>
+        <div id="dlg-next">▼ 点击继续</div>
+      </div>
+    </div>
+    <p class="stage-note">操作:按住拖动旋转西瓜 · 滚轮/双指捏合缩放 · 点瓜 = 拍一拍 · 点手掌 = 掂一掂 · 对白框点击推进</p>
+  </section>
+
+  <!-- ========== 挑瓜六式 ========== -->
+  <section>
+    <h2>挑瓜六式 · 图鉴</h2>
+    <div class="cards">
+      <div class="card pxb"><h3><span class="no">壹</span>看纹路</h3>
+        <p>深绿条纹清晰、间距宽、对比分明的是好瓜;纹路模糊发灰的多半没长开。</p>
+        <p class="verdict">★ 纹路越“凶”,瓜越甜</p></div>
+      <div class="card pxb"><h3><span class="no">贰</span>看瓜斑</h3>
+        <p>瓜身上贴着地的黄斑,颜色越黄越橙,熟得越透;发白的摘早了。</p>
+        <p class="verdict">★ 黄斑发黄 = 保熟</p></div>
+      <div class="card pxb"><h3><span class="no">叁</span>看瓜脐</h3>
+        <p>底部的圈圈越小越凹越好;脐大外凸的往往皮厚瓤少。</p>
+        <p class="verdict">★ 脐小凹进去,皮薄馅大</p></div>
+      <div class="card pxb"><h3><span class="no">肆</span>看瓜蒂</h3>
+        <p>瓜蒂弯曲、干枯的,是自然熟透摘的;蒂直挺发绿还带水灵的,可能是生瓜蛋子。</p>
+        <p class="verdict">★ 卷毛干枯 &gt; 直愣愣</p></div>
+      <div class="card pxb"><h3><span class="no">伍</span>听声音</h3>
+        <p>托住拍一拍:熟瓜低沉“嘭嘭”震手;生瓜清脆“当当”;过熟发闷“噗噗”;空心带回响。</p>
+        <p class="verdict">★ 嘭嘭带震感,直接拿下</p></div>
+      <div class="card pxb"><h3><span class="no">陆</span>掂分量</h3>
+        <p>同样大小选偏轻的——熟瓜水分向糖分转化,会变轻;死沉的往往没熟。</p>
+        <p class="verdict">★ 个大却轻,沙瓤预定</p></div>
+    </div>
+  </section>
+
+  <!-- ========== 避坑指南 ========== -->
+  <section>
+    <h2>避坑指南 · 还得看秤</h2>
+    <div class="cards four">
+      <div class="card trap pxb"><h3>⚖️ 翻过秤盘</h3>
+        <p>当年摊主在秤底下粘吸铁石,十五斤的瓜根本没十五斤。如今电子秤也有“密码秤”,可以要求先称手机验秤(手机重量上网一查便知)。</p>
+        <p class="verdict">★ 买瓜先看秤,不当冤大头</p></div>
+      <div class="card trap pxb"><h3>🗣️ 不甜不要钱?</h3>
+        <p>摊主拍胸脯说“我开水果摊的,能卖给你生瓜蛋子?”——能不能,切开才知道。尽量现场开瓜,或买已切开的半个。</p>
+        <p class="verdict">★ 包甜听听就好,切开才算数</p></div>
+      <div class="card trap pxb"><h3>💰 别贪便宜堆</h3>
+        <p>明显低于行情的瓜,可能是催熟、过熟或磕碰瓜。两块钱一斤的瓜没有了,但一分钱一分货的道理还在。</p>
+        <p class="verdict">★ 便宜得反常,必有蹊跷</p></div>
+      <div class="card trap pxb"><h3>🔪 拍瓜别上刀</h3>
+        <p>对瓜不满意,换一个摊主就是,千万别学华强掀摊子——治安拘留不包熟。</p>
+        <p class="verdict">★ 和气生财,不兴动刀</p></div>
+    </div>
+  </section>
+</main>
+
+<!-- 通关弹窗 -->
+<div id="endmodal">
+  <div class="mbox pxb">
+    <div class="mtitle">🏆 挑瓜老手!</div>
+    <div class="mtext" id="endmodal-text"></div>
+    <button class="px-btn" id="btn-restart">重新练一轮</button>
+  </div>
+</div>
+
+<footer>
+  华强买瓜像素挑瓜指南 · 仅供娱乐,买瓜请遵纪守法 · 和气生财,不兴动刀
+</footer>
+
+<script src="three.min.js"></script>
+<script>
+'use strict';
+/* ================================================================
+ * 华强买瓜 · 像素版
+ * 结构:像素场景绘制 / 音频 / 对白引擎 / 3D 像素瓜 / 状态机
+ * ================================================================ */
+
+/* ---------------- 工具 ---------------- */
+function $(id) { return document.getElementById(id); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function tween(dur, fn, done) {
+  var t0 = performance.now();
+  (function f(t) {
+    var k = Math.min(1, (t - t0) / dur);
+    fn(k);
+    if (k < 1) requestAnimationFrame(f); else if (done) done();
+  })(t0);
+}
+
+/* ================================================================
+ * 一、像素画绘制(全部代码手绘,低分辨率画布 + 放大 = 像素风)
+ * ================================================================ */
+function R(ctx, x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x | 0, y | 0, w | 0, h | 0); }
+function C(ctx, x, y, r, c) { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill(); }
+
+/* ---- Logo 小瓜 ---- */
+function drawLogo(id) {
+  var ctx = $(id).getContext('2d');
+  C(ctx, 14, 16, 11, '#3f9040');
+  C(ctx, 14, 16, 11, 'rgba(0,0,0,0)');
+  ctx.save(); ctx.beginPath(); ctx.arc(14, 16, 11, 0, 6.2832); ctx.clip();
+  R(ctx, 8, 5, 3, 22, '#17601f'); R(ctx, 17, 5, 3, 22, '#17601f');
+  R(ctx, 3, 5, 2, 22, '#17601f'); R(ctx, 23, 5, 2, 22, '#17601f');
+  ctx.restore();
+  R(ctx, 13, 2, 2, 5, '#8a6b3d'); R(ctx, 15, 1, 3, 2, '#8a6b3d');
+  R(ctx, 8, 9, 3, 3, 'rgba(255,255,255,.35)');
+}
+drawLogo('logo-melon'); drawLogo('logo-melon2');
+
+/* ---- 背景:瓜摊街景(480x300) ---- */
+(function drawBG() {
+  var ctx = $('bg').getContext('2d');
+  // 墙
+  R(ctx, 0, 0, 480, 196, '#a7b6c0');
+  for (var y = 34; y < 196; y += 11) R(ctx, 0, y, 480, 1, 'rgba(0,0,0,.07)');
+  for (var x = 0; x < 480; x += 26) R(ctx, x, 34, 1, 162, 'rgba(0,0,0,.05)');
+  // 门(右)
+  R(ctx, 396, 86, 60, 5, '#7a868e'); R(ctx, 400, 90, 52, 106, '#55616a');
+  R(ctx, 444, 140, 4, 4, '#c8cf4d');
+  // 窗(中右)
+  R(ctx, 296, 66, 74, 54, '#8d9aa3'); R(ctx, 300, 70, 66, 46, '#6f8290');
+  R(ctx, 331, 70, 3, 46, '#8d9aa3'); R(ctx, 300, 91, 66, 3, '#8d9aa3');
+  // 遮阳棚
+  for (x = 0; x < 480; x += 24) {
+    R(ctx, x, 0, 12, 30, '#2e7d32');
+    R(ctx, x + 12, 0, 12, 30, '#e8f5e9');
+    ctx.fillStyle = (x / 24) % 2 ? '#2e7d32' : '#e8f5e9';
+    ctx.beginPath(); ctx.moveTo(x, 30); ctx.lineTo(x + 24, 30); ctx.lineTo(x + 12, 38); ctx.fill();
+    ctx.fillStyle = (x / 24) % 2 ? '#e8f5e9' : '#2e7d32';
+    ctx.beginPath(); ctx.moveTo(x, 30); ctx.lineTo(x + 24, 30); ctx.lineTo(x + 12, 38); ctx.fill();
+  }
+  // 招牌
+  R(ctx, 196, 40, 88, 28, '#b71c1c'); R(ctx, 200, 44, 80, 20, '#d32f2f');
+  R(ctx, 210, 50, 12, 3, '#ffd54f'); R(ctx, 232, 50, 12, 3, '#ffd54f'); R(ctx, 254, 50, 12, 3, '#ffd54f');
+  R(ctx, 216, 56, 12, 3, '#ffd54f'); R(ctx, 244, 56, 12, 3, '#ffd54f');
+  // 地面
+  R(ctx, 0, 196, 480, 104, '#8e978d');
+  for (x = 0; x < 480; x += 26) R(ctx, x, 196, 1, 86, 'rgba(0,0,0,.10)');
+  for (y = 212; y < 284; y += 16) R(ctx, 0, y, 480, 1, 'rgba(0,0,0,.10)');
+  R(ctx, 0, 282, 480, 18, '#79827a');
+  // 草席 + 瓜堆(左)
+  R(ctx, 16, 192, 150, 9, '#c9b477');
+  for (x = 20; x < 164; x += 8) R(ctx, x, 192, 1, 9, 'rgba(0,0,0,.15)');
+  var pile = [[48, 176], [90, 178], [130, 176], [68, 154], [110, 154], [89, 134]];
+  pile.forEach(function (p) {
+    C(ctx, p[0], p[1], 17, '#3f9040');
+    ctx.save(); ctx.beginPath(); ctx.arc(p[0], p[1], 17, 0, 6.2832); ctx.clip();
+    R(ctx, p[0] - 9, p[1] - 17, 3, 34, '#1c6623');
+    R(ctx, p[0] + 5, p[1] - 17, 3, 34, '#1c6623');
+    R(ctx, p[0] - 15, p[1] - 10, 2, 20, '#1c6623');
+    R(ctx, p[0] + 12, p[1] - 10, 2, 20, '#1c6623');
+    ctx.restore();
+    R(ctx, p[0] - 1, p[1] - 20, 2, 4, '#6d5a2e');
+  });
+  // 摊位桌子(右)
+  R(ctx, 318, 166, 152, 8, '#8a5a2e'); R(ctx, 318, 166, 152, 2, '#a06a33');
+  R(ctx, 330, 220, 8, 8, '#6d4520'); R(ctx, 450, 220, 8, 8, '#6d4520');
+  R(ctx, 318, 174, 152, 48, '#2e7d32');
+  for (x = 330; x < 470; x += 22) R(ctx, x, 174, 3, 48, '#1b5e20');
+  for (x = 318; x < 470; x += 22) {
+    ctx.fillStyle = '#e8f5e9';
+    ctx.beginPath(); ctx.moveTo(x, 222); ctx.lineTo(x + 22, 222); ctx.lineTo(x + 11, 230); ctx.fill();
+  }
+  // 台秤
+  R(ctx, 336, 148, 26, 18, '#b71c1c'); R(ctx, 340, 134, 18, 15, '#f5eeda');
+  R(ctx, 348, 138, 2, 7, '#b71c1c'); R(ctx, 342, 152, 4, 4, '#7a0f0f');
+  // 切开的样品瓜(桌上)
+  C(ctx, 402, 158, 13, '#2e7d32'); C(ctx, 402, 158, 10, '#e8f5e9'); C(ctx, 402, 158, 8, '#ee4036');
+  R(ctx, 400, 154, 1, 2, '#262626'); R(ctx, 404, 157, 1, 2, '#262626'); R(ctx, 398, 159, 1, 2, '#262626');
+  // 香蕉
+  C(ctx, 436, 158, 8, '#ffd54f'); C(ctx, 442, 156, 8, '#ffd54f'); C(ctx, 448, 158, 8, '#f9be2c');
+  C(ctx, 440, 155, 6, '#8a5a2e');
+  // 桌下木箱
+  R(ctx, 356, 224, 42, 30, '#a06a33'); R(ctx, 356, 224, 42, 4, '#8a5a2e');
+  R(ctx, 366, 224, 2, 30, '#8a5a2e'); R(ctx, 384, 224, 2, 30, '#8a5a2e');
+  R(ctx, 404, 230, 36, 24, '#8a5a2e'); R(ctx, 412, 230, 2, 24, '#6d4520'); R(ctx, 426, 230, 2, 24, '#6d4520');
+  // 中央底座木箱(放瓜)
+  R(ctx, 203, 250, 74, 28, '#a06a33');
+  R(ctx, 203, 250, 74, 5, '#c08a4a');
+  R(ctx, 217, 250, 3, 28, '#8a5a2e'); R(ctx, 237, 250, 3, 28, '#8a5a2e'); R(ctx, 257, 250, 3, 28, '#8a5a2e');
+  R(ctx, 203, 276, 74, 3, 'rgba(0,0,0,.25)');
+})();
+
+/* ---- 人物:华强(60x96) ---- */
+(function drawBuyer() {
+  var ctx = $('actor-buyer').getContext('2d');
+  var S = '#eec39b', SS = '#d3a172', K = '#15181d', K2 = '#2a2f36', P = '#1a1d24';
+  R(ctx, 14, 90, 12, 5, '#0c0e12'); R(ctx, 34, 90, 12, 5, '#0c0e12');      // 鞋
+  R(ctx, 16, 58, 10, 33, P); R(ctx, 34, 58, 10, 33, P);                     // 裤
+  R(ctx, 12, 32, 36, 30, K);                                                // 外套
+  R(ctx, 10, 34, 5, 26, K); R(ctx, 45, 34, 5, 26, K);                       // 袖
+  R(ctx, 9, 58, 6, 8, S); R(ctx, 45, 58, 6, 8, S);                          // 手
+  R(ctx, 24, 32, 12, 4, '#0c0e12'); R(ctx, 29, 34, 2, 27, K2);              // 领/拉链
+  R(ctx, 26, 36, 8, 10, '#23262c');                                         // 内搭
+  R(ctx, 17, 8, 26, 24, S); R(ctx, 19, 30, 22, 4, S);                       // 头
+  R(ctx, 14, 17, 3, 7, S); R(ctx, 43, 17, 3, 7, S);                         // 耳
+  R(ctx, 16, 5, 28, 7, '#23272e'); R(ctx, 15, 10, 3, 6, '#23272e');         // 寸头
+  R(ctx, 42, 10, 3, 6, '#23272e'); R(ctx, 18, 12, 24, 2, '#23272e');
+  R(ctx, 22, 17, 5, 2, '#2a2a2a'); R(ctx, 33, 17, 5, 2, '#2a2a2a');         // 眉
+  R(ctx, 23, 20, 3, 2, '#1c1c1c'); R(ctx, 34, 20, 3, 2, '#1c1c1c');         // 眼
+  R(ctx, 29, 22, 2, 4, SS);                                                 // 鼻
+  R(ctx, 26, 28, 8, 2, '#8a4a3a'); R(ctx, 27, 28, 6, 1, '#fff');            // 嘴(笑)
+})();
+
+/* ---- 人物:瓜农(60x96) ---- */
+(function drawFarmer() {
+  var ctx = $('actor-farmer').getContext('2d');
+  var S = '#e8b98c', SS = '#c08a5e', J = '#39434d', J2 = '#2e3740', T = '#4c6b3c';
+  R(ctx, 12, 90, 14, 5, '#241d16'); R(ctx, 34, 90, 14, 5, '#241d16');       // 鞋
+  R(ctx, 15, 58, 12, 33, '#2b2f36'); R(ctx, 33, 58, 12, 33, '#2b2f36');     // 裤
+  R(ctx, 14, 32, 32, 28, T);                                                // 绿T恤
+  R(ctx, 24, 40, 10, 9, '#e8e4da'); R(ctx, 26, 42, 6, 5, '#b34a3a');        // 印花
+  R(ctx, 10, 32, 9, 30, J); R(ctx, 41, 32, 9, 30, J);                       // 敞怀外套
+  R(ctx, 12, 32, 6, 5, J2); R(ctx, 42, 32, 6, 5, J2);                       // 领子
+  R(ctx, 7, 34, 5, 24, J); R(ctx, 48, 34, 5, 24, J);                        // 袖
+  R(ctx, 6, 56, 7, 8, S); R(ctx, 47, 56, 7, 8, S);                          // 手
+  R(ctx, 15, 6, 30, 26, S); R(ctx, 17, 30, 26, 4, S);                       // 头(方脸)
+  R(ctx, 12, 16, 3, 8, S); R(ctx, 45, 16, 3, 8, S);                         // 耳
+  R(ctx, 14, 3, 32, 6, '#1d1a16'); R(ctx, 13, 8, 3, 7, '#1d1a16');          // 短发
+  R(ctx, 44, 8, 3, 7, '#1d1a16');
+  R(ctx, 21, 15, 7, 3, '#1d1a16'); R(ctx, 33, 15, 7, 3, '#1d1a16');         // 浓眉
+  R(ctx, 23, 19, 3, 2, '#1c1c1c'); R(ctx, 35, 19, 3, 2, '#1c1c1c');         // 眼
+  R(ctx, 29, 21, 3, 5, SS);                                                 // 鼻
+  R(ctx, 27, 28, 7, 2, '#7a4634');                                          // 嘴
+  R(ctx, 20, 24, 1, 1, SS); R(ctx, 40, 25, 1, 1, SS);                       // 麻子
+  R(ctx, 26, 27, 1, 1, SS); R(ctx, 37, 22, 1, 1, SS); R(ctx, 33, 26, 1, 1, SS);
+})();
+
+/* ---- 道具:华强的手掌(40x30,掌心向上) ---- */
+(function drawHand() {
+  var ctx = $('prop-hand').getContext('2d');
+  var S = '#eec39b', SS = '#d3a172';
+  R(ctx, 0, 12, 10, 14, '#15181d');          // 黑袖口
+  R(ctx, 9, 14, 7, 10, S);                   // 腕
+  R(ctx, 15, 9, 21, 15, S);                  // 掌
+  R(ctx, 18, 5, 4, 6, S); R(ctx, 24, 4, 4, 7, S); R(ctx, 30, 6, 4, 5, S);   // 指
+  R(ctx, 15, 20, 5, 5, SS);                  // 拇指侧
+  R(ctx, 17, 21, 18, 2, SS);                 // 掌影
+})();
+
+/* ---- 道具:菜刀(30x52) ---- */
+(function drawKnife() {
+  var ctx = $('prop-knife').getContext('2d');
+  R(ctx, 10, 2, 10, 14, '#6d4520'); R(ctx, 13, 6, 3, 3, '#c9c9c9');   // 柄+铆钉
+  R(ctx, 9, 16, 12, 3, '#8a8f94');                                    // 刀镡
+  R(ctx, 7, 19, 16, 28, '#cfd6da');                                   // 刃
+  R(ctx, 7, 19, 3, 28, '#9aa2a8'); R(ctx, 20, 19, 3, 28, '#eef2f4');
+  R(ctx, 9, 47, 12, 3, '#cfd6da');
+})();
+
+/* ---- 切开的半个瓜 ---- */
+function drawCutHalf(id, side, type) {
+  var ctx = $(id).getContext('2d');
+  ctx.clearRect(0, 0, 80, 80);
+  var cx = side === 'L' ? 76 : 4, ccw = side === 'L';
+  function halfArc(r, c) {
+    ctx.fillStyle = c; ctx.beginPath();
+    ctx.arc(cx, 40, r, -Math.PI / 2, Math.PI / 2, ccw);
+    ctx.closePath(); ctx.fill();
+  }
+  var flesh = { ripe: '#ee4036', raw: '#f6e0e0', bad: '#8d4e41', hollow: '#ee4036' }[type];
+  halfArc(34, '#1b5e20'); halfArc(30, '#e8f5e9'); halfArc(26, flesh);
+  if (type === 'hollow') halfArc(14, '#f3e2c7');
+  if (type === 'ripe') {
+    var sd = side === 'L' ? [[-12, -14], [-18, 2], [-12, 16], [-22, -8], [-8, 6]] : [[12, -14], [18, 2], [12, 16], [22, -8], [8, 6]];
+    sd.forEach(function (p) { R(ctx, cx + p[0] - 1, 40 + p[1] - 2, 3, 5, '#262626'); });
+  }
+  if (type === 'raw') {
+    R(ctx, cx - 8, 24, 3, 4, '#d9b8b8'); R(ctx, cx + 4, 48, 3, 4, '#d9b8b8');
+  }
+  if (type === 'bad') {
+    C(ctx, cx + (side === 'L' ? -12 : 12), 34, 6, '#5d3325');
+    C(ctx, cx + (side === 'L' ? -20 : 20), 50, 4, '#5d3325');
+    R(ctx, cx + (side === 'L' ? -14 : 11), 56, 3, 16, '#5d3325');
+    R(ctx, cx + (side === 'L' ? -22 : 19), 54, 3, 12, '#6d4434');
+  }
+}
+
+/* ---- 开瓜图鉴:右上角统计 ---- */
+var TYPE_LABEL = { ripe: '好瓜', raw: '生瓜', bad: '坏瓜', hollow: '空瓜' };
+var openedCounts = { ripe: 0, raw: 0, bad: 0, hollow: 0 };
+var guessRight = 0;   /* 猜对瓜型的次数,称号按它升级 */
+
+function drawMelonIcon(cv, type) {
+  var ctx = cv.getContext('2d');
+  C(ctx, 24, 24, 22, '#1b5e20');
+  C(ctx, 24, 24, 18, '#e8f5e9');
+  var flesh = { ripe: '#ee4036', raw: '#f6e0e0', bad: '#8d4e41', hollow: '#ee4036' }[type];
+  C(ctx, 24, 24, 15, flesh);
+  if (type === 'hollow') C(ctx, 24, 24, 8, '#f3e2c7');
+  if (type === 'ripe') {
+    [[18, 17], [29, 16], [16, 28], [30, 28], [23, 24]].forEach(function (p) {
+      R(ctx, p[0], p[1], 2, 4, '#262626');
+    });
+  }
+  if (type === 'raw') {
+    R(ctx, 18, 20, 3, 3, '#d9b8b8'); R(ctx, 27, 27, 3, 3, '#d9b8b8');
+  }
+  if (type === 'bad') {
+    C(ctx, 19, 21, 4, '#5d3325'); C(ctx, 28, 28, 3, '#5d3325');
+    R(ctx, 18, 33, 2, 9, '#5d3325');
+  }
+}
+
+/* 称号系统:按"猜对"瓜型的次数升级(共 16 次判断机会) */
+var TITLES = ['生瓜蛋子', '挑瓜学徒', '挑瓜好手', '挑瓜老手', '瓜王'];
+var TITLE_MIN = [0, 4, 7, 10, 13];
+function currentTitleLv() {
+  var lv = 0;
+  for (var i = 0; i < TITLE_MIN.length; i++) if (guessRight >= TITLE_MIN[i]) lv = i;
+  return lv;
+}
+function currentTitle() { return TITLES[currentTitleLv()]; }
+
+/* 称号像素图标:瓜蛋 / 小刀 / 眼睛 / 墨镜 / 皇冠 */
+function drawTitleIcon(cv, lv) {
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, 16, 16);
+  function r(x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+  if (lv === 0) {                    /* 瓜蛋:带纹小青瓜 */
+    r(7, 1, 2, 2, '#6a4a2a');
+    r(4, 3, 8, 10, '#7cc47c'); r(3, 5, 10, 6, '#7cc47c');
+    r(6, 3, 1, 10, '#4a8f4a'); r(9, 3, 1, 10, '#4a8f4a');
+    r(4, 3, 2, 2, '#a8e0a8');
+  } else if (lv === 1) {             /* 学徒:斜放小刀 */
+    r(1, 12, 4, 3, '#6a4a2a'); r(4, 10, 2, 3, '#3a2a18');
+    r(5, 8, 3, 3, '#d8d8d8'); r(7, 6, 3, 3, '#d8d8d8');
+    r(9, 4, 3, 3, '#d8d8d8'); r(11, 2, 3, 3, '#d8d8d8');
+    r(6, 9, 1, 1, '#8a8a8a'); r(8, 7, 1, 1, '#8a8a8a'); r(10, 5, 1, 1, '#8a8a8a');
+  } else if (lv === 2) {             /* 好手:火眼金睛 */
+    r(2, 6, 12, 4, '#f5eeda'); r(4, 5, 8, 6, '#f5eeda');
+    r(6, 5, 4, 6, '#4caf50'); r(7, 6, 2, 4, '#101010');
+    r(7, 5, 1, 1, '#ffffff');
+    r(1, 5, 2, 1, '#101010'); r(13, 5, 2, 1, '#101010');
+  } else if (lv === 3) {             /* 老手:黑墨镜 */
+    r(0, 4, 2, 2, '#101010'); r(14, 4, 2, 2, '#101010');
+    r(1, 5, 14, 2, '#101010');
+    r(1, 7, 6, 5, '#262626'); r(9, 7, 6, 5, '#262626');
+    r(2, 8, 2, 2, '#4a6a8a'); r(10, 8, 2, 2, '#4a6a8a');
+  } else {                           /* 瓜王:镶宝皇冠 */
+    r(2, 5, 2, 3, '#ffd54f'); r(7, 3, 2, 5, '#ffd54f'); r(12, 5, 2, 3, '#ffd54f');
+    r(1, 4, 2, 2, '#ffd54f'); r(13, 4, 2, 2, '#ffd54f');
+    r(3, 7, 10, 4, '#ffd54f'); r(4, 6, 8, 2, '#ffd54f');
+    r(7, 8, 2, 2, '#e53935'); r(4, 8, 2, 2, '#7ec8e3'); r(10, 8, 2, 2, '#7ec8e3');
+    r(3, 11, 10, 2, '#d8a52e');
+  }
+}
+function renderTitle() {
+  var lv = currentTitleLv();
+  $('title-text').textContent = TITLES[lv];
+  drawTitleIcon($('title-icon'), lv);
+}
+
+function addToCollection(type) {
+  openedCounts[type]++;
+  var item = document.createElement('div');
+  item.className = 'coll-item';
+  var cv = document.createElement('canvas');
+  cv.width = 48; cv.height = 48;
+  drawMelonIcon(cv, type);
+  var lbl = document.createElement('span');
+  lbl.className = 'lbl';
+  lbl.textContent = TYPE_LABEL[type];
+  item.appendChild(cv); item.appendChild(lbl);
+  $('coll-items').appendChild(item);
+
+  var total = openedCounts.ripe + openedCounts.raw + openedCounts.bad + openedCounts.hollow;
+  $('coll-count').textContent = '共开 ' + total + ' 个 · 猜对 ' + guessRight + ' · 猜错 ' + (total - guessRight);
+  var allGot = openedCounts.ripe && openedCounts.raw && openedCounts.bad && openedCounts.hollow;
+  $('collection').classList.toggle('all', !!allGot);
+  $('collection').querySelector('.coll-title').textContent =
+    (allGot ? '🏆 图鉴集齐! ' : '🍉 开瓜图鉴 ') + total + '/' + MAX_ROUNDS;
+  renderTitle();
+}
+
+/* 图鉴标题点击折叠/展开;手机端默认收起 */
+$('collection').querySelector('.coll-title').addEventListener('click', function () {
+  $('collection').classList.toggle('collapsed');
+});
+if (window.matchMedia('(max-width: 640px)').matches) $('collection').classList.add('collapsed');
+renderTitle();   /* 初始称号图标 */
+
+/* ================================================================
+ * 二、音频:拍瓜 x4 / 劈瓜 / 对白哔哔
+ * ================================================================ */
+var AC = null;
+function actx() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+
+function knockSound(kind) {
+  var ac = actx(), t = ac.currentTime;
+  var cfg = {
+    ripe:   { f: 130, lp: 500,  dec: 0.16, g: 1.5,  w: 'sine' },
+    raw:    { f: 360, lp: 2200, dec: 0.30, g: 1.2,  w: 'triangle' },
+    bad:    { f: 95,  lp: 280,  dec: 0.10, g: 1.5,  w: 'sine' },
+    hollow: { f: 210, lp: 1000, dec: 0.42, g: 1.4,  w: 'sine', echo: 1 }
+  }[kind];
+  [0, 0.2].forEach(function (dt) {
+    var s = t + dt;
+    /* 拍击瞬态:一小段滤波噪声,拍出"肉感" */
+    var nb = ac.createBuffer(1, ac.sampleRate * 0.03, ac.sampleRate);
+    var nd = nb.getChannelData(0);
+    for (var ni = 0; ni < nd.length; ni++) nd[ni] = (Math.random() * 2 - 1) * (1 - ni / nd.length);
+    var ns = ac.createBufferSource(); ns.buffer = nb;
+    var nf = ac.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = cfg.lp * 2;
+    var ng = ac.createGain();
+    ng.gain.setValueAtTime(0.5, s); ng.gain.exponentialRampToValueAtTime(0.001, s + 0.03);
+    ns.connect(nf); nf.connect(ng); ng.connect(ac.destination);
+    ns.start(s);
+    var o = ac.createOscillator(), gn = ac.createGain(), fl = ac.createBiquadFilter();
+    fl.type = 'lowpass'; fl.frequency.value = cfg.lp;
+    o.type = cfg.w;
+    o.frequency.setValueAtTime(cfg.f, s);
+    o.frequency.exponentialRampToValueAtTime(cfg.f * 0.7, s + cfg.dec);
+    gn.gain.setValueAtTime(cfg.g, s);
+    gn.gain.exponentialRampToValueAtTime(0.001, s + cfg.dec);
+    o.connect(fl); fl.connect(gn); gn.connect(ac.destination);
+    o.start(s); o.stop(s + cfg.dec + 0.05);
+    if (cfg.echo) {
+      var s2 = s + 0.12, o2 = ac.createOscillator(), g2 = ac.createGain(), f2 = ac.createBiquadFilter();
+      f2.type = 'lowpass'; f2.frequency.value = cfg.lp * 0.8;
+      o2.type = 'sine'; o2.frequency.setValueAtTime(cfg.f * 1.02, s2);
+      g2.gain.setValueAtTime(cfg.g * 0.35, s2);
+      g2.gain.exponentialRampToValueAtTime(0.001, s2 + cfg.dec);
+      o2.connect(f2); f2.connect(g2); g2.connect(ac.destination);
+      o2.start(s2); o2.stop(s2 + cfg.dec + 0.05);
+    }
+  });
+}
+
+function chopSound() {
+  var ac = actx(), t = ac.currentTime;
+  var buf = ac.createBuffer(1, ac.sampleRate * 0.09, ac.sampleRate);
+  var d = buf.getChannelData(0);
+  for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 900;
+  var gn = ac.createGain(); gn.gain.setValueAtTime(0.8, t);
+  src.connect(fl); fl.connect(gn); gn.connect(ac.destination);
+  src.start(t);
+  var o = ac.createOscillator(), g2 = ac.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(85, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + 0.14);
+  g2.gain.setValueAtTime(0.9, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+  o.connect(g2); g2.connect(ac.destination);
+  o.start(t); o.stop(t + 0.2);
+}
+
+function blip() {
+  var ac = actx(), t = ac.currentTime;
+  var o = ac.createOscillator(), gn = ac.createGain();
+  o.type = 'square'; o.frequency.value = 520;
+  gn.gain.setValueAtTime(0.035, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  o.connect(gn); gn.connect(ac.destination);
+  o.start(t); o.stop(t + 0.05);
+}
+
+/* 疯狂戴夫式外星语:共振峰元音合成,柔和像"说话"。瓜农低沉 / 华强略高 / 旁白中性 */
+function gibSyllable(who, code) {
+  var ac = actx(), t = ac.currentTime;
+  var base = who === 'F' ? 85 : (who === 'N' ? 110 : 138);
+  var jump = [0.85, 1.0, 1.2, 0.92, 1.32, 1.05, 0.78][code % 7];
+  var f = base * jump * (0.96 + Math.random() * 0.08);
+  var out = ac.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(0.32, t + 0.02);
+  out.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+  out.connect(lp); lp.connect(ac.destination);
+  if (code % 3 === 0) {
+    /* 爆破音 "啵/叭":三角波柔和滑落 */
+    var o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f * 2.0, t);
+    o.frequency.exponentialRampToValueAtTime(f * 0.95, t + 0.07);
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + 0.11);
+  } else {
+    /* 元音 "哇/啦":三角波 + 双共振峰,像真正的 vowel */
+    var VOWELS = [[730, 1090], [530, 1840], [390, 1990], [570, 840], [440, 1020]]; /* a e i o u */
+    var vw = VOWELS[code % 5];
+    var fs = who === 'F' ? 0.92 : (who === 'H' ? 1.08 : 1.0);
+    var o2 = ac.createOscillator();
+    o2.type = 'triangle';
+    o2.frequency.setValueAtTime(f * 0.9, t);
+    o2.frequency.linearRampToValueAtTime(f * 1.18, t + 0.05);
+    o2.frequency.linearRampToValueAtTime(f * 0.85, t + 0.13);
+    /* 颤音,更像人声 */
+    var lfo = ac.createOscillator(), lg = ac.createGain();
+    lfo.frequency.value = 6.5; lg.gain.value = f * 0.035;
+    lfo.connect(lg); lg.connect(o2.frequency);
+    [[vw[0], 0.9], [vw[1], 0.45]].forEach(function (fm) {
+      var bp = ac.createBiquadFilter(), bg = ac.createGain();
+      bp.type = 'bandpass'; bp.frequency.value = fm[0] * fs; bp.Q.value = 1.1;
+      bg.gain.value = fm[1];
+      o2.connect(bp); bp.connect(bg); bg.connect(out);
+    });
+    o2.start(t); o2.stop(t + 0.18);
+    lfo.start(t); lfo.stop(t + 0.18);
+  }
+}
+
+/* 揭晓戏剧性配乐:好瓜欢快 / 生瓜下滑 / 坏瓜刺耳 / 空瓜滑稽 */
+function sting(kind) {
+  var ac = actx(), t0 = ac.currentTime;
+  function note(f, t, dur, type, g0) {
+    var o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type || 'square';
+    o.frequency.value = f;
+    gn.gain.setValueAtTime(0.0001, t);
+    gn.gain.exponentialRampToValueAtTime(g0 || 0.16, t + 0.02);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(gn); gn.connect(ac.destination);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  if (kind === 'ripe') {
+    [523, 659, 784, 1047].forEach(function (f, i) { note(f, t0 + i * 0.11, 0.24); });
+  } else if (kind === 'raw') {
+    [392, 370, 349, 311].forEach(function (f, i) { note(f, t0 + i * 0.17, 0.26, 'triangle'); });
+  } else if (kind === 'bad') {
+    note(110, t0, 0.55, 'sawtooth', 0.09); note(117, t0, 0.55, 'sawtooth', 0.09);
+    note(82, t0 + 0.5, 0.5, 'sawtooth', 0.09);
+  } else if (kind === 'hollow') {
+    var o = ac.createOscillator(), gn = ac.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(330, t0);
+    o.frequency.exponentialRampToValueAtTime(110, t0 + 0.35);
+    gn.gain.setValueAtTime(0.14, t0);
+    gn.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5);
+    o.connect(gn); gn.connect(ac.destination);
+    o.start(t0); o.stop(t0 + 0.55);
+    note(210, t0 + 0.32, 0.4, 'sine', 0.06);
+  }
+}
+
+/* ================================================================
+ * 三、台词库(与瓜型一一对应,每步多句随机)
+ * ================================================================ */
+var INTRO = [
+  { who: 'F', gib: '歪比歪比,巴卜!', tr: '新鲜大棚瓜,两块钱一斤!' },
+  { who: 'H', gib: '哇啦哇啦?', tr: '这瓜保熟吗?' },
+  { who: 'F', gib: '唔噗唔噗,哇啦不哒!', tr: '我开水果摊的,能卖给你生瓜蛋子!' },
+  { who: 'H', gib: '嗯哼。', tr: '行,给我挑一个。' }
+];
+var DELIVER_F = ['这个怎么样?', '来一个?包甜!', '刚摘的,您瞧瞧!', '个个都是好瓜!'];
+var LINES = {
+  look: {
+    stripe: {
+      ripe:   ['条纹深绿清晰,间距宽,敞亮。', '纹路跟刀刻的似的,清楚。', '纹路清清楚楚,间距够宽。', '条纹又深又直,长得规矩。'],
+      raw:    ['条纹发浅发糊,挤成一团,没长开。', '这纹路糊的,一看就没长足。', '纹路浅得都快看不见了。', '条纹挤挤挨挨,没长开。'],
+      bad:    ['纹路还行,就是皮色发暗,没光泽。', '皮色乌突突的,不新鲜。', '纹路倒是在,就是皮色发乌。', '皮面发暗,搁久了。'],
+      hollow: ['条纹清楚分明,卖相挺好。', '纹路没毛病,漂亮。', '条纹清晰,卖相没得挑。', '纹路挺漂亮。']
+    },
+    spot: {
+      ripe:   ['黄斑橙黄油亮,贴着地睡够了日子。', '这斑黄得正,地里熟透的。', '黄斑又大又黄,晒足了太阳。', '这块地黄得流油,熟瓜。'],
+      raw:    ['斑发白,还泛青——没晒够就摘了。', '这斑白生生的,嫩瓜。', '斑发白发青,没晒够日子。', '斑这么白,摘急了。'],
+      bad:    ['斑暗褐,边上还有磕伤烂斑。', '这块烂斑看见没?有日子了。', '斑色发暗还有伤,不新鲜。', '烂斑都在这儿了,搁挺久了。'],
+      hollow: ['斑黄澄澄的,卖相不赖。', '黄斑挺正,看着没问题。', '黄斑挺正。', '斑色正常,挑不出毛病。']
+    },
+    navel: {
+      ripe:   ['脐眼小,还往里凹,皮薄的好瓜。', '脐小内凹,标致。', '脐眼小而凹,皮薄。', '脐收得紧,好瓜相。'],
+      raw:    ['脐眼大,往外凸,皮厚瓤少的命。', '这脐凸得跟小馒头似的,生。', '脐眼又大又凸,皮厚。', '脐凸成这样,生瓜蛋子。'],
+      bad:    ['脐眼发黑,边上还裂了。', '脐都黑了,放不住的东西。', '脐眼发黑带裂,放不住了。', '脐都变色了,有日子了。'],
+      hollow: ['脐小内凹,正常。', '脐眼没毛病。', '脐小内凹,没毛病。', '脐眼正常。']
+    },
+    stem: {
+      ripe:   ['瓜蒂干枯打卷,藤上熟透了才摘的。', '蒂都干成小卷了,时候到了。', '蒂枯得打卷,自然熟的。', '瓜蒂干卷,熟到位了。'],
+      raw:    ['瓜蒂直挺挺的,带着青绿,水灵得反常。', '你看这蒂,青得很——摘早了。', '蒂青绿直挺,摘早了。', '这蒂水灵的,生。'],
+      bad:    ['蒂是干了,可根部发软,不对劲。', '干枯是干枯,就是根上发绵。', '蒂枯根绵,不对劲。', '蒂是干了,根却发软。'],
+      hollow: ['蒂干枯打卷,看着没毛病。', '瓜蒂正常。', '瓜蒂干枯,正常。', '蒂没毛病。']
+    }
+  },
+  pat: {
+    ripe:   ['“嘭、嘭”——浑厚,震手,好动静。', '声儿发闷带震感,熟透了。', '“砰、砰”——又闷又沉,震得手心麻。', '这动静瓷实,熟瓜的声。'],
+    raw:    ['“当、当”——清脆发飘,像敲在硬地上。', '声太脆了,一兜生水。', '“梆、梆”——脆得发干,像拍门板。', '声儿太清太飘,生的。'],
+    bad:    ['“噗、噗”——发闷发哑,没精气神。', '这声儿蔫的,里头怕是糟了。', '“噗、噗”——蔫了吧唧,像拍棉花。', '声发哑,里头怕是坏了。'],
+    hollow: ['“空、空”——有股子空洞的回响。', '听这回音,里头悬。', '“咚、咚”——空落落的带回音。', '这空响,瓤怕是空了。']
+  },
+  weigh: {
+    ripe:   ['个大却不压手,水分都化成糖了。', '偏轻,沙瓤的料。', '不压手,糖分足了。', '偏轻,起沙了。'],
+    raw:    ['死沉死沉的,一肚子生水。', '这么沉?水没化糖,生。', '沉甸甸的,全是水。', '这么坠手,生的。'],
+    bad:    ['分量还行,托着发绵,不瓷实。', '手感发绵,不新鲜。', '托着发绵,不瓷实。', '手感软塌塌的,不新鲜。'],
+    hollow: ['轻得反常,晃着像有空隙。', '个儿这么大,分量呢?空了吧。', '轻飘飘的,个大量轻。', '分量对不上个头,空的。']
+  },
+  pre: {
+    ripe: [
+      { who: 'F', text: '怎么样?要不要吧!' },
+      { who: 'H', text: '嗯,这瓜保熟,要了。' },
+      { who: 'F', text: '识货!给您开个口看看?' }
+    ],
+    raw: [
+      { who: 'H', text: '这瓜生。' },
+      { who: 'F', text: '生?我开水果摊的,能卖给你生瓜蛋子?' },
+      { who: 'H', text: '那就切开看看。' },
+      { who: 'F', text: '切就切!要是不熟,我自己吃了它!' }
+    ],
+    bad: [
+      { who: 'H', text: '这瓜不对劲。' },
+      { who: 'F', text: '哪儿的话!我这瓜好着呢!' },
+      { who: 'H', text: '切开就明白了。' }
+    ],
+    hollow: [
+      { who: 'H', text: '这瓜是空的。' },
+      { who: 'F', text: '空?不能够!长得这么周正!' },
+      { who: 'H', text: '刀下见分晓。' }
+    ]
+  },
+  post: {
+    ripe: [
+      { who: 'F', text: '红瓤沙瓤!我说什么了?' },
+      { who: 'H', text: '嗯,包起来。' },
+      { who: 'N', text: '买到好瓜。纹路、黄斑、声音、分量,全对上了。' }
+    ],
+    raw: [
+      { who: 'H', text: '瓤白的。生瓜蛋子。' },
+      { who: 'F', text: '这……我说话算话,我吃了它!' },
+      { who: 'N', text: '瓜农含泪啃生瓜。生瓜信号:斑白、蒂青、声脆、身沉。' }
+    ],
+    bad: [
+      { who: 'H', text: '都流汤了,坏瓜。' },
+      { who: 'F', text: '哎哟,对不住对不住!退钱,再赔您一个!' },
+      { who: 'N', text: '坏瓜信号:皮色发暗、有烂斑、声音发闷、手感发绵。' }
+    ],
+    hollow: [
+      { who: 'H', text: '空的。' },
+      { who: 'F', text: '神了您!这就给您换个实在的!' },
+      { who: 'N', text: '空心瓜外观没破绽,全靠拍声发空、分量偏轻。' }
+    ]
+  }
+};
+
+/* ================================================================
+ * 四、对白引擎(PvZ 式,点击推进,打字机+哔哔声)
+ * ================================================================ */
+var dlgBox = $('dialog'), dlgName = $('dlg-name'), dlgText = $('dlg-text'),
+    dlgAvatar = $('dlg-avatar'), dlgImg = $('dlg-img'), dlgNext = $('dlg-next'),
+    dlgActions = $('dlg-actions');
+var dlgQueue = [], dlgIdx = 0, dlgTyping = false, dlgTimer = null, dlgDone = null;
+
+function playDialog(lines, onDone) {
+  dlgQueue = lines; dlgIdx = 0; dlgDone = onDone || null;
+  dlgActions.style.display = 'none'; dlgActions.innerHTML = '';
+  dlgBox.classList.add('show');
+  showDlgLine();
+}
+function showDlgLine() {
+  var ln = dlgQueue[dlgIdx];
+  dlgNext.style.display = 'block';
+  if (ln.who === 'N') {
+    dlgAvatar.className = 'pavatar narr';
+    dlgName.textContent = '旁白';
+  } else if (ln.who === 'F') {
+    dlgAvatar.className = 'pavatar farmer';
+    dlgImg.src = '瓜农.jpg';
+    dlgName.textContent = '瓜农';
+  } else {
+    dlgAvatar.className = 'pavatar buyer';
+    dlgImg.src = '买瓜人.jpg';
+    dlgName.textContent = '华强';
+  }
+  dlgText.innerHTML = '';
+  dlgTyping = true;
+  var full = ln.gib || ln.text;
+  var span = document.createElement('span');
+  if (ln.gib) span.className = 'gib';
+  dlgText.appendChild(span);
+  var i = 0;
+  clearInterval(dlgTimer);
+  dlgTimer = setInterval(function () {
+    i++;
+    span.textContent = full.slice(0, i);
+    gibSyllable(ln.who === 'N' ? 'N' : ln.who, full.charCodeAt(i - 1));   // 每句话都配外星语
+    if (i >= full.length) finishType(ln);
+  }, 45);
+}
+function finishType(ln) {
+  clearInterval(dlgTimer);
+  dlgTyping = false;
+  dlgText.firstChild.textContent = ln.gib || ln.text;
+  if (ln.gib && ln.tr) {
+    var tr = document.createElement('div');
+    tr.className = 'tr';
+    tr.textContent = '( ' + ln.tr + ' )';
+    dlgText.appendChild(tr);
+  }
+}
+dlgBox.addEventListener('click', function () {
+  if (!dlgBox.classList.contains('show')) return;
+  var ln = dlgQueue[dlgIdx];
+  if (dlgTyping) { finishType(ln); return; }
+  dlgIdx++;
+  if (dlgIdx < dlgQueue.length) showDlgLine();
+  else {
+    var keep = dlgDone ? dlgDone() : false;
+    if (!keep) dlgBox.classList.remove('show');
+  }
+});
+function dlgShowButtons(defs) {
+  dlgNext.style.display = 'none';
+  dlgActions.innerHTML = '';
+  defs.forEach(function (d) {
+    var b = document.createElement('button');
+    b.className = 'px-btn' + (d.ghost ? ' ghost' : '');
+    b.textContent = d.label;
+    b.addEventListener('click', function (e) { e.stopPropagation(); d.fn(); });
+    dlgActions.appendChild(b);
+  });
+  dlgActions.style.display = 'flex';
+}
+
+/* 气泡台词(看/拍/掂阶段用) */
+var sayTimers = {};
+function say(who, text, hold) {
+  var el = $(who === 'F' ? 'say-farmer' : 'say-buyer');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(sayTimers[who]);
+  if (!hold) sayTimers[who] = setTimeout(function () { el.classList.remove('show'); }, 3000);
+}
+function hush() {
+  $('say-buyer').classList.remove('show');
+  $('say-farmer').classList.remove('show');
+}
+
+/* ================================================================
+ * 五、3D 像素瓜(低分辨率渲染 + 最近邻纹理 = PS1 式像素 3D)
+ * ================================================================ */
+var TYPES = {
+  ripe:   { w: 0.40, sound: 'ripe',   juice: '#d23a2e' },
+  raw:    { w: 0.25, sound: 'raw',    juice: '#e8c8c8' },
+  bad:    { w: 0.20, sound: 'bad',    juice: '#6d4434' },
+  hollow: { w: 0.15, sound: 'hollow', juice: '#d23a2e' }
+};
+function randomType() {
+  var r = Math.random(), acc = 0;
+  for (var k in TYPES) { acc += TYPES[k].w; if (r < acc) return k; }
+  return 'ripe';
+}
+/* 保底规则:前四个"开"的瓜必为好/生/坏/空各一个(洗牌随机顺序);
+   换瓜没开不算数,递来的还是同类型新瓜;开满四个之后纯随机 */
+var roundNum = 0;
+function shuffleFour() {
+  var a = ['ripe', 'raw', 'bad', 'hollow'];
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+var firstFour = shuffleFour();
+function openedTotal() {
+  return openedCounts.ripe + openedCounts.raw + openedCounts.bad + openedCounts.hollow;
+}
+function nextType() {
+  return openedTotal() < 4 ? firstFour[openedTotal()] : randomType();
+}
+
+/* 最多挑 16 个瓜,开完弹窗毕业 */
+var MAX_ROUNDS = 16;
+function showEndModal() {
+  $('endmodal-text').innerHTML =
+    MAX_ROUNDS + ' 次判断:猜对 ' + guessRight + ' 个 · 猜错 ' + (MAX_ROUNDS - guessRight) + ' 个<br>' +
+    '(好' + openedCounts.ripe + ' 生' + openedCounts.raw +
+    ' 坏' + openedCounts.bad + ' 空' + openedCounts.hollow + ')' +
+    '<br>最终称号:' + currentTitle() +
+    '<br>你已经是个挑瓜老手了,快去买瓜吧~';
+  $('endmodal').classList.add('show');
+}
+$('btn-restart').addEventListener('click', function () {
+  $('endmodal').classList.remove('show');
+  openedCounts = { ripe: 0, raw: 0, bad: 0, hollow: 0 };
+  guessRight = 0;
+  $('coll-items').innerHTML = '';
+  $('coll-count').textContent = '共开 0 个瓜';
+  $('collection').classList.remove('all');
+  $('collection').querySelector('.coll-title').textContent = '🍉 开瓜图鉴 0/16';
+  renderTitle();
+  roundNum = 0;
+  firstFour = shuffleFour();
+  startRound();
+});
+
+var glCanvas = $('gl');
+var renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: false });
+renderer.setPixelRatio(1);
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 50);
+camera.position.set(0, 0.12, 2.9);
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+var dl = new THREE.DirectionalLight(0xffffff, 0.55);
+dl.position.set(1.5, 2, 2.5); scene.add(dl);
+var melonGroup = new THREE.Group(); scene.add(melonGroup);
+var melonMesh = null;
+var spotUV = { u: 0.3, v: 0.6 };
+
+/* 每种瓜 4 种形态:条纹疏密/粗细、瓜斑大小、瓜身比例各不相同 */
+var VARIANTS = [
+  { stripes: 10, sw: 1.0,  spot: 1.0,  mesh: [1, 0.95, 1] },
+  { stripes: 12, sw: 0.8,  spot: 0.85, mesh: [1.06, 0.9, 0.98] },
+  { stripes: 9,  sw: 1.25, spot: 1.15, mesh: [0.95, 1.0, 0.95] },
+  { stripes: 11, sw: 1.0,  spot: 1.0,  mesh: [1, 0.92, 1.05] }
+];
+var RIND_BASES = {
+  ripe:   ['#3f9e46', '#3a9440', '#46a34c', '#3d9848'],
+  raw:    ['#63b565', '#6abc68', '#5aae60', '#66b86a'],
+  bad:    ['#5a8142', '#557a3e', '#5f8545', '#587e41'],
+  hollow: ['#3f9e46', '#429e48', '#3b9643', '#45a04b']
+};
+
+/* 块状像素纹理 */
+function makeRindTexture(type, spot, v) {
+  var V = VARIANTS[v || 0];
+  var c = document.createElement('canvas'); c.width = 128; c.height = 64;
+  var g = c.getContext('2d');
+  var base = RIND_BASES[type][v || 0];
+  var dark = { ripe: '#175c1e', raw: 'rgba(23,92,30,.45)', bad: '#2c4a1e', hollow: '#175c1e' }[type];
+  g.fillStyle = base; g.fillRect(0, 0, 128, 64);
+  var step = 128 / V.stripes;
+  var sw = Math.max(1, Math.round((type === 'raw' ? 3 : 5) * V.sw));
+  for (var i = 0; i < V.stripes; i++) {
+    var cx = (i + 0.5) * step, ph = i * 1.7;
+    g.fillStyle = dark;
+    for (var y = 0; y < 64; y += 2) {
+      var xo = Math.round((Math.sin(y * 0.32 + ph) * 2.2 + Math.sin(y * 0.08 + i * 2) * 3) / 2) * 2;
+      g.fillRect(Math.round(cx + xo - sw / 2), y, sw, 2);
+    }
+  }
+  // 块状瓜斑
+  var sx = spot.u * 128, sy = spot.v * 64, rx = 8 * V.spot, ry = 6 * V.spot;
+  var sc = { ripe: '#d8b45e', hollow: '#d8b45e', raw: '#e0ddc6', bad: '#8a6d3f' }[type];
+  g.fillStyle = sc;
+  for (var yy = -ry; yy <= ry; yy += 2) {
+    var ww = Math.sqrt(Math.max(0, 1 - (yy / ry) * (yy / ry))) * rx;
+    g.fillRect(Math.round(sx - ww), Math.round(sy + yy), Math.max(2, Math.round(ww * 2)), 2);
+  }
+  if (type === 'bad') {
+    g.fillStyle = '#4a2e1a';
+    for (var b = 0; b < 3; b++) {
+      var bx = sx + 8 + Math.random() * 8, by = sy - 6 + Math.random() * 12, br = 2 + Math.random() * 2;
+      for (yy = -br; yy <= br; yy += 2) {
+        var w2 = Math.sqrt(Math.max(0, 1 - (yy / br) * (yy / br))) * br;
+        g.fillRect(Math.round(bx - w2), Math.round(by + yy), Math.max(2, Math.round(w2 * 2)), 2);
+      }
+    }
+  }
+  var tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.flipY = false;
+  return tex;
+}
+
+function makeStem(type) {
+  var grp = new THREE.Group();
+  var dry = (type === 'ripe' || type === 'hollow');
+  var mat = new THREE.MeshLambertMaterial({ color: dry ? 0x8a6b3d : 0x557d2b });
+  if (type === 'bad') {
+    var stub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.1, 8), mat);
+    stub.position.y = 0.96; grp.add(stub);
+  } else if (dry) {
+    var c1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 0.16, 8), mat);
+    c1.position.y = 1.0; grp.add(c1);
+    var arc = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.03, 6, 12, Math.PI * 1.2), mat);
+    arc.position.set(0.065, 1.09, 0); arc.rotation.z = -0.5; grp.add(arc);
+  } else {
+    var c2 = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.24, 8), mat);
+    c2.position.y = 1.04; grp.add(c2);
+    var leaf = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), new THREE.MeshLambertMaterial({ color: 0x6a9a3a }));
+    leaf.scale.set(1.6, 0.4, 0.8); leaf.position.set(0.1, 1.02, 0); grp.add(leaf);
+  }
+  return grp;
+}
+function makeNavel(type) {
+  var grp = new THREE.Group();
+  if (type === 'raw') {
+    var bump = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshLambertMaterial({ color: 0x7c9a4a }));
+    bump.scale.set(1, 0.45, 1); bump.position.y = -0.945; grp.add(bump);
+  } else {
+    var r = type === 'bad' ? 0.095 : 0.055;
+    var col = type === 'bad' ? 0x2a1c10 : 0x1e3016;
+    var disc = new THREE.Mesh(new THREE.CircleGeometry(r, 12), new THREE.MeshBasicMaterial({ color: col }));
+    disc.rotation.x = Math.PI / 2; disc.position.y = -0.949; grp.add(disc);
+  }
+  return grp;
+}
+
+function buildMelon(type) {
+  while (melonGroup.children.length) {
+    var ch = melonGroup.children[0];
+    melonGroup.remove(ch);
+    ch.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+    });
+  }
+  spotUV = { u: 0.26 + Math.random() * 0.08, v: 0.56 + Math.random() * 0.08 };
+  var v = Math.floor(Math.random() * 4);
+  var V = VARIANTS[v];
+  melonMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 40, 30),
+    new THREE.MeshLambertMaterial({ map: makeRindTexture(type, spotUV, v) })
+  );
+  melonMesh.scale.set(V.mesh[0], V.mesh[1], V.mesh[2]);
+  melonGroup.add(melonMesh);
+  // 瓜蒂/瓜脐贴在瓜身上下两端,随瓜身比例微调
+  var dy = V.mesh[1] - 0.95;
+  var stemG = makeStem(type); stemG.position.y = dy;
+  var navelG = makeNavel(type); navelG.position.y = -dy;
+  melonGroup.add(stemG);
+  melonGroup.add(navelG);
+  melonGroup.rotation.set(0.15, Math.random() * 6.28, 0);
+  melonGroup.position.set(0, 0, 0);
+  melonGroup.scale.set(1, 1, 1);
+}
+
+function uvToDir(u, v) {
+  var phi = u * Math.PI * 2, th = v * Math.PI;
+  return new THREE.Vector3(-Math.cos(phi) * Math.sin(th), Math.cos(th), Math.sin(phi) * Math.sin(th));
+}
+
+/* ================================================================
+ * 六、舞台布局 & 交互
+ * ================================================================ */
+var stage = $('stage'), hand = $('prop-hand'), knife = $('prop-knife'),
+    cutL = $('cutL'), cutR = $('cutR'), buyerEl = $('actor-buyer'), farmerEl = $('actor-farmer'),
+    hint = $('hint'), trackerEl = $('tracker');
+var glSize = 0;
+
+function layout() {
+  var W = stage.clientWidth, H = stage.clientHeight;
+  glSize = Math.round(Math.min(W * (W < 500 ? 0.62 : 0.46), H * 0.78));
+  glCanvas.style.width = glSize + 'px'; glCanvas.style.height = glSize + 'px';
+  glCanvas.style.left = Math.round((W - glSize) / 2) + 'px';
+  glCanvas.style.bottom = Math.round(H * 0.11) + 'px';
+  var pr = Math.max(72, Math.round(glSize / 3.4));
+  renderer.setSize(pr, pr, false);
+  camera.aspect = 1; camera.updateProjectionMatrix();
+
+  var aw = Math.round(W * 0.125);
+  buyerEl.style.width = aw + 'px'; buyerEl.style.height = Math.round(aw * 96 / 60) + 'px';
+  buyerEl.style.bottom = Math.round(H * 0.16) + 'px';
+  farmerEl.style.width = aw + 'px'; farmerEl.style.height = Math.round(aw * 96 / 60) + 'px';
+  farmerEl.style.bottom = Math.round(H * 0.18) + 'px';
+
+  var hw = Math.round(W * 0.17);
+  hand.style.width = hw + 'px'; hand.style.height = Math.round(hw * 30 / 40) + 'px';
+
+  var kw = Math.round(W * 0.075);
+  knife.style.width = kw + 'px'; knife.style.height = Math.round(kw * 52 / 30) + 'px';
+  knife.style.left = Math.round(W / 2 - kw / 2) + 'px';
+
+  var cw = Math.round(W * 0.20);
+  cutL.style.width = cw + 'px'; cutL.style.height = cw + 'px';
+  cutR.style.width = cw + 'px'; cutR.style.height = cw + 'px';
+  cutL.style.left = Math.round(W / 2 - cw - 2) + 'px';
+  cutR.style.left = Math.round(W / 2 + 2) + 'px';
+  cutL.style.bottom = cutR.style.bottom = Math.round(H * 0.16) + 'px';
+}
+window.addEventListener('resize', layout);
+
+/* 拖拽旋转 / 缩放:滚轮或双指捏合(缩放限幅:整瓜永远完整可见) */
+var dragging = false, px0 = 0, py0 = 0, moved = 0, targetZ = 2.9;
+var activePtrs = {}, pinchD = 0, wasPinch = false;
+function ptrPair() { var k = Object.keys(activePtrs); return [activePtrs[k[0]], activePtrs[k[1]]]; }
+glCanvas.addEventListener('pointerdown', function (e) {
+  if (state !== 'look' && state !== 'pat' && state !== 'weigh') return;
+  activePtrs[e.pointerId] = [e.clientX, e.clientY];
+  var n = Object.keys(activePtrs).length;
+  if (n === 1) { dragging = true; moved = 0; px0 = e.clientX; py0 = e.clientY; }
+  else if (n === 2) {
+    dragging = false; wasPinch = true;
+    var p = ptrPair(); pinchD = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+  }
+  glCanvas.setPointerCapture(e.pointerId);
+});
+glCanvas.addEventListener('pointermove', function (e) {
+  if (!(e.pointerId in activePtrs)) return;
+  activePtrs[e.pointerId] = [e.clientX, e.clientY];
+  /* 双指:捏合缩放,不旋转 */
+  if (Object.keys(activePtrs).length === 2) {
+    var p = ptrPair(), d = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+    if (pinchD) targetZ = Math.max(2.55, Math.min(3.4, targetZ - (d - pinchD) * 0.006));
+    pinchD = d;
+    return;
+  }
+  if (!dragging) return;
+  var dx = e.clientX - px0, dy = e.clientY - py0;
+  moved += Math.abs(dx) + Math.abs(dy);
+  px0 = e.clientX; py0 = e.clientY;
+  melonGroup.rotation.y += dx * 0.009;
+  melonGroup.rotation.x += dy * 0.009;
+  melonGroup.rotation.x = Math.max(-1.3, Math.min(1.3, melonGroup.rotation.x));
+});
+function ptrEnd(e) {
+  delete activePtrs[e.pointerId];
+  var n = Object.keys(activePtrs).length;
+  if (n < 2) pinchD = 0;
+  dragging = false;
+  /* 单指轻点才算拍瓜,双指捏合后不触发 */
+  if (n === 0) {
+    if (moved < 6 && !wasPinch && state === 'pat') doPat();
+    wasPinch = false;
+  }
+}
+glCanvas.addEventListener('pointerup', ptrEnd);
+glCanvas.addEventListener('pointercancel', ptrEnd);
+glCanvas.addEventListener('wheel', function (e) {
+  e.preventDefault();
+  targetZ = Math.max(2.55, Math.min(3.4, targetZ + e.deltaY * 0.0015));
+}, { passive: false });
+
+/* fx 特效:果汁 / 波纹(480x300 舞台坐标) */
+var fxCtx = $('fx').getContext('2d');
+function stagePt(px, py) {
+  var W = stage.clientWidth, H = stage.clientHeight;
+  return [px / W * 480, py / H * 300];
+}
+function melonCenterPx() {
+  var W = stage.clientWidth, H = stage.clientHeight;
+  return [W / 2, H - H * 0.11 - glSize / 2];
+}
+function juice(color) {
+  var c = melonCenterPx(), p = stagePt(c[0], c[1]);
+  var parts = [];
+  for (var i = 0; i < 26; i++) {
+    parts.push({ x: p[0], y: p[1], vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 4 - 1, life: 1 });
+  }
+  var t0 = performance.now();
+  (function f(t) {
+    var k = (t - t0) / 800;
+    fxCtx.clearRect(0, 0, 480, 300);
+    if (k >= 1) return;
+    parts.forEach(function (o) {
+      o.x += o.vx; o.y += o.vy; o.vy += 0.25; o.life -= 0.03;
+      if (o.life > 0) { fxCtx.fillStyle = color; fxCtx.fillRect(o.x | 0, o.y | 0, 3, 2); }
+    });
+    requestAnimationFrame(f);
+  })(t0);
+}
+function ripple() {
+  var c = melonCenterPx(), p = stagePt(c[0] + glSize * 0.28, c[1]);
+  var t0 = performance.now();
+  (function f(t) {
+    var k = (t - t0) / 450;
+    fxCtx.clearRect(0, 0, 480, 300);
+    if (k >= 1) return;
+    fxCtx.strokeStyle = 'rgba(255,255,255,' + (0.8 * (1 - k)) + ')';
+    fxCtx.lineWidth = 2;
+    fxCtx.beginPath(); fxCtx.arc(p[0], p[1], 4 + k * 26, 0, 6.2832); fxCtx.stroke();
+    requestAnimationFrame(f);
+  })(t0);
+}
+
+/* 进度追踪 */
+var seen = {}, patCount = 0, weighed = false, pulseFeat = null;
+function renderTracker() {
+  var h = '<b>看</b>';
+  ['stripe', 'spot', 'navel', 'stem'].forEach(function (f) {
+    h += '<span class="tdot' + (seen[f] ? ' on' : (pulseFeat === f ? ' pulse' : '')) + '"></span>';
+  });
+  h += ' <b>拍</b><span class="tdot' + (patCount > 0 ? ' on' : '') + '"></span><span class="tdot' + (patCount > 1 ? ' on' : '') + '"></span>';
+  h += ' <b>掂</b><span class="tdot' + (weighed ? ' on' : '') + '"></span>';
+  trackerEl.innerHTML = h;
+}
+
+/* ================================================================
+ * 七、流程状态机
+ * ================================================================ */
+var state = 'boot';
+var currentType = 'ripe';
+var lookCand = null, lookSince = 0, lastFrameT = 0, lookElapsed = 0;
+var LOOK_HELP = {
+  stripe: '让瓜身正对着你——看侧面的条纹,别上下翻转。',
+  spot: '瓜斑是贴地那块发黄的印子,按住转一圈找找。',
+  navel: '瓜脐在瓜的底部,把瓜往下翻转看看。',
+  stem: '瓜蒂在瓜的顶上,把瓜往上翻转看看。'
+};
+
+function setHint(t) { hint.textContent = t; }
+
+/* ---- 渲染循环 + 看瓜部位识别 ---- */
+(function loop(t) {
+  requestAnimationFrame(loop);
+  var dt = Math.min(64, t - (lastFrameT || t)); lastFrameT = t;
+  camera.position.z += (targetZ - camera.position.z) * 0.12;
+  camera.lookAt(0, 0, 0);
+
+  if (state === 'look') {
+    lookElapsed += dt;
+    var camDir = camera.position.clone().normalize();
+    var cand = null;
+    var dirs = {
+      stem: new THREE.Vector3(0, 1, 0),
+      navel: new THREE.Vector3(0, -1, 0),
+      /* 球体 UV 是 (u, 1-v),瓜斑的 3D 方向要用 1-v 换算,否则和纹理位置上下镜像 */
+      spot: uvToDir(spotUV.u, 1 - spotUV.v)
+    };
+    var maxDot = -1, maxAll = -1;
+    for (var k in dirs) {
+      var w = dirs[k].clone().applyQuaternion(melonGroup.quaternion);
+      var d = w.dot(camDir);
+      if (d > maxAll) maxAll = d;
+      if (d > 0.86 && d > maxDot) { maxDot = d; cand = k; }   /* 阈值放宽:0.90→0.86 */
+    }
+    if (!cand && maxAll < 0.5) cand = 'stripe';               /* 纹路窗口放宽:0.35→0.5 */
+
+    /* 对准部位时追踪点呼吸闪烁,提示"别动" */
+    var pf = (cand && !seen[cand]) ? cand : null;
+    if (pf !== pulseFeat) { pulseFeat = pf; renderTracker(); }
+
+    if (cand && !seen[cand]) {
+      if (cand === lookCand) {
+        lookSince += dt;
+        if (lookSince > 450) {                                /* 触发时间 600→450ms */
+          seen[cand] = true;
+          pulseFeat = null; renderTracker();
+          say('H', pick(LINES.look[cand][currentType]));
+          lookElapsed = 0;
+          lookCand = null; lookSince = 0;
+          if (seen.stripe && seen.spot && seen.navel && seen.stem) {
+            state = 'lookdone';
+            setHint('部位看完了……');
+            setTimeout(enterPat, 1400);
+          }
+        }
+      } else if (lookCand === null) {
+        lookCand = cand; lookSince = 0;
+      } else {
+        /* 切到别的部位:保留一半进度,不再一刀切清零 */
+        lookCand = cand; lookSince = Math.min(lookSince * 0.5, 200);
+      }
+    } else if (lookCand) {
+      /* 手滑移开:进度缓慢衰减,而不是立刻清零 */
+      lookSince -= dt;
+      if (lookSince <= 0) { lookCand = null; lookSince = 0; }
+    }
+
+    /* 卡关 10 秒,华强支招 */
+    if (lookElapsed > 10000) {
+      lookElapsed = 0;
+      var missing = ['stripe', 'spot', 'navel', 'stem'].filter(function (f) { return !seen[f]; });
+      if (missing.length) say('H', '找不到?' + LOOK_HELP[missing[0]]);
+    }
+  }
+  renderer.render(scene, camera);
+})(0);
+
+/* ---- ② 拍瓜 ---- */
+function doPat() {
+  // 手掌从右侧拍下,拍到瓜的那一刻才出声+瓜身轻颤(380ms 动画,中点 190ms 触瓜)
+  setTimeout(function () {
+    knockSound(TYPES[currentType].sound);
+    ripple();
+    // 瓜身轻颤(西瓜不是皮球,不变形)
+    tween(200, function (k) {
+      melonGroup.rotation.z = Math.sin(k * Math.PI * 4) * 0.02 * (1 - k);
+    }, function () { melonGroup.rotation.z = 0; });
+  }, 185);
+  // 听完声再说话
+  setTimeout(function () { say('H', pick(LINES.pat[currentType])); }, 480);
+  var W = stage.clientWidth, H = stage.clientHeight;
+  var hw = hand.offsetWidth;
+  hand.classList.remove('clickable');
+  hand.style.left = Math.round(W / 2 + glSize * 0.42 - hw / 2) + 'px';
+  hand.style.bottom = Math.round(H * 0.11 + glSize * 0.42) + 'px';
+  hand.style.display = 'block';
+  hand.style.transform = 'rotate(-90deg)';
+  var x0 = W / 2 + glSize * 0.42 - hw / 2;
+  tween(380, function (k) {
+    var p = k < 0.5 ? k * 2 : (1 - k) * 2;
+    hand.style.left = Math.round(x0 - glSize * 0.2 * p) + 'px';
+  }, function () { hand.style.display = 'none'; hand.style.transform = ''; });
+  patCount++;
+  renderTracker();
+  if (patCount === 1) setHint('再拍一下,听准了');
+  if (patCount >= 2) {
+    state = 'patdone';
+    setHint('听清了……');
+    setTimeout(enterWeigh, 1300);
+  }
+}
+
+/* ---- ③ 掂瓜 ---- */
+function doWeigh() {
+  if (weighed) return;
+  weighed = true;
+  hand.classList.remove('clickable');
+  var up = { ripe: 0.15, hollow: 0.20, raw: 0.05, bad: 0.10 }[currentType];
+  tween(950, function (k) {
+    var y = Math.abs(Math.sin(k * Math.PI * 3)) * up;
+    melonGroup.position.y = y;
+    hand.style.transform = 'translateY(' + Math.round(-y * glSize * 0.5) + 'px)';
+  }, function () { hand.style.transform = ''; });
+  say('H', pick(LINES.weigh[currentType]));
+  renderTracker();
+  setHint('心里大概有数了……');
+  setTimeout(enterDecide, 1600);
+}
+
+/* ---- ③.⑤ 决断:玩家猜瓜型(好/生/空/坏 四选一),猜完华强替你放话,再开瓜见分晓 ---- */
+function enterDecide() {
+  state = 'decide';
+  hand.style.display = 'none';
+  hush();
+  setHint('看也看了,拍也拍了,掂也掂了——这瓜是哪种?你来断!');
+  playDialog([{ who: 'F', text: '怎么样?是生是熟,您给断一断!' }], function () {
+    dlgShowButtons([
+      { label: '🍉 好瓜', fn: function () { guessRound('ripe'); } },
+      { label: '🥚 生瓜', fn: function () { guessRound('raw'); } },
+      { label: '🕳️ 空瓜', fn: function () { guessRound('hollow'); } },
+      { label: '🤢 坏瓜', fn: function () { guessRound('bad'); } }
+    ]);
+    return true;   // 保留对白框
+  });
+}
+var lastGuessRight = false;
+function guessRound(g) {
+  dlgBox.classList.remove('show');
+  lastGuessRight = (g === currentType);
+  if (lastGuessRight) guessRight++;
+  /* 华强按你断的结果放话,再开瓜 */
+  state = 'dialog';
+  setHint('点击对白框继续');
+  playDialog(LINES.pre[g], function () { chop(); return false; });
+}
+function chop() {
+  state = 'chop';
+  setHint('开瓜——');
+  var H = stage.clientHeight;
+  knife.style.display = 'block';
+  knife.style.top = '-70px';
+  var targetTop = Math.round(H - H * 0.11 - glSize * 0.86);
+  tween(430, function (k) {
+    knife.style.top = Math.round(-70 + (targetTop + 70) * k * k) + 'px';
+  }, function () {
+    chopSound();
+    knife.style.display = 'none';
+    glCanvas.style.display = 'none';
+    drawCutHalf('cutL', 'L', currentType);
+    drawCutHalf('cutR', 'R', currentType);
+    cutL.style.display = cutR.style.display = 'block';
+    cutL.style.transform = cutR.style.transform = '';
+    requestAnimationFrame(function () {
+      cutL.style.transform = 'translate(-20px, 8px) rotate(-7deg)';
+      cutR.style.transform = 'translate(20px, 8px) rotate(7deg)';
+    });
+    juice(TYPES[currentType].juice);
+    sting(currentType);              // 戏剧性配乐
+    addToCollection(currentType);    // 图鉴+1
+    setTimeout(function () {
+      state = 'post';
+      var verdict = { who: 'N', text: lastGuessRight ? '猜对了!' : '看走眼了……' };
+      playDialog([verdict].concat(LINES.post[currentType]), function () {
+        if (roundNum >= MAX_ROUNDS) { showEndModal(); return true; }
+        dlgShowButtons([{ label: '🍉 再挑一个', fn: function () { startRound(); } }]);
+        return true;   // 保留对白框
+      });
+    }, 900);
+  });
+}
+
+/* ---- 各阶段入口 ---- */
+function enterLook() {
+  state = 'look';
+  lookElapsed = 0; lookCand = null; lookSince = 0; pulseFeat = null;
+  setHint('按住拖动旋转西瓜,看清纹路 / 瓜斑 / 瓜脐 / 瓜蒂');
+}
+function enterPat() {
+  state = 'pat';
+  setHint('左键点击西瓜,拍两拍听声');
+}
+function enterWeigh() {
+  state = 'weigh';
+  var W = stage.clientWidth, H = stage.clientHeight;
+  var hw = hand.offsetWidth;
+  hand.style.left = Math.round(W / 2 - hw / 2) + 'px';
+  hand.style.bottom = Math.round(H * 0.11 - 8) + 'px';
+  hand.style.transform = '';
+  hand.style.display = 'block';
+  hand.classList.add('clickable');
+  setHint('点击西瓜下华强的手掌,掂一掂');
+}
+hand.addEventListener('pointerdown', function () {
+  if (state === 'weigh') doWeigh();
+});
+
+/* ---- 开局 / 换瓜 ---- */
+function startRound() {
+  hush();
+  dlgBox.classList.remove('show');
+  cutL.style.display = cutR.style.display = 'none';
+  knife.style.display = 'none';
+  hand.style.display = 'none'; hand.classList.remove('clickable');
+  seen = {}; patCount = 0; weighed = false; pulseFeat = null; renderTracker();
+  currentType = nextType(); roundNum++;
+  buildMelon(currentType);
+  glCanvas.style.display = 'block';
+  targetZ = 2.9; camera.position.z = 2.9;
+  // 瓜农递瓜:瓜由小变大
+  melonGroup.scale.set(0.12, 0.12, 0.12);
+  tween(650, function (k) {
+    var e = 1 - Math.pow(1 - k, 3);
+    var s = 0.12 + 0.88 * e;
+    melonGroup.scale.set(s, s, s);
+    melonGroup.rotation.y += 0.04;
+  });
+  setHint('瓜农递瓜中……');
+  say('F', pick(DELIVER_F));
+  setTimeout(function () { say('H', '这瓜保熟吗?'); }, 1200);
+  setTimeout(enterLook, 1900);
+}
+
+/* 首次进入音频解锁 */
+document.addEventListener('pointerdown', function unlock() {
+  actx().resume && actx().resume();
+  document.removeEventListener('pointerdown', unlock);
+});
+
+/* ---- 启动:人物进场 → PvZ 式开场白 → 第一瓜 ---- */
+layout();
+buyerEl.style.left = '-120px';
+farmerEl.style.right = '-120px';
+setTimeout(function () {
+  buyerEl.style.left = Math.round(stage.clientWidth * 0.05) + 'px';
+  farmerEl.style.right = Math.round(stage.clientWidth * 0.06) + 'px';
+}, 400);
+/* 待机上下颠(像素步进) */
+setInterval(function () {
+  if (state === 'chop' || state === 'post') return;
+  var up = Math.floor(performance.now() / 420) % 2;
+  buyerEl.style.transform = up ? 'translateY(-2px)' : '';
+  farmerEl.style.transform = up ? '' : 'translateY(-2px)';
+}, 420);
+if (location.hash === '#skip') {   /* 调试:跳过开场白直接开局 */
+  buyerEl.style.left = Math.round(stage.clientWidth * 0.05) + 'px';
+  farmerEl.style.right = Math.round(stage.clientWidth * 0.06) + 'px';
+  startRound();
+} else {
+  setHint('点击对白框继续');
+  setTimeout(function () {
+    playDialog(INTRO, function () { startRound(); return false; });
+  }, 1400);
+}
+
+</script>
+
+</body>
+</html>
