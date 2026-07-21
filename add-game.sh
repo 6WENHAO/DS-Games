@@ -61,6 +61,20 @@ add_game() {
       if [ -n "$PIC_URL" ]; then
         curl -sL -o "$COVER_FILE" "$PIC_URL"
         echo "  封面: 已下载 $COVER_FILE"
+        # 超过 300K 则压缩
+        local SIZE=$(wc -c < "$COVER_FILE" | tr -d ' ')
+        if [ "$SIZE" -gt 307200 ]; then
+          python3 -c "
+from PIL import Image
+img = Image.open('$COVER_FILE')
+if img.mode in ('RGBA','P'): img = img.convert('RGB')
+w, h = img.size
+if w > 1200 or h > 1200: img.thumbnail((1200,1200))
+img.save('$COVER_FILE', 'JPEG', quality=75, optimize=True)
+" 2>/dev/null
+          local SIZE2=$(wc -c < "$COVER_FILE" | tr -d ' ')
+          echo "  封面: 已压缩 $(echo $SIZE | awk '{printf \"%.0f\",$1/1024}')K → $(echo $SIZE2 | awk '{printf \"%.0f\",$1/1024}')K"
+        fi
       fi
     fi
   fi
