@@ -130,35 +130,81 @@ else
   fi
 fi
 
-# 输出新游戏条目
+# ====== 自动写入 index.html ======
 if [ -s /tmp/new_games.txt ]; then
   echo ""
-  echo "=== 待添加条目 (复制到 index.html 的 games 数组中) ==="
-  cat /tmp/new_games.txt
+  echo "=== 写入 index.html ==="
+  
+  python3 << 'PYEOF'
+import os
+
+with open("index.html", "r") as f:
+    lines = f.readlines()
+
+# 收集新游戏条目
+new_games = []
+if os.path.exists("/tmp/new_games.txt"):
+    with open("/tmp/new_games.txt") as f:
+        for l in f:
+            l = l.strip()
+            if l and l not in new_games:
+                new_games.append(l)
+
+# 去重：已存在的跳过
+for entry in new_games:
+    if any(entry in line for line in lines):
+        new_games.remove(entry)
+
+# 新作者收集
+new_authors = {}
+if os.path.exists("/tmp/new_authors_bv.txt"):
+    with open("/tmp/new_authors_bv.txt") as f:
+        for l in f:
+            parts = l.strip().split("|")
+            author = parts[0]
+            uid = parts[1] if len(parts) > 1 else ""
+            name = parts[2] if len(parts) > 2 else ""
+            if author not in new_authors:
+                new_authors[author] = (uid, name)
+
+inserted_games = 0
+inserted_authors = 0
+new_lines = []
+
+for line in lines:
+    # 在 ]; 之前插入新游戏（games 数组之后，authorLinks 之前）
+    if line.strip() == "];" and inserted_games < len(new_games) and '"authorLinks"' not in ''.join(new_lines[-5:]):
+        # 检查前一行是否是 game entry
+        for entry in new_games:
+            if entry not in '\n'.join(new_lines):
+                new_lines.append(entry + '\n')
+                inserted_games += 1
+                print(f"  + {entry.split('title: \"')[1].split('\"')[0] if 'title: \"' in entry else entry}")
+    
+    new_lines.append(line)
+
+# 重新加载以便插入作者
+lines2 = new_lines
+new_lines2 = []
+for line in lines2:
+    if line.strip() == "};" and inserted_authors < len(new_authors) and "authorLinks" in '\n'.join(new_lines2[-10:]):
+        for author, (uid, name) in new_authors.items():
+            if f'"{author}":' not in ''.join(new_lines2):
+                if uid and uid != "None":
+                    entry = f'      "{author}": "https://space.bilibili.com/{uid}",  # {name}\n'
+                else:
+                    entry = f'      "{author}": "https://space.bilibili.com/<请手动查找>",\n'
+                new_lines2.append(entry)
+                inserted_authors += 1
+                print(f"  + authorLink: {author}")
+    new_lines2.append(line)
+
+with open("index.html", "w") as f:
+    f.writelines(new_lines2)
+
+print(f"\nDone. {inserted_games} games, {inserted_authors} authors added.")
+PYEOF
+
 else
   echo "没有发现新游戏。"
-fi
-
-# 新作者 B站空间
-if [ -s /tmp/new_authors_bv.txt ]; then
-  echo ""
-  echo "=== 新作者 B站空间 (复制到 index.html 的 authorLinks 中) ==="
-  sort -u /tmp/new_authors_bv.txt | while IFS='|' read -r author bv; do
-    # 跳过已有的
-    if grep -q "\"$author\":" "$INDEX_FILE" 2>/dev/null; then
-      continue
-    fi
-    if [ -n "$bv" ]; then
-      result=$(get_bilibili_space "$bv")
-      uid=$(echo "$result" | cut -d'|' -f1)
-      name=$(echo "$result" | cut -d'|' -f2)
-      if [ -n "$uid" ] && [ "$uid" != "None" ]; then
-        echo "  \"$author\": \"https://space.bilibili.com/$uid\",  # $name"
-      else
-        echo "  \"$author\": \"https://space.bilibili.com/<请手动查找>\","
-      fi
-    else
-      echo "  \"$author\": \"https://space.bilibili.com/<请手动查找>\",  # 无视频链接，请手动搜索B站用户"
-    fi
-  done
 fi
