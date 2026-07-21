@@ -89,6 +89,10 @@ curl -s "https://api.bilibili.com/x/web-interface/view?bvid=$BV" \
     uid=d['data']['owner']['mid']; print(f'https://space.bilibili.com/{uid}')"
 ```
 
+## 友情链接
+
+- [dsv4ga-news-gather](https://github.com/YunhaoFu/dsv4ga-news-gather) — DSV4 灰度新闻聚合
+
 ## 技术栈
 
 - 纯 HTML/CSS/JS 静态页面
