@@ -63,7 +63,7 @@ git commit -m "add: 作者名/游戏名"
 git push
 ```
 
-> 部署后 Cloudflare Pages 自动更新。
+> 部署后 Cloudflare Pages 和 腾讯云 EdgeOne 自动更新。
 
 ### 文件规范
 
