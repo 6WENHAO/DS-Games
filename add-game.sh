@@ -88,7 +88,7 @@ img.save('$COVER_FILE', 'JPEG', quality=75, optimize=True)
   local GAME_URL="./$AUTHOR_DIR/$GAME_DIR/$ENTRY"
   local TAG="Game"
 
-  local NEW_ENTRY="      { title: \"$GAME_DIR\", author: \"$AUTHOR_DIR\", tag: \"$TAG\", gameUrl: \"$GAME_URL\"$VIDEO_PART$THUMB_PART }"
+  local NEW_ENTRY="      { title: \"$GAME_DIR\", author: \"$AUTHOR_DIR\", tag: \"$TAG\", gameUrl: \"$GAME_URL\"$VIDEO_PART$THUMB_PART },"
 
   echo ""
   echo "  $NEW_ENTRY"
@@ -160,7 +160,7 @@ new_games = []
 if os.path.exists("/tmp/new_games.txt"):
     with open("/tmp/new_games.txt") as f:
         for l in f:
-            l = l.strip()
+            l = l.rstrip()
             if l and l not in new_games:
                 new_games.append(l)
 
