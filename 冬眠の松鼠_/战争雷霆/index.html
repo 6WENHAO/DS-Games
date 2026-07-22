@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>钢铁雷霆 STEEL THUNDER — 网页坦克战</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="styles/main.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./lib/three.module.js",
+      "three/addons/": "./lib/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <!-- 加载界面 -->
+  <div id="loading-screen" class="overlay">
+    <div class="load-box">
+      <h1 class="logo-text">钢铁雷霆</h1>
+      <div class="logo-sub">STEEL THUNDER</div>
+      <div class="load-bar-wrap"><div id="load-bar"></div></div>
+      <div id="load-status">正在加载资源…</div>
+      <div class="load-tip">提示：击穿敌方炮弹架可能引起殉爆，一发入魂！</div>
+    </div>
+  </div>
+
+  <!-- 机库 / 主菜单 -->
+  <div id="hangar-screen" class="overlay hidden">
+    <div class="hangar-top">
+      <h1 class="logo-text small">钢铁雷霆 <span class="logo-en">STEEL THUNDER</span></h1>
+      <div class="hangar-mode">陆战 · 统治模式 · 磨坊村</div>
+    </div>
+    <div class="hangar-left">
+      <div class="panel-title">我方载具</div>
+      <div id="tank-list"></div>
+    </div>
+    <div class="hangar-right">
+      <div class="panel-title">载具档案</div>
+      <div id="tank-stats"></div>
+    </div>
+    <div class="hangar-bottom">
+      <button id="btn-controls" class="btn secondary">键位说明</button>
+      <div class="hangar-opts">
+        <label><input type="checkbox" id="opt-shadows" checked> 阴影</label>
+        <label><input type="checkbox" id="opt-hq" checked> 高清渲染</label>
+        <label>音量 <input type="range" id="opt-volume" min="0" max="100" value="80"></label>
+      </div>
+      <button id="btn-battle" class="btn primary">开始战斗 !</button>
+    </div>
+  </div>
+
+  <!-- 键位说明弹窗 -->
+  <div id="controls-modal" class="overlay hidden">
+    <div class="modal-box">
+      <h2>键位说明</h2>
+      <table class="keys-table">
+        <tr><td>W / S</td><td>前进 / 倒车</td></tr>
+        <tr><td>A / D</td><td>车体左转 / 右转</td></tr>
+        <tr><td>鼠标</td><td>转动炮塔与瞄准</td></tr>
+        <tr><td>左键</td><td>开炮</td></tr>
+        <tr><td>Shift / 右键</td><td>狙击镜（炮手视角）</td></tr>
+        <tr><td>滚轮</td><td>视角 / 瞄准镜缩放</td></tr>
+        <tr><td>1 / 2</td><td>选择 穿甲弹 / 榴弹</td></tr>
+        <tr><td>Tab</td><td>计分板</td></tr>
+        <tr><td>M</td><td>大地图</td></tr>
+        <tr><td>Esc</td><td>暂停 / 菜单</td></tr>
+      </table>
+      <button id="btn-close-controls" class="btn primary">关闭</button>
+    </div>
+  </div>
+
+  <!-- 战斗HUD -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="score-team-a" class="score-bar a"><div class="fill"></div><span class="num">1000</span></div>
+      <div id="match-timer">15:00</div>
+      <div id="score-team-b" class="score-bar b"><div class="fill"></div><span class="num">1000</span></div>
+    </div>
+    <div id="cap-banner" class="hidden"></div>
+    <div id="kill-feed"></div>
+    <div id="crosshair-cam"></div>
+    <div id="crosshair-gun">
+      <svg viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="30" fill="none" stroke-width="1.6"/>
+        <line x1="50" y1="12" x2="50" y2="34" stroke-width="1.6"/>
+        <line x1="50" y1="66" x2="50" y2="88" stroke-width="1.6"/>
+        <line x1="12" y1="50" x2="34" y2="50" stroke-width="1.6"/>
+        <line x1="66" y1="50" x2="88" y2="50" stroke-width="1.6"/>
+        <circle id="reload-arc-bg" cx="50" cy="50" r="40" fill="none" stroke-width="3" opacity="0.25"/>
+        <circle id="reload-arc" cx="50" cy="50" r="40" fill="none" stroke-width="3" stroke-dasharray="251" stroke-dashoffset="0" transform="rotate(-90 50 50)"/>
+      </svg>
+      <div id="reload-text"></div>
+    </div>
+    <div id="hit-marker"></div>
+    <div id="hit-result"></div>
+    <div id="damage-dir"></div>
+    <div id="sniper-overlay" class="hidden">
+      <div class="scope-vignette"></div>
+      <svg class="scope-marks" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice">
+        <line x1="500" y1="0" x2="500" y2="440" />
+        <line x1="500" y1="560" x2="500" y2="1000" />
+        <line x1="0" y1="500" x2="440" y2="500" />
+        <line x1="560" y1="500" x2="1000" y2="500" />
+        <g id="mil-marks"></g>
+      </svg>
+      <div id="zoom-label">4.0x</div>
+    </div>
+    <div id="hud-bottom-left">
+      <div id="vehicle-name"></div>
+      <div id="tank-status">
+        <svg id="tank-icon" viewBox="0 0 64 40" aria-label="tank">
+          <g fill="currentColor">
+            <rect x="24" y="8" width="18" height="9" rx="2"/>
+            <rect x="38" y="10" width="22" height="3.5" rx="1.5"/>
+            <path d="M10 18 L52 18 L48 27 L14 27 Z"/>
+            <rect x="6" y="24" width="50" height="11" rx="5.5"/>
+            <circle cx="14" cy="29.5" r="3.4" fill="#0b0e12"/>
+            <circle cx="24" cy="29.5" r="3.4" fill="#0b0e12"/>
+            <circle cx="34" cy="29.5" r="3.4" fill="#0b0e12"/>
+            <circle cx="44" cy="29.5" r="3.4" fill="#0b0e12"/>
+          </g>
+        </svg>
+        <div id="hp-bar"><div id="hp-fill"></div></div>
+        <div id="modules">
+          <span id="mod-engine" title="发动机">⚙</span>
+          <span id="mod-track" title="履带">⛓</span>
+          <span id="mod-gun" title="火炮">✛</span>
+          <span id="mod-fire" title="起火" class="hidden">🔥</span>
+        </div>
+      </div>
+      <div id="repair-hint" class="hidden"></div>
+      <div id="speed-label">0 km/h</div>
+    </div>
+    <div id="hud-bottom-right">
+      <div id="shell-list"></div>
+    </div>
+    <div id="minimap-wrap">
+      <canvas id="minimap" width="220" height="220"></canvas>
+    </div>
+    <div id="score-toast"></div>
+    <div id="center-msg"></div>
+    <div id="marker-layer"></div>
+    <div id="scoreboard" class="hidden">
+      <div class="sb-col" id="sb-a"><h3>联邦军</h3></div>
+      <div class="sb-col" id="sb-b"><h3>帝国军</h3></div>
+    </div>
+    <div id="respawn-screen" class="hidden">
+      <h2 id="respawn-title">载具被击毁</h2>
+      <div id="respawn-info"></div>
+      <button id="btn-respawn" class="btn primary">重返战场</button>
+      <button id="btn-giveup" class="btn secondary">放弃战斗</button>
+    </div>
+  </div>
+
+  <!-- 暂停菜单 -->
+  <div id="pause-menu" class="overlay hidden">
+    <div class="modal-box">
+      <h2>战斗暂停</h2>
+      <button id="btn-resume" class="btn primary wide">继续战斗</button>
+      <button id="btn-pause-controls" class="btn secondary wide">键位说明</button>
+      <button id="btn-quit" class="btn danger wide">撤离战场</button>
+    </div>
+  </div>
+
+  <!-- 结算界面 -->
+  <div id="result-screen" class="overlay hidden">
+    <div class="result-box">
+      <h1 id="result-title">胜利</h1>
+      <div id="result-sub"></div>
+      <table id="result-stats"></table>
+      <button id="btn-back-hangar" class="btn primary">返回机库</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

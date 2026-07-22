@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>土豆幸存者 - 网页版肉鸽生存</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #10141a;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif; color: #e8e4d8; }
+  canvas { position: absolute; inset: 0; display: block; }
+  .hidden { display: none !important; }
+  .dim { color: #8a8878; }
+  .pos { color: #7ef07e; }
+  .neg { color: #ff7a7a; }
+
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: rgba(10, 13, 18, .82);
+    z-index: 10; gap: 18px; overflow-y: auto; padding: 30px 20px; }
+  .panelBox { background: #1c222b; border: 2px solid #3a4350; border-radius: 14px;
+    padding: 26px 30px; max-width: 1050px; width: 95%; max-height: 92vh; overflow-y: auto; }
+
+  h1 { font-size: 52px; color: #e8c56a; text-shadow: 0 4px 0 #6b5320, 0 6px 18px rgba(0,0,0,.6);
+    letter-spacing: 6px; }
+  h2 { font-size: 26px; color: #e8c56a; margin-bottom: 14px; text-align: center; }
+  .sub { color: #9a967f; font-size: 15px; text-align: center; line-height: 1.8; }
+
+  .btn { background: #d8a840; color: #241a06; border: none; border-radius: 8px;
+    padding: 12px 34px; font-size: 18px; font-weight: bold; cursor: pointer;
+    box-shadow: 0 4px 0 #8a6820; transition: transform .08s; font-family: inherit; }
+  .btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+  .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #8a6820; }
+  .btn.gray { background: #6b7280; box-shadow: 0 4px 0 #3d434c; color: #eee; }
+  .btn.tiny { padding: 4px 10px; font-size: 12px; box-shadow: 0 2px 0 #8a6820; }
+  .btn.tiny.gray { box-shadow: 0 2px 0 #3d434c; }
+  .btn.disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 14px; justify-content: center; margin-top: 16px; }
+
+  .cardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px; margin-top: 10px; }
+  .card { background: #242c37; border: 2px solid #3a4350; border-radius: 12px;
+    padding: 16px 12px; text-align: center; cursor: pointer; transition: all .12s; }
+  .card:hover { border-color: #e8c56a; transform: translateY(-3px); background: #2a3340; }
+  .cardEmoji { font-size: 44px; line-height: 1.3; }
+  .cardName { font-size: 17px; font-weight: bold; margin: 6px 0 4px; }
+  .cardDesc { font-size: 12.5px; color: #a8a48e; line-height: 1.7; }
+  .cardDesc.big { font-size: 17px; color: #e8e4d8; }
+  .tag { font-size: 11px; color: #7a8494; font-weight: normal; }
+
+  /* HUD */
+  #hudBar { position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: center; gap: 16px; padding: 10px 16px; pointer-events: none; }
+  .hudBlock { background: rgba(15, 19, 25, .75); border: 1px solid #3a4350;
+    border-radius: 8px; padding: 6px 12px; font-size: 15px; font-weight: bold; }
+  .barWrap { width: 220px; height: 20px; background: #14181e; border-radius: 10px;
+    overflow: hidden; position: relative; border: 1px solid #3a4350; }
+  .barWrap .fill { height: 100%; transition: width .15s; }
+  #hudHpBar { background: linear-gradient(#e05252, #b03030); }
+  #hudXpBar { background: linear-gradient(#52c46a, #2f8a44); }
+  .barText { position: absolute; inset: 0; text-align: center; font-size: 12px;
+    line-height: 20px; font-weight: bold; text-shadow: 0 1px 2px #000; }
+  #hudTimerWrap { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    text-align: center; z-index: 5; pointer-events: none; }
+  #hudWave { font-size: 15px; color: #c8c4a8; }
+  #hudTimer { font-size: 34px; font-weight: bold; color: #fff; text-shadow: 0 2px 6px #000; }
+
+  #waveBanner { position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 54px; font-weight: bold; color: #e8c56a; text-shadow: 0 4px 12px #000;
+    z-index: 6; pointer-events: none; opacity: 0; }
+  #waveBanner.anim { animation: banner 2s ease forwards; }
+  @keyframes banner {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.6); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+    75% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -60%); }
+  }
+
+  #toast { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+    background: rgba(20, 25, 32, .92); border: 1px solid #e8c56a; padding: 10px 24px;
+    border-radius: 10px; font-size: 16px; z-index: 30; pointer-events: none; }
+
+  /* 悬浮属性面板 (Tab) */
+  #statsFloat { position: absolute; top: 70px; right: 14px; width: 240px;
+    background: rgba(18, 22, 29, .92); border: 1px solid #3a4350; border-radius: 10px;
+    padding: 12px 14px; z-index: 7; font-size: 13px; }
+  .statLine { display: flex; justify-content: space-between; padding: 2.5px 0;
+    border-bottom: 1px dashed #2c333d; font-size: 13.5px; }
+
+  /* 商店 */
+  #shopPanel .panelBox { max-width: 1150px; }
+  #shopTop { display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+  #shopMain { display: flex; gap: 18px; }
+  #shopLeft { flex: 1; }
+  #shopRight { width: 250px; flex-shrink: 0; }
+  #shopOffers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .offerCard { display: flex; flex-direction: column; cursor: default; }
+  .offerCard:hover { transform: none; }
+  .offerCard .cardDesc { flex: 1; margin-bottom: 8px; }
+  .offerCard .buy { margin-top: auto; font-size: 14px; padding: 8px 6px; }
+  .offerCard.sold { opacity: .35; justify-content: center; min-height: 180px; }
+  .lockBtn { margin-top: 6px; font-size: 12px; color: #8a8878; cursor: pointer; }
+  .lockBtn.locked { color: #e8c56a; }
+  .sectionTitle { font-size: 15px; color: #c8b06a; margin: 14px 0 8px; font-weight: bold; }
+  #shopWeapons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .miniCard { background: #242c37; border: 2px solid #3a4350; border-radius: 10px;
+    padding: 8px 4px; text-align: center; }
+  .miniCard.empty { opacity: .35; }
+  .miniEmoji { font-size: 26px; }
+  .miniName { font-size: 12px; margin: 3px 0; font-weight: bold; }
+  .miniBtns { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+  .itemChip { font-size: 24px; margin-right: 6px; cursor: help; }
+  #shopStats { background: #1a2029; border-radius: 10px; padding: 10px 12px; }
+
+  @media (max-width: 900px) {
+    #shopOffers { grid-template-columns: repeat(2, 1fr); }
+    #shopMain { flex-direction: column; }
+    #shopRight { width: 100%; }
+    h1 { font-size: 36px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hudBar" class="hidden">
+  <div class="barWrap"><div id="hudHpBar" class="fill"></div><div id="hudHpText" class="barText"></div></div>
+  <div class="barWrap" style="width:160px"><div id="hudXpBar" class="fill"></div><div id="hudLevel" class="barText"></div></div>
+  <div class="hudBlock">💎 <span id="hudMats">0</span></div>
+</div>
+<div id="hudTimerWrap">
+  <div id="hudWave"></div>
+  <div id="hudTimer"></div>
+</div>
+<div id="waveBanner" class="hidden"></div>
+<div id="toast" class="hidden"></div>
+<div id="statsFloat" class="hidden">
+  <div class="sectionTitle" style="margin-top:0">📊 属性 (Tab 关闭)</div>
+  <div id="statsFloatBody"></div>
+</div>
+
+<!-- 主菜单 -->
+<div id="mainMenu" class="overlay">
+  <h1>🥔 土豆幸存者</h1>
+  <div class="sub">一款致敬《土豆兄弟》的网页肉鸽生存游戏<br>
+    在 20 波怪物潮中活下来！收集材料、升级属性、购买武器和道具<br><br>
+    🎮 WASD / 方向键移动 · 武器自动攻击<br>
+    ⌨️ Tab 查看属性 · Esc 暂停 · M 音效开关</div>
+  <button id="btnStart" class="btn">开始游戏</button>
+</div>
+
+<!-- 角色选择 -->
+<div id="charSelect" class="overlay hidden">
+  <div class="panelBox">
+    <h2>选择角色</h2>
+    <div id="charGrid" class="cardGrid"></div>
+    <div class="row"><button id="btnBackToMenu" class="btn gray">返回</button></div>
+  </div>
+</div>
+
+<!-- 武器选择 -->
+<div id="weaponSelect" class="overlay hidden">
+  <div class="panelBox">
+    <h2 id="weaponSelectTitle"></h2>
+    <div id="weaponGrid" class="cardGrid"></div>
+    <div class="row"><button id="btnBackToChar" class="btn gray">返回</button></div>
+  </div>
+</div>
+
+<!-- 升级 -->
+<div id="levelupPanel" class="overlay hidden">
+  <div class="panelBox">
+    <h2 id="levelupTitle"></h2>
+    <div id="levelupChoices" class="cardGrid" style="grid-template-columns:repeat(4,1fr)"></div>
+  </div>
+</div>
+
+<!-- 宝箱 -->
+<div id="cratePanel" class="overlay hidden">
+  <div class="panelBox" style="max-width:420px">
+    <h2>📦 打开宝箱</h2>
+    <div id="crateBody"></div>
+  </div>
+</div>
+
+<!-- 商店 -->
+<div id="shopPanel" class="overlay hidden">
+  <div class="panelBox">
+    <div id="shopTop">
+      <h2 id="shopWave" style="margin:0"></h2>
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="hudBlock">💎 <span id="shopMats">0</span></div>
+        <button id="btnReroll" class="btn gray">🔄 刷新</button>
+        <button id="btnNextWave" class="btn">▶ 下一波</button>
+      </div>
+    </div>
+    <div id="shopMain">
+      <div id="shopLeft">
+        <div id="shopOffers"></div>
+        <div class="sectionTitle">🗡️ 武器 (最多6把，两把同级同名可合成)</div>
+        <div id="shopWeapons"></div>
+        <div class="sectionTitle">🎒 道具</div>
+        <div id="shopItems"></div>
+      </div>
+      <div id="shopRight">
+        <div class="sectionTitle" style="margin-top:0">📊 当前属性</div>
+        <div id="shopStats"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 暂停 -->
+<div id="pausePanel" class="overlay hidden">
+  <div class="panelBox" style="max-width:380px">
+    <h2>⏸ 暂停</h2>
+    <div id="pauseStats"></div>
+    <div class="row">
+      <button id="btnResume" class="btn">继续</button>
+      <button id="btnQuit" class="btn gray">退出</button>
+    </div>
+  </div>
+</div>
+
+<!-- 结束 -->
+<div id="endPanel" class="overlay hidden">
+  <div class="panelBox" style="max-width:420px">
+    <h2 id="endTitle"></h2>
+    <div id="endBody"></div>
+    <div class="row"><button id="btnEndRestart" class="btn">再来一局</button></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="game.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
