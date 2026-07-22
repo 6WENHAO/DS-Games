@@ -188,7 +188,9 @@ new_lines = []
 for line in lines:
     # 在 ]; 之前插入新游戏（games 数组之后，authorLinks 之前）
     if line.strip() == "];" and inserted_games < len(new_games) and '"authorLinks"' not in ''.join(new_lines[-5:]):
-        # 检查前一行是否是 game entry
+        # 确保上一行有逗号
+        if new_lines and not new_lines[-1].rstrip().endswith(','):
+            new_lines[-1] = new_lines[-1].rstrip() + ',\n'
         for entry in new_games:
             if entry not in '\n'.join(new_lines):
                 new_lines.append(entry + '\n')
