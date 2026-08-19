@@ -1,0 +1,196 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微体素地图 · DARLING in the FRANXX 世界沙盘</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%23060810%22/%3E%3Crect x=%223%22 y=%228%22 width=%224%22 height=%225%22 fill=%22%235af6ff%22/%3E%3Crect x=%229%22 y=%224%22 width=%224%22 height=%229%22 fill=%22%23ff5ac4%22/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#06080d; --panel:rgba(12,16,24,.82); --line:rgba(90,246,255,.20);
+    --tx:#dbe6f2; --dim:#79879c; --acc:#5af6ff; --acc2:#ff5ac4; --warn:#ffb03e;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--tx);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:12.5px;
+    -webkit-font-smoothing:antialiased;}
+  canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;}
+
+  /* ---------- 载入层 ---------- */
+  #overlay{position:fixed;inset:0;z-index:60;background:
+      radial-gradient(circle at 50% 42%, #142033 0%, #070a10 62%, #04050a 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+    transition:opacity .6s ease;}
+  #overlay.gone{opacity:0;pointer-events:none;}
+  #overlay h1{margin:0;font-size:30px;letter-spacing:.32em;font-weight:600;
+    color:#eaf6ff;text-shadow:0 0 22px rgba(90,246,255,.55),0 0 60px rgba(255,90,196,.25);}
+  #overlay .sub{color:var(--dim);letter-spacing:.22em;font-size:11.5px;}
+  #ovWrap{width:min(560px,74vw);}
+  #ovTrack{height:3px;background:rgba(255,255,255,.10);border-radius:2px;overflow:hidden;}
+  #ovBar{height:100%;width:0;border-radius:2px;
+    background:linear-gradient(90deg,#5af6ff,#8f7bff 55%,#ff5ac4);
+    box-shadow:0 0 14px rgba(90,246,255,.75);transition:width .25s ease;}
+  #ovMeta{display:flex;justify-content:space-between;margin-top:9px;color:var(--dim);font-size:11.5px;}
+  #ovPct{color:var(--acc);font-variant-numeric:tabular-nums;}
+  #ovTip{color:#4f5b6d;font-size:11px;max-width:min(620px,80vw);text-align:center;line-height:1.9;}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:20;pointer-events:none;}
+  #hud > *{pointer-events:auto;}
+  #brand{position:absolute;left:18px;top:15px;}
+  #brand h1{margin:0;font-size:16px;letter-spacing:.20em;color:#eaf6ff;
+    text-shadow:0 0 14px rgba(90,246,255,.5);}
+  #brand p{margin:4px 0 0;color:var(--dim);font-size:11px;letter-spacing:.10em;}
+  #brand em{color:var(--acc2);font-style:normal;}
+
+  #panel{position:absolute;right:14px;top:14px;width:262px;max-height:calc(100vh - 28px);
+    overflow-y:auto;background:var(--panel);backdrop-filter:blur(9px);
+    border:1px solid var(--line);border-radius:10px;padding:4px 0 10px;
+    box-shadow:0 10px 44px rgba(0,0,0,.55);transition:transform .3s ease,opacity .3s ease;}
+  #panel.hide{transform:translateX(288px);opacity:0;}
+  #panel::-webkit-scrollbar{width:6px;}
+  #panel::-webkit-scrollbar-thumb{background:rgba(90,246,255,.25);border-radius:3px;}
+  .sec{padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.055);}
+  .sec:last-child{border-bottom:0;}
+  .sec h2{margin:0 0 7px;font-size:11px;font-weight:600;letter-spacing:.16em;color:var(--acc);
+    text-transform:uppercase;}
+  .btnrow{display:flex;flex-wrap:wrap;gap:4px;}
+  button{background:rgba(255,255,255,.05);color:var(--tx);border:1px solid rgba(255,255,255,.10);
+    border-radius:5px;padding:4px 8px;cursor:pointer;font-size:11.5px;font-family:inherit;
+    transition:all .15s;}
+  button:hover{border-color:var(--acc);color:var(--acc);background:rgba(90,246,255,.08);}
+  button.on{background:linear-gradient(135deg,rgba(90,246,255,.90),rgba(120,160,255,.85));
+    color:#04070c;border-color:transparent;font-weight:600;}
+  label.row{display:flex;align-items:center;gap:7px;padding:2.5px 0;cursor:pointer;color:#c3cfdd;}
+  input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;}
+  .sl{display:flex;align-items:center;gap:8px;padding:3px 0;}
+  .sl span{width:52px;color:var(--dim);font-size:11px;}
+  input[type=range]{flex:1;accent-color:var(--acc);height:3px;}
+  select{background:#0e131c;color:var(--tx);border:1px solid rgba(255,255,255,.12);
+    border-radius:4px;padding:2px 5px;font-family:inherit;font-size:11.5px;}
+  #stats div{display:flex;justify-content:space-between;padding:1.5px 0;font-size:11px;}
+  #stats span{color:var(--dim);}
+  #stats b{color:#cfe0ee;font-weight:500;font-variant-numeric:tabular-nums;}
+  #minimap{width:100%;border-radius:6px;border:1px solid var(--line);display:block;cursor:crosshair;
+    image-rendering:pixelated;}
+
+  #btnPanel{position:absolute;right:14px;top:calc(100vh - 42px);}
+  #hint{position:absolute;left:18px;bottom:14px;color:var(--dim);font-size:11px;line-height:1.85;
+    background:rgba(8,11,17,.62);border:1px solid rgba(255,255,255,.07);border-radius:7px;
+    padding:7px 11px;backdrop-filter:blur(6px);}
+  #hint b{color:#b6c6d8;font-weight:500;}
+
+  /* ---------- 标签 ---------- */
+  #labels{position:fixed;inset:0;z-index:15;pointer-events:none;}
+  .lbl{position:absolute;left:0;top:0;white-space:nowrap;display:none;
+    padding:2px 7px 3px;border-radius:5px;font-size:11px;line-height:1.35;
+    background:rgba(8,12,19,.72);border:1px solid rgba(90,246,255,.28);
+    backdrop-filter:blur(3px);transform-origin:50% 100%;}
+  .lbl b{font-weight:600;color:#e8f4ff;display:block;}
+  .lbl i{font-style:normal;color:#7d8ea3;font-size:10px;display:block;margin-top:1px;}
+  .lbl::after{content:"";position:absolute;left:50%;bottom:-5px;width:1px;height:5px;
+    background:rgba(90,246,255,.55);}
+  .lbl.site{border-color:rgba(255,90,196,.55);background:rgba(20,8,18,.76);}
+  .lbl.site b{color:#ffd7f1;font-size:12.5px;letter-spacing:.06em;}
+  .lbl.poi{border-color:rgba(90,246,255,.42);}
+  .lbl.minor{border-color:rgba(255,255,255,.15);background:rgba(8,10,15,.60);}
+  .lbl.minor b{color:#a9bacd;font-size:10px;font-weight:400;}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+
+<div id="hud">
+  <div id="brand">
+    <h1>微体素地图</h1>
+    <p>DARLING in the FRANXX · 世界沙盘 &nbsp;<em>CYBERPUNK VOXEL DIORAMA</em></p>
+  </div>
+
+  <button id="btnPanel">面板 ›</button>
+
+  <div id="panel">
+    <div class="sec">
+      <h2>视角</h2>
+      <div class="btnrow" id="viewBtns"></div>
+    </div>
+    <div class="sec">
+      <h2>晨昏时段</h2>
+      <div class="btnrow" id="timeBtns"></div>
+      <div class="sl" style="margin-top:7px"><span>时刻</span>
+        <input type="range" id="timeSlider" min="0" max="1000" value="680"></div>
+      <label class="row"><input type="checkbox" id="autoTime"> 昼夜自动流转</label>
+    </div>
+    <div class="sec">
+      <h2>画面</h2>
+      <div class="sl"><span>泛光</span><input type="range" id="sBloom" min="0" max="220" value="100"></div>
+      <div class="sl"><span>雾</span><input type="range" id="sFog" min="0" max="260" value="100"></div>
+      <div class="sl"><span>霓虹</span><input type="range" id="sNeon" min="0" max="260" value="100"></div>
+      <div class="sl"><span>暗角</span><input type="range" id="sVig" min="0" max="120" value="42"></div>
+      <div class="sl"><span>饱和</span><input type="range" id="sSat" min="40" max="180" value="110"></div>
+      <label class="row"><input type="checkbox" id="cGlass" checked> 玻璃与光晕体</label>
+      <label class="row"><input type="checkbox" id="cWater" checked> 水面</label>
+      <label class="row"><input type="checkbox" id="cGrain" checked> 胶片颗粒</label>
+    </div>
+    <div class="sec">
+      <h2>标注</h2>
+      <label class="row"><input type="checkbox" id="cLabels" checked> 显示地名标签</label>
+      <div class="sl"><span>层级</span>
+        <select id="labelTier">
+          <option value="0">仅站点</option>
+          <option value="1">站点 + 地标</option>
+          <option value="2" selected>全部</option>
+        </select></div>
+    </div>
+    <div class="sec">
+      <h2>总览图</h2>
+      <canvas id="minimap"></canvas>
+      <div style="color:#79879c;font-size:10.5px;margin-top:5px">点击总览图可跳转</div>
+    </div>
+    <div class="sec">
+      <h2>运行信息</h2>
+      <div id="stats"></div>
+      <div class="btnrow" style="margin-top:8px"><button id="btnShot">保存截图 PNG</button></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <b>左键拖拽</b> 旋转 &nbsp;·&nbsp; <b>滚轮</b> 缩放（朝光标）&nbsp;·&nbsp;
+    <b>右键 / 中键 / Shift+拖拽</b> 平移<br>
+    <b>双击</b> 聚焦该点 &nbsp;·&nbsp; <b>WASD / 方向键</b> 移动 &nbsp;·&nbsp;
+    <b>Q E</b> 升降 &nbsp;·&nbsp; <b>Shift</b> 加速
+  </div>
+</div>
+
+<div id="overlay">
+  <h1>微体素地图</h1>
+  <div class="sub">CYBERPUNK VOXEL DIORAMA · FRANXX WORLD</div>
+  <div id="ovWrap">
+    <div id="ovTrack"><div id="ovBar"></div></div>
+    <div id="ovMeta"><span id="ovNote">初始化…</span><span id="ovPct">0%</span></div>
+  </div>
+  <div id="ovTip">
+    正在生成 1280 × 1280 × 224 的体素沙盘：地形与中轴路网 → 第13号种植园 → 废弃城市 →
+    大裂缝 → Cosmos → 干涸海床 → 荒野残骸，随后烘焙霓虹光照体积与日照阴影。首次构建约需 10–40 秒。
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/voxel.js"></script>
+<script src="js/mesher.js"></script>
+<script src="js/render.js"></script>
+<script src="js/world/layout.js"></script>
+<script src="js/world/lib.js"></script>
+<script src="js/world/terrain.js"></script>
+<script src="js/world/p13.js"></script>
+<script src="js/world/ruins.js"></script>
+<script src="js/world/crevasse.js"></script>
+<script src="js/world/cosmos.js"></script>
+<script src="js/world/seabed.js"></script>
+<script src="js/world/wilds.js"></script>
+<script src="js/world/index.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -4,10 +4,13 @@ DeepSeek 灰度节点生成的网页游戏合集，由多位创作者通过 AI �
 
 ## 在线访问
 
+> 站点默认入口 = **第二轮灰测**首页；第一期可访问 `/第一期.html`。
+
 | 入口 | 地址 |
 |---|---|
-| 游戏中心首页（全球） | [dsgames-exm.pages.dev](https://dsgames-exm.pages.dev) |
-| 游戏中心首页（国内） | [dsgames.askhow.top](https://dsgames.askhow.top) |
+| 游戏中心首页（全球，默认第二轮） | [dsgames-exm.pages.dev](https://dsgames-exm.pages.dev) |
+| 游戏中心首页（国内，默认第二轮） | [dsgames.askhow.top](https://dsgames.askhow.top) |
+| 第一期游戏场 | `/第一期.html` |
 
 ## 创作者 & 作品
 
@@ -33,14 +36,39 @@ DeepSeek 灰度节点生成的网页游戏合集，由多位创作者通过 AI �
 ## 目录结构
 
 ```
-├── {作者名}/
+├── {作者名}/               # 第一期：外层目录 = 作者名
 │   └── {游戏名}/
 │       ├── index.html      # 游戏入口
 │       ├── 视频链接.txt     # B站视频链接
 │       └── ...             # 游戏资源
-├── covers/                 # 封面图片
-└── index.html              # 游戏中心首页
+├── 第二轮灰测/             # 第二轮灰测：匿名游戏（无作者/无视频）
+│   ├── {游戏名}/
+│   └── covers/             # HTML 截图封面
+├── covers/                 # 第一期封面图片
+├── index.html              # 第二轮灰测首页（默认入口）
+└── 第一期.html              # 第一期游戏中心首页（原 index.html）
 ```
+
+## 第二轮灰测
+
+- 首页：`index.html`（站点默认入口；沿用一期视觉风格改为深色高级版，替换「作者/视频」为「匿名」，封面 = HTML 截图）
+- 第一期首页：`第一期.html`（原 `index.html`，仍在顶部提供「第二轮灰测 ↗」互链）
+- 目录：`第二轮灰测/{游戏名}/`，匿名提交，无作者、无视频链接字段
+- 封面：截图放入 `第二轮灰测/covers/{游戏名}.png|jpg`
+- 封面缺失自动显示占位（标题首字 + 渐变底），不破版
+- 新增游戏：目录放入 `第二轮灰测/`，截图放入 `第二轮灰测/covers/`，再在 `index.html` 的 `games` 数组加一条（格式见文件内注释），最后提交推送（`git add -A`）
+
+### 自动生成封面
+
+> 依赖本机安装 Chrome（`/Applications/Google Chrome.app`）。截图会按入口 `file://` + SwiftShader 软件渲染生成 1600×900 封面，命名 = `第二轮灰测/` 下顶层名 + `.jpg`（已压缩优化），成功后自动回填 `index.html` 的 `thumb`；抓不到的条目保持占位。
+
+```bash
+python3 gen-covers.py             # 全量生成/刷新（并回填 thumb）
+python3 gen-covers.py <关键词>     # 只生成封面名含关键词的游戏
+```
+
+- WebGL/启动慢的游戏若首轮空白，加大 `gen-covers.py` 里的 `VTB`/`SHOT_TIMEOUT` 再跑即可；个别实在不出的可手动截图放进 `covers/`
+- 手动替换封面：直接覆盖 `第二轮灰测/covers/<同名>.jpg` 即可（无需改首页）
 
 ## 新增游戏
 

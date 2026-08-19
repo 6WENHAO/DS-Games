@@ -1,0 +1,2117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>五子棋 · 双人 / 人机 · 实时胜率</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --bg2: #151a22;
+    --panel: #171d26;
+    --panel2: #1e2530;
+    --line: #2a323f;
+    --txt: #e8edf5;
+    --dim: #96a1b3;
+    --dim2: #6d7889;
+    --acc: #4f8cff;
+    --acc2: #33d6a6;
+    --warn: #ff6b6b;
+    --gold: #f0b432;
+    --wood-a: #e9c893;
+    --wood-b: #d3a15f;
+    --radius: 14px;
+    --shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image: radial-gradient(1200px 700px at 15% -10%, #1b2330 0%, var(--bg) 55%);
+    background-attachment: fixed;
+    color: var(--txt);
+    font: 14px/1.5 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding: 18px 18px 34px; }
+
+  header { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: 2px; font-weight: 700; }
+  h1 span { color: var(--acc); }
+  .sub { color: var(--dim2); font-size: 12.5px; margin-bottom: 2px; }
+
+  main { display: grid; grid-template-columns: minmax(0,1fr) 342px; gap: 18px; align-items: start; }
+  @media (max-width: 940px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  /* ---------- board ---------- */
+  .board-card { padding: 14px; position: relative; }
+  .board-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .turn { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14.5px; }
+  .dot { width: 20px; height: 20px; border-radius: 50%; flex: none; box-shadow: inset 0 -2px 4px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.6); }
+  .dot.b { background: radial-gradient(circle at 32% 28%, #6a7686, #14181f 70%); }
+  .dot.w { background: radial-gradient(circle at 32% 28%, #ffffff, #b9c2cf 72%); }
+  .dot.pulse { animation: pulse 1.3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(.86); opacity: .65 } }
+  .badge { font-size: 11.5px; color: var(--dim); background: #0e131a; border: 1px solid var(--line); padding: 3px 9px; border-radius: 999px; }
+  .board-box { position: relative; width: 100%; display: flex; justify-content: center; }
+  /* 画布必须保持正方形：宽高都由 JS 显式设为 L px，否则 width:100% 会把棋盘拉扁、棋子变椭圆 */
+  .board-inner { position: relative; line-height: 0; }
+  canvas#board { display: block; max-width: 100%; border-radius: 10px; cursor: pointer; touch-action: manipulation; }
+  .overlay {
+    position: absolute; inset: 0; display: none; place-items: center; text-align: center;
+    background: rgba(8,11,16,.72); backdrop-filter: blur(3px); border-radius: 10px; z-index: 3;
+  }
+  .overlay.on { display: grid; }
+  .overlay .big { font-size: 30px; font-weight: 800; letter-spacing: 3px; margin-bottom: 6px; }
+  .overlay .note { color: var(--dim); font-size: 13px; margin-bottom: 16px; }
+  .board-ft { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  button {
+    font: inherit; color: var(--txt); background: #202834; border: 1px solid var(--line);
+    padding: 8px 13px; border-radius: 10px; cursor: pointer; transition: .16s; font-size: 13px;
+  }
+  button:hover:not(:disabled) { background: #2a3442; border-color: #3b4757; transform: translateY(-1px); }
+  button:active:not(:disabled) { transform: translateY(0); }
+  button:disabled { opacity: .42; cursor: not-allowed; }
+  button.primary { background: linear-gradient(180deg, #4f8cff, #3a6fd8); border-color: #5d97ff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #5f98ff, #4179e4); }
+  button.ghost { background: transparent; }
+
+  /* ---------- panel ---------- */
+  aside { display: flex; flex-direction: column; gap: 14px; }
+  .sec { padding: 13px 14px 15px; }
+  .sec h2 {
+    font-size: 12px; letter-spacing: 1.6px; color: var(--dim2); margin: 0 0 11px;
+    text-transform: uppercase; font-weight: 700; display: flex; justify-content: space-between; align-items: center;
+  }
+  .seg { display: flex; background: #0e131a; border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1; border: none; background: transparent; padding: 7px 6px; border-radius: 8px; color: var(--dim); font-size: 13px; }
+  .seg button:hover { background: #1a212b; transform: none; }
+  .seg button.on { background: linear-gradient(180deg, #3a4658, #2b3542); color: var(--txt); box-shadow: inset 0 0 0 1px #4a5768; font-weight: 600; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+  .row > label { color: var(--dim); font-size: 12.5px; flex: none; }
+  .pve-only { transition: .2s; }
+  .pve-only.hide { display: none; }
+
+  /* win rate */
+  .wr-nums { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .wr-side { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--dim); }
+  .wr-val { font-size: 21px; font-weight: 800; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .wr-val.b { color: #cfe0ff; }
+  .wr-val.w { color: #ffe9c2; }
+  .wr-bar {
+    height: 16px; border-radius: 999px; overflow: hidden; display: flex;
+    background: #0b0f15; border: 1px solid var(--line); box-shadow: inset 0 1px 4px rgba(0,0,0,.6);
+  }
+  .wr-bar i { display: block; height: 100%; transition: width .45s cubic-bezier(.4,1.4,.5,1); }
+  .wr-bar i.b { background: linear-gradient(90deg, #3f6ecb, #6f9bff); }
+  .wr-bar i.w { background: linear-gradient(90deg, #e9d3a8, #fff6e2); }
+  .verdict { text-align: center; font-size: 13px; margin-top: 9px; color: var(--dim); min-height: 20px; }
+  .verdict b { color: var(--gold); }
+  canvas#chart { width: 100%; height: 96px; display: block; margin-top: 10px; border-radius: 8px; background: #0b0f15; border: 1px solid var(--line); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; min-height: 24px; }
+  .legend { font-size: 11px; color: var(--dim2); margin-top: 9px; line-height: 1.7; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
+  .hoverbox {
+    margin-top: 8px; padding: 7px 9px; border-radius: 8px; background: #0b0f15;
+    border: 1px solid var(--line); font-size: 12px; color: var(--dim); min-height: 32px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hoverbox b { color: var(--txt); font-size: 13px; letter-spacing: .5px; }
+  .hoverbox s { color: var(--acc2); text-decoration: none; }
+  .mcbar { height: 3px; background: #0b0f15; border-radius: 2px; overflow: hidden; margin-top: 7px; }
+  .mcbar i { display: block; height: 100%; background: linear-gradient(90deg, #2f7d5b, #33d6a6); width: 0; transition: width .2s; }
+  .tag { font-size: 11.5px; padding: 3px 8px; border-radius: 7px; border: 1px solid; background: #0e131a; }
+  .tag.b { color: #a9c6ff; border-color: #2f4a80; }
+  .tag.w { color: #ffd9a0; border-color: #6f5a2f; }
+  .tag.hot { color: #ffb3b3; border-color: #7d3535; background: #1c1113; }
+
+  /* moves */
+  .moves { max-height: 154px; overflow-y: auto; font-variant-numeric: tabular-nums; }
+  .moves::-webkit-scrollbar { width: 6px; }
+  .moves::-webkit-scrollbar-thumb { background: #2c3542; border-radius: 3px; }
+  .mv { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 6px; font-size: 12.5px; color: var(--dim); }
+  .mv:nth-child(odd) { background: #0f141b; }
+  .mv .n { width: 26px; color: var(--dim2); font-size: 11.5px; text-align: right; }
+  .mv .s { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .mv .s.b { background: radial-gradient(circle at 32% 28%, #6a7686, #14181f 70%); }
+  .mv .s.w { background: radial-gradient(circle at 32% 28%, #fff, #b9c2cf 72%); }
+  .mv .c { color: var(--txt); letter-spacing: .6px; }
+  .mv .p { margin-left: auto; font-size: 11.5px; color: var(--dim2); }
+  .empty-hint { color: var(--dim2); font-size: 12.5px; padding: 6px; }
+  .kbd { color: var(--dim2); font-size: 11.5px; margin-top: 10px; text-align: center; }
+  .kbd code { background: #0e131a; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>五<span>子</span>棋</h1>
+    <div class="sub">双人对战 / 人机对战 · Alpha-Beta 搜索 · 实时胜率评估</div>
+  </header>
+
+  <main>
+    <!-- ===== board ===== -->
+    <section class="card board-card">
+      <div class="board-hd">
+        <div class="turn">
+          <span class="dot b" id="turnDot"></span>
+          <span id="turnText">黑方落子</span>
+        </div>
+        <div style="display:flex;gap:7px;align-items:center">
+          <span class="badge" id="modeBadge">人机 · 困难</span>
+          <span class="badge" id="moveBadge">第 0 手</span>
+        </div>
+      </div>
+
+      <div class="board-box" id="boardWrap">
+        <div class="board-inner" id="boardInner">
+        <canvas id="board"></canvas>
+        <div class="overlay" id="overlay">
+          <div>
+            <div class="big" id="ovTitle">黑方胜</div>
+            <div class="note" id="ovNote">连成五子</div>
+            <button class="primary" id="ovAgain">再来一局</button>
+            <button class="ghost" id="ovClose">看看棋盘</button>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <div class="board-ft">
+        <button class="primary" id="btnRestart">重新开始</button>
+        <button id="btnUndo">悔棋</button>
+        <button id="btnHint">提示一手</button>
+        <button id="btnHeat">胜率热图</button>
+        <button id="btnNum">显示手数</button>
+        <button id="btnSwap" class="ghost">换边</button>
+      </div>
+    </section>
+
+    <!-- ===== panel ===== -->
+    <aside>
+      <div class="card sec">
+        <h2>对战模式</h2>
+        <div class="seg" id="segMode">
+          <button data-mode="pvp">双人对战</button>
+          <button data-mode="pve" class="on">人机对战</button>
+        </div>
+        <div class="pve-only" id="pveBox">
+          <div class="row">
+            <label>我执</label>
+            <div class="seg" style="flex:1" id="segSide">
+              <button data-side="1" class="on">黑（先手）</button>
+              <button data-side="2">白（后手）</button>
+            </div>
+          </div>
+          <div class="row">
+            <label>难度</label>
+            <div class="seg" style="flex:1" id="segDiff">
+              <button data-diff="easy">简单</button>
+              <button data-diff="normal">普通</button>
+              <button data-diff="hard" class="on">困难</button>
+              <button data-diff="master">大师</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card sec">
+        <h2>实时胜率 <span id="evalNum" style="font-weight:600;letter-spacing:0">--</span></h2>
+        <div class="seg" id="segWr" style="margin-bottom:11px">
+          <button data-wr="fast">快速</button>
+          <button data-wr="deep" class="on">深算(默认·最准)</button>
+          <button data-wr="mc">蒙特卡洛</button>
+        </div>
+        <div class="wr-nums">
+          <div>
+            <div class="wr-side"><span class="dot b" style="width:12px;height:12px"></span>黑方</div>
+            <div class="wr-val b" id="wrB">50.0%</div>
+          </div>
+          <div style="text-align:right">
+            <div class="wr-side" style="justify-content:flex-end">白方<span class="dot w" style="width:12px;height:12px"></span></div>
+            <div class="wr-val w" id="wrW">50.0%</div>
+          </div>
+        </div>
+        <div class="wr-bar"><i class="b" id="barB" style="width:50%"></i><i class="w" id="barW" style="width:50%"></i></div>
+        <div class="verdict" id="verdict">局势均衡</div>
+        <canvas id="chart"></canvas>
+        <div class="tags" id="tags"></div>
+        <div class="mcbar" id="mcBar" style="display:none"><i id="mcBarFill"></i></div>
+        <div class="hoverbox" id="hoverBox">开启「胜率热图」后，把鼠标移到棋盘任意可落点，这里显示落子后的胜率</div>
+        <div class="legend" id="legend" style="display:none">
+          <i style="background:#3cc878"></i>接近最佳　<i style="background:#e8be3c"></i>略差　<i style="background:#e25046"></i>明显更差<br>
+          数字＝在该点落子后<b>该方</b>的胜率（绝对值）；颜色＝与最佳点的差距；白圈＝最佳点；颜色越淡表示各点差距越小
+        </div>
+      </div>
+
+      <div class="card sec">
+        <h2>棋谱 <span id="mvCount" style="font-weight:600;letter-spacing:0">0</span></h2>
+        <div class="moves" id="moves"><div class="empty-hint">还没有落子，点击棋盘开始。</div></div>
+        <div class="kbd"><code>U</code> 悔棋 · <code>R</code> 重开 · <code>H</code> 提示</div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- ==================================================================== -->
+<!-- 引擎：纯逻辑，不依赖 DOM（可被 Node 抽取做单元测试）                    -->
+<!-- ==================================================================== -->
+<script id="engine">
+(function () {
+  'use strict';
+
+  var N = 15, SIZE = N * N;
+  var EMPTY = 0, BLACK = 1, WHITE = 2;
+  var DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  var WIN = 10000000;
+
+  /* ---------- 基础 ---------- */
+  function createBoard() { return new Int8Array(SIZE); }
+  function cloneBoard(b) { return Int8Array.from(b); }
+  function inB(x, y) { return x >= 0 && x < N && y >= 0 && y < N; }
+  function other(p) { return p === BLACK ? WHITE : BLACK; }
+
+  function checkWin(board, x, y) {
+    var p = board[y * N + x];
+    if (!p) return null;
+    for (var d = 0; d < 4; d++) {
+      var dx = DIRS[d][0], dy = DIRS[d][1], cells = [[x, y]], s, nx, ny;
+      for (s = 1; s < N; s++) {
+        nx = x + dx * s; ny = y + dy * s;
+        if (!inB(nx, ny) || board[ny * N + nx] !== p) break;
+        cells.push([nx, ny]);
+      }
+      for (s = 1; s < N; s++) {
+        nx = x - dx * s; ny = y - dy * s;
+        if (!inB(nx, ny) || board[ny * N + nx] !== p) break;
+        cells.unshift([nx, ny]);
+      }
+      if (cells.length >= 5) return cells;
+    }
+    return null;
+  }
+
+  function wouldFive(board, x, y, p) {
+    for (var d = 0; d < 4; d++) {
+      var dx = DIRS[d][0], dy = DIRS[d][1], c = 1, s, nx, ny;
+      for (s = 1; s < 5; s++) {
+        nx = x + dx * s; ny = y + dy * s;
+        if (!inB(nx, ny) || board[ny * N + nx] !== p) break;
+        c++;
+      }
+      for (s = 1; s < 5; s++) {
+        nx = x - dx * s; ny = y - dy * s;
+        if (!inB(nx, ny) || board[ny * N + nx] !== p) break;
+        c++;
+      }
+      if (c >= 5) return true;
+    }
+    return false;
+  }
+
+  function boardFull(board) {
+    for (var i = 0; i < SIZE; i++) if (!board[i]) return false;
+    return true;
+  }
+  function stoneCount(board) {
+    var c = 0;
+    for (var i = 0; i < SIZE; i++) if (board[i]) c++;
+    return c;
+  }
+
+  /* ---------- 棋型表：m=自己 o=对手/墙 .=空 ---------- */
+  var PATTERNS = [
+    { key: 'five',   score: WIN,    res: [/mmmmm/g] },
+    { key: 'open4',  score: 300000, res: [/\.mmmm\./g] },
+    { key: 'four',   score: 26000,  res: [/mmmm\./g, /\.mmmm/g, /mmm\.m/g, /m\.mmm/g, /mm\.mm/g] },
+    { key: 'open3',  score: 22000,  res: [/\.mmm\./g, /\.m\.mm\./g, /\.mm\.m\./g] },
+    { key: 'sleep3', score: 1800,   res: [/mmm\./g, /\.mmm/g, /mm\.m/g, /m\.mm/g, /m\.\.mm/g, /mm\.\.m/g, /m\.m\.m/g] },
+    { key: 'open2',  score: 1000,   res: [/\.mm\./g, /\.m\.m\./g, /\.m\.\.m\./g] },
+    { key: 'sleep2', score: 200,    res: [/mm/g, /m\.m/g, /m\.\.m/g] },
+    { key: 'one',    score: 30,     res: [/m/g] }
+  ];
+
+  // 一条线的完整评分：命中即“吃掉”这些子，避免同一批子被低级棋型重复计分
+  function scanLine(str) {
+    var s = str, total = 0, counts = null, i, j, pat, re, m;
+    for (i = 0; i < PATTERNS.length; i++) {
+      pat = PATTERNS[i];
+      for (j = 0; j < pat.res.length; j++) {
+        re = pat.res[j];
+        re.lastIndex = 0;
+        while ((m = re.exec(s)) !== null) {
+          total += pat.score;
+          if (!counts) counts = {};
+          counts[pat.key] = (counts[pat.key] || 0) + 1;
+          s = s.slice(0, m.index) + m[0].replace(/m/g, 'x') + s.slice(m.index + m[0].length);
+          re.lastIndex = 0;
+        }
+      }
+      if (i === 0 && total > 0) break; // 已成五，无需再看
+    }
+    return { score: total, counts: counts || {} };
+  }
+
+  var lineCache = new Map();
+  function cachedLine(str) {
+    var v = lineCache.get(str);
+    if (v === undefined) {
+      v = scanLine(str);
+      if (lineCache.size > 220000) lineCache.clear();
+      lineCache.set(str, v);
+    }
+    return v;
+  }
+
+  /* ---------- 所有直线（行/列/两向对角，长度>=5） ---------- */
+  var LINES = (function () {
+    var out = [], x, y, l;
+    for (y = 0; y < N; y++) { l = []; for (x = 0; x < N; x++) l.push(y * N + x); out.push(l); }
+    for (x = 0; x < N; x++) { l = []; for (y = 0; y < N; y++) l.push(y * N + x); out.push(l); }
+    function ray(sx, sy, dx, dy) {
+      var a = [], cx = sx, cy = sy;
+      while (inB(cx, cy)) { a.push(cy * N + cx); cx += dx; cy += dy; }
+      if (a.length >= 5) out.push(a);
+    }
+    for (x = 0; x < N; x++) ray(x, 0, 1, 1);
+    for (y = 1; y < N; y++) ray(0, y, 1, 1);
+    for (x = 0; x < N; x++) ray(x, N - 1, 1, -1);
+    for (y = 0; y < N - 1; y++) ray(0, y, 1, -1);
+    return out;
+  })();
+
+  var CH = ['.', 'm', 'o'];
+  function lineStr(board, line, p) {
+    var s = '', v;
+    for (var i = 0; i < line.length; i++) {
+      v = board[line[i]];
+      s += v === 0 ? '.' : (v === p ? 'm' : 'o');
+    }
+    return s;
+  }
+
+  function boardScore(board, p) {
+    var t = 0;
+    for (var i = 0; i < LINES.length; i++) t += cachedLine(lineStr(board, LINES[i], p)).score;
+    return t;
+  }
+
+  function shapeCounts(board, p) {
+    var acc = { five: 0, open4: 0, four: 0, open3: 0, sleep3: 0, open2: 0 }, i, k, c;
+    for (i = 0; i < LINES.length; i++) {
+      c = cachedLine(lineStr(board, LINES[i], p)).counts;
+      for (k in c) if (acc[k] !== undefined) acc[k] += c[k];
+    }
+    return acc;
+  }
+
+  // 叶子评估（对 me 而言）。def>1 表示更看重对手威胁（偏防守，实战更稳）；
+  // 胜率评估必须用 def=1 的对称评估，否则同一局面轮到谁走都显示“自己更差”。
+  var DEF_PLAY = 1.05;
+  function evaluate(board, me, def) {
+    var f = (def === undefined ? DEF_PLAY : def);
+    return boardScore(board, me) - f * boardScore(board, other(me));
+  }
+
+  /* ---------- 落点增益：3^9 窗口查表 ---------- */
+  var POW3 = [1, 3, 9, 27, 81, 243, 729, 2187, 6561];
+  var WT = new Int32Array(19683);
+  (function buildTable() {
+    // 窗口只取最强棋型（用于落点排序 / 局部增益），与 scanLine 同一棋型表
+    for (var code = 0; code < 19683; code++) {
+      var c = code, s = '', i, v;
+      for (i = 0; i < 9; i++) { v = c % 3; c = (c - v) / 3; s += CH[v]; }
+      var best = 0;
+      for (i = 0; i < PATTERNS.length; i++) {
+        var hit = false;
+        for (var j = 0; j < PATTERNS[i].res.length; j++) {
+          PATTERNS[i].res[j].lastIndex = 0;
+          if (PATTERNS[i].res[j].test(s)) { hit = true; break; }
+        }
+        if (hit) { best = PATTERNS[i].score; break; }
+      }
+      WT[code] = best > WIN ? WIN : best;
+    }
+  })();
+
+  // 在 (x,y) 落 p 子相对于该点为空时的局部收益
+  function gain(board, x, y, p) {
+    var total = 0;
+    for (var d = 0; d < 4; d++) {
+      var dx = DIRS[d][0], dy = DIRS[d][1], codeP = 0, codeE = 0;
+      for (var k = -4; k <= 4; k++) {
+        var nx = x + dx * k, ny = y + dy * k, v;
+        if (!inB(nx, ny)) v = 2;                     // 墙视作对手子
+        else if (k === 0) v = 1;
+        else { var b = board[ny * N + nx]; v = b === 0 ? 0 : (b === p ? 1 : 2); }
+        var idx = k + 4;
+        codeP += v * POW3[idx];
+        codeE += (k === 0 ? 0 : v) * POW3[idx];
+      }
+      total += WT[codeP] - WT[codeE];
+    }
+    return total;
+  }
+
+  /* ---------- 强制手（四）与 VCF ---------- */
+  var FOUR_LEVEL = 26000;                 // 棋型表里"冲四"的分值
+
+  // 该点落子后局部最强棋型（4 次查表，用于廉价预筛"这里可能成四吗"）
+  function bestShapeAt(board, x, y, p) {
+    var best = 0, d, k, dx, dy, code, nx, ny, v, bv;
+    for (d = 0; d < 4; d++) {
+      dx = DIRS[d][0]; dy = DIRS[d][1]; code = 0;
+      for (k = -4; k <= 4; k++) {
+        nx = x + dx * k; ny = y + dy * k;
+        if (!inB(nx, ny)) v = 2;
+        else if (k === 0) v = 1;
+        else { bv = board[ny * N + nx]; v = bv === 0 ? 0 : (bv === p ? 1 : 2); }
+        code += v * POW3[k + 4];
+      }
+      if (WT[code] > best) best = WT[code];
+    }
+    return best;
+  }
+
+  // 所有"落下即形成四以上"的点（fives = 落下后我有几个成五点；>=2 表示活四/双四，对手堵不住）
+  function fourMoves(board, p) {
+    var cand = candidates(board, 1), out = [], k, i, x, y, fives;
+    for (k = 0; k < cand.length; k++) {
+      i = cand[k]; x = i % N; y = (i - x) / N;
+      if (bestShapeAt(board, x, y, p) < FOUR_LEVEL) continue;   // 预筛，省掉 90% 的精确判定
+      board[i] = p;
+      fives = findFives(board, p).length;
+      board[i] = EMPTY;
+      if (fives > 0) out.push({ i: i, x: x, y: y, fives: fives });
+    }
+    return out;
+  }
+
+  /**
+   * VCF（连续冲四取胜）：只走"四"这种强制手，对手的应手是被迫的唯一封堵点，
+   * 因此分支极窄、可以搜到十几层。找到即为**可证明的必胜**，不是估计。
+   * 返回制胜的第一手（index），没有则 -1；ctx.aborted 为真表示预算耗尽、结论不确定。
+   */
+  function vcfSearch(board, me, depth, ctx) {
+    ctx.nodes++;
+    if (ctx.nodes > ctx.limit) { ctx.aborted = true; return -1; }
+    var op = other(me);
+    var mine = findFives(board, me);
+    if (mine.length) return mine[0];                 // 已经能直接成五
+    if (findFives(board, op).length) return -1;      // 对手先成五 → 冲四链断
+    if (depth <= 0) return -1;
+    var fours = fourMoves(board, me), k, f, win, pts, bp;
+    for (k = 0; k < fours.length; k++) {
+      f = fours[k]; win = -1;
+      board[f.i] = me;
+      if (f.fives >= 2) win = f.i;                   // 活四/双四：单点堵不住
+      else {
+        pts = findFives(board, me);
+        if (pts.length === 1) {                      // 对手唯一被迫封堵点
+          bp = pts[0];
+          board[bp] = op;
+          if (vcfSearch(board, me, depth - 1, ctx) >= 0) win = f.i;
+          board[bp] = EMPTY;
+        }
+      }
+      board[f.i] = EMPTY;
+      if (win >= 0) return win;
+    }
+    return -1;
+  }
+
+  function vcfFind(board, me, opts) {
+    opts = opts || {};
+    var ctx = { nodes: 0, limit: opts.limit || 30000, aborted: false };
+    var mv = vcfSearch(cloneBoard(board), me, opts.depth || 12, ctx);
+    return {
+      found: mv >= 0, i: mv, x: mv >= 0 ? mv % N : -1, y: mv >= 0 ? (mv - mv % N) / N : -1,
+      nodes: ctx.nodes, aborted: ctx.aborted            // aborted=true 时"没找到"不等于"证明没有"
+    };
+  }
+
+  /**
+   * 静止搜索：叶子局面若还悬着强制手（我的四 / 对手的四），继续把这些手走完再评估。
+   * 这是"偶数深度悲观偏差"和"不同层数不可比"的根因修复 ——
+   * 原来会停在"对手刚落子、活三还没应对"的地方打分。
+   */
+  var Q_DEPTH = 6;
+  function quiesce(board, me, alpha, beta, ctx, qd) {
+    ctx.nodes++;
+    if ((ctx.nodes & 511) === 0 && Date.now() > ctx.deadline) throw ABORT;
+    var op = other(me);
+    if (findFives(board, me).length) return WIN;      // 我下一手成五
+    var theirs = findFives(board, op);
+    if (theirs.length >= 2) return -WIN;              // 对手双四，堵不住
+    var stand = evaluate(board, me, ctx.def);
+    if (qd <= 0) return stand;
+
+    var moves = [], forced = false, k;
+    if (theirs.length === 1) { moves.push(theirs[0]); forced = true; }   // 必须封堵，不能"不走"
+    else {
+      var fours = fourMoves(board, me);
+      if (!fours.length) return stand;                // 静止了
+      for (k = 0; k < fours.length; k++) moves.push(fours[k].i);
+    }
+    var best = forced ? -Infinity : stand;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) return best;
+    for (k = 0; k < moves.length; k++) {
+      board[moves[k]] = me;
+      var sc = -quiesce(board, op, -beta, -alpha, ctx, qd - 1);
+      board[moves[k]] = EMPTY;
+      if (sc > best) best = sc;
+      if (best > alpha) alpha = best;
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+
+  /* ==================================================================
+     VCT（威胁空间搜索，含活三）
+     与 VCF 的区别：活三的防守点不唯一，所以对手节点是 AND 节点 —— 必须
+     "对所有防守都能赢"才算胜。防守集用「验证式枚举」构造：候选取所有近距空点，
+     逐个检验"下在这里是否真的解掉了我的威胁（或制造了反击四）"，
+     从而不会因为漏掉防守而误报必胜。防守分支过多则放弃该威胁（宁可漏判，不可误判）。
+     ================================================================== */
+  var OPEN3_LEVEL = 22000;
+
+  // 落子后"能造活四"的点（只看过该点的 4 条线，活四必然与新子同线）
+  function openFourPointsNear(board, x, y, p) {
+    var out = [], d, k, dx, dy, nx, ny, i2;
+    for (d = 0; d < 4; d++) {
+      dx = DIRS[d][0]; dy = DIRS[d][1];
+      for (k = -4; k <= 4; k++) {
+        if (k === 0) continue;
+        nx = x + dx * k; ny = y + dy * k;
+        if (!inB(nx, ny)) continue;
+        i2 = ny * N + nx;
+        if (board[i2]) continue;
+        board[i2] = p;
+        var five = findFives(board, p).length;
+        board[i2] = EMPTY;
+        if (five >= 2 && out.indexOf(i2) < 0) out.push(i2);   // 落这里成活四
+      }
+    }
+    return out;
+  }
+
+  // 我方威胁手：所有四 + 所有"局部达到活三级"的点
+  function threatMoves(board, me) {
+    var out = fourMoves(board, me), seen = {}, k;
+    for (k = 0; k < out.length; k++) seen[out[k].i] = 1;
+    var cand = candidates(board, 1), i, x, y;
+    for (k = 0; k < cand.length; k++) {
+      i = cand[k];
+      if (seen[i]) continue;
+      x = i % N; y = (i - x) / N;
+      if (bestShapeAt(board, x, y, me) < OPEN3_LEVEL) continue;   // 预筛（误收无害，只多花时间）
+      out.push({ i: i, x: x, y: y, fives: 0, three: true });
+    }
+    return out;
+  }
+
+  /**
+   * 构造对手的防守集：候选 = 附近空点；逐个验证"下这里之后我是否还有立即制胜手段"。
+   * 只有真的解掉威胁（或制造出自己的四来反击）的点才算防守 —— 验证式枚举，不会漏防守。
+   */
+  function defenseSet(board, me, op, limit) {
+    var wins = findWinningFours(board, me);        // 我能造活四的点（威胁的本体）
+    if (!wins.length) return null;                 // 没威胁可言
+    var cand = candidates(board, 2), out = [], k, i;
+    for (k = 0; k < cand.length; k++) {
+      i = cand[k];
+      board[i] = op;
+      var still = 0, j;
+      for (j = 0; j < wins.length; j++) {          // 我原来的活四点是否被解掉
+        if (board[wins[j]]) continue;
+        board[wins[j]] = me;
+        var f = findFives(board, me).length;
+        board[wins[j]] = EMPTY;
+        if (f >= 2) { still++; break; }
+      }
+      var counter = still > 0 && findFives(board, op).length > 0;   // 反击四也算防守
+      board[i] = EMPTY;
+      if (still === 0 || counter) out.push(i);
+      if (out.length > limit) return out;           // 分支太多，交给调用方放弃
+    }
+    return out;
+  }
+
+  function vctSearch(board, me, depth, ctx) {
+    ctx.nodes++;
+    if (ctx.nodes > ctx.limit) { ctx.aborted = true; return -1; }
+    var op = other(me);
+    var mine = findFives(board, me);
+    if (mine.length) return mine[0];
+    if (findFives(board, op).length) return -1;
+    // 先试便宜且确定的 VCF
+    var sub = { nodes: 0, limit: Math.min(4000, ctx.limit), aborted: false };
+    var v = vcfSearch(board, me, 8, sub);
+    ctx.nodes += sub.nodes;
+    if (v >= 0) return v;
+    if (depth <= 0) return -1;
+
+    var threats = threatMoves(board, me), k, t, ok, defs, j;
+    for (k = 0; k < threats.length; k++) {
+      t = threats[k];
+      board[t.i] = me;
+      ok = false;
+      if (findFives(board, me).length >= 2) ok = true;         // 活四，堵不住
+      else {
+        defs = defenseSet(board, me, op, ctx.maxDefs || 6);
+        if (defs && defs.length && defs.length <= (ctx.maxDefs || 6)) {
+          ok = true;
+          for (j = 0; j < defs.length; j++) {                  // AND 节点：所有防守都要赢
+            board[defs[j]] = op;
+            var r = vctSearch(board, me, depth - 1, ctx);
+            board[defs[j]] = EMPTY;
+            if (r < 0) { ok = false; break; }
+          }
+        }
+      }
+      board[t.i] = EMPTY;
+      if (ok) return t.i;
+      if (ctx.nodes > ctx.limit) { ctx.aborted = true; return -1; }
+    }
+    return -1;
+  }
+
+  /**
+   * 反向判断：我方无制胜手段时，检查"我的前 k 个合理着法是否个个都被对手 VCF 反杀"。
+   * 这不是证明（只看了前 k 个候选），所以它对应的概率要用实测兑现率，不能拍 0%。
+   */
+  function losingToOpponent(board, me, opts) {
+    opts = opts || {};
+    var op = other(me), k = opts.k || 8;
+    var moves = genMoves(board, me, k), j, cnt = 0;
+    if (!moves.length) return false;
+    for (j = 0; j < moves.length; j++) {
+      board[moves[j].i] = me;
+      var r = vcfFind(board, op, { depth: opts.depth || 8, limit: opts.limit || 3000 });
+      board[moves[j].i] = EMPTY;
+      if (r.found) cnt++; else return false;          // 有一个能活下来就不算必败
+    }
+    return cnt === moves.length;
+  }
+
+  function vctFind(board, me, opts) {
+    opts = opts || {};
+    var ctx = { nodes: 0, limit: opts.limit || 60000, aborted: false, maxDefs: opts.maxDefs || 6 };
+    var mv = vctSearch(cloneBoard(board), me, opts.depth || 4, ctx);
+    return {
+      found: mv >= 0, i: mv, x: mv >= 0 ? mv % N : -1, y: mv >= 0 ? (mv - mv % N) / N : -1,
+      nodes: ctx.nodes, aborted: ctx.aborted
+    };
+  }
+
+  /* ---------- 战术点 ---------- */
+  // 所有“落下即成五”的点
+  function findFives(board, p) {
+    var out = [], seen = new Uint8Array(SIZE), i, x, y, dx, dy, nx, ny;
+    for (i = 0; i < SIZE; i++) {
+      if (board[i] !== p) continue;
+      x = i % N; y = (i - x) / N;
+      for (dx = -1; dx <= 1; dx++) for (dy = -1; dy <= 1; dy++) {
+        nx = x + dx; ny = y + dy;
+        if (!inB(nx, ny)) continue;
+        var j = ny * N + nx;
+        if (board[j] || seen[j]) continue;
+        seen[j] = 1;
+        if (wouldFive(board, nx, ny, p)) out.push(j);
+      }
+    }
+    return out;
+  }
+
+  // 所有“落下即成活四/双四”（下一手必成五且无法单点封堵）的点
+  function findWinningFours(board, p) {
+    var out = [], cand = candidates(board, 1), i, j;
+    for (i = 0; i < cand.length; i++) {
+      j = cand[i];
+      board[j] = p;
+      var fives = findFives(board, p).length;
+      board[j] = EMPTY;
+      if (fives >= 2) out.push(j);
+    }
+    return out;
+  }
+
+  /* ---------- 候选点 ---------- */
+  function candidates(board, radius) {
+    var r = radius || 2, mark = new Uint8Array(SIZE), out = [], i, x, y, dx, dy, nx, ny;
+    for (i = 0; i < SIZE; i++) {
+      if (!board[i]) continue;
+      x = i % N; y = (i - x) / N;
+      for (dx = -r; dx <= r; dx++) for (dy = -r; dy <= r; dy++) {
+        nx = x + dx; ny = y + dy;
+        if (!inB(nx, ny)) continue;
+        var j = ny * N + nx;
+        if (!board[j]) mark[j] = 1;
+      }
+    }
+    for (i = 0; i < SIZE; i++) if (mark[i]) out.push(i);
+    return out;
+  }
+
+  function genMoves(board, me, width) {
+    var op = other(me), i, j, x, y;
+
+    var mine = findFives(board, me);
+    if (mine.length) return [{ i: mine[0], x: mine[0] % N, y: (mine[0] - mine[0] % N) / N, score: WIN }];
+
+    var theirs = findFives(board, op);
+    if (theirs.length) {                              // 必须封堵
+      var blocks = [];
+      for (i = 0; i < theirs.length && i < 4; i++) {
+        j = theirs[i]; x = j % N; y = (j - x) / N;
+        blocks.push({ i: j, x: x, y: y, score: 900000 });
+      }
+      return blocks;
+    }
+
+    var cand = candidates(board, 2);
+    if (!cand.length) {                               // 空盘 → 天元
+      var c = 7 * N + 7;
+      return [{ i: c, x: 7, y: 7, score: 0 }];
+    }
+    var list = [];
+    for (i = 0; i < cand.length; i++) {
+      j = cand[i]; x = j % N; y = (j - x) / N;
+      var sc = gain(board, x, y, me) + 0.85 * gain(board, x, y, op);
+      list.push({ i: j, x: x, y: y, score: sc });
+    }
+    list.sort(function (a, b) { return b.score - a.score; });
+    return list.slice(0, width || 10);
+  }
+
+  /* ---------- 搜索 ---------- */
+  var ABORT = { abort: true };
+
+  function negamax(board, depth, alpha, beta, me, ctx) {
+    ctx.nodes++;
+    if ((ctx.nodes & 511) === 0 && Date.now() > ctx.deadline) throw ABORT;
+    if (depth <= 0) return ctx.q ? quiesce(board, me, alpha, beta, ctx, ctx.q) : evaluate(board, me, ctx.def);
+
+    var moves = genMoves(board, me, depth >= 3 ? ctx.wDeep : ctx.wNear);
+    if (!moves.length) return evaluate(board, me, ctx.def);
+
+    var best = -Infinity;
+    for (var k = 0; k < moves.length; k++) {
+      var mv = moves[k];
+      board[mv.i] = me;
+      var sc;
+      if (wouldFiveIdx(board, mv.i, me)) sc = WIN + depth;
+      else sc = -negamax(board, depth - 1, -beta, -alpha, other(me), ctx);
+      board[mv.i] = EMPTY;
+      if (sc > best) best = sc;
+      if (best > alpha) alpha = best;
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+
+  function wouldFiveIdx(board, i, p) {
+    var x = i % N, y = (i - x) / N;
+    return wouldFive(board, x, y, p);
+  }
+
+  function rootSearch(board, me, depth, ctx) {
+    var moves = genMoves(board, me, ctx.wRoot);
+    if (ctx.vcfDef && moves.length > 1) moves = vcfRootFilter(board, me, moves, ctx);
+    var alpha = -Infinity, out = [];
+    if (ctx.order && ctx.order.length) {              // 上一层迭代的最优先手
+      moves.sort(function (a, b) {
+        var ia = ctx.order.indexOf(a.i), ib = ctx.order.indexOf(b.i);
+        if (ia < 0) ia = 99; if (ib < 0) ib = 99;
+        return ia - ib;
+      });
+    }
+    for (var k = 0; k < moves.length; k++) {
+      var mv = moves[k];
+      board[mv.i] = me;
+      var sc;
+      if (wouldFiveIdx(board, mv.i, me)) sc = WIN + depth;
+      else sc = -negamax(board, depth - 1, -Infinity, -alpha, other(me), ctx);
+      board[mv.i] = EMPTY;
+      out.push({ i: mv.i, x: mv.x, y: mv.y, score: sc });
+      if (sc > alpha) alpha = sc;
+      if (sc >= WIN) break;                           // 已找到必胜
+    }
+    out.sort(function (a, b) { return b.score - a.score; });
+    return out;
+  }
+
+  function pickWithNoise(ranked, noise) {
+    if (!noise || ranked.length < 2 || ranked[0].score >= WIN) return ranked[0];
+    if (Math.random() > noise) return ranked[0];
+    var pool = ranked.slice(0, Math.min(5, ranked.length)).filter(function (m) { return m.score > -WIN / 2; });
+    if (!pool.length) return ranked[0];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // 根节点战术前置：自己有 VCF 直接走；否则剔除"走了之后对手有 VCF"的自杀着法
+  function vcfRootFilter(board, me, moves, opts) {
+    var op = other(me), out = [], k, mv, safe = [];
+    for (k = 0; k < moves.length; k++) {
+      mv = moves[k];
+      board[mv.i] = me;
+      var opVcf = vcfFind(board, op, { depth: opts.vcfDefDepth || 6, limit: opts.vcfDefLimit || 4000 });
+      board[mv.i] = EMPTY;
+      if (!opVcf.found) safe.push(mv); else out.push(mv);
+    }
+    return safe.length ? safe : moves;            // 全都不安全时不做筛选，交给搜索
+  }
+
+  function bestMove(board, me, opts) {
+    opts = opts || {};
+    var maxDepth = opts.maxDepth || 4;
+    var t0 = Date.now();
+    if (opts.vcf !== false) {                     // 自己能连续冲四取胜 → 直接走，不必搜索
+      var v = vcfFind(board, me, { depth: opts.vcfDepth || 10, limit: opts.vcfLimit || 20000 });
+      if (v.found) return { x: v.x, y: v.y, score: WIN, depth: 0, nodes: v.nodes, ms: Date.now() - t0, ranked: [], vcf: true };
+      if (opts.vct) {                             // 再试威胁空间搜索（含活三）
+        var vt = vctFind(board, me, { depth: opts.vctDepth || 3, limit: opts.vctLimit || 15000, maxDefs: 6 });
+        if (vt.found) return { x: vt.x, y: vt.y, score: WIN, depth: 0, nodes: vt.nodes, ms: Date.now() - t0, ranked: [], vct: true };
+      }
+    }
+    var ctx = {
+      nodes: 0, deadline: t0 + (opts.time || 1200), order: [],
+      def: opts.def === undefined ? DEF_PLAY : opts.def,
+      wRoot: opts.wRoot || 14, wDeep: opts.wDeep || 12, wNear: opts.wNear || 8,
+      q: opts.q === undefined ? Q_DEPTH : opts.q, vcfDef: !!opts.vcfDef,
+      vcfDefDepth: opts.vcfDefDepth, vcfDefLimit: opts.vcfDefLimit
+    };
+    var ranked = null, reached = 0;
+    var start = (maxDepth % 2 === 1) ? 1 : 2;      // 保持与 maxDepth 同奇偶
+    for (var d = start; d <= maxDepth; d += 2) {
+      try {
+        var r = rootSearch(board, me, d, ctx);
+        if (r.length) { ranked = r; reached = d; ctx.order = r.slice(0, 8).map(function (m) { return m.i; }); }
+        if (ranked && ranked[0].score >= WIN) break;
+      } catch (e) {
+        if (e !== ABORT) throw e;
+        break;
+      }
+      if (Date.now() > ctx.deadline) break;
+    }
+    if (!ranked || !ranked.length) {                   // 兜底
+      var c = candidates(board, 2);
+      var i = c.length ? c[0] : 7 * N + 7;
+      return { x: i % N, y: (i - i % N) / N, score: 0, depth: 0, nodes: ctx.nodes, ms: Date.now() - t0, ranked: [] };
+    }
+    var pick = pickWithNoise(ranked, opts.noise);
+    return {
+      x: pick.x, y: pick.y, score: pick.score, depth: reached,
+      nodes: ctx.nodes, ms: Date.now() - t0, ranked: ranked.slice(0, 5)
+    };
+  }
+
+  // 逐层加深之间让出主线程，避免界面卡死
+  function bestMoveAsync(board, me, opts, yieldFn) {
+    opts = opts || {};
+    var maxDepth = opts.maxDepth || 4;
+    var t0 = Date.now();
+    if (opts.vcf !== false) {
+      var v0 = vcfFind(board, me, { depth: opts.vcfDepth || 10, limit: opts.vcfLimit || 20000 });
+      if (v0.found) return Promise.resolve({ x: v0.x, y: v0.y, score: WIN, depth: 0, nodes: v0.nodes, ms: Date.now() - t0, ranked: [], vcf: true });
+      if (opts.vct) {
+        var vt0 = vctFind(board, me, { depth: opts.vctDepth || 3, limit: opts.vctLimit || 15000, maxDefs: 6 });
+        if (vt0.found) return Promise.resolve({ x: vt0.x, y: vt0.y, score: WIN, depth: 0, nodes: vt0.nodes, ms: Date.now() - t0, ranked: [], vct: true });
+      }
+    }
+    var ctx = {
+      nodes: 0, deadline: t0 + (opts.time || 1200), order: [],
+      def: opts.def === undefined ? DEF_PLAY : opts.def,
+      wRoot: opts.wRoot || 14, wDeep: opts.wDeep || 12, wNear: opts.wNear || 8,
+      q: opts.q === undefined ? Q_DEPTH : opts.q, vcfDef: !!opts.vcfDef,
+      vcfDefDepth: opts.vcfDefDepth, vcfDefLimit: opts.vcfDefLimit
+    };
+    var start = (maxDepth % 2 === 1) ? 1 : 2;
+    var step = 2;
+    var ranked = null, reached = 0, d = start;
+    var sleep = yieldFn || function () { return Promise.resolve(); };
+
+    function loop() {
+      if (d > maxDepth) return done();
+      var stop = false;
+      try {
+        var r = rootSearch(board, me, d, ctx);
+        if (r.length) { ranked = r; reached = d; ctx.order = r.slice(0, 8).map(function (m) { return m.i; }); }
+        if (ranked && ranked[0].score >= WIN) stop = true;
+      } catch (e) {
+        if (e !== ABORT) throw e;
+        stop = true;
+      }
+      if (stop || Date.now() > ctx.deadline) return done();
+      d += step;
+      return sleep().then(loop);
+    }
+    function done() {
+      if (!ranked || !ranked.length) {
+        var c = candidates(board, 2);
+        var i = c.length ? c[0] : 7 * N + 7;
+        return { x: i % N, y: (i - i % N) / N, score: 0, depth: 0, nodes: ctx.nodes, ms: Date.now() - t0, ranked: [] };
+      }
+      var pick = pickWithNoise(ranked, opts.noise);
+      return {
+        x: pick.x, y: pick.y, score: pick.score, depth: reached,
+        nodes: ctx.nodes, ms: Date.now() - t0, ranked: ranked.slice(0, 5)
+      };
+    }
+    return Promise.resolve().then(loop);
+  }
+
+  /* ---------- 胜率评估 ---------- */
+  // 分数 → 概率：sign(s)*sqrt(|s|) 压缩后过 logistic。
+  // 标定锚点（k=0.007）：多一个活二(±1e3)≈55%，多一个活三(±2.2e4)≈74%，活四(±3e5)≈98%。
+  // p = σ(k·sign(s)·|s|^α)。用 232 个平静局面（每个 24 局实战参照）拟合并二折交叉验证：
+  // 两折得 k=0.0794/0.0891、α=0.30、off=2000/1500（一致），留出折 Brier 0.1082→0.1007、0.1142→0.1050。
+  // 手调的 k=0.007/α=0.50 是本次优化前的值，实测偏保守（把优势局面压向 50%）。
+  var PROB_K = 0.0841, PROB_A = 0.30;
+  function scoreToProb(s) {
+    var v = (s < 0 ? -1 : 1) * Math.pow(Math.abs(s), PROB_A);
+    var p = 1 / (1 + Math.exp(-PROB_K * v));
+    return Math.max(0.005, Math.min(0.995, p));
+  }
+
+  // 先手权价值：偶数深度搜索里双方各走同样手数，谁“接下来还能走”体现不出来，补一个常数
+  var TEMPO = 1750;                      // 与上面曲线一同拟合出的偏移（原手调值 1000）
+  // "怎么走都被对手 VCF 反杀"对应的胜率，由参照集实测标定（见 dev/README.md）
+  var LOST_P = 0.02;   // 实测：命中 9 个局面，该走一方实战胜率 0.0%（不写 0 是因为只检查了前 8 个候选）
+
+  /**
+   * 返回当前局面对黑方的胜率与局势信息。
+   * side = 当前该走的一方（先手权对胜率影响很大，必须计入）。
+   */
+  function analyze(board, side, opts) {
+    opts = opts || {};
+    var me = side, op = other(side);
+    var res = {
+      blackWin: 0.5, score: 0, forced: '', depth: 0,
+      counts: {}, tags: []
+    };
+    res.counts[BLACK] = shapeCounts(board, BLACK);
+    res.counts[WHITE] = shapeCounts(board, WHITE);
+
+    // 终局
+    if (res.counts[BLACK].five) { res.blackWin = 1; res.score = WIN; res.forced = 'black-five'; return res; }
+    if (res.counts[WHITE].five) { res.blackWin = 0; res.score = -WIN; res.forced = 'white-five'; return res; }
+
+    var pB, forced = '';
+    var myFive = findFives(board, me);
+    var opFive = findFives(board, op);
+
+    if (myFive.length) {                              // 该走的一方下一手成五
+      pB = me === BLACK ? 0.995 : 0.005; forced = 'five-next';
+    } else if (opFive.length >= 2) {                  // 对方双四，单点堵不住
+      pB = op === BLACK ? 0.99 : 0.01; forced = 'double-four';
+    } else if (vcfFind(board, me, { depth: 10, limit: 20000 }).found) {
+      // VCF：连续冲四取胜。可证明的必胜（对手每步只有唯一被迫封堵点）。
+      // 实测：320 局面里命中 50 个，该走一方实战胜率 99.9%。
+      pB = me === BLACK ? 0.995 : 0.005; forced = 'vcf-win';
+    } else if (vctFind(board, me, { depth: opts.vctDepth || 3, limit: opts.vctLimit || 6000, maxDefs: 6 }).found) {
+      // VCT：含活三的威胁空间搜索。防守集是「验证式枚举」，分支过多则放弃（宁漏判不误判），
+      // 所以它比 VCF 弱一档。概率取实测兑现率：命中 8 个局面、实战胜率 97.9%（不是拍 100%）。
+      pB = me === BLACK ? 0.97 : 0.03; forced = 'vct-win';
+    } else if (opts.checkLost !== false && losingToOpponent(board, me, { k: 8, depth: 8, limit: 3000 })) {
+      // 我的每个合理着法都被对手连续冲四反杀 —— 只看前 8 个候选，故非证明，概率同样用实测标定
+      pB = me === BLACK ? LOST_P : 1 - LOST_P; forced = 'lost-to-vcf';
+    } else {
+      var t0 = Date.now();
+      // 只能用偶数深度：奇数深度里“最后一手”属于自己，静态棋型评估会白送一个活三的分
+      // （实测同一局面 d3≈+24000 而 d2≈-170）。锋利的战术由上面的 forced 分支覆盖。
+      var depth = opts.depth || 2;
+      // 宽度显式给定（别依赖 genMoves 的兜底默认值）：胜率分析求稳求快，不需要 AI 那么宽
+      var ctx = { nodes: 0, deadline: t0 + (opts.time || 400), order: [], def: 1, wRoot: 12, wDeep: 10, wNear: 8, q: Q_DEPTH };
+      var s = 0;
+      try {
+        var r = rootSearch(board, me, depth, ctx);
+        if (r.length) { s = r[0].score; res.depth = depth; }
+        else s = evaluate(board, me, 1);
+      } catch (e) {
+        if (e !== ABORT) throw e;
+        s = evaluate(board, me, 1);
+      }
+      if (s >= WIN) { pB = me === BLACK ? 0.99 : 0.01; forced = 'search-win'; }
+      else if (s <= -WIN) { pB = me === BLACK ? 0.01 : 0.99; forced = 'search-loss'; }
+      else {
+        s += TEMPO;                                   // 轮到自己走，算一点先手便宜
+        var pMe = scoreToProb(s);
+        pB = me === BLACK ? pMe : 1 - pMe;
+      }
+      res.score = me === BLACK ? s : -s;
+    }
+    res.blackWin = pB;
+    res.forced = forced;
+    return res;
+  }
+
+  /* ==================================================================
+     蒙特卡洛：把局面真的下完，数胜负 —— 这是"真实频率"意义上的胜率
+     ================================================================== */
+
+  // 可复现的 xorshift32：测试要确定性，不能用 Math.random
+  function makeRng(seed) {
+    var s = (seed | 0) || 0x9e3779b9;
+    return function () {
+      s ^= s << 13; s |= 0; s ^= s >>> 17; s ^= s << 5; s |= 0;
+      return ((s >>> 0) % 100000) / 100000;
+    };
+  }
+
+  // rollout 策略。纯随机走子在五子棋里毫无信息量，必须带战术约束：
+  //   ① 能成五就成五 ② 对手能成五就堵 ③ 对手威胁大到一定程度、而我自己造不出四 → 先堵
+  //   ④ 否则在"我的增益 + def×对手增益"最高的前 topK 个点里按名次加权随机
+  // 参数暴露出来是为了能用可度量的指标调（见 dev/tune-policy.mjs）
+  var POLICY = { def: 1.2, blockAt: 20000, myFourAt: 26000, topK: 4, sharp: 1.0 };
+  function policyMove(board, p, rnd) {
+    var five = findFives(board, p);
+    if (five.length) return five[0];
+    var op = other(p);
+    var opFive = findFives(board, op);
+    if (opFive.length) return opFive[(rnd() * opFive.length) | 0];
+
+    var cand = candidates(board, 1);
+    if (!cand.length) return -1;
+    var bi = [], bs = [], i, j, x, y, gm, go, sc;
+    var bestMine = -1, bestMineG = -Infinity, bestOp = -1, bestOpG = -Infinity;
+    for (i = 0; i < cand.length; i++) {
+      x = cand[i] % N; y = (cand[i] - x) / N;
+      gm = gain(board, x, y, p);
+      go = gain(board, x, y, op);
+      if (gm > bestMineG) { bestMineG = gm; bestMine = cand[i]; }
+      if (go > bestOpG) { bestOpG = go; bestOp = cand[i]; }
+      sc = gm + POLICY.def * go;
+      if (bi.length < POLICY.topK) { bi.push(cand[i]); bs.push(sc); }
+      else {
+        var mn = 0;
+        for (j = 1; j < bs.length; j++) if (bs[j] < bs[mn]) mn = j;
+        if (sc > bs[mn]) { bs[mn] = sc; bi[mn] = cand[i]; }
+      }
+    }
+    // 关键一条：对手已有活三级别的威胁而我做不出四 → 必须先解，否则 rollout 里
+    // "谁先动手谁赢"，胜率会严重偏向先手方（实测不加这条，镜像局面会报 74.7%）
+    if (bestOpG >= POLICY.blockAt && bestMineG < POLICY.myFourAt) return bestOp;
+    // 我能造四/五级别的强手 → 直接抢
+    if (bestMineG >= POLICY.myFourAt) return bestMine;
+
+    // 名次加权随机：保留随机性（否则每条 rollout 完全相同、估计没有方差）
+    var order = [];
+    for (i = 0; i < bi.length; i++) order.push(i);
+    order.sort(function (a, b) { return bs[b] - bs[a]; });
+    var wsum = 0, w = [];
+    for (i = 0; i < order.length; i++) { w.push(1 / Math.pow(i + POLICY.sharp, 2)); wsum += w[i]; }
+    var t = rnd() * wsum;
+    for (i = 0; i < order.length; i++) { t -= w[i]; if (t <= 0) return bi[order[i]]; }
+    return bi[order[0]];
+  }
+
+  /**
+   * 从 side 的视角模拟一局：1=side 胜，0=负，中间值=截断时的评估。
+   *
+   * 为什么要截断：双方都会封堵之后，rollout 几乎不可能自然分出胜负 ——
+   * 实测不截断时和棋率 77%~100%、平均局长 180+ 手，胜率全是 0.5 堆出来的，毫无信息量。
+   * 所以只模拟 ROLL_PLIES 手，未分胜负就用标定过的评估收尾（软值），
+   * 让"锋利战术靠真实模拟解决、平静局面靠评估打分"。
+   */
+  var ROLL_PLIES = 30;
+  function rollout(board, side, rnd, maxPlies) {
+    var b = cloneBoard(board), turn = side, n = 0, cap = maxPlies || ROLL_PLIES;
+    while (n < cap) {
+      var i = policyMove(b, turn, rnd);
+      if (i < 0) break;
+      b[i] = turn;
+      var x = i % N, y = (i - x) / N;
+      if (wouldFive(b, x, y, turn)) return turn === side ? 1 : 0;
+      if (boardFull(b)) return 0.5;
+      turn = other(turn);
+      n++;
+    }
+    // 截断收尾：从 side 视角的对称评估 + 谁该走谁得先手补偿
+    var sc = evaluate(b, side, 1) + (turn === side ? TEMPO : -TEMPO);
+    return scoreToProb(sc);
+  }
+
+  /**
+   * 平坦 UCB 蒙特卡洛：预算分配到根节点的每个候选点上，
+   * 直接得到"落这里之后的胜率"（正是热图需要的东西），且可增量续算。
+   */
+  var PRIOR_W = 14;          // 先验等效局数：模拟局数远大于它时，先验影响自然消失
+  function mctsInit(board, side, opts) {
+    opts = opts || {};
+    var width = opts.width || 24;
+    var list = genMoves(board, side, width);          // 复用战术强制生成（必胜/必堵先入选）
+    var moves = [], b = cloneBoard(board);
+    for (var k = 0; k < list.length; k++) {
+      // 先验 = 落子后的标定评估（此时轮到对手走，故减去先手补偿）
+      b[list[k].i] = side;
+      var pr = wouldFive(b, list[k].x, list[k].y, side) ? 0.995
+             : scoreToProb(evaluate(b, side, 1) - TEMPO);
+      b[list[k].i] = EMPTY;
+      moves.push({ i: list[k].i, x: list[k].x, y: list[k].y, visits: 0, wins: 0, prior: pr });
+    }
+    return {
+      board: b, side: side, moves: moves, sims: 0, priorW: opts.priorW === undefined ? PRIOR_W : opts.priorW,
+      rnd: makeRng(opts.seed || 20240607), done: false, cap: opts.cap || 20000
+    };
+  }
+
+  // 收缩后的胜率：先验与实测按等效局数加权
+  function mctsValue(m, priorW) {
+    return (m.wins + priorW * m.prior) / (m.visits + priorW);
+  }
+
+  function mctsRun(state, ms, chunkSims) {
+    if (state.done || !state.moves.length) { state.done = true; return state; }
+    var deadline = Date.now() + (ms || 60);
+    var C = 1.35, moves = state.moves, b = state.board, side = state.side;
+    var guard = chunkSims || 100000;
+    while (Date.now() < deadline && state.sims < state.cap && guard-- > 0) {
+      // 选点：未访问优先，其余按 UCB1
+      var pick = -1, best = -Infinity, k, pw = state.priorW;
+      for (k = 0; k < moves.length; k++) {
+        if (moves[k].visits === 0) { pick = k; break; }
+        var m = moves[k];
+        var u = mctsValue(m, pw) + C * Math.sqrt(Math.log(state.sims + 1) / m.visits);
+        if (u > best) { best = u; pick = k; }
+      }
+      if (pick < 0) break;
+      var mv = moves[pick];
+      b[mv.i] = side;
+      var r;
+      if (wouldFive(b, mv.x, mv.y, side)) r = 1;      // 落下即五连，不用模拟
+      else r = 1 - rollout(b, other(side), state.rnd);// 换手视角：对手的负=我的胜
+      b[mv.i] = EMPTY;
+      mv.visits++; mv.wins += r; state.sims++;
+    }
+    if (state.sims >= state.cap) state.done = true;
+    return state;
+  }
+
+  // 汇总：局面胜率取"访问最多的点"的胜率（minimax 意义上的当前最佳着法价值）
+  function mctsResult(state) {
+    var pw = state.priorW;
+    var moves = state.moves.slice().sort(function (a, b) {
+      return (b.visits - a.visits) || (mctsValue(b, pw) - mctsValue(a, pw));
+    });
+    var out = [], i, m, p;
+    for (i = 0; i < moves.length; i++) {
+      m = moves[i];
+      p = mctsValue(m, pw);
+      out.push({
+        i: m.i, x: m.x, y: m.y, visits: m.visits, prob: p, prior: m.prior,
+        // 95% 置信半宽（含先验等效局数）：告诉使用者这个数字有多少水分
+        err: 1.96 * Math.sqrt(Math.max(p * (1 - p), 1e-9) / (m.visits + pw))
+      });
+    }
+    var pMe = out.length ? out[0].prob : 0.5;
+    return {
+      sims: state.sims, done: state.done, moves: out,
+      best: out[0] || null,
+      blackWin: state.side === BLACK ? pMe : 1 - pMe
+    };
+  }
+
+  // 一次算完（同步版，供测试/离线使用）
+  function mctsAnalyze(board, side, opts) {
+    opts = opts || {};
+    var st = mctsInit(board, side, opts);
+    var target = opts.sims || 2000;
+    st.cap = Math.min(st.cap, target);
+    mctsRun(st, opts.time || 100000, target * 4);
+    return mctsResult(st);
+  }
+
+  /* ==================================================================
+     逐点渐进加深（精确模式）：每个候选点独立做完整窗口搜索，并按"有希望优先"
+     的顺序反复加深 1→3→5 层（加上自己那一手即 2/4/6 层，偶数深度保证与标定曲线同口径）。
+     这是替代随机 rollout 的方案 —— 实测随机 rollout 因为策略太弱反而不如纯评估。
+     ================================================================== */
+  // 深算专用胜率曲线：深层搜索分数的尺度与 2 层不同，必须单独标定。
+  // 用 221 个平静局面（每个 24 局实战参照）拟合，并做二折交叉验证：
+  //   两折分别拟合出 k=0.0501/α=0.35/off=1500 与 2000（偏移只差 500，参数一致）
+  //   留出折上 Brier 0.0908→0.0825、0.0798→0.0708，净改善 -0.0087
+  // 对比：早期只有 40 个局面时同样的拟合两折差 8900、被判过拟合而弃用 —— 数据量才是关键。
+  var DEEP_K = 0.0501, DEEP_A = 0.35, DEEP_OFFSET = 1750;
+  function deepProb(s) {
+    var v = (s < 0 ? -1 : 1) * Math.pow(Math.abs(s), DEEP_A);
+    return Math.max(0.005, Math.min(0.995, 1 / (1 + Math.exp(-DEEP_K * v))));
+  }
+  
+  function deepInit(board, side, opts) {
+    opts = opts || {};
+    var list = genMoves(board, side, opts.width || 30);
+    var b = cloneBoard(board), moves = [], k, op = other(side);
+    for (k = 0; k < list.length; k++) {
+      b[list[k].i] = side;
+      var five = wouldFive(b, list[k].x, list[k].y, side);
+      var lost = false, pr;
+      if (five) pr = 0.995;
+      else {
+        // 落这里之后轮到对手走：若对手有连续冲四取胜，这一点就是送死。
+        // 直接定死并冻结，既更准，又把搜索预算省给有希望的点。
+        lost = vcfFind(b, op, { depth: 8, limit: 2500 }).found;
+        pr = lost ? LOST_P : scoreToProb(evaluate(b, side, 1) - TEMPO);
+      }
+      b[list[k].i] = EMPTY;
+      moves.push({
+        i: list[k].i, x: list[k].x, y: list[k].y,
+        prob: pr, depth: 0, five: five, lost: lost, nodes: 0
+      });
+    }
+    return {
+      board: b, side: side, moves: moves, evals: 0, done: false,
+      maxDepth: opts.maxDepth || 5, budgetNodes: opts.budgetNodes || 4000000
+    };
+  }
+
+  function deepRun(state, ms) {
+    if (state.done || !state.moves.length) { state.done = true; return state; }
+    var deadline = Date.now() + (ms || 60);
+    var side = state.side, op = other(side), b = state.board, moves = state.moves;
+    while (Date.now() < deadline) {
+      // 选点：始终挑"算得最浅"的点（同层内按胜率高者优先）。
+      // 必须逐层同步推进 —— 否则热图上一个点算了 6 层、邻居只算了 2 层，
+      // 两个数字口径不同没法比较（偶数深度悲观偏差随棋型和层数变化）。
+      var pick = -1, bestD = 99, bestP = -Infinity, k, m;
+      for (k = 0; k < moves.length; k++) {
+        m = moves[k];
+        if (m.five || m.lost || m.depth >= state.maxDepth) continue;   // 已定性的点不再花预算
+        if (m.depth < bestD || (m.depth === bestD && m.prob > bestP)) { bestD = m.depth; bestP = m.prob; pick = k; }
+      }
+      if (pick < 0) { state.done = true; break; }
+      m = moves[pick];
+      var d = m.depth === 0 ? 1 : m.depth + 2;
+      var ctx = {
+        nodes: 0, deadline: Date.now() + 2500, order: [], def: 1,
+        wRoot: 225, wDeep: 10, wNear: 8, q: Q_DEPTH
+      };
+      b[m.i] = side;
+      var s;
+      try { s = -negamax(b, d, -Infinity, Infinity, op, ctx); }
+      catch (e) { if (e !== ABORT) throw e; b[m.i] = EMPTY; state.done = true; break; }
+      b[m.i] = EMPTY;
+      m.depth = d; m.nodes += ctx.nodes; state.evals++;
+      m.prob = s >= WIN ? 0.995 : (s <= -WIN ? 0.005 : deepProb(s + DEEP_OFFSET));
+      m.score = s;
+    }
+    return state;
+  }
+
+  function deepResult(state) {
+    var out = state.moves.slice().sort(function (a, b) { return b.prob - a.prob; });
+    var list = out.map(function (m) {
+      return { i: m.i, x: m.x, y: m.y, prob: m.prob, depth: m.depth + 1, score: m.score, nodes: m.nodes };
+    });
+    var pMe = list.length ? list[0].prob : 0.5;
+    return {
+      moves: list, best: list[0] || null, evals: state.evals, done: state.done,
+      minDepth: list.reduce(function (a, m) { return Math.min(a, m.depth); }, 99),
+      blackWin: state.side === BLACK ? pMe : 1 - pMe
+    };
+  }
+
+  function deepAnalyze(board, side, opts) {
+    opts = opts || {};
+    var st = deepInit(board, side, opts);
+    var t0 = Date.now(), limit = opts.time || 1200;
+    while (!st.done && Date.now() - t0 < limit) deepRun(st, 60);
+    return deepResult(st);
+  }
+
+  /* ------------------------------------------------------------------
+     逐点胜率（快速模式热图）：每个候选点都用完整窗口搜索，不做 alpha-beta 剪枝
+     —— 剪枝返回的是边界值而不是真实分，热图会显示错误数字
+     ------------------------------------------------------------------ */
+  function pointProbs(board, side, opts) {
+    opts = opts || {};
+    var depth = opts.depth || 2, me = side, op = other(me);
+    var t0 = Date.now();
+    var ctx = { nodes: 0, deadline: t0 + (opts.time || 600), order: [], def: 1, wRoot: 225, wDeep: 8, wNear: 6, q: Q_DEPTH };
+    var cand = genMoves(board, me, opts.width || 60);
+    var out = [];
+    for (var k = 0; k < cand.length; k++) {
+      var mv = cand[k], s;
+      board[mv.i] = me;
+      if (wouldFive(board, mv.x, mv.y, me)) s = WIN;
+      else {
+        try { s = -negamax(board, depth - 1, -Infinity, Infinity, op, ctx); }
+        catch (e) { if (e !== ABORT) throw e; board[mv.i] = EMPTY; break; }
+      }
+      board[mv.i] = EMPTY;
+      var pMe = s >= WIN ? 0.995 : (s <= -WIN ? 0.005 : scoreToProb(s + TEMPO));
+      out.push({ i: mv.i, x: mv.x, y: mv.y, score: s, prob: pMe });
+    }
+    out.sort(function (a, b) { return b.prob - a.prob; });
+    return { moves: out, ms: Date.now() - t0, blackWin: out.length ? (me === BLACK ? out[0].prob : 1 - out[0].prob) : 0.5 };
+  }
+
+  var LET = 'ABCDEFGHIJKLMNO';
+  function coordName(x, y) { return LET[x] + (N - y); }
+
+  var API = {
+    N: N, SIZE: SIZE, EMPTY: EMPTY, BLACK: BLACK, WHITE: WHITE, WIN: WIN, DIRS: DIRS,
+    createBoard: createBoard, cloneBoard: cloneBoard, inBounds: inB, other: other,
+    checkWin: checkWin, wouldFive: wouldFive, boardFull: boardFull, stoneCount: stoneCount,
+    boardScore: boardScore, shapeCounts: shapeCounts, evaluate: evaluate, gain: gain,
+    findFives: findFives, findWinningFours: findWinningFours, candidates: candidates,
+    genMoves: genMoves, bestMove: bestMove, bestMoveAsync: bestMoveAsync,
+    analyze: analyze, scoreToProb: scoreToProb, coordName: coordName, LINES: LINES,
+    makeRng: makeRng, rollout: rollout, policyMove: policyMove,
+    fourMoves: fourMoves, bestShapeAt: bestShapeAt, vcfFind: vcfFind, quiesce: quiesce,
+    threatMoves: threatMoves, defenseSet: defenseSet, vctFind: vctFind, openFourPointsNear: openFourPointsNear,
+    losingToOpponent: losingToOpponent, setLostP: function (v) { LOST_P = v; },
+    setQDepth: function (n) { Q_DEPTH = n; },
+    mctsInit: mctsInit, mctsRun: mctsRun, mctsResult: mctsResult, mctsAnalyze: mctsAnalyze,
+    pointProbs: pointProbs, PROB_K: PROB_K, TEMPO: TEMPO, POLICY: POLICY,
+    deepInit: deepInit, deepRun: deepRun, deepResult: deepResult, deepAnalyze: deepAnalyze,
+    // 供离线标定用：给定局面与"对手搜索层数"，返回未加任何偏移的原始分（me 视角）
+    rawSearch: function (board, oppDepth, opSide, meSide) {
+      var ctx = { nodes: 0, deadline: Date.now() + 4000, order: [], def: 1, wRoot: 225, wDeep: 10, wNear: 8, q: Q_DEPTH };
+      return -negamax(board, oppDepth, -Infinity, Infinity, opSide, ctx);
+    },
+    setProbCurve: function (k, alpha) { PROB_K = k; PROB_A = alpha === undefined ? PROB_A : alpha; },
+    setRollPlies: function (n) { ROLL_PLIES = n; },
+    setDeepOffset: function (n) { DEEP_OFFSET = n; },
+    setDeepCurve: function (k, a, off) { DEEP_K = k; DEEP_A = a; if (off !== undefined) DEEP_OFFSET = off; },
+    setPriorW: function (n) { PRIOR_W = n; },
+    getTuning: function () { return { PROB_K: PROB_K, PROB_A: PROB_A, ROLL_PLIES: ROLL_PLIES, PRIOR_W: PRIOR_W, POLICY: POLICY }; }
+  };
+  if (typeof window !== 'undefined') window.GomokuEngine = API;
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+})();
+</script>
+
+<!-- ==================================================================== -->
+<!-- 界面                                                                  -->
+<!-- ==================================================================== -->
+<script id="ui">
+(function () {
+  'use strict';
+  var E = window.GomokuEngine;
+  var N = E.N, BLACK = E.BLACK, WHITE = E.WHITE, EMPTY = E.EMPTY;
+
+  // 深度取奇数：搜索末端是"自己刚落子"，先手主动权不会被低估。
+  // 实测（各 10 局先后手轮换）：d5 胜 d4 = 8:2，d7 胜 d5 = 7:3，d5 胜 d1/普通 = 10:0。
+  // q = 静止搜索深度（叶子处把强制手走完再评估）；vcf = 是否搜连续冲四必胜；vcfDef = 是否剔除送对手 VCF 的自杀手
+  // 实测（各 14 局先后手轮换）：加静止搜索 10:4 胜旧引擎；再加 VCF 与 VCF 防守 9:5。
+  var DIFF = {
+    easy:   { label: '简单', maxDepth: 1, time: 200,  noise: 0.55, q: 0, vcf: false },
+    normal: { label: '普通', maxDepth: 3, time: 600,  noise: 0.18, q: 4, vcf: true },
+    hard:   { label: '困难', maxDepth: 5, time: 2000, noise: 0.02, q: 6, vcf: true, vct: true, vcfDef: true },
+    master: { label: '大师', maxDepth: 7, time: 3500, noise: 0,    q: 8, vcf: true, vct: true, vctLimit: 60000, vcfDef: true }
+  };
+
+  var S = {
+    board: E.createBoard(),
+    turn: BLACK,
+    history: [],                 // {x,y,p}
+    mode: 'pve',
+    human: BLACK,
+    diff: 'hard',
+    over: false, winner: 0, winCells: null,
+    thinking: false,
+    hint: null,
+    showNum: false,
+    rates: [{ ply: 0, p: 0.5 }],
+    lastEval: null,
+    hover: null,
+    gen: 0,                      // 对局代号：重开/切换模式即自增，用来丢弃过期的异步结果
+    wrMode: 'deep',              // 胜率来源：deep=逐点渐进加深(实测最准) / fast=快速 / mc=蒙特卡洛
+    heat: false,                 // 胜率热图开关
+    heatData: null,              // {moves:[{x,y,prob,visits,err,score}], mode, sims}
+    mc: null, mcResult: null,    // 蒙特卡洛状态（可增量续算）
+    deep: null, deepResult: null // 深算状态（逐点渐进加深）
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var cv = $('board'), ctx = cv.getContext('2d');
+  var chart = $('chart'), cctx = chart.getContext('2d');
+  var PAD = 0, STEP = 0, L = 0, DPR = 1;
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms || 0); }); }
+  function isHumanTurn() { return !S.over && !S.thinking && (S.mode === 'pvp' || S.turn === S.human); }
+
+  /* ================= 绘制 ================= */
+  function fit() {
+    var box = $('boardWrap').getBoundingClientRect();
+    var size = Math.max(240, Math.min(box.width, Math.max(320, window.innerHeight - 250)));
+    DPR = window.devicePixelRatio || 1;
+    L = Math.floor(size);
+    cv.style.width = L + 'px';
+    cv.style.height = L + 'px';
+    $('boardInner').style.width = L + 'px';
+    $('boardInner').style.height = L + 'px';
+    cv.width = Math.floor(L * DPR);
+    cv.height = Math.floor(L * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    PAD = Math.round(L * 0.042) + 10;
+    STEP = (L - PAD * 2) / (N - 1);
+
+    var cb = chart.getBoundingClientRect();
+    chart.width = Math.floor(cb.width * DPR);
+    chart.height = Math.floor(96 * DPR);
+    cctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    draw(); drawChart();
+  }
+
+  function px(x) { return PAD + x * STEP; }
+
+  function draw() {
+    var i, x, y;
+    // 木纹底
+    var g = ctx.createLinearGradient(0, 0, L, L);
+    g.addColorStop(0, '#eccd99'); g.addColorStop(.5, '#e3bd83'); g.addColorStop(1, '#d3a15f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, L, L);
+    ctx.strokeStyle = 'rgba(90,60,20,.25)';
+    ctx.lineWidth = 1;
+    for (i = 0; i < 60; i++) {   // 细木纹
+      ctx.globalAlpha = .05 + (i % 3) * .02;
+      ctx.beginPath();
+      var yy = (i / 60) * L + Math.sin(i) * 3;
+      ctx.moveTo(0, yy); ctx.bezierCurveTo(L * .3, yy + 5, L * .6, yy - 5, L, yy + 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // 网格
+    ctx.strokeStyle = 'rgba(50,32,10,.72)';
+    ctx.lineWidth = Math.max(1, STEP * 0.026);
+    ctx.beginPath();
+    for (i = 0; i < N; i++) {
+      ctx.moveTo(px(0), px(i)); ctx.lineTo(px(N - 1), px(i));
+      ctx.moveTo(px(i), px(0)); ctx.lineTo(px(i), px(N - 1));
+    }
+    ctx.stroke();
+    ctx.lineWidth = Math.max(1.4, STEP * 0.045);
+    ctx.strokeRect(px(0), px(0), STEP * (N - 1), STEP * (N - 1));
+
+    // 星位
+    ctx.fillStyle = 'rgba(50,32,10,.8)';
+    [[3, 3], [11, 3], [3, 11], [11, 11], [7, 7]].forEach(function (s) {
+      ctx.beginPath(); ctx.arc(px(s[0]), px(s[1]), Math.max(2, STEP * 0.075), 0, 7); ctx.fill();
+    });
+
+    // 坐标
+    ctx.fillStyle = 'rgba(60,40,15,.7)';
+    ctx.font = Math.max(9, Math.round(STEP * 0.34)) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var LET = 'ABCDEFGHIJKLMNO';
+    for (i = 0; i < N; i++) {
+      ctx.fillText(LET[i], px(i), L - PAD * 0.42);
+      ctx.fillText(String(N - i), PAD * 0.42, px(i));
+    }
+
+    // 悬停十字
+    if (S.hover && isHumanTurn() && !S.board[S.hover.y * N + S.hover.x]) {
+      ctx.strokeStyle = 'rgba(40,90,200,.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px(0), px(S.hover.y)); ctx.lineTo(px(N - 1), px(S.hover.y));
+      ctx.moveTo(px(S.hover.x), px(0)); ctx.lineTo(px(S.hover.x), px(N - 1));
+      ctx.stroke();
+    }
+
+    // 提示点
+    if (S.hint) {
+      var hr = STEP * 0.46;
+      ctx.strokeStyle = '#2f7d5b'; ctx.lineWidth = 2.4;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.arc(px(S.hint.x), px(S.hint.y), hr, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 胜率热图（画在棋子下面，不遮子）
+    if (S.heat && S.heatData && !S.over) drawHeat();
+
+    // 棋子
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      var v = S.board[y * N + x];
+      if (v) stone(px(x), px(y), v, STEP * 0.45, 1);
+    }
+
+    // 悬停虚子
+    if (S.hover && isHumanTurn() && !S.board[S.hover.y * N + S.hover.x]) {
+      stone(px(S.hover.x), px(S.hover.y), S.turn, STEP * 0.45, .38);
+    }
+
+    // 手数
+    if (S.showNum) {
+      ctx.font = 'bold ' + Math.max(8, Math.round(STEP * 0.38)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (i = 0; i < S.history.length; i++) {
+        var h = S.history[i];
+        ctx.fillStyle = h.p === BLACK ? 'rgba(235,240,250,.92)' : 'rgba(25,30,40,.86)';
+        ctx.fillText(String(i + 1), px(h.x), px(h.y));
+      }
+    }
+
+    // 最后一手标记
+    var last = S.history[S.history.length - 1];
+    if (last && !S.showNum) {
+      ctx.strokeStyle = last.p === BLACK ? 'rgba(255,255,255,.9)' : 'rgba(20,25,35,.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px(last.x), px(last.y), STEP * 0.17, 0, 7); ctx.stroke();
+    }
+
+    // 连五高亮
+    if (S.winCells) {
+      var a = S.winCells[0], b = S.winCells[S.winCells.length - 1];
+      ctx.strokeStyle = 'rgba(255,70,70,.9)';
+      ctx.lineWidth = Math.max(3, STEP * 0.12);
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(px(a[0]), px(a[1])); ctx.lineTo(px(b[0]), px(b[1])); ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+  }
+
+  // 颜色 = 相对最佳点的差距（绿→黄→红），透明度 = 这些差距是否显著。
+  // 为什么不用绝对胜率上色：均势局面里所有点都在 48%~57%，绝对配色会整张图一个颜色，看不出好坏。
+  var HEAT_A = [60, 200, 120], HEAT_B = [232, 190, 60], HEAT_C = [226, 80, 70];
+  function heatColor(t, alpha) {
+    var c, u;
+    if (t < 0.5) { u = t / 0.5; c = [0, 1, 2].map(function (i) { return HEAT_A[i] + (HEAT_B[i] - HEAT_A[i]) * u; }); }
+    else { u = (t - 0.5) / 0.5; c = [0, 1, 2].map(function (i) { return HEAT_B[i] + (HEAT_C[i] - HEAT_B[i]) * u; }); }
+    return 'rgba(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ',' + alpha.toFixed(3) + ')';
+  }
+
+  function drawHeat() {
+    var d = S.heatData, list = d.moves, r = STEP * 0.44, i, m;
+    var pBest = list[0].prob, pWorst = list[list.length - 1].prob;
+    var range = Math.max(0.02, pBest - pWorst);
+    var sig = Math.min(1, (pBest - pWorst) / 0.15);       // 差距显著度
+    var alpha = 0.26 + 0.3 * sig;
+    var showNum = STEP >= 22;
+    var topN = 12;
+    // 悬停点即使不在前 N 也显示数字
+    var hoverIdx = -1;
+    if (S.hover) {
+      for (i = 0; i < list.length; i++) if (list[i].x === S.hover.x && list[i].y === S.hover.y) { hoverIdx = i; break; }
+    }
+    for (i = list.length - 1; i >= 0; i--) {            // 从差到好画，好的盖在上面
+      m = list[i];
+      ctx.beginPath();
+      ctx.arc(px(m.x), px(m.y), r, 0, 7);
+      ctx.fillStyle = heatColor((pBest - m.prob) / range, alpha);
+      ctx.fill();
+    }
+    if (!showNum) return;
+    ctx.font = 'bold ' + Math.max(9, Math.round(STEP * 0.30)) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (i = 0; i < list.length; i++) {
+      if (i >= topN && i !== hoverIdx) continue;
+      m = list[i];
+      ctx.fillStyle = i === 0 ? 'rgba(255,255,255,.96)' : 'rgba(24,30,40,.82)';
+      ctx.fillText(Math.round(m.prob * 100), px(m.x), px(m.y));
+    }
+    // 最佳点白圈
+    if (list.length) {
+      ctx.strokeStyle = 'rgba(255,255,255,.92)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px(list[0].x), px(list[0].y), r, 0, 7); ctx.stroke();
+    }
+  }
+
+  function stone(cx, cy, p, r, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath(); ctx.arc(cx + r * .12, cy + r * .16, r, 0, 7);
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fill();
+    var g = ctx.createRadialGradient(cx - r * .35, cy - r * .4, r * .12, cx, cy, r * 1.05);
+    if (p === BLACK) { g.addColorStop(0, '#6d7889'); g.addColorStop(.45, '#2a3140'); g.addColorStop(1, '#0b0e13'); }
+    else { g.addColorStop(0, '#ffffff'); g.addColorStop(.55, '#eef2f8'); g.addColorStop(1, '#b3bcc9'); }
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7);
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = p === BLACK ? 'rgba(0,0,0,.6)' : 'rgba(120,130,145,.55)';
+    ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawChart() {
+    var w = chart.width / DPR, h = chart.height / DPR;
+    cctx.clearRect(0, 0, w, h);
+    // 背景分区
+    cctx.fillStyle = 'rgba(80,120,220,.10)'; cctx.fillRect(0, 0, w, h / 2);
+    cctx.fillStyle = 'rgba(240,220,180,.08)'; cctx.fillRect(0, h / 2, w, h / 2);
+    cctx.strokeStyle = 'rgba(255,255,255,.16)';
+    cctx.setLineDash([3, 3]); cctx.lineWidth = 1;
+    cctx.beginPath(); cctx.moveTo(0, h / 2); cctx.lineTo(w, h / 2); cctx.stroke();
+    cctx.setLineDash([]);
+
+    var pts = S.rates;
+    var n = Math.max(2, pts.length);
+    var xs = function (i) { return (i / (n - 1)) * (w - 2) + 1; };
+    var ys = function (p) { return h - p * (h - 4) - 2; };
+
+    if (pts.length >= 2) {
+      cctx.beginPath();
+      cctx.moveTo(xs(0), ys(pts[0].p));
+      for (var i = 1; i < pts.length; i++) cctx.lineTo(xs(i), ys(pts[i].p));
+      cctx.lineTo(xs(pts.length - 1), h / 2);
+      cctx.lineTo(xs(0), h / 2);
+      cctx.closePath();
+      var g = cctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(90,140,255,.45)');
+      g.addColorStop(.5, 'rgba(90,140,255,.05)');
+      g.addColorStop(.5, 'rgba(255,225,170,.05)');
+      g.addColorStop(1, 'rgba(255,215,150,.4)');
+      cctx.fillStyle = g; cctx.fill();
+
+      cctx.beginPath();
+      cctx.moveTo(xs(0), ys(pts[0].p));
+      for (var j = 1; j < pts.length; j++) cctx.lineTo(xs(j), ys(pts[j].p));
+      cctx.strokeStyle = '#7fa8ff'; cctx.lineWidth = 1.8; cctx.stroke();
+
+      var lx = xs(pts.length - 1), ly = ys(pts[pts.length - 1].p);
+      cctx.beginPath(); cctx.arc(lx, ly, 3, 0, 7);
+      cctx.fillStyle = '#fff'; cctx.fill();
+    }
+    cctx.fillStyle = 'rgba(255,255,255,.3)';
+    cctx.font = '10px system-ui, sans-serif';
+    cctx.textAlign = 'left'; cctx.textBaseline = 'top';
+    cctx.fillText('黑优', 5, 3);
+    cctx.textBaseline = 'bottom';
+    cctx.fillText('白优', 5, h - 3);
+  }
+
+  /* ================= 渲染文本区 ================= */
+  function render() {
+    var dot = $('turnDot'), t = $('turnText');
+    dot.className = 'dot ' + (S.turn === BLACK ? 'b' : 'w') + (S.thinking ? ' pulse' : '');
+    if (S.over) {
+      t.textContent = S.winner ? ((S.winner === BLACK ? '黑方' : '白方') + '获胜') : '平局';
+    } else if (S.thinking) {
+      t.textContent = 'AI 思考中…';
+    } else if (S.mode === 'pve') {
+      t.textContent = (S.turn === S.human ? '轮到你' : 'AI') + '落子（' + (S.turn === BLACK ? '黑' : '白') + '）';
+    } else {
+      t.textContent = (S.turn === BLACK ? '黑方' : '白方') + '落子';
+    }
+    $('modeBadge').textContent = S.mode === 'pvp' ? '双人对战'
+      : '人机 · ' + DIFF[S.diff].label + ' · 我执' + (S.human === BLACK ? '黑' : '白');
+    $('moveBadge').textContent = '第 ' + S.history.length + ' 手';
+    $('mvCount').textContent = S.history.length;
+    $('btnUndo').disabled = S.thinking || !S.history.length;
+    $('btnHint').disabled = S.thinking || S.over;
+    $('btnNum').textContent = S.showNum ? '隐藏手数' : '显示手数';
+    $('btnHeat').textContent = S.heat ? '关闭热图' : '胜率热图';
+    $('btnHeat').className = S.heat ? 'primary' : '';
+    $('pveBox').className = 'pve-only' + (S.mode === 'pve' ? '' : ' hide');
+    $('btnSwap').style.display = S.mode === 'pve' ? '' : 'none';
+
+    // 棋谱
+    var box = $('moves');
+    if (!S.history.length) box.innerHTML = '<div class="empty-hint">还没有落子，点击棋盘开始。</div>';
+    else {
+      var html = '';
+      for (var i = S.history.length - 1; i >= 0; i--) {
+        var h = S.history[i];
+        var r = S.rates[i + 1];
+        html += '<div class="mv"><span class="n">' + (i + 1) + '</span>'
+          + '<span class="s ' + (h.p === BLACK ? 'b' : 'w') + '"></span>'
+          + '<span class="c">' + E.coordName(h.x, h.y) + '</span>'
+          + '<span class="p">' + (r ? '黑 ' + (r.p * 100).toFixed(1) + '%' : '') + '</span></div>';
+      }
+      box.innerHTML = html;
+    }
+    draw();
+  }
+
+  function renderRate(a, override) {
+    var p = (override === undefined || override === null) ? a.blackWin : override;
+    var pb = p * 100, pw = 100 - pb;
+    $('wrB').textContent = pb.toFixed(1) + '%';
+    $('wrW').textContent = pw.toFixed(1) + '%';
+    $('barB').style.width = pb.toFixed(2) + '%';
+    $('barW').style.width = pw.toFixed(2) + '%';
+
+    var v = $('verdict'), txt;
+    if (S.over) txt = S.winner ? '<b>' + (S.winner === BLACK ? '黑方' : '白方') + '连成五子</b>' : '<b>和棋</b>';
+    else if (a.forced === 'five-next') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方下一手成五</b>';
+    else if (a.forced === 'double-four') txt = '<b>双四已成，无法兼顾</b>';
+    else if (a.forced === 'vcf-win') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方已可连续冲四取胜</b>';
+    else if (a.forced === 'vct-win') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方已有必胜威胁组合</b>';
+    else if (a.forced === 'lost-to-vcf') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方已无解（怎么走都被冲四反杀）</b>';
+    else if (a.forced === 'open-four-next') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方可成活四</b>';
+    else if (a.forced === 'search-win') txt = '<b>' + (S.turn === BLACK ? '黑' : '白') + '方已有必胜手段</b>';
+    else if (a.forced === 'search-loss') txt = '<b>' + (S.turn === BLACK ? '白' : '黑') + '方已有必胜手段</b>';
+    else if (pb > 88) txt = '黑方<b>胜势</b>';
+    else if (pb > 70) txt = '黑方<b>大优</b>';
+    else if (pb > 57) txt = '黑方稍优';
+    else if (pb > 43) txt = '局势均衡';
+    else if (pb > 30) txt = '白方稍优';
+    else if (pb > 12) txt = '白方<b>大优</b>';
+    else txt = '白方<b>胜势</b>';
+    v.innerHTML = txt;
+
+    var mb = $('mcBar'), pct = -1;
+    if (S.over) $('evalNum').textContent = '';
+    else if (S.wrMode === 'mc') {
+      var r = S.mcResult;
+      $('evalNum').textContent = r ? ('模拟 ' + r.sims + ' 局' + (r.best ? ' ±' + (r.best.err * 100).toFixed(1) + '%' : '')) : '模拟中…';
+      if (S.mc) pct = Math.min(100, (S.mc.sims / S.mc.cap) * 100);
+    } else if (S.wrMode === 'deep') {
+      var dr = S.deepResult;
+      $('evalNum').textContent = dr ? ('深算 ' + dr.minDepth + '/6 层' + (dr.done ? ' 完成' : '…')) : '深算中…';
+      if (S.deep) {
+        var full = 0;
+        for (var q = 0; q < S.deep.moves.length; q++)
+          if (S.deep.moves[q].five || S.deep.moves[q].lost || S.deep.moves[q].depth >= S.deep.maxDepth) full++;
+        pct = (full / Math.max(1, S.deep.moves.length)) * 100;
+      }
+    } else {
+      $('evalNum').textContent = '评分 ' + (a.score > 0 ? '+' : '') + Math.round(Math.max(-99999, Math.min(99999, a.score)));
+    }
+    if (pct >= 0 && !S.over) { mb.style.display = ''; $('mcBarFill').style.width = pct.toFixed(1) + '%'; }
+    else mb.style.display = 'none';
+
+    // 威胁标签
+    var names = { five: '五连', open4: '活四', four: '冲四', open3: '活三', sleep3: '眠三' };
+    var order = ['five', 'open4', 'four', 'open3', 'sleep3'];
+    var html = '';
+    [BLACK, WHITE].forEach(function (side) {
+      var c = a.counts[side] || {};
+      order.forEach(function (k) {
+        if (!c[k]) return;
+        var hot = (k === 'five' || k === 'open4' || (k === 'open3' && c[k] >= 2));
+        html += '<span class="tag ' + (hot ? 'hot' : (side === BLACK ? 'b' : 'w')) + '">'
+          + (side === BLACK ? '黑' : '白') + names[k] + (c[k] > 1 ? '×' + c[k] : '') + '</span>';
+      });
+    });
+    $('tags').innerHTML = html || '<span class="tag b" style="opacity:.5">暂无威胁</span>';
+    drawChart();
+  }
+
+  /* ================= 分析 ================= */
+  // 深度2分析仅 1~5ms，直接同步跑：胜率与手数严格一一对应，悔棋也不会错位
+  function setRate(ply, p) {
+    for (var k = 0; k <= ply; k++) {
+      if (!S.rates[k]) S.rates[k] = { ply: k, p: k ? S.rates[k - 1].p : 0.5 };
+    }
+    S.rates[ply] = { ply: ply, p: p };
+    S.rates.length = ply + 1;
+  }
+
+  /* ---------- 热图与两种"慢而准"的胜率来源 ---------- */
+  // 实测精度（dev/validate.mjs，320 个局面 × 每个 24 局实战对照；恒猜50%基线 Brier 0.181，
+  // 参照本身抽样噪声下限 0.0029）。每一步改进都过了配对 bootstrap 显著性检验：
+  //   深算(6层+静止搜索+VCT+逐点反杀检查+标定曲线)  Brier 0.0520  平均误差 15.3%   ← 默认
+  //   快速(深度2+静止搜索+VCF/VCT/必败判断+标定曲线) Brier 0.0704  平均误差 18.8%
+  //   蒙特卡洛(模拟对局)                            Brier 0.1233  平均误差 25.7%   ← 实验性
+  //   纯静态评估                                    Brier 0.1572
+  // 优化历程（同一参照集）：0.1004(最初) → 0.0830(加静止) → 0.0589(深算) → 0.0520(标定曲线)
+  // 棋理可证局面（成五/双四/VCF/VCT/必败）88/320 个，其 Brier ≈ 0.000 —— 那是定理不是估计。
+  var WR_INFO = {
+    fast: { label: '快速', brier: '0.070', how: '深度2搜索 + 静止搜索 + VCF/VCT 判定，约 2ms' },
+    deep: { label: '深算', brier: '0.052', how: '每点独立搜索、逐层加深到 6 层 + 静止搜索 + 逐点反杀检查' },
+    mc:   { label: '蒙特卡洛', brier: '0.123', how: '每点真下完 30 手再按标定评估收尾' }
+  };
+
+  function heatSource() {
+    if (S.wrMode === 'deep') return S.deepResult ? { mode: 'deep', moves: S.deepResult.moves } : null;
+    if (S.wrMode === 'mc') return S.mcResult ? { mode: 'mc', moves: S.mcResult.moves } : null;
+    var r = E.pointProbs(S.board, S.turn, { depth: 2, time: 600, width: 80 });
+    return { mode: 'fast', moves: r.moves };
+  }
+
+  function computeHeat() {
+    if (!S.heat || S.over) { S.heatData = null; renderHover(); return; }   // 关闭时也要复位图例与详情
+    S.heatData = heatSource();
+    renderHover();
+  }
+
+  function renderHover() {
+    var box = $('hoverBox');
+    if (!S.heat) {
+      box.innerHTML = '开启「胜率热图」后，把鼠标移到棋盘任意可落点，这里显示落子后的胜率';
+      $('legend').style.display = 'none';
+      return;
+    }
+    $('legend').style.display = '';
+    if (S.over) { box.innerHTML = '对局已结束'; return; }
+    var d = S.heatData;
+    if (!d || !d.moves.length) { box.innerHTML = '正在计算…'; return; }
+    var who = S.turn === BLACK ? '黑' : '白';
+    var m = null, i;
+    if (S.hover) for (i = 0; i < d.moves.length; i++)
+      if (d.moves[i].x === S.hover.x && d.moves[i].y === S.hover.y) { m = d.moves[i]; break; }
+    var t = m || d.moves[0];
+    var detail;
+    if (d.mode === 'mc') detail = '　模拟 ' + t.visits + ' 局 ±' + (t.err * 100).toFixed(1) + '%';
+    else if (d.mode === 'deep') detail = '　已算 ' + t.depth + ' 层　评分 ' + (t.score > 0 ? '+' : '') + Math.round(t.score || 0);
+    else detail = '　评分 ' + (t.score > 0 ? '+' : '') + Math.round(t.score || 0);
+    var info = WR_INFO[S.wrMode];
+    box.innerHTML = (m ? '<b>' : '当前最佳 <b>') + E.coordName(t.x, t.y) + '</b>　' + who
+      + '方胜率 <s>' + (t.prob * 100).toFixed(1) + '%</s>' + detail
+      + '<br><span style="color:#6d7889">共 ' + d.moves.length + ' 个可落点 · '
+      + info.label + '：' + info.how + '</span>';
+  }
+
+  // 深算 / 蒙特卡洛：都是分片跑、边跑边刷新（像围棋分析工具那样数字逐渐收敛）
+  function startRefine() {
+    S.deep = S.deepResult = S.mc = S.mcResult = null;
+    if (S.wrMode === 'fast' || S.over) return;
+    var mode = S.wrMode, gen = S.gen, ply = S.history.length;
+    if (mode === 'deep') S.deep = E.deepInit(S.board, S.turn, { width: 30, maxDepth: 5 });
+    else S.mc = E.mctsInit(S.board, S.turn, { width: 30, cap: 12000, seed: 20240607 + ply });
+    (function loop() {
+      // 局面/模式/对局一变就停：绝不把旧局面的统计算到新局面上
+      if (S.wrMode !== mode || gen !== S.gen || ply !== S.history.length || S.over) return;
+      if (S.thinking) { setTimeout(loop, 80); return; }        // AI 正在搜索，让出主线程
+      var res, done;
+      if (mode === 'deep') {
+        if (!S.deep) return;
+        E.deepRun(S.deep, 32); res = E.deepResult(S.deep); S.deepResult = res; done = S.deep.done;
+      } else {
+        if (!S.mc) return;
+        E.mctsRun(S.mc, 26); res = E.mctsResult(S.mc); S.mcResult = res; done = S.mc.done;
+      }
+      setRate(ply, res.blackWin);
+      renderRate(S.lastEval || { blackWin: res.blackWin, score: 0, forced: '', counts: {} }, res.blackWin);
+      if (S.heat) { computeHeat(); draw(); } else renderHover();
+      if (!done) setTimeout(loop, 12);
+    })();
+  }
+
+  function updateAnalysis(record) {
+    var a;
+    try {
+      if (S.over) {
+        a = { blackWin: S.winner === BLACK ? 1 : (S.winner === WHITE ? 0 : 0.5), score: 0, forced: 'over', counts: {} };
+        a.counts[BLACK] = E.shapeCounts(S.board, BLACK);
+        a.counts[WHITE] = E.shapeCounts(S.board, WHITE);
+      } else {
+        a = E.analyze(S.board, S.turn, { depth: 2, time: 400 });
+      }
+    } catch (err) {                                   // 分析失败绝不能影响对局
+      console.error('analyze failed', err);
+      var lastP = S.rates.length ? S.rates[S.rates.length - 1].p : 0.5;
+      a = { blackWin: lastP, score: 0, forced: '', counts: {} };
+    }
+    S.lastEval = a;
+    var shown = a.blackWin;
+    if (record) setRate(S.history.length, shown);
+    renderRate(a, shown);                                // 先画出即时可得的快速估计
+    computeHeat();
+    // 精细计算必须放在最后启动：它的第一个分片可能同步跑完并写入更好的结果，
+    // 若先启动就会被上面这行 renderRate 用快速值覆盖掉（浏览器实测到过这个顺序错误）。
+    if (S.wrMode !== 'fast' && !S.over) startRefine();
+  }
+
+  /* ================= 对局流程 ================= */
+  function place(x, y) {
+    if (S.over) return false;
+    var i = y * N + x;
+    if (S.board[i]) return false;
+    var p = S.turn;
+    S.board[i] = p;
+    S.history.push({ x: x, y: y, p: p });
+    S.hint = null;
+
+    var cells = E.checkWin(S.board, x, y);
+    if (cells) {
+      S.over = true; S.winner = p; S.winCells = cells;
+      showOverlay((p === BLACK ? '黑方胜' : '白方胜'), '连成五子 · 共 ' + S.history.length + ' 手');
+    } else if (E.boardFull(S.board)) {
+      S.over = true; S.winner = 0; S.winCells = null;
+      showOverlay('平局', '棋盘已满');
+    } else {
+      S.turn = E.other(p);
+    }
+    updateAnalysis(true);
+    render();
+    return true;
+  }
+
+  async function aiMove() {
+    if (S.over || S.thinking) return;
+    if (S.mode !== 'pve' || S.turn === S.human) return;   // 定时器排队期间状态可能已变
+    var gen = S.gen;                                       // 记下当前对局
+    S.thinking = true; render();
+    await sleep(40);
+    var cfg = DIFF[S.diff];
+    var res;
+    try {
+      res = await E.bestMoveAsync(S.board, S.turn, cfg, function () { return sleep(0); });
+    } catch (err) {
+      console.error(err);
+      var c = E.candidates(S.board, 1);
+      var i = c.length ? c[0] : 112;
+      res = { x: i % N, y: (i - i % N) / N };
+    }
+    S.thinking = false;
+    if (gen !== S.gen) { render(); return; }                // 思考期间被重开/换边 → 丢弃这一手
+    place(res.x, res.y);
+    if (res.ms !== undefined) {
+      $('modeBadge').textContent = '人机 · ' + cfg.label + ' · 深度' + res.depth + ' · ' + res.ms + 'ms';
+    }
+    maybeAI();
+  }
+
+  function maybeAI() {
+    if (S.mode === 'pve' && !S.over && S.turn !== S.human) setTimeout(aiMove, 120);
+  }
+
+  function reset() {
+    S.gen++;                                               // 作废所有在途的异步结果
+    S.board = E.createBoard();
+    S.turn = BLACK;
+    S.history = [];
+    S.over = false; S.winner = 0; S.winCells = null;
+    S.thinking = false; S.hint = null;
+    S.rates = [{ ply: 0, p: 0.5 }];
+    hideOverlay();
+    updateAnalysis(true);
+    render();
+    maybeAI();
+  }
+
+  function undo() {
+    if (S.thinking || !S.history.length) return;
+    var pops = 1;
+    if (S.mode === 'pve') {
+      // 退到人类可下的状态：若最后一手是 AI 的，连退两手
+      var last = S.history[S.history.length - 1];
+      if (last.p !== S.human && S.history.length >= 2) pops = 2;
+    }
+    for (var k = 0; k < pops && S.history.length; k++) {
+      var h = S.history.pop();
+      S.board[h.y * N + h.x] = EMPTY;
+      S.turn = h.p;
+    }
+    S.rates.length = Math.max(1, S.history.length + 1);
+    S.over = false; S.winner = 0; S.winCells = null; S.hint = null;
+    hideOverlay();
+    updateAnalysis(false);
+    render();
+  }
+
+  async function hint() {
+    if (S.over || S.thinking) return;
+    var gen = S.gen;
+    S.thinking = true; render();
+    await sleep(20);
+    var res = await E.bestMoveAsync(S.board, S.turn,
+      { maxDepth: 5, time: 1600, noise: 0, q: 6, vcf: true, vct: true, vcfDef: true }, function () { return sleep(0); });
+    S.thinking = false;
+    if (gen !== S.gen) { render(); return; }
+    S.hint = { x: res.x, y: res.y };
+    render();
+  }
+
+  function showOverlay(title, note) {
+    $('ovTitle').textContent = title;
+    $('ovNote').textContent = note;
+    $('overlay').classList.add('on');
+  }
+  function hideOverlay() { $('overlay').classList.remove('on'); }
+
+  /* ================= 交互 ================= */
+  function cellFromEvent(ev) {
+    var r = cv.getBoundingClientRect();
+    var cx = (ev.clientX - r.left) * (L / r.width);
+    var cy = (ev.clientY - r.top) * (L / r.height);
+    var x = Math.round((cx - PAD) / STEP), y = Math.round((cy - PAD) / STEP);
+    if (x < 0 || x >= N || y < 0 || y >= N) return null;
+    // 离交叉点太远则忽略
+    if (Math.abs(cx - px(x)) > STEP * .62 || Math.abs(cy - px(y)) > STEP * .62) return null;
+    return { x: x, y: y };
+  }
+
+  cv.addEventListener('pointerdown', function (ev) {
+    if (!isHumanTurn()) return;
+    var c = cellFromEvent(ev);
+    if (!c) return;
+    if (place(c.x, c.y)) maybeAI();
+  });
+  cv.addEventListener('pointermove', function (ev) {
+    if (ev.pointerType === 'touch') return;
+    var c = cellFromEvent(ev);
+    var same = (S.hover && c && S.hover.x === c.x && S.hover.y === c.y) || (!S.hover && !c);
+    S.hover = c;
+    if (!same) { if (S.heat) renderHover(); draw(); }
+  });
+  cv.addEventListener('pointerleave', function () { S.hover = null; draw(); });
+
+  $('btnRestart').onclick = function () { reset(); };
+  $('ovAgain').onclick = function () { reset(); };
+  $('ovClose').onclick = hideOverlay;
+  $('btnUndo').onclick = undo;
+  $('btnHint').onclick = hint;
+  $('btnNum').onclick = function () { S.showNum = !S.showNum; render(); };
+  $('btnHeat').onclick = function () {
+    S.heat = !S.heat;
+    computeHeat();
+    render();
+  };
+  $('segWr').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.wrMode = b.getAttribute('data-wr');
+    setOn('segWr', 'wr', S.wrMode);
+    S.mc = S.mcResult = S.deep = S.deepResult = null;
+    updateAnalysis(true);
+    render();
+  };
+  $('btnSwap').onclick = function () {
+    S.human = E.other(S.human);
+    setOn('segSide', 'side', String(S.human));
+    reset();
+  };
+
+  function setOn(segId, attr, val) {
+    var seg = $(segId);
+    Array.prototype.forEach.call(seg.children, function (b) {
+      b.classList.toggle('on', b.getAttribute('data-' + attr) === val);
+    });
+  }
+  $('segMode').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.mode = b.getAttribute('data-mode');
+    setOn('segMode', 'mode', S.mode);
+    reset();
+  };
+  $('segSide').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.human = parseInt(b.getAttribute('data-side'), 10);
+    setOn('segSide', 'side', String(S.human));
+    reset();
+  };
+  $('segDiff').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.diff = b.getAttribute('data-diff');
+    setOn('segDiff', 'diff', S.diff);
+    render();
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT') return;
+    var k = e.key.toLowerCase();
+    if (k === 'u') undo();
+    else if (k === 'r') reset();
+    else if (k === 'h') hint();
+    else if (k === 'm') { S.heat = !S.heat; computeHeat(); render(); }
+  });
+
+  window.addEventListener('resize', fit);
+  if (window.ResizeObserver) new window.ResizeObserver(fit).observe($('boardWrap'));
+
+  /* ================= 启动 ================= */
+  fit();
+  updateAnalysis(true);
+  render();
+  window.__GOMOKU_STATE__ = S;   // 便于调试
+})();
+</script>
+</body>
+</html>

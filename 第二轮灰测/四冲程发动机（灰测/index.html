@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>四冲程柴油机 · 高精度 3D 交互仿真 | DSH-4105ZT</title>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:rgba(16,21,29,.88); --panel2:rgba(23,30,41,.92);
+    --line:#2a3446; --txt:#dfe7f2; --txt2:#93a3b8; --acc:#39a9ff; --acc2:#ffb02e;
+    --ok:#43d787; --warn:#ffc94a; --hot:#ff6b4a;
+    --intake:#7fe8ff; --exhaust:#ff7a3c; --oil:#ffb02e; --coolant:#35b6ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:13px/1.55 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  canvas{display:block}
+  #app{position:fixed;inset:0}
+  .panel{position:absolute;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;backdrop-filter:blur(9px);box-shadow:0 8px 34px rgba(0,0,0,.45)}
+  .panel h3{margin:0;padding:9px 12px;font-size:12px;letter-spacing:.10em;color:var(--txt2);
+    border-bottom:1px solid var(--line);text-transform:uppercase;display:flex;
+    justify-content:space-between;align-items:center;cursor:pointer;user-select:none}
+  .panel .body{padding:10px 12px;max-height:calc(100vh - 190px);overflow:auto}
+  .panel.collapsed .body{display:none}
+  .row{display:flex;align-items:center;gap:8px;margin:7px 0}
+  .row label{flex:0 0 74px;color:var(--txt2);font-size:12px}
+  .row output{flex:0 0 66px;text-align:right;font-variant-numeric:tabular-nums;color:var(--acc)}
+  input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:4px;border-radius:3px;
+    background:#2c3a4f;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:var(--acc);border:2px solid #0b0e13;cursor:pointer;box-shadow:0 0 8px rgba(57,169,255,.7)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--acc);
+    border:2px solid #0b0e13;cursor:pointer}
+  .btns{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  button{background:#1b2434;color:var(--txt);border:1px solid var(--line);border-radius:7px;
+    padding:6px 9px;font-size:12px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--acc);color:#fff}
+  button.on{background:linear-gradient(180deg,#1f5fa0,#164a80);border-color:var(--acc);color:#fff}
+  button.primary{background:linear-gradient(180deg,#1f7a4f,#155f3d);border-color:#2fbd7a}
+  .chk{display:flex;align-items:center;gap:7px;margin:4px 0;font-size:12px;color:var(--txt)}
+  .chk input{accent-color:var(--acc);width:14px;height:14px}
+  .sw{width:11px;height:11px;border-radius:3px;flex:0 0 11px;border:1px solid rgba(255,255,255,.25)}
+  hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+  small{color:var(--txt2)}
+
+  /* ---------- 顶栏 ---------- */
+  #top{left:12px;right:12px;top:12px;display:flex;align-items:center;gap:14px;padding:9px 14px}
+  #top .t1{font-weight:600;letter-spacing:.04em}
+  #top .t2{color:var(--txt2);font-size:12px}
+  #top .spacer{flex:1}
+  #top .kv{font-variant-numeric:tabular-nums;color:var(--txt2);font-size:12px}
+  #top .kv b{color:var(--acc);font-weight:600}
+  .badge{padding:2px 7px;border:1px solid var(--line);border-radius:20px;font-size:11px;color:var(--txt2)}
+
+  /* ---------- 左右面板 ---------- */
+  #left{left:12px;top:66px;width:286px}
+  #right{right:12px;top:66px;width:300px}
+  #legend{left:12px;bottom:12px;width:286px}
+  #guide{right:12px;bottom:12px;width:300px}
+
+  /* ---------- 仪表 ---------- */
+  .gauges{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .g{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+  .g .n{font-size:11px;color:var(--txt2)}
+  .g .v{font-size:19px;font-variant-numeric:tabular-nums;line-height:1.25}
+  .g .u{font-size:10px;color:var(--txt2);margin-left:3px}
+  .bar{height:3px;border-radius:2px;background:#243044;margin-top:5px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .08s linear}
+
+  /* ---------- 冲程表 ---------- */
+  table.cyl{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+  table.cyl th{color:var(--txt2);font-weight:500;text-align:left;padding:3px 2px;border-bottom:1px solid var(--line)}
+  table.cyl td{padding:3px 2px;border-bottom:1px dashed #1e2836}
+  .pill{display:inline-block;padding:1px 6px;border-radius:10px;font-size:10.5px;color:#0b0e13;font-weight:600}
+
+  /* ---------- 悬浮信息卡 ---------- */
+  #card{position:fixed;z-index:60;width:346px;background:rgba(12,17,24,.96);border:1px solid #35507a;
+    border-radius:11px;padding:0;display:none;box-shadow:0 14px 44px rgba(0,0,0,.6);pointer-events:none}
+  #card.pinned{pointer-events:auto;border-color:var(--acc)}
+  #card .hd{padding:9px 12px;border-bottom:1px solid #22304a;
+    background:linear-gradient(180deg,rgba(57,169,255,.16),transparent)}
+  #card .cn{font-size:15px;font-weight:600}
+  #card .en{font-size:11.5px;color:var(--txt2);letter-spacing:.02em}
+  #card .bd{padding:9px 12px}
+  #card .k{color:var(--txt2);font-size:11px;letter-spacing:.06em;margin:8px 0 2px}
+  #card .v{font-size:12.5px}
+  #card .st{margin-top:9px;padding:7px 9px;border-radius:7px;background:rgba(57,169,255,.10);
+    border:1px solid #24466e;color:#bfe2ff;font-size:12px}
+  #card table{width:100%;border-collapse:collapse;font-size:11.5px}
+  #card table td{padding:2px 0;border-bottom:1px dashed #1c2735;vertical-align:top}
+  #card table td:first-child{color:var(--txt2);width:47%}
+  #card .tag{display:inline-block;font-size:10px;color:var(--txt2);border:1px solid var(--line);
+    border-radius:4px;padding:0 5px;margin-left:6px}
+
+  /* ---------- 载入 / 提示 ---------- */
+  #load{position:fixed;inset:0;background:#0b0e13;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;z-index:100}
+  #load .ttl{font-size:17px;letter-spacing:.08em}
+  #load .bar2{width:280px;height:3px;background:#1b2434;border-radius:2px;overflow:hidden}
+  #load .bar2 i{display:block;height:100%;width:20%;background:var(--acc);transition:width .2s}
+  #load small{max-width:420px;text-align:center}
+  #err{position:fixed;left:12px;bottom:12px;z-index:120;max-width:52vw;display:none;
+    background:#2a1414;border:1px solid #6b2626;color:#ffb4a8;padding:8px 12px;border-radius:8px;
+    font-size:11.5px;white-space:pre-wrap;max-height:40vh;overflow:auto}
+  .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;color:var(--txt2);font-size:12px;
+    background:rgba(12,17,24,.8);border:1px solid var(--line);padding:5px 12px;border-radius:20px}
+  #chart{width:100%;height:104px;display:block;border-radius:6px;background:#0e1420;border:1px solid var(--line)}
+  .lg{display:flex;align-items:center;gap:7px;font-size:11.5px;margin:3px 0;color:var(--txt)}
+  .lg i{width:16px;height:9px;border-radius:2px;display:inline-block;flex:0 0 16px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px}
+  kbd{background:#1b2434;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+    padding:0 5px;font-size:11px;font-family:inherit}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- ================= 顶栏 ================= -->
+<div class="panel" id="top">
+  <span class="t1">四冲程柴油机 3D 交互仿真</span>
+  <span class="t2">DSH-4105ZT · 直列四缸 · 增压中冷 · 直喷 · OHV</span>
+  <span class="badge" id="bDisp">4.4 L</span>
+  <span class="badge" id="bCR">ε=17.5</span>
+  <span class="badge" id="bOrder">点火 1-3-4-2</span>
+  <span class="spacer"></span>
+  <span class="kv">曲轴转角 <b id="kAngle">0°</b></span>
+  <span class="kv">循环 <b id="kCycle">进气</b></span>
+  <span class="kv">FPS <b id="kFps">60</b></span>
+  <span class="kv">三角面 <b id="kTri">-</b></span>
+</div>
+
+<!-- ================= 左：控制 ================= -->
+<div class="panel" id="left">
+  <h3>控制台 <span id="leftT">▾</span></h3>
+  <div class="body">
+    <div class="row" style="gap:6px">
+      <input id="qSearch" type="text" placeholder="搜索零件（中/英/id）如：曲轴 / valve / 涡轮"
+        style="flex:1;background:#141b26;color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px">
+    </div>
+    <div id="qList" style="max-height:172px;overflow:auto;display:none;border:1px solid var(--line);
+      border-radius:7px;background:#101722;margin-bottom:6px"></div>
+    <div class="btns">
+      <button id="bRun" class="primary">⏸ 暂停</button>
+      <button id="bStep">单步 +15°</button>
+      <button id="bReset">复位</button>
+    </div>
+    <div class="row"><label>转速</label><input id="sRpm" type="range" min="600" max="2600" step="10" value="1400"><output id="oRpm">1400</output></div>
+    <div class="row"><label>负荷</label><input id="sLoad" type="range" min="0" max="100" step="1" value="45"><output id="oLoad">45%</output></div>
+    <div class="row"><label>动画倍速</label><input id="sSpeed" type="range" min="0.02" max="1.5" step="0.01" value="0.12"><output id="oSpeed">0.12×</output></div>
+    <div class="row"><label>手动转角</label><input id="sAngle" type="range" min="0" max="720" step="1" value="0"><output id="oAngle">0°</output></div>
+    <small>暂停后可拖动「手动转角」逐度检查配气相位与活塞位置。</small>
+    <hr>
+    <div class="row"><label>显示模式</label></div>
+    <div class="btns">
+      <button id="mSolid" class="on">实体</button>
+      <button id="mGhost">透视</button>
+      <button id="mSection">剖切</button>
+    </div>
+    <div class="row"><label>剖切面</label>
+      <select id="secAxis" style="flex:1;background:#1b2434;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px">
+        <option value="z">Z 向（纵剖：看缸内活塞/气门）</option>
+        <option value="x">X 向（横剖：看缸列/主轴承）</option>
+        <option value="y">Y 向（水平剖：看油道/水套）</option>
+      </select>
+    </div>
+    <div class="row"><label>剖切位置</label><input id="sSec" type="range" min="-350" max="350" step="1" value="0"><output id="oSec">0</output></div>
+    <div class="row"><label>流道显示</label><input id="sFluid" type="range" min="0" max="100" step="1" value="100"><output id="oFluid">100%</output></div>
+    <div class="row"><label>渲染画质</label></div>
+    <div class="btns">
+      <button id="qHigh" class="on">高（阴影+高分辨率）</button>
+      <button id="qMid">中</button>
+      <button id="qLow">低（保帧率）</button>
+    </div>
+    <small id="qTip">若帧率低于 45fps 将自动降档以保证 ≥60fps 的动画流畅度。</small>
+    <hr>
+    <div class="row"><label>拆解视图</label><input id="sExp" type="range" min="0" max="100" step="1" value="0"><output id="oExp">0%</output></div>
+    <div class="row"><label>视角预设</label></div>
+    <div class="btns">
+      <button data-view="free" class="on">自由</button>
+      <button data-view="side">侧视</button>
+      <button data-view="top">俯视</button>
+      <button data-view="front">正视</button>
+      <button data-view="section">剖视</button>
+      <button data-view="valve">配气机构</button>
+      <button data-view="crank">曲柄连杆</button>
+      <button data-view="turbo">增压器</button>
+    </div>
+    <hr>
+    <div class="row"><label>零件分层</label></div>
+    <div id="layers"></div>
+    <hr>
+    <div class="row"><label>流动显示</label></div>
+    <div id="flowToggles"></div>
+  </div>
+</div>
+
+<!-- ================= 右：状态 ================= -->
+<div class="panel" id="right">
+  <h3>运行状态 <span>▾</span></h3>
+  <div class="body">
+    <div class="gauges">
+      <div class="g"><div class="n">转速 Engine Speed</div><div class="v"><span id="vRpm">0</span><span class="u">r/min</span></div><div class="bar"><i id="bRpmBar"></i></div></div>
+      <div class="g"><div class="n">冷却液温度 Coolant</div><div class="v"><span id="vTw">22</span><span class="u">℃</span></div><div class="bar"><i id="bTwBar" style="background:var(--coolant)"></i></div></div>
+      <div class="g"><div class="n">机油压力 Oil Press.</div><div class="v"><span id="vOil">0.00</span><span class="u">MPa</span></div><div class="bar"><i id="bOilBar" style="background:var(--oil)"></i></div></div>
+      <div class="g"><div class="n">增压压力 Boost</div><div class="v"><span id="vBoost">0</span><span class="u">kPa</span></div><div class="bar"><i id="bBoostBar" style="background:var(--intake)"></i></div></div>
+      <div class="g"><div class="n">输出扭矩 Torque</div><div class="v"><span id="vTq">0</span><span class="u">N·m</span></div><div class="bar"><i id="bTqBar" style="background:var(--ok)"></i></div></div>
+      <div class="g"><div class="n">功率 Power</div><div class="v"><span id="vPw">0</span><span class="u">kW</span></div><div class="bar"><i id="bPwBar" style="background:var(--ok)"></i></div></div>
+      <div class="g"><div class="n">排气温度 EGT</div><div class="v"><span id="vEgt">0</span><span class="u">℃</span></div><div class="bar"><i id="bEgtBar" style="background:var(--exhaust)"></i></div></div>
+      <div class="g"><div class="n">涡轮转速 Turbo</div><div class="v"><span id="vTb">0</span><span class="u">k r/min</span></div><div class="bar"><i id="bTbBar" style="background:var(--warn)"></i></div></div>
+    </div>
+    <div class="row" style="margin-top:10px"><label style="flex:1">各缸冲程（点火顺序 1-3-4-2）</label></div>
+    <table class="cyl">
+      <thead><tr><th>缸</th><th>冲程</th><th>循环角</th><th>活塞</th><th>进/排门</th></tr></thead>
+      <tbody id="cylBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px"><label style="flex:1">配气相位 / 气门升程曲线</label></div>
+    <canvas id="chart" width="560" height="208"></canvas>
+    <small id="timingTxt"></small>
+  </div>
+</div>
+
+<!-- ================= 图例 ================= -->
+<div class="panel" id="legend">
+  <h3>图例 <span>▾</span></h3>
+  <div class="body">
+    <div class="grid2">
+      <div class="lg"><i style="background:#ffb02e"></i>润滑油（压力油）</div>
+      <div class="lg"><i style="background:#a86a12"></i>回油</div>
+      <div class="lg"><i style="background:#35b6ff"></i>冷却液（大循环）</div>
+      <div class="lg"><i style="background:#7fe0ff"></i>冷却液（小循环）</div>
+      <div class="lg"><i style="background:#7fe8ff"></i>新鲜充量/增压空气</div>
+      <div class="lg"><i style="background:#ff7a3c"></i>废气</div>
+      <div class="lg"><i style="background:#76797e"></i>灰铸铁（缸体/缸盖）</div>
+      <div class="lg"><i style="background:#9aa1a9"></i>锻钢（曲轴/连杆）</div>
+      <div class="lg"><i style="background:#cfd3d8"></i>铝硅合金（活塞）</div>
+      <div class="lg"><i style="background:#c79a5f"></i>铜铅轴瓦/铜套</div>
+      <div class="lg"><i style="background:#cdd3da"></i>渗氮钢（气门/挺柱）</div>
+      <div class="lg"><i style="background:#22252a"></i>橡胶密封件</div>
+    </div>
+    <small>剖切/透视模式下，缸体、缸盖、壳体类零件自动半透明或被剖开。</small>
+  </div>
+</div>
+
+<!-- ================= 操作引导 ================= -->
+<div class="panel" id="guide">
+  <h3>操作引导 <span>▾</span></h3>
+  <div class="body">
+    <div><kbd>左键拖拽</kbd> 旋转视角 · <kbd>滚轮</kbd> 缩放 · <kbd>右键拖拽</kbd> 平移</div>
+    <div style="margin-top:5px"><kbd>鼠标悬停零件</kbd> 弹出信息卡（名称/材料/工艺/参数/实时状态）</div>
+    <div style="margin-top:5px"><kbd>单击零件</kbd> 钉住信息卡 · <kbd>Esc</kbd> 取消</div>
+    <div style="margin-top:5px"><kbd>空格</kbd> 运行/暂停 · <kbd>←</kbd><kbd>→</kbd> 单步转角 · <kbd>1..5</kbd> 视角预设 · <kbd>C</kbd> 剖切 · <kbd>G</kbd> 透视</div>
+    <small style="display:block;margin-top:6px">建议：先用「剖切」模式 + 侧视观察活塞—连杆—曲轴运动与配气相位，再打开流动显示观察润滑油与冷却液路径。</small>
+  </div>
+</div>
+
+<div id="card"></div>
+<div id="err"></div>
+
+<div id="load">
+  <div class="ttl">正在构建全尺寸柴油机模型…</div>
+  <div class="bar2"><i id="loadBar"></i></div>
+  <small id="loadTxt">初始化渲染器</small>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/jsm/"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

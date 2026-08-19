@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>POOLCORE ／ 阈限泳池 — WebGL Liminal Space</title>
+<style>
+  :root{
+    --ink:#e2f2f5; --dim:#7e9aa1; --acc:#8fd9d2; --warn:#ffd9a0;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ width:100%; height:100%; overflow:hidden; background:#04060a; }
+  body{
+    font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
+    color:var(--ink); -webkit-font-smoothing:antialiased; letter-spacing:.06em;
+  }
+  canvas{ display:block; }
+
+  /* ---------- HUD ---------- */
+  #hud{ position:fixed; inset:0; z-index:10; pointer-events:none; }
+  #stats{
+    position:absolute; left:14px; top:12px; color:var(--dim);
+    text-shadow:0 0 12px rgba(0,0,0,.9); white-space:pre; font-size:11px;
+  }
+  #stats b{ color:var(--acc); font-weight:400; }
+  #keys{
+    position:absolute; left:14px; bottom:12px; color:var(--dim); font-size:11px;
+    text-shadow:0 0 12px rgba(0,0,0,.9); opacity:.72; white-space:pre;
+  }
+  #zone{
+    position:absolute; right:16px; bottom:14px; text-align:right; font-size:11px;
+    color:var(--dim); text-shadow:0 0 14px rgba(0,0,0,.9);
+  }
+  #zone span{ color:var(--ink); letter-spacing:.34em; font-size:13px; }
+  #toast{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font-size:11px; letter-spacing:.4em; color:rgba(226,242,245,.0);
+    transition:color .8s ease; text-transform:uppercase;
+  }
+  #dot{
+    position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px 0 0 -1.5px;
+    background:rgba(226,242,245,.5); border-radius:50%; box-shadow:0 0 6px rgba(0,0,0,.8);
+  }
+
+  /* ---------- 遮罩 ---------- */
+  #veil{
+    position:fixed; inset:0; z-index:20; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:22px; text-align:center;
+    background:radial-gradient(ellipse at 50% 45%,#0d1a22 0%,#05080c 70%);
+    cursor:pointer; transition:opacity .7s ease;
+  }
+  #veil h1{
+    font-size:26px; font-weight:400; letter-spacing:.62em; text-indent:.62em;
+    color:#eaf7f9; text-shadow:0 0 40px rgba(143,217,210,.45);
+  }
+  #veil h2{ font-size:11px; font-weight:400; color:var(--dim); letter-spacing:.42em; }
+  #veil .box{
+    border:1px solid rgba(143,217,210,.18); padding:16px 26px; color:var(--dim);
+    background:rgba(9,17,22,.5); font-size:11px; text-align:left; white-space:pre;
+    box-shadow:0 0 60px rgba(0,0,0,.6) inset;
+  }
+  #veil .go{ font-size:12px; color:var(--acc); letter-spacing:.5em; animation:bl 2.6s infinite; }
+  @keyframes bl{ 0%,100%{opacity:.25} 50%{opacity:1} }
+  #bar{ width:280px; height:1px; background:rgba(143,217,210,.15); overflow:hidden; }
+  #bar i{ display:block; height:100%; width:0%; background:var(--acc); transition:width .25s ease; }
+  #fatal{
+    position:fixed; inset:0; z-index:40; display:none; align-items:center; justify-content:center;
+    background:#07090d; padding:40px;
+  }
+  #fatal div{ max-width:640px; color:#ffb3a7; font-size:12px; line-height:2; }
+  .hide{ opacity:0; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="dot"></div>
+  <div id="stats"></div>
+  <div id="zone"><span>POOLCORE</span><br>LEVEL ∅ ／ 阈限泳池</div>
+  <div id="keys">W A S D 移动　SHIFT 疾走　SPACE 跳跃/上浮　C 下潜
+F 观赏飞行　O 俯瞰全图　R 回到出生点
+1 2 3 画质　[ ] 曝光　L 灯光故障重掷　M 静音</div>
+  <div id="toast"></div>
+</div>
+
+<div id="veil">
+  <h1>POOLCORE</h1>
+  <h2>THE BACKROOMS ／ 无人泳池大厅</h2>
+  <div class="box" id="brief">入口长廊 → 泳池大厅 → 入水台阶 → 淋浴间 → 循环回廊 → 圆厅 → 水上乐园残骸
+
+W A S D 移动　SHIFT 疾走　SPACE 跳跃　鼠标环视
+F 切换自由飞行观赏模式　O 俯瞰全图　R 回到出生点</div>
+  <div id="bar"><i></i></div>
+  <div class="go" id="gotxt">正在生成阈限空间…</div>
+</div>
+
+<div id="fatal"><div id="fatalmsg"></div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/* =========================================================================
+   POOLCORE / BACKROOMS —— 单文件 WebGL 阈限空间 Demo
+   渲染管线：法线深度预通道 → 平面反射 → 主场景(线性HDR) → 水面(反射/折射)
+             → 体积光/雾片 → SSAO(半分辨率+双边模糊) → Bloom → ACES/调色/暗角
+   ========================================================================= */
+
+const $ = (s) => document.querySelector(s);
+const veil = $('#veil'), gotxt = $('#gotxt'), bar = $('#bar i');
+function setProg(p, t){ bar.style.width = (p*100).toFixed(0)+'%'; if(t) gotxt.textContent = t; }
+function fatal(e){
+  $('#fatal').style.display = 'flex';
+  $('#fatalmsg').innerHTML = '<b>无法初始化 WebGL / three.js</b><br><br>' +
+    String(e && e.message || e).replace(/</g,'&lt;') +
+    '<br><br>若为模块加载失败：本页通过 importmap 从 jsDelivr CDN 载入 three.js，' +
+    '请确认网络可用；个别浏览器对 file:// 下的跨域模块较严格，可在文件所在目录执行 ' +
+    '<i>python3 -m http.server</i> 后用 http://localhost:8000 打开。';
+  console.error(e);
+}
+
+/* ---------- 0. 依赖 ---------- */
+let THREE, FullScreenQuad, UnrealBloomPass;
+try{
+  setProg(0.06,'载入 three.js…');
+  THREE = await import('three');
+  ({ FullScreenQuad } = await import('three/addons/postprocessing/Pass.js'));
+  ({ UnrealBloomPass } = await import('three/addons/postprocessing/UnrealBloomPass.js'));
+}catch(err){ fatal(err); throw err; }
+
+/* ---------- 1. 全局配置 ---------- */
+const CS = 2.4;              // 网格单元边长（米）——模块化拼装的基本尺度
+const GW = 56, GH = 44;      // 网格尺寸 → 134.4m × 105.6m 的封闭地图
+const WATER_Y = -0.15;       // 全图统一水位
+const EYE = 1.66;            // 人眼高度（严格人体尺度）
+const PR = 0.34;             // 玩家碰撞半径
+const DOOR_W = 1.45, DOOR_H = 2.16, WALL_T = 0.28;
+
+const QUALITY = [
+  { name:'LOW',  scale:0.72, ssao:false, bloom:true,  msaa:0, refl:0.30, shafts:false },
+  { name:'MED',  scale:0.88, ssao:true,  bloom:true,  msaa:0, refl:0.45, shafts:true  },
+  { name:'HIGH', scale:1.00, ssao:true,  bloom:true,  msaa:4, refl:0.55, shafts:true  },
+];
+let q = 2;                                   // 当前画质档
+let exposure = 1.06;
+
+const rng = mulberry32(20240619);            // 固定种子 → 地图/故障灯完全可复现
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const rnd = (a=1,b=0)=> b + rng()*(a-b);
+const rint = (n)=> Math.floor(rng()*n);
+
+/* ---------- 2. 渲染器 / 场景 / 相机 ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:false, powerPreference:'high-performance', stencil:false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = true;
+renderer.toneMapping = THREE.NoToneMapping;          // 色调映射在最终 Pass 手工完成
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.shadowMap.enabled = false;                  // 灯管阵列为近无影柔光，阴影交由 SSAO/程序化 AO
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const FOG_COLOR = new THREE.Color(0x93b0b6);
+scene.fog = new THREE.FogExp2(FOG_COLOR.getHex(), 0.0155);
+scene.background = null;
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.06, 260);
+const reflCam = new THREE.PerspectiveCamera(72, 1, 0.06, 260);
+
+/* 分层：0=不透明实体 1=水面 2=体积光/雾片 3=贴花 4=水下实体（不参与平面反射） */
+const L_SOLID=0, L_WATER=1, L_VOL=2, L_DECAL=3, L_UNDER=4;
+function setLayers(cam, arr){ cam.layers.set(arr[0]); for(let i=1;i<arr.length;i++) cam.layers.enable(arr[i]); }
+
+/* ---------- 3. 渲染目标 ---------- */
+const rtOpt = { type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer:true, stencilBuffer:false };
+
+const sceneRT = new THREE.WebGLRenderTarget(2,2, { ...rtOpt, samples: QUALITY[q].msaa });
+const refrRT  = new THREE.WebGLRenderTarget(2,2, { ...rtOpt });          // 折射源（场景色拷贝）
+const reflRT  = new THREE.WebGLRenderTarget(2,2, { ...rtOpt });          // 平面反射
+const postRT  = new THREE.WebGLRenderTarget(2,2, { ...rtOpt });          // AO 合成 + Bloom 叠加
+const nrmRT   = new THREE.WebGLRenderTarget(2,2, {
+  type: THREE.UnsignedByteType, format: THREE.RGBAFormat,
+  minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer:true, stencilBuffer:false });
+nrmRT.depthTexture = new THREE.DepthTexture(2,2);
+const aoRT   = new THREE.WebGLRenderTarget(2,2,{ type:THREE.UnsignedByteType, format:THREE.RGBAFormat, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, depthBuffer:false });
+const aoRT2  = new THREE.WebGLRenderTarget(2,2,{ type:THREE.UnsignedByteType, format:THREE.RGBAFormat, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, depthBuffer:false });
+
+const bloom = new UnrealBloomPass(new THREE.Vector2(2,2), 0.62, 0.72, 0.92);
+
+let RW=2, RH=2;          // 内部渲染分辨率
+let dyn = 1.0;           // 动态分辨率系数（自适应帧率）
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  renderer.setSize(w,h);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+  const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const s = QUALITY[q].scale * dyn;
+  RW = Math.max(320, Math.floor(db.x*s)); RH = Math.max(200, Math.floor(db.y*s));
+  sceneRT.setSize(RW,RH); postRT.setSize(RW,RH); nrmRT.setSize(RW,RH);
+  refrRT.setSize(Math.floor(RW*0.5), Math.floor(RH*0.5));
+  const rs = QUALITY[q].refl;
+  reflRT.setSize(Math.max(160,Math.floor(RW*rs)), Math.max(100,Math.floor(RH*rs)));
+  aoRT.setSize(Math.floor(RW*0.5), Math.floor(RH*0.5));
+  aoRT2.setSize(Math.floor(RW*0.5), Math.floor(RH*0.5));
+  bloom.setSize(RW,RH);
+}
+addEventListener('resize', resize);
+
+/* ---------- 4. 程序化 canvas 贴图（仅用于贴花与 EXIT 字牌） ---------- */
+function cvs(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+
+function texSoftBlob(){                       // 积水用：不透明灰度遮罩（作 alphaMap，取 .g 通道）
+  const c = cvs(128,128), g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0,0,128,128);
+  const grd = g.createRadialGradient(64,64,2,64,64,62);
+  grd.addColorStop(0,'#ffffff'); grd.addColorStop(.5,'#b4b4b4'); grd.addColorStop(1,'#000000');
+  g.fillStyle = grd; g.fillRect(0,0,128,128);
+  const t = new THREE.Texture(c); t.needsUpdate = true; return t;
+}
+function texMold(){                           // 墙角霉斑：不透明灰度斑点遮罩
+  const c = cvs(256,256), g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0,0,256,256);
+  for(let i=0;i<110;i++){
+    const x=rnd(256), y=rnd(256), r=rnd(36,5);
+    const grd=g.createRadialGradient(x,y,0,x,y,r);
+    const a=Math.floor(rnd(230,60));
+    grd.addColorStop(0,`rgb(${a},${a},${a})`); grd.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  const t=new THREE.Texture(c); t.needsUpdate=true; return t;
+}
+function texExit(){                           // EXIT 指示牌自发光贴图
+  const c = cvs(256,128), g = c.getContext('2d');
+  g.fillStyle='#04120a'; g.fillRect(0,0,256,128);
+  g.fillStyle='#0a2a16'; g.fillRect(6,6,244,116);
+  g.font='bold 74px ui-monospace,monospace'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='#7dffb0'; g.shadowColor='#4dff9b'; g.shadowBlur=26;
+  g.fillText('EXIT',128,60);
+  g.shadowBlur=0; g.font='16px monospace'; g.fillStyle='rgba(125,255,176,.55)';
+  g.fillText('出　口',128,108);
+  const t=new THREE.Texture(c); t.needsUpdate=true; t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+const TEX_BLOB = texSoftBlob(), TEX_MOLD = texMold(), TEX_EXIT = texExit();
+
+/* =========================================================================
+   5. 程序化 PBR 材质体系
+   —— 三平面（triplanar）世界空间程序化瓷砖：分缝 / 逐砖色差 / 污渍 / 霉斑
+      / 水位线 / 湿润高光 / 假焦散，全部在 MeshStandardMaterial 的 onBeforeCompile
+      里注入，因此仍走 three 的完整 PBR + IBL + 雾 管线。
+   —— 用世界坐标取样而非 UV：任意缩放的 InstancedMesh 共用一套几何体，
+      砖缝尺度在全图绝对统一，且无需任何贴图内存。
+   ========================================================================= */
+const GLSL_NOISE = `
+float _h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float _vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(_h21(i),_h21(i+vec2(1.0,0.0)),f.x),mix(_h21(i+vec2(0.0,1.0)),_h21(i+vec2(1.0,1.0)),f.x),f.y); }
+float _fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*_vn(p); p=p*2.07+11.7; a*=0.5; } return s; }
+float _caus(vec2 p,float t){
+  float acc=0.0, amp=1.0;
+  for(int i=0;i<3;i++){
+    vec2 w=vec2(sin(p.y*2.1+t*1.30),cos(p.x*1.9-t*1.10));
+    float v=1.0-abs(sin(dot(p+w*0.65,vec2(1.7,1.3))));
+    acc+=pow(max(v,0.0),7.0)*amp;
+    p=p*1.93+5.13; amp*=0.55; t*=1.21;
+  }
+  return acc;
+}`;
+
+const SURF_UNIFORMS = `
+varying vec3 vWP; varying vec3 vWN;
+uniform float uMode, uTile, uGrout, uRoughT, uRoughG, uBump, uMicro;
+uniform float uGrime, uMold, uWet, uWaterY, uCaus, uWallCaus, uTime, uSeed;
+uniform vec3 uColA, uColB, uCausCol, uTint;
+`;
+
+const SURF_BODY = `
+  vec3 _wn = normalize(vWN);
+  vec3 _wp = vWP;
+  vec3 _an = abs(_wn);
+  vec2 _t2; vec3 _tu, _tv;
+  if(_an.y >= max(_an.x,_an.z)){ _t2=_wp.xz; _tu=vec3(1.0,0.0,0.0); _tv=vec3(0.0,0.0,1.0); }
+  else if(_an.x >= _an.z){      _t2=_wp.zy; _tu=vec3(0.0,0.0,1.0); _tv=vec3(0.0,1.0,0.0); }
+  else {                        _t2=_wp.xy; _tu=vec3(1.0,0.0,0.0); _tv=vec3(0.0,1.0,0.0); }
+
+  vec2 _tc = _t2/uTile;
+  vec2 _f  = fract(_tc);
+  vec2 _id = floor(_tc);
+  float _r = _h21(_id+uSeed);
+  vec2 _de = min(_f, 1.0-_f);
+  float _dd = min(_de.x,_de.y);
+  float _aa = max(fwidth(_dd), 0.0009);
+  float _grt = 1.0 - smoothstep(uGrout-_aa, uGrout+_aa, _dd);
+
+  vec3  _col = uColA*(0.90+0.20*_r);
+  float _mot = _fbm(_t2*0.33+uSeed);
+  _col *= 0.93+0.14*_mot;
+  _col  = mix(_col, uColB*(0.82+0.34*_h21(_id*1.73+7.0)), _grt);
+  float _rgh = mix(uRoughT+0.10*_r, uRoughG, _grt);
+  float _mtl = metalness;
+  vec2  _slp = -normalize(_f-0.5+1e-4)*_grt*uBump;
+  _slp += vec2(sin(_tc.x*29.0+_tc.y*11.0), cos(_tc.y*31.0-_tc.x*13.0))*uMicro*0.14;
+
+  if(uMode>0.5 && uMode<1.5){                       // 混凝土 / 旧涂料墙
+    float c1=_fbm(_t2*1.35+uSeed*3.1), c2=_fbm(_t2*5.9+17.0);
+    _col = uColA*(0.68+0.58*c1)*(0.90+0.20*c2);
+    _rgh = clamp(uRoughT+0.24*c2, 0.45, 1.0);
+    _grt = 0.0;
+    _slp = vec2(c2-_fbm(_t2*5.9+vec2(0.1,0.0)+17.0), c2-_fbm(_t2*5.9+vec2(0.0,0.1)+17.0))*uBump*2.2;
+  }
+  if(uMode>1.5){                                    // 金属：抛光钢 ↔ 锈蚀
+    float k1=_fbm(_t2*1.5+_wp.y*0.8+uSeed), k2=_fbm(_t2*7.5+uSeed*4.3);
+    float _rust = smoothstep(0.46,0.80, k1*0.82+k2*0.34);
+    _col = mix(uColA, uColB, _rust);
+    _rgh = mix(uRoughT, 0.93, _rust);
+    _mtl = mix(1.0, 0.12, _rust);
+    _grt = 0.0;
+    _slp = vec2(k2-_fbm(_t2*7.5+vec2(0.1,0.0)+uSeed*4.3), k2-_fbm(_t2*7.5+vec2(0.0,0.1)+uSeed*4.3))*_rust*2.4;
+  }
+
+  /* 污渍：贴地更脏 + 竖向流痕（墙面） */
+  float _stk = _fbm(vec2((_wp.x+_wp.z)*0.85, _wp.y*0.15)+31.0);
+  float _grm = uGrime*(0.55*smoothstep(2.4,0.0,_wp.y) + 0.80*smoothstep(0.44,0.95,_stk)*(1.0-_an.y));
+  _grm = clamp(_grm, 0.0, 0.85);
+  _col *= mix(vec3(1.0), vec3(0.70,0.68,0.58), _grm);
+  _rgh  = mix(_rgh, 0.86, _grm*0.8);
+
+  /* 墙角霉斑 */
+  float _mld = uMold*smoothstep(0.60,0.90,_mot)*smoothstep(2.8,0.10,_wp.y);
+  _col = mix(_col, vec3(0.105,0.135,0.080), _mld*0.85);
+  _rgh = mix(_rgh, 0.95, _mld);
+
+  /* 水位线 + 水下发绿 + 湿润镜面 */
+  if(uWet>0.5){
+    float _blw = smoothstep(0.05,-0.03, _wp.y-uWaterY);
+    float _bnd = 1.0-smoothstep(0.0,0.085, abs(_wp.y-uWaterY-0.05));
+    _col *= mix(vec3(1.0), vec3(0.78,0.95,0.90), _blw);
+    _col  = mix(_col, vec3(0.24,0.28,0.20), _bnd*0.62);
+    _rgh  = mix(_rgh, 0.08, _blw*0.88);
+    _rgh  = mix(_rgh, 0.55, _bnd*0.5);
+    float _wf = smoothstep(0.10,0.0,abs(_wp.y))*smoothstep(0.5,0.95,_an.y)*smoothstep(0.30,0.78,_mot);
+    _rgh = mix(_rgh, 0.05, _wf);
+    _col *= mix(1.0, 0.74, _wf);
+  }
+  _col *= uTint;
+`;
+
+const surfMats = [];
+function makeSurfMat(o){
+  o = o || {};
+  const m = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: o.rough !== undefined ? o.rough : 0.5,
+    metalness: o.metal !== undefined ? o.metal : 0.0,
+    envMapIntensity: o.env !== undefined ? o.env : 0.45,
+    side: o.side || THREE.FrontSide, dithering: true, fog: true,
+  });
+  const U = {
+    uMode:{value:o.mode||0}, uTile:{value:o.tile||0.15}, uGrout:{value:o.grout!==undefined?o.grout:0.042},
+    uRoughT:{value:o.rough!==undefined?o.rough:0.35}, uRoughG:{value:o.roughG!==undefined?o.roughG:0.74},
+    uBump:{value:o.bump!==undefined?o.bump:0.55}, uMicro:{value:o.micro!==undefined?o.micro:0.35},
+    uGrime:{value:o.grime!==undefined?o.grime:0.35}, uMold:{value:o.mold||0.0},
+    uWet:{value:o.wet||0.0}, uWaterY:{value:WATER_Y},
+    uCaus:{value:o.caus||0.0}, uWallCaus:{value:o.wallCaus||0.0}, uTime:{value:0},
+    uSeed:{value:o.seed!==undefined?o.seed:rnd(60)},
+    uColA:{value:new THREE.Color(o.colA!==undefined?o.colA:0xffffff)},
+    uColB:{value:new THREE.Color(o.colB!==undefined?o.colB:0x93a09e)},
+    uCausCol:{value:new THREE.Color(o.causCol||0x9ff0e2)},
+    uTint:{value:new THREE.Color(o.tint||0xffffff)},
+  };
+  m.userData.U = U;
+  m.extensions = { derivatives: true };
+  m.onBeforeCompile = (sh)=>{
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWP;\nvarying vec3 vWN;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+      #ifdef USE_INSTANCING
+        vec4 _ip = instanceMatrix*vec4(transformed,1.0);
+        vec3 _in = mat3(instanceMatrix)*objectNormal;
+      #else
+        vec4 _ip = vec4(transformed,1.0);
+        vec3 _in = objectNormal;
+      #endif
+      vWP = (modelMatrix*_ip).xyz;
+      vWN = normalize(mat3(modelMatrix)*_in);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n'+SURF_UNIFORMS+GLSL_NOISE)
+      .replace('#include <map_fragment>', '#include <map_fragment>\n'+SURF_BODY+'\n  diffuseColor.rgb *= _col;')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(_rgh,0.025,1.0);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = _mtl;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      { vec3 _wnb = _wn;
+        if(dot(_wnb, normalize(cameraPosition-_wp)) < 0.0) _wnb = -_wnb;   // 双面/背面几何体也能正确着色
+        vec3 _wnp = normalize(_wnb + _tu*_slp.x + _tv*_slp.y);
+        normal = normalize((viewMatrix*vec4(_wnp,0.0)).xyz); }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      if(uCaus>0.001 || uWallCaus>0.001){
+        float _ct = uTime*0.62;
+        float _cv = _caus(_wp.xz*0.72, _ct);
+        float _cb = smoothstep(0.06,-0.40,_wp.y-uWaterY);
+        float _ca = smoothstep(0.0,1.1,_wp.y-uWaterY)*smoothstep(4.6,1.1,_wp.y-uWaterY);
+        float _cw = uCaus*_cb*(0.30+0.70*max(_wn.y,0.0)) + uWallCaus*_ca;
+        totalEmissiveRadiance += uCausCol*_cv*_cw;
+      }`);
+  };
+  surfMats.push(m);
+  return m;
+}
+
+/* 灯管：自发光 + 逐实例故障强度（instanced attribute aLvl） */
+function makeLampMat(){
+  const m = new THREE.MeshStandardMaterial({
+    color:0xdae8ee, roughness:0.42, metalness:0.0,
+    emissive:new THREE.Color(0xd2ecf7), emissiveIntensity:5.4, fog:true });
+  m.onBeforeCompile = (sh)=>{
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aLvl;\nvarying float vLvl;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLvl = aLvl;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vLvl;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      totalEmissiveRadiance *= vLvl*vLvl*1.15;
+      diffuseColor.rgb = mix(vec3(0.045,0.05,0.055), diffuseColor.rgb, 0.22+0.78*vLvl);`);
+  };
+  return m;
+}
+
+const MAT = {
+  wallHall: makeSurfMat({tile:0.155, colA:0xeff5f3, colB:0x8fa1a0, rough:0.28, roughG:0.76, grime:0.42, mold:0.55, wet:1, wallCaus:0.42, env:0.55, bump:0.62}),
+  wallCorr: makeSurfMat({tile:0.155, colA:0xf1efe3, colB:0x9a978a, rough:0.33, roughG:0.80, grime:0.66, mold:0.72, env:0.38, bump:0.62}),
+  wallShow: makeSurfMat({tile:0.115, colA:0xe6eeea, colB:0x8a9691, rough:0.24, roughG:0.78, grime:0.75, mold:0.95, wet:1, env:0.5, bump:0.7}),
+  floor:    makeSurfMat({tile:0.30,  colA:0xe1e9e7, colB:0x8b9997, rough:0.25, roughG:0.72, grime:0.52, mold:0.32, wet:1, env:0.62, bump:0.46}),
+  poolTile: makeSurfMat({tile:0.20,  colA:0xd2eaeb, colB:0x7ba1a5, rough:0.15, roughG:0.58, grime:0.22, mold:0.22, wet:1, caus:1.6, env:0.72, bump:0.52}),
+  coping:   makeSurfMat({tile:0.125, colA:0xeaefec, colB:0x87948f, rough:0.20, roughG:0.68, grime:0.42, wet:1, env:0.6, bump:0.6}),
+  ceil:     makeSurfMat({tile:0.60,  colA:0xf3eedd, colB:0xa49c86, rough:0.60, roughG:0.86, grime:0.48, mold:0.22, env:0.22, bump:0.34, micro:0.2}),
+  concrete: makeSurfMat({mode:1, colA:0x9ba09b, rough:0.86, grime:0.55, mold:0.5, env:0.18, bump:0.4}),
+  metal:    makeSurfMat({mode:2, colA:0xbcc5c9, colB:0x60392a, rough:0.20, metal:1.0, env:0.95, grime:0.15}),
+  metalDim: makeSurfMat({mode:2, colA:0x8d979c, colB:0x53331f, rough:0.34, metal:1.0, env:0.7, grime:0.3}),
+  grate:    makeSurfMat({tile:0.05, grout:0.32, colA:0x707a7e, colB:0x0d1113, rough:0.32, roughG:0.9, metal:0.85, grime:0.6, env:0.55, bump:1.0}),
+  plastic:  makeSurfMat({mode:1, colA:0x7cc6d4, rough:0.30, env:0.7, grime:0.6, bump:0.25}),
+  lamp:     makeLampMat(),
+  dark:     new THREE.MeshStandardMaterial({color:0x04060a, roughness:0.94, metalness:0.0}),
+  exit:     new THREE.MeshStandardMaterial({ map:TEX_EXIT, emissiveMap:TEX_EXIT, emissive:0xffffff,
+              emissiveIntensity:2.4, roughness:0.55, metalness:0.0, side:THREE.DoubleSide }),
+  puddle:   new THREE.MeshStandardMaterial({ color:0x0c1317, roughness:0.04, metalness:0.05,
+              transparent:true, alphaMap:TEX_BLOB, depthWrite:false, envMapIntensity:1.15,
+              side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3 }),
+  moldD:    new THREE.MeshStandardMaterial({ color:0x2c3a25, roughness:0.95, metalness:0.0,
+              transparent:true, alphaMap:TEX_MOLD, depthWrite:false, opacity:0.85,
+              side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3 }),
+};
+
+/* ---------- 6. 共享几何体 + 实例银行（InstancedMesh 合批） ---------- */
+const GEO = {
+  box:  new THREE.BoxGeometry(1,1,1),
+  cyl:  new THREE.CylinderGeometry(0.5,0.5,1,10,1,false),
+  tube: new THREE.CylinderGeometry(0.5,0.5,1,12,1,true),
+  cone: new THREE.CylinderGeometry(0.10,1.0,1,18,1,true),
+  quad: new THREE.PlaneGeometry(1,1),
+};
+const bank = new Map();
+function bin(key, geo, mat, layer, needAttr){
+  let b = bank.get(key);
+  if(!b){ b = { geo, mat, layer:layer||L_SOLID, needAttr:!!needAttr, m:[], lvl:[] }; bank.set(key,b); }
+  return b;
+}
+function put(b, x,y,z, sx,sy,sz, rx,ry,rz, lvl){
+  b.m.push(x,y,z, sx,sy,sz, rx||0,ry||0,rz||0);
+  b.lvl.push(lvl===undefined?1:lvl);
+}
+function buildBank(){
+  const mtx=new THREE.Matrix4(), eu=new THREE.Euler(0,0,0,'YXZ'), qt=new THREE.Quaternion(),
+        v3=new THREE.Vector3(), s3=new THREE.Vector3();
+  let meshes=0, tri=0;
+  for(const [k,b] of bank){
+    const n = b.lvl.length; if(!n) continue;
+    const geo = b.needAttr ? b.geo.clone() : b.geo;
+    const im  = new THREE.InstancedMesh(geo, b.mat, n);
+    for(let i=0;i<n;i++){
+      const o=i*9;
+      eu.set(b.m[o+6],b.m[o+7],b.m[o+8]);
+      qt.setFromEuler(eu);
+      mtx.compose(v3.set(b.m[o],b.m[o+1],b.m[o+2]), qt, s3.set(b.m[o+3],b.m[o+4],b.m[o+5]));
+      im.setMatrixAt(i,mtx);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if(b.needAttr) geo.setAttribute('aLvl', new THREE.InstancedBufferAttribute(new Float32Array(b.lvl),1));
+    im.layers.set(b.layer);
+    im.frustumCulled = false;
+    im.name = k;
+    scene.add(im);
+    b.mesh = im; meshes++;
+    tri += n * (geo.index ? geo.index.count/3 : geo.attributes.position.count/3);
+  }
+  return {meshes, tri};
+}
+
+/* =========================================================================
+   7. 网格化地图生成（全部由循环 / 条件判断产生，无手工摆放）
+   ========================================================================= */
+const cells = new Array(GW*GH).fill(null);
+const CK = (i,j)=> j*GW+i;
+const inB = (i,j)=> i>=0 && i<GW && j>=0 && j<GH;
+function C(i,j){ return inB(i,j) ? cells[CK(i,j)] : null; }
+const DEF = { floorY:0, ceilY:3.0, region:'x', pool:0, stair:0, custom:0, noFloor:0, noCeil:0, circ:null };
+
+function carve(i0,j0,i1,j1,o){
+  for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++){
+    if(!inB(i,j)) continue;
+    cells[CK(i,j)] = Object.assign({}, DEF, {i,j}, o);
+  }
+}
+function uncarve(i0,j0,i1,j1){
+  for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++) if(inB(i,j)) cells[CK(i,j)] = null;
+}
+function carveCircle(ci,cj,r,o){
+  const cx=(ci+0.5), cz=(cj+0.5);
+  for(let j=Math.floor(cj-r-1); j<=Math.ceil(cj+r+1); j++)
+    for(let i=Math.floor(ci-r-1); i<=Math.ceil(ci+r+1); i++){
+      if(!inB(i,j)) continue;
+      if(Math.hypot(i+0.5-cx, j+0.5-cz) <= r) cells[CK(i,j)] = Object.assign({}, DEF, {i,j}, o);
+    }
+}
+
+/* ---- 空间单元清单（探索动线：长廊→前厅→泳池大厅→台阶→回廊→淋浴→圆厅→乐园） ---- */
+const HALL_CEIL=6.5, CORR_CEIL=3.05, ROT_CEIL=7.3, PARK_CEIL=8.7;
+const POOL_Y=-2.20, KID_Y=-0.55, CHAN_Y=-0.35, PARK_POOL_Y=-1.30, ROT_POOL_Y=-1.70;
+const ROT_C = { i:44, j:34, r:6.5 };
+const ROT_W = { x:(ROT_C.i+0.5)*CS, z:(ROT_C.j+0.5)*CS, r:ROT_C.r*CS, pr:6.30 };
+
+carve(20, 2,21,13,{ceilY:CORR_CEIL, region:'entry'});                       // 入口长廊
+carve(18,14,23,17,{ceilY:3.85,      region:'vest'});                        // 前厅
+carve( 8,18,30,33,{ceilY:HALL_CEIL, region:'hall'});                        // 泳池大厅
+carve(11,22,27,30,{ceilY:HALL_CEIL, region:'hall', pool:1, floorY:POOL_Y}); // 主泳池
+carve( 8,18,10,20,{ceilY:HALL_CEIL, region:'hall', pool:1, floorY:KID_Y});  // 儿童池
+carve(10,21,11,21,{ceilY:HALL_CEIL, region:'hall', pool:1, floorY:CHAN_Y}); // 连通水道
+carve(16,22,18,22,{ceilY:HALL_CEIL, region:'hall', pool:1, floorY:0, stair:1, noFloor:1}); // 入水台阶
+carve( 6,30, 7,31,{ceilY:3.2,       region:'link'});                        // 大厅→乐园连廊
+carve( 0,26, 5,40,{ceilY:PARK_CEIL, region:'park'});                        // 水上乐园残骸
+carve( 1,35, 4,39,{ceilY:PARK_CEIL, region:'park', pool:1, floorY:PARK_POOL_Y}); // 落水池
+carve(31,33,37,34,{ceilY:3.2,       region:'link'});                        // 大厅→圆厅连廊
+carveCircle(ROT_C.i,ROT_C.j,ROT_C.r,{ceilY:ROT_CEIL, region:'rotunda', custom:1, noFloor:1, noCeil:1,
+  circ:{x:ROT_W.x, z:ROT_W.z, r:ROT_W.r-0.30, pr:ROT_W.pr, py:ROT_POOL_Y}});
+carve(24,15,37,16,{ceilY:CORR_CEIL, region:'link2'});                       // 前厅→东侧长廊
+carve(38, 6,54,22,{ceilY:3.25,      region:'ring'});                        // 循环回廊
+uncarve(40, 8,52,20);
+carve(45,12,46,20,{ceilY:2.75,      region:'shower'});                      // 淋浴通道
+for(let z=12; z<=18; z+=2){                                                  // 淋浴隔间（循环生成）
+  carve(44,z,44,z,{ceilY:2.75, region:'shower'});
+  carve(47,z,47,z,{ceilY:2.75, region:'shower'});
+}
+carve(41,17,43,19,{ceilY:2.95, region:'locker'});                            // 更衣室
+carve(44,19,44,19,{ceilY:2.95, region:'locker'});
+
+/* 圆厅入口两格改为普通单元：保证与走廊衔接处有地面、可通行 */
+for(const jj of [33,34]) carve(38,jj,38,jj,{ceilY:ROT_CEIL, region:'rotunda'});
+
+/* 大厅四角的柱子（让大空间有尺度参照，且形成转角遮挡） */
+for(const p of [[10,20],[10,31],[28,20],[28,31]]) if(C(p[0],p[1])) C(p[0],p[1]).pillar = 1;
+
+/* ---- 高度查询（供玩家碰撞/行走） ---- */
+function cellAtW(x,z){ return C(Math.floor(x/CS), Math.floor(z/CS)); }
+function floorHeightAt(x,z){
+  const c = cellAtW(x,z);
+  if(!c) return null;
+  if(c.circ){
+    const d = Math.hypot(x-c.circ.x, z-c.circ.z);
+    if(d > c.circ.r) return null;                  // 圆厅按半径裁剪
+    return d < c.circ.pr ? c.circ.py : 0;
+  }
+  if(c.stair){
+    const t = Math.min(0.9999, Math.max(0,(z - c.j*CS)/CS));
+    const s = Math.floor(t*8);
+    return -(s+1)*(0 - POOL_Y)/8;
+  }
+  return c.floorY;
+}
+function ceilAt(x,z){ const c=cellAtW(x,z); return c? c.ceilY : 3.0; }
+function regionAt(x,z){ const c=cellAtW(x,z); return c? c.region : '—'; }
+
+/* =========================================================================
+   8. 由网格自动生成建筑几何（地面/吊顶/墙体/门洞/池壁/池沿/台阶）
+   ========================================================================= */
+const WALLMAT = { hall:'wallHall', entry:'wallCorr', vest:'wallCorr', link:'wallCorr',
+  link2:'wallCorr', ring:'wallCorr', shower:'wallShow', locker:'wallShow',
+  park:'wallHall', rotunda:'wallHall' };
+const B = {
+  floor : bin('floor',  GEO.box, MAT.floor),
+  floorS: bin('floorS', GEO.box, MAT.wallShow),
+  pool  : bin('pool',   GEO.box, MAT.poolTile, L_UNDER),   // 水下实体：排除在平面反射之外
+  grateU: bin('grateU', GEO.box, MAT.grate, L_UNDER),
+  ceil  : bin('ceil',   GEO.box, MAT.ceil),
+  void_ : bin('void',   GEO.box, MAT.dark),
+  wallA : bin('wallA',  GEO.box, MAT.wallHall),
+  wallB : bin('wallB',  GEO.box, MAT.wallCorr),
+  wallC : bin('wallC',  GEO.box, MAT.wallShow),
+  conc  : bin('conc',   GEO.box, MAT.concrete),
+  coping: bin('coping', GEO.box, MAT.coping),
+  grate : bin('grate',  GEO.box, MAT.grate),
+  metal : bin('metal',  GEO.cyl, MAT.metal),
+  metalD: bin('metalD', GEO.cyl, MAT.metalDim),
+  mbox  : bin('mbox',   GEO.box, MAT.metalDim),
+  pipe  : bin('pipe',   GEO.tube, MAT.metalDim),
+  lamp  : bin('lamp',   GEO.box, MAT.lamp, L_SOLID, true),
+  house : bin('house',  GEO.box, MAT.metalDim),
+  exit  : bin('exit',   GEO.quad, MAT.exit),
+  puddle: bin('puddle', GEO.quad, MAT.puddle, L_DECAL),
+  mold  : bin('mold',   GEO.quad, MAT.moldD,  L_DECAL),
+};
+function wallBinOf(region){
+  const k = WALLMAT[region] || 'wallCorr';
+  return k==='wallHall'?B.wallA : k==='wallShow'?B.wallC : B.wallB;
+}
+function putSeg(b, x0,y0,z0, x1,y1,z1, r, lvl){
+  const dx=x1-x0, dy=y1-y0, dz=z1-z0, len=Math.hypot(dx,dy,dz);
+  put(b, (x0+x1)/2,(y0+y1)/2,(z0+z1)/2, r*2,len,r*2,
+      Math.atan2(Math.hypot(dx,dz), dy), Math.atan2(dx,dz), 0, lvl);
+}
+const doorEdges = new Set();
+const EK = (i,j,d)=> i+','+j+','+d;   // d:0=+x 1=+z
+
+/* ---- 8.1 门洞 / 高差 / 吊顶落差（相邻可行走单元之间） ---- */
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c = C(i,j); if(!c) continue;
+  for(let d=0;d<2;d++){
+    const n = d===0 ? C(i+1,j) : C(i,j+1);
+    if(!n) continue;
+    const ex = d===0 ? (i+1)*CS : (i+0.5)*CS;
+    const ez = d===0 ? (j+0.5)*CS : (j+1)*CS;
+    const sx = d===0 ? WALL_T : CS;
+    const sz = d===0 ? CS : WALL_T;
+
+    /* 区域交界 → 生成真实门洞（两侧门垛 + 门楣 + 上部墙体） */
+    if(c.region !== n.region && !c.pool && !n.pool && !c.stair && !n.stair){
+      doorEdges.add(EK(i,j,d));
+      const wb = wallBinOf(c.ceilY <= n.ceilY ? c.region : n.region);
+      const jw = (CS - DOOR_W)/2;
+      const y0 = Math.min(c.floorY,n.floorY) - 0.35;
+      const top = Math.max(c.ceilY, n.ceilY) + 0.30;
+      const hj = DOOR_H - y0;
+      if(d===0){
+        put(wb, ex, y0+hj/2, ez-(CS-jw)/2, sx, hj, jw);
+        put(wb, ex, y0+hj/2, ez+(CS-jw)/2, sx, hj, jw);
+        put(wb, ex, (DOOR_H+top)/2, ez, sx, top-DOOR_H, DOOR_W);
+        put(B.mbox, ex, Math.min(c.floorY,n.floorY)+0.012, ez, 0.36, 0.024, DOOR_W);
+      }else{
+        put(wb, ex-(CS-jw)/2, y0+hj/2, ez, jw, hj, sz);
+        put(wb, ex+(CS-jw)/2, y0+hj/2, ez, jw, hj, sz);
+        put(wb, ex, (DOOR_H+top)/2, ez, DOOR_W, top-DOOR_H, sz);
+        put(B.mbox, ex, Math.min(c.floorY,n.floorY)+0.012, ez, DOOR_W, 0.024, 0.36);
+      }
+      continue;
+    }
+    /* 地面高差 → 池壁 + 池沿压顶 */
+    const hi = c.floorY > n.floorY + 0.02 ? c : (n.floorY > c.floorY + 0.02 ? n : null);
+    if(hi && !c.stair && !n.stair && !c.custom && !n.custom){
+      const lo = hi===c ? n : c;
+      const isPool = c.pool || n.pool;
+      const yb = lo.floorY - 0.32, yt = hi.floorY;
+      put(isPool?B.pool:B.wallA, ex, (yb+yt)/2, ez, d===0?WALL_T:CS, yt-yb, d===0?CS:WALL_T);
+      put(B.coping, ex, hi.floorY+0.045, ez, d===0?0.52:CS, 0.09, d===0?CS:0.52);
+      if(isPool){                                   // 溢流沟格栅
+        const off = (hi===c) ? -0.42 : 0.42;
+        if(d===0) put(B.grate, ex+off, hi.floorY+0.012, ez, 0.30, 0.03, CS*0.92);
+        else      put(B.grate, ex, hi.floorY+0.012, ez+off, CS*0.92, 0.03, 0.30);
+      }
+    }
+    /* 吊顶落差 → 过梁 */
+    if(Math.abs(c.ceilY-n.ceilY) > 0.02 && !doorEdges.has(EK(i,j,d)) && !c.custom && !n.custom){
+      const lo = c.ceilY < n.ceilY ? c : n;
+      const hiC = c.ceilY < n.ceilY ? n : c;
+      put(wallBinOf(lo.region), ex, (lo.ceilY+hiC.ceilY)/2+0.15, ez, sx, hiC.ceilY-lo.ceilY+0.3, sz);
+    }
+  }
+}
+
+/* ---- 8.2 地面 / 吊顶 / 外墙 / 盲门洞（重复门洞阵列） ---- */
+const DIRS = [[1,0,0],[-1,0,0],[0,1,1],[0,-1,1]];
+let alcoveCount = 0;
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c = C(i,j); if(!c) continue;
+  const cx=(i+0.5)*CS, cz=(j+0.5)*CS;
+
+  if(!c.noFloor){
+    const fb = c.pool ? B.pool : (c.region==='shower'||c.region==='locker' ? B.floorS : B.floor);
+    /* 地板做薄（底面 -0.06 高于水位 -0.15）：保证镜像视线不被地板底面遮挡 */
+    put(fb, cx, c.floorY-0.06, cz, CS, 0.12, CS);
+    if(!c.pool && rng()<0.05) put(B.puddle, cx+rnd(0.7,-0.7), c.floorY+0.006, cz+rnd(0.7,-0.7),
+      rnd(2.6,1.1), rnd(2.2,0.9), 1, -Math.PI/2, rnd(6.28), 0);
+    if(c.pool && (i%4===0) && (j%4===0)) put(B.grateU, cx, c.floorY+0.014, cz, 0.55, 0.03, 0.55);
+  }
+  if(!c.noCeil){
+    if(rng() < (c.region==='hall'?0.035:0.05)){       // 缺失吊顶板 → 露出黑洞
+      put(B.void_, cx, c.ceilY+0.70, cz, CS*0.99, 1.05, CS*0.99);
+    }else{
+      put(B.ceil, cx, c.ceilY+0.12, cz, CS, 0.24, CS);
+    }
+  }
+  if(c.pillar){                                       // 方柱
+    put(B.wallA, cx, c.floorY+c.ceilY/2, cz, 0.95, c.ceilY, 0.95);
+    put(B.coping, cx, c.ceilY-0.18, cz, 1.18, 0.16, 1.18);
+  }
+  if(c.custom) continue;                              // 圆厅自建墙体
+
+  for(const [di,dj,ax] of DIRS){
+    const n = C(i+di,j+dj);
+    if(n) continue;                                   // 只在实心侧建墙
+    const ex = cx + di*CS/2, ez = cz + dj*CS/2;
+    const sx = ax===0 ? WALL_T : CS, sz = ax===0 ? CS : WALL_T;
+    const y0 = c.floorY-0.35, y1 = c.ceilY+0.30;
+    const wb = wallBinOf(c.region);
+    /* 长廊 / 回廊侧壁的重复盲门洞 */
+    const rep = (c.region==='entry'||c.region==='ring'||c.region==='link2');
+    if(rep && ((i*2+j*3)%7===0) && c.ceilY>2.6){
+      const jw=(CS-DOOR_W)/2, top=c.ceilY+0.30, hj=DOOR_H-y0;
+      if(ax===0){
+        put(wb, ex, y0+hj/2, ez-(CS-jw)/2, sx, hj, jw);
+        put(wb, ex, y0+hj/2, ez+(CS-jw)/2, sx, hj, jw);
+        put(wb, ex, (DOOR_H+top)/2, ez, sx, top-DOOR_H, CS);
+        put(B.void_, ex+di*0.62, (c.floorY+DOOR_H)/2, ez, 0.62, DOOR_H+0.2, DOOR_W+0.16);
+        put(B.mbox, ex, c.floorY+0.012, ez, 0.40, 0.024, DOOR_W);
+      }else{
+        put(wb, ex-(CS-jw)/2, y0+hj/2, ez, jw, hj, sz);
+        put(wb, ex+(CS-jw)/2, y0+hj/2, ez, jw, hj, sz);
+        put(wb, ex, (DOOR_H+top)/2, ez, CS, top-DOOR_H, sz);
+        put(B.void_, ex, (c.floorY+DOOR_H)/2, ez+dj*0.62, DOOR_W+0.16, DOOR_H+0.2, 0.62);
+        put(B.mbox, ex, c.floorY+0.012, ez, DOOR_W, 0.024, 0.40);
+      }
+      if((alcoveCount++ % 4)===1){                    // 少量 EXIT 指示牌
+        put(B.exit, ex-di*0.22, DOOR_H+0.42, ez-dj*0.22, 0.82, 0.41, 1,
+            0, ax===0 ? -di*Math.PI/2 : (dj>0?Math.PI:0), 0);
+      }
+      continue;
+    }
+    put(wb, ex, (y0+y1)/2, ez, sx, y1-y0, sz);
+    if(rng()<0.30) put(B.mold, ex-di*0.16, c.floorY+rnd(1.5,0.05), ez-dj*0.16,
+      rnd(2.4,0.9), rnd(2.0,0.8), 1, 0, ax===0 ? -di*Math.PI/2 : (dj>0?Math.PI:0), rnd(6.28));
+  }
+}
+
+/* ---- 8.3 入水台阶 + 扶手 ---- */
+{
+  const i0=16, i1=18, j=22, x0=i0*CS, x1=(i1+1)*CS, z0=j*CS, run=CS/8, rise=(0-POOL_Y)/8;
+  for(let s=0;s<8;s++){
+    const yt = -(s+1)*rise;
+    put(B.pool, (x0+x1)/2, (POOL_Y-0.3+yt)/2, z0+(s+0.5)*run, x1-x0, yt-(POOL_Y-0.3), run);
+    put(B.coping, (x0+x1)/2, yt-0.012, z0+s*run+0.02, x1-x0, 0.03, 0.08);   // 防滑条
+  }
+  put(B.pool, x0-0.11, (POOL_Y-0.3)/2+0.0, z0+CS/2, 0.22, Math.abs(POOL_Y)+0.3, CS);
+  put(B.pool, x1+0.11, (POOL_Y-0.3)/2+0.0, z0+CS/2, 0.22, Math.abs(POOL_Y)+0.3, CS);
+  for(const rx of [x0+0.55, x1-0.55]){                                     // 不锈钢扶手
+    putSeg(B.metal, rx, 0.98, z0-0.35, rx, -1.05, z0+CS+0.15, 0.032);
+    putSeg(B.metal, rx, 0.98, z0-0.35, rx, 0.02, z0-0.35, 0.032);
+  }
+}
+
+/* ---- 8.4 泳池爬梯 / 池边扶手 / 池底泳道线（程序化重复） ---- */
+for(let i=12;i<=26;i+=5){
+  const x=(i+0.5)*CS;
+  for(const [zEdge,dir] of [[22*CS,-1],[31*CS,1]]){
+    putSeg(B.metal, x-0.28, 1.05, zEdge+dir*0.25, x-0.28, POOL_Y+0.5, zEdge-dir*0.45, 0.030);
+    putSeg(B.metal, x+0.28, 1.05, zEdge+dir*0.25, x+0.28, POOL_Y+0.5, zEdge-dir*0.45, 0.030);
+    putSeg(B.metal, x-0.28, 1.05, zEdge+dir*0.25, x+0.28, 1.05, zEdge+dir*0.25, 0.030);
+    for(let s=0;s<3;s++){                                                  // 踏杆
+      const t=(s+1)/4;
+      putSeg(B.metal, x-0.28, 1.05+(POOL_Y+0.5-1.05)*t, zEdge+dir*0.25+(-dir*0.7)*t,
+                      x+0.28, 1.05+(POOL_Y+0.5-1.05)*t, zEdge+dir*0.25+(-dir*0.7)*t, 0.022);
+    }
+  }
+}
+
+/* ---- 8.5 灯具 / 体积光 / 雾片：材质、实例桶与放置函数 ---- */
+const lamps = [], shaftLamp = [];
+function rollLamp(){                          // 故障骰子：正常 / 明暗抖动 / 频闪 / 熄灭
+  const u = rng();
+  if(u < 0.055) return {mode:3, p:rnd(6.28), f:0};            // 完全熄灭
+  if(u < 0.165) return {mode:2, p:rnd(6.28), f:rnd(11,4)};    // 周期性频闪
+  if(u < 0.255) return {mode:1, p:rnd(6.28), f:rnd(2.6,0.7)}; // 明暗抖动 + 电流嗡鸣
+  return {mode:0, p:rnd(6.28), f:rnd(0.7,0.15)};
+}
+function addFixtureRot(x,y,z,ry){
+  const s=Math.sin(ry), c=Math.cos(ry);
+  lamps.push(Object.assign({x, y:y-0.10, z, lvl:1}, rollLamp()));
+  put(B.house, x, y+0.02, z, 1.46, 0.15, 0.44, 0, ry, 0);
+  put(B.lamp,  x+s*0.105, y-0.10, z+c*0.105, 1.30, 0.078, 0.078, 0, ry, 0, 1);
+  put(B.lamp,  x-s*0.105, y-0.10, z-c*0.105, 1.30, 0.078, 0.078, 0, ry, 0, 1);
+}
+function addFixture(x,y,z,dir){ addFixtureRot(x,y,z, dir===0?0:Math.PI/2); }
+
+const shaftMat = new THREE.ShaderMaterial({
+  uniforms:{ uTime:{value:0}, uCol:{value:new THREE.Color(0xe6f6ff)} },
+  vertexShader:`
+    attribute float aLvl;
+    varying float vLvl; varying vec2 vU; varying vec3 vN; varying vec3 vW;
+    void main(){
+      vec4 ip = instanceMatrix*vec4(position,1.0);
+      vec4 wp = modelMatrix*ip;
+      vW = wp.xyz;
+      vN = normalize(mat3(modelMatrix)*(mat3(instanceMatrix)*normal));
+      vU = uv; vLvl = aLvl;
+      gl_Position = projectionMatrix*viewMatrix*wp;
+    }`,
+  fragmentShader:`
+    uniform float uTime; uniform vec3 uCol;
+    varying float vLvl; varying vec2 vU; varying vec3 vN; varying vec3 vW;
+    `+GLSL_NOISE+`
+    void main(){
+      vec3 V = normalize(cameraPosition - vW);
+      float thick = pow(abs(dot(V, normalize(vN))), 1.7);      // 壳体近似“厚度”
+      float fade  = pow(clamp(vU.y,0.0,1.0), 1.55);
+      float nz    = 0.70 + 0.30*_fbm(vec2(vU.x*8.0, vU.y*3.2 - uTime*0.22));
+      float d     = length(cameraPosition - vW);
+      float a = thick*fade*nz*vLvl*0.42*exp(-d*0.030);
+      gl_FragColor = vec4(uCol*a, 1.0);
+    }`,
+  transparent:true, blending:THREE.AdditiveBlending, depthWrite:false,
+  side:THREE.DoubleSide, fog:false });
+
+const mistMat = new THREE.ShaderMaterial({
+  uniforms:{ uTime:{value:0}, uCol:{value:new THREE.Color(0xd6e9ea)} },
+  vertexShader:`
+    varying vec2 vU; varying vec3 vW;
+    uniform float uTime;
+    void main(){
+      vec3 c = (modelMatrix*instanceMatrix*vec4(0.0,0.0,0.0,1.0)).xyz;
+      float s = length(instanceMatrix[0].xyz);
+      vec3 rr = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+      vec3 uu = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+      float ph = fract(c.x*0.13+c.z*0.077)*6.283;
+      c.x += sin(uTime*0.17+ph)*0.55;
+      c.y += sin(uTime*0.11+ph*1.7)*0.20;
+      c.z += cos(uTime*0.13+ph*0.9)*0.55;
+      vec3 wp = c + rr*position.x*s + uu*position.y*s;
+      vU = uv; vW = wp;
+      gl_Position = projectionMatrix*viewMatrix*vec4(wp,1.0);
+    }`,
+  fragmentShader:`
+    uniform float uTime; uniform vec3 uCol;
+    varying vec2 vU; varying vec3 vW;
+    `+GLSL_NOISE+`
+    void main(){
+      float r = length(vU-0.5)*2.0;
+      float a = smoothstep(1.0,0.10,r);
+      a *= 0.42+0.58*_fbm(vU*3.4+uTime*0.045);
+      float d = distance(cameraPosition, vW);
+      a *= smoothstep(0.7,3.2,d)*exp(-d*0.028)*0.30;
+      gl_FragColor = vec4(uCol, a);
+    }`,
+  transparent:true, depthWrite:false, side:THREE.DoubleSide, fog:false });
+
+B.shaft = bin('shaft', GEO.cone, shaftMat, L_VOL, true);
+B.mist  = bin('mist',  GEO.quad, mistMat,  L_VOL);
+
+/* =========================================================================
+   9. 特殊结构：圆厅 / 水上乐园残骸 / 淋浴间 / 更衣室 / 管道
+   ========================================================================= */
+/* ---- 9.1 圆柱形圆厅（切向面板实例化拼出圆墙，留出门洞缺口） ---- */
+{
+  const R=ROT_W.r, PRr=ROT_W.pr, cx=ROT_W.x, cz=ROT_W.z, N=56;
+  const fl = new THREE.Mesh(new THREE.RingGeometry(PRr, R-0.05, 72, 1), MAT.floor);
+  fl.rotation.x = -Math.PI/2; fl.position.set(cx, 0, cz);
+  fl.layers.set(L_SOLID); fl.frustumCulled=false; scene.add(fl);
+  const cl = new THREE.Mesh(new THREE.CircleGeometry(R-0.05, 72), MAT.ceil);
+  cl.rotation.x = Math.PI/2; cl.position.set(cx, ROT_CEIL, cz);
+  cl.layers.set(L_SOLID); cl.frustumCulled=false; scene.add(cl);
+  const pf = new THREE.Mesh(new THREE.CircleGeometry(PRr-0.02, 56), MAT.poolTile);
+  pf.rotation.x = -Math.PI/2; pf.position.set(cx, ROT_POOL_Y, cz);
+  pf.layers.set(L_UNDER); pf.frustumCulled=false; scene.add(pf);
+
+  const chord = 2*R*Math.sin(Math.PI/N)+0.06;
+  for(let k=0;k<N;k++){
+    const a = k/N*Math.PI*2;
+    if(Math.abs(Math.atan2(Math.sin(a-Math.PI), Math.cos(a-Math.PI))) < 0.20) continue; // 门洞缺口
+    put(B.wallA, cx+Math.cos(a)*(R+0.18), (ROT_CEIL+0.3)/2-0.35, cz+Math.sin(a)*(R+0.18),
+        chord, ROT_CEIL+0.95, 0.36, 0, -a-Math.PI/2, 0);
+  }
+  /* 缺口两侧补墙（与走廊侧壁搭接，封闭边界） */
+  for(const zz of [ROT_W.z+3.4, ROT_W.z-3.4])
+    put(B.wallA, cx-R+0.1, (ROT_CEIL+0.3)/2-0.35, zz, 0.4, ROT_CEIL+0.95, 3.4);
+  /* 圆池池壁 + 压顶环 */
+  const M=40, ch2 = 2*PRr*Math.sin(Math.PI/M)+0.05;
+  for(let k=0;k<M;k++){
+    const a=k/M*Math.PI*2;
+    put(B.pool, cx+Math.cos(a)*(PRr+0.16), ROT_POOL_Y/2-0.16, cz+Math.sin(a)*(PRr+0.16),
+        ch2, Math.abs(ROT_POOL_Y)+0.32, 0.32, 0, -a-Math.PI/2, 0);
+    put(B.coping, cx+Math.cos(a)*(PRr+0.28), 0.045, cz+Math.sin(a)*(PRr+0.28),
+        ch2, 0.09, 0.62, 0, -a-Math.PI/2, 0);
+    if(k%5===0) put(B.grate, cx+Math.cos(a)*(PRr+0.75), 0.014, cz+Math.sin(a)*(PRr+0.75),
+        0.34, 0.03, 0.34, 0, -a, 0);
+  }
+  /* 环形灯带（14 盏）+ 中心 6 盏 */
+  for(let k=0;k<14;k++){
+    const a=k/14*Math.PI*2;
+    addFixtureRot(cx+Math.cos(a)*R*0.70, ROT_CEIL-0.18, cz+Math.sin(a)*R*0.70, -a);
+  }
+  for(let k=0;k<6;k++){
+    const a=k/6*Math.PI*2+0.4;
+    addFixtureRot(cx+Math.cos(a)*PRr*0.72, ROT_CEIL-0.18, cz+Math.sin(a)*PRr*0.72, -a+Math.PI/2);
+  }
+}
+
+/* ---- 9.2 水上乐园残骸：塔 + 螺旋滑梯 + 支撑 + 碎片 ---- */
+{
+  const tx=3.1*CS, tz=29.5*CS, top=7.4;
+  put(B.conc, tx, top/2, tz, 1.5, top, 1.5);                       // 塔柱
+  put(B.conc, tx, top+0.12, tz, 3.1, 0.25, 3.1);                   // 平台
+  put(B.metal, tx+1.4, top+0.6, tz, 0.06, 1.1, 0.06);
+  for(let s=0;s<9;s++)                                             // 爬梯
+    putSeg(B.metal, tx-1.7, 0.4+s*0.78, tz-0.4, tx-1.7, 0.4+s*0.78, tz+0.4, 0.024);
+  putSeg(B.metal, tx-1.7, 0.2, tz-0.4, tx-1.7, top+0.9, tz-0.4, 0.03);
+  putSeg(B.metal, tx-1.7, 0.2, tz+0.4, tx-1.7, top+0.9, tz+0.4, 0.03);
+
+  const pts=[];
+  for(let k=0;k<=72;k++){
+    const t=k/72, a=0.7+t*Math.PI*2.55, rr=4.6-t*1.9;
+    pts.push(new THREE.Vector3(tx+Math.cos(a)*rr, top-t*6.0, tz+Math.sin(a)*rr*0.8+t*11.0));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const slide = new THREE.Mesh(new THREE.TubeGeometry(curve, 150, 0.92, 14, false), MAT.plastic);
+  slide.layers.set(L_SOLID); slide.frustumCulled=false; scene.add(slide);
+  for(let k=6;k<70;k+=7){                                          // 支撑杆
+    const p=pts[k];
+    putSeg(B.metalD, p.x, p.y-0.95, p.z, p.x, 0.05, p.z, 0.055);
+  }
+  for(let k=0;k<16;k++){                                           // 地面碎块
+    const x=rnd(4.6,0.6)*CS, z=rnd(39,27)*CS;
+    if(!C(Math.floor(x/CS),Math.floor(z/CS))) continue;
+    put(B.conc, x, 0.06, z, rnd(1.6,0.5), 0.12, rnd(1.3,0.4), 0, rnd(6.28), 0);
+  }
+}
+
+/* ---- 9.3 淋浴间 / 更衣室陈设 ---- */
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c=C(i,j); if(!c) continue;
+  const cx=(i+0.5)*CS, cz=(j+0.5)*CS;
+  if(c.region==='shower'){
+    let dx=0,dz=0;
+    for(const [di,dj] of [[1,0],[-1,0],[0,1],[0,-1]]) if(!C(i+di,j+dj)){ dx=di; dz=dj; break; }
+    if(dx||dz){                                                    // 花洒
+      const wx=cx+dx*(CS/2-0.12), wz=cz+dz*(CS/2-0.12);
+      putSeg(B.metal, wx, 2.05, wz, wx-dx*0.42, 2.05, wz-dz*0.42, 0.021);
+      putSeg(B.metal, wx-dx*0.42, 2.05, wz-dz*0.42, wx-dx*0.42, 1.92, wz-dz*0.42, 0.021);
+      put(B.mbox, wx-dx*0.42, 1.86, wz-dz*0.42, 0.20, 0.06, 0.20);
+      putSeg(B.metal, wx, 1.25, wz, wx, 2.05, wz, 0.017);
+    }
+    put(B.grate, cx, c.floorY+0.014, cz, 0.30, 0.028, 0.30);        // 地漏
+    if(rng()<0.85) put(B.mist, cx+rnd(0.8,-0.8), 0.9+rnd(0.9), cz+rnd(0.8,-0.8), 2.2,2.2,2.2);
+  }
+  if(c.region==='locker'){
+    for(const [di,dj] of [[-1,0],[0,-1]]) if(!C(i+di,j+dj)){
+      for(let k=-1;k<=1;k++){                                       // 更衣柜
+        const ox=di? 0:k*0.74, oz=dj? 0:0, ox2=di? 0:0, oz2=dj? k*0.74:0;
+        put(B.mbox, cx+di*(CS/2-0.28)+ox+ox2, 0.98, cz+dj*(CS/2-0.28)+oz+oz2,
+            di? 0.52:0.70, 1.92, dj? 0.52:0.70);
+      }
+    }
+    if((i+j)%3===0) put(B.conc, cx, 0.42, cz, 1.5, 0.12, 0.42, 0, (i%2)?Math.PI/2:0, 0);
+  }
+}
+
+/* ---- 9.4 吊顶管道（沿走廊连续铺设） ---- */
+const PIPEREG = {entry:1, vest:1, link:1, link2:1, ring:1, shower:1, locker:1};
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c=C(i,j); if(!c || !PIPEREG[c.region]) continue;
+  const cx=(i+0.5)*CS, cz=(j+0.5)*CS, y=c.ceilY-0.30;
+  const nx=C(i+1,j), nz=C(i,j+1);
+  if(nx && nx.region===c.region){
+    putSeg(B.pipe, cx, y, cz-0.62, cx+CS, y, cz-0.62, 0.085);
+    putSeg(B.pipe, cx, y-0.16, cz-0.44, cx+CS, y-0.16, cz-0.44, 0.045);
+    if(i%3===0) put(B.mbox, cx+CS/2, y, cz-0.62, 0.10, 0.24, 0.24);
+  }
+  if(nz && nz.region===c.region){
+    putSeg(B.pipe, cx-0.62, y, cz, cx-0.62, y, cz+CS, 0.085);
+    putSeg(B.pipe, cx-0.44, y-0.16, cz, cx-0.44, y-0.16, cz+CS, 0.045);
+    if(j%3===0) put(B.mbox, cx-0.62, y, cz+CS/2, 0.24, 0.24, 0.10);
+  }
+}
+/* 大厅高处的粗风管 */
+for(let i=9;i<=29;i++){
+  if(!C(i,19)) continue;
+  putSeg(B.pipe, (i)*CS, HALL_CEIL-0.85, 19.5*CS, (i+1)*CS, HALL_CEIL-0.85, 19.5*CS, 0.30);
+  putSeg(B.pipe, (i)*CS, HALL_CEIL-0.85, 32.5*CS, (i+1)*CS, HALL_CEIL-0.85, 32.5*CS, 0.30);
+  if(i%4===0){
+    putSeg(B.metalD, (i+0.5)*CS, HALL_CEIL-0.55, 19.5*CS, (i+0.5)*CS, HALL_CEIL, 19.5*CS, 0.03);
+    putSeg(B.metalD, (i+0.5)*CS, HALL_CEIL-0.55, 32.5*CS, (i+0.5)*CS, HALL_CEIL, 32.5*CS, 0.03);
+  }
+}
+
+/* =========================================================================
+   10. 荧光灯阵列 + 故障状态 + 动态光源池
+   ========================================================================= */
+const LAMPRULE = { entry:[2,2], vest:[2,2], hall:[3,3], link:[2,2], link2:[2,3],
+                   ring:[2,2], shower:[1,2], locker:[2,2], park:[2,3] };
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c=C(i,j); if(!c || c.custom) continue;
+  const rule = LAMPRULE[c.region]; if(!rule) continue;
+  if(i%rule[0] || j%rule[1]) continue;
+  const cx=(i+0.5)*CS, cz=(j+0.5)*CS;
+  const alongX = !!(C(i+1,j)||C(i-1,j)) && !(C(i,j+1)&&C(i,j-1));
+  addFixture(cx, c.ceilY-0.16, cz, c.region==='hall' ? 0 : (alongX?0:1));
+}
+
+/* 泳池上方的体积光柱（只挑一半灯，控制 overdraw） */
+for(let k=0;k<lamps.length;k++){
+  const L=lamps[k];
+  const ci=Math.floor(L.x/CS), cj=Math.floor(L.z/CS);
+  const c=C(ci,cj); if(!c) continue;
+  const overPool = (ci>=10 && ci<=28 && cj>=21 && cj<=31);
+  if(!(c.region==='hall' && overPool)) continue;
+  if((ci+cj)%2) continue;
+  const h = L.y - WATER_Y - 0.1;
+  put(B.shaft, L.x, L.y-h/2-0.1, L.z, 2.5, h, 2.5, 0,0,0, 1);
+  shaftLamp.push(k);
+}
+/* 圆厅与乐园的光柱 */
+for(let k=0;k<lamps.length;k++){
+  const L=lamps[k], c=cellAtW(L.x,L.z); if(!c) continue;
+  if(c.region!=='park' || (k%3)) continue;
+  const h=L.y-0.2;
+  put(B.shaft, L.x, L.y-h/2-0.1, L.z, 2.2, h, 2.2, 0,0,0, 1);
+  shaftLamp.push(k);
+}
+/* 水面附近的雾气 */
+for(let j=20;j<=32;j++) for(let i=9;i<=29;i++){
+  const c=C(i,j); if(!c) continue;
+  if(rng()<0.16) put(B.mist,(i+0.5)*CS+rnd(1,-1), WATER_Y+rnd(1.5,0.3), (j+0.5)*CS+rnd(1,-1), 3.4,3.4,3.4);
+}
+for(let j=26;j<=40;j++) for(let i=0;i<=5;i++){
+  const c=C(i,j); if(!c) continue;
+  if(rng()<0.12) put(B.mist,(i+0.5)*CS+rnd(1,-1), rnd(2.4,0.5), (j+0.5)*CS+rnd(1,-1), 3.0,3.0,3.0);
+}
+
+/* 环境光：极低强度，营造幽闭室内 */
+const hemi = new THREE.HemisphereLight(0xbfe0e6, 0x0c1216, 0.55);
+scene.add(hemi);
+scene.add(new THREE.AmbientLight(0x223038, 0.35));
+
+/* 动态光源池：每帧把最近的 K 盏灯映射到少量 PointLight（低开销实时近似） */
+const LIGHT_N = 10;
+const pool = [];
+for(let k=0;k<LIGHT_N;k++){
+  const pl = new THREE.PointLight(0xd8eef8, 0, 21, 2.0);
+  pl.castShadow = false; scene.add(pl); pool.push(pl);
+}
+
+/* =========================================================================
+   11. 合批建场 → 水面 → 环境反射探针
+   ========================================================================= */
+setProg(0.45,'合批实例几何…');
+const STATS = buildBank();
+
+/* ---- 11.1 水面几何：所有 pool 单元拼成一张共面网格（含圆池扇形） ---- */
+const wv=[], wi=[]; let wn=0;
+for(let j=0;j<GH;j++) for(let i=0;i<GW;i++){
+  const c=C(i,j); if(!c || !c.pool) continue;
+  const x0=i*CS, x1=(i+1)*CS, z0=j*CS, z1=(j+1)*CS;
+  wv.push(x0,WATER_Y,z0, x1,WATER_Y,z0, x1,WATER_Y,z1, x0,WATER_Y,z1);
+  wi.push(wn,wn+2,wn+1, wn,wn+3,wn+2); wn+=4;
+}
+{
+  const cx=ROT_W.x, cz=ROT_W.z, r=ROT_W.pr-0.02, SEG=52, c0=wn;
+  wv.push(cx,WATER_Y,cz); wn++;
+  for(let k=0;k<=SEG;k++){ const a=k/SEG*Math.PI*2; wv.push(cx+Math.cos(a)*r, WATER_Y, cz+Math.sin(a)*r); wn++; }
+  for(let k=0;k<SEG;k++) wi.push(c0, c0+2+k, c0+1+k);
+}
+const waterGeo = new THREE.BufferGeometry();
+waterGeo.setAttribute('position', new THREE.Float32BufferAttribute(wv,3));
+waterGeo.setIndex(wi);
+
+const waterMat = new THREE.ShaderMaterial({
+  uniforms:{
+    tRefl:{value:reflRT.texture}, tRefr:{value:refrRT.texture}, tDepth:{value:nrmRT.depthTexture},
+    uTexMat:{value:new THREE.Matrix4()}, uRes:{value:new THREE.Vector2(2,2)},
+    uNear:{value:camera.near}, uFar:{value:camera.far}, uTime:{value:0},
+    uUnder:{value:0}, uReflAmt:{value:1.0},
+    uFogCol:{value:FOG_COLOR}, uFogD2:{value:scene.fog.density},
+    uExtinct:{value:new THREE.Vector3(0.62,0.20,0.26)},
+    uWaterCol:{value:new THREE.Color(0x1f6e6a)},
+  },
+  vertexShader:`
+    uniform mat4 uTexMat;
+    varying vec4 vRefl; varying vec3 vWP; varying float vFog;
+    void main(){
+      vec4 wp = modelMatrix*vec4(position,1.0);
+      vWP = wp.xyz; vRefl = uTexMat*wp;
+      vec4 mv = viewMatrix*wp;
+      vFog = -mv.z;
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    uniform sampler2D tRefl, tRefr, tDepth;
+    uniform vec2 uRes; uniform float uNear, uFar, uTime, uUnder, uReflAmt, uFogD2;
+    uniform vec3 uFogCol, uExtinct, uWaterCol;
+    varying vec4 vRefl; varying vec3 vWP; varying float vFog;
+
+    float vz(float d){ return (uNear*uFar)/((uFar-uNear)*d - uFar); }   /* → 负 viewZ */
+    void wave(inout vec2 g, vec2 d, float f, float a, float s, vec2 p, float t){
+      g += d*(f*a*cos(dot(p,d)*f + t*s));
+    }
+    vec3 ripple(vec2 p, float t){          /* 解析法线扰动：6 组方向波，无需贴图 */
+      vec2 g = vec2(0.0);
+      wave(g, normalize(vec2( 1.00, 0.35)),  3.1, 0.0280, 1.10, p, t);
+      wave(g, normalize(vec2(-0.60, 1.00)),  4.3, 0.0200, 1.35, p, t);
+      wave(g, normalize(vec2( 0.30,-1.00)),  7.7, 0.0110, 1.90, p, t);
+      wave(g, normalize(vec2( 1.00, 0.90)), 12.5, 0.0060, 2.60, p, t);
+      wave(g, normalize(vec2(-1.00, 0.15)), 21.0, 0.0032, 3.30, p, t);
+      wave(g, normalize(vec2( 0.15, 1.00)), 33.0, 0.0018, 4.10, p, t);
+      return normalize(vec3(-g.x, 1.0, -g.y));
+    }
+    void main(){
+      vec2 suv = gl_FragCoord.xy/uRes;
+      vec3 N = ripple(vWP.xz, uTime);
+      vec3 V = normalize(cameraPosition - vWP);
+
+      float sceneZ = -vz(texture2D(tDepth, suv).x);
+      float fragZ  = -vz(gl_FragCoord.z);
+      float thick  = max(sceneZ - fragZ, 0.0);
+      float dfade  = clamp(thick*0.55, 0.0, 1.0);
+
+      vec2 ruv = suv + N.xz*0.055*dfade;                        /* 折射：屏幕空间偏移 */
+      if(-vz(texture2D(tDepth, ruv).x) < fragZ) ruv = suv;      /* 防止吸入水面之外的像素 */
+      vec3 refr = texture2D(tRefr, ruv).rgb;
+
+      vec2 fuv = vRefl.xy/max(vRefl.w, 1e-4);                   /* 平面反射投影取样 */
+      fuv += N.xz*0.038;
+      vec3 refl = texture2D(tRefl, clamp(fuv, vec2(0.002), vec2(0.998))).rgb;
+
+      vec3 absorb = exp(-uExtinct*thick);                       /* 比尔-朗伯吸收 */
+      vec3 below  = refr*absorb + uWaterCol*(1.0-absorb);
+
+      float F = 0.02 + 0.98*pow(1.0-max(dot(V,N),0.0), 5.0);    /* 菲涅尔 */
+      vec3 col = mix(below, refl, clamp(F*uReflAmt, 0.0, 1.0));
+
+      float lum = dot(refl, vec3(0.299,0.587,0.114));           /* 灯管倒影被波纹打碎成粼光 */
+      float glint = pow(max(lum-0.80,0.0),1.3)*(0.55+0.45*sin(dot(vWP.xz,vec2(29.0,23.0))+uTime*2.6));
+      col += refl*glint*1.5;
+      vec3 H = normalize(V + normalize(vec3(0.25,1.0,0.15)));
+      col += vec3(1.0,0.98,0.94)*pow(max(dot(N,H),0.0),240.0)*2.6;
+
+      float foam = smoothstep(0.30,0.0,thick);                  /* 池壁湿边白沫 */
+      col = mix(col, vec3(0.90,0.96,0.96), foam*0.40);
+
+      if(uUnder > 0.5){                                         /* 水下：Snell 窗 */
+        float w = smoothstep(0.50,0.97,abs(dot(V,N)));
+        col = mix(uWaterCol*0.6, refr*vec3(0.55,0.92,0.95), w);
+        col += vec3(0.8,0.95,1.0)*pow(max(dot(N,H),0.0),80.0)*0.4;
+      }
+      float fg = 1.0-exp(-uFogD2*uFogD2*vFog*vFog);
+      col = mix(col, uFogCol, fg);
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+  side: THREE.DoubleSide, fog:false });
+
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.layers.set(L_WATER); water.frustumCulled = false;
+scene.add(water);
+
+/* ---- 11.2 平面反射虚拟相机（镜像位置 + textureMatrix 投影取样） ---- */
+const reflTexMat = new THREE.Matrix4();
+const _fw=new THREE.Vector3(), _tg=new THREE.Vector3();
+function updateRefl(){
+  reflCam.fov=camera.fov; reflCam.aspect=camera.aspect;
+  reflCam.near=camera.near; reflCam.far=camera.far;
+  reflCam.updateProjectionMatrix();
+  reflCam.position.set(camera.position.x, 2*WATER_Y-camera.position.y, camera.position.z);
+  camera.getWorldDirection(_fw);
+  _tg.set(camera.position.x+_fw.x, 2*WATER_Y-(camera.position.y+_fw.y), camera.position.z+_fw.z);
+  reflCam.up.set(0,1,0);
+  reflCam.lookAt(_tg);
+  reflCam.updateMatrixWorld();
+  reflTexMat.set(0.5,0,0,0.5, 0,0.5,0,0.5, 0,0,0.5,0.5, 0,0,0,1);
+  reflTexMat.multiply(reflCam.projectionMatrix);
+  reflTexMat.multiply(reflCam.matrixWorldInverse);
+  waterMat.uniforms.uTexMat.value.copy(reflTexMat);
+}
+
+/* ---- 11.3 环境探针：烘一次立方体贴图 → PMREM，供瓷砖/金属做 IBL 反射 ---- */
+const normalMat = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+function bakeEnv(){
+  const cubeRT = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
+  const cubeCam = new THREE.CubeCamera(0.25, 120, cubeRT);
+  cubeCam.position.set(19.5*CS, 2.4, 26*CS);
+  cubeCam.children.forEach(c=>setLayers(c,[L_SOLID,L_UNDER]));
+  cubeCam.update(renderer, scene);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromCubemap(cubeRT.texture);
+  scene.environment = env.texture;
+  pmrem.dispose(); cubeRT.dispose();
+}
+
+/* =========================================================================
+   12. 后处理链：SSAO(半分辨率 + 双边模糊) → Bloom → ACES/调色/暗角/颗粒
+   ========================================================================= */
+const POST_VS = `varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const LINZ = `float lz(float d){ return (uNear*uFar)/((uFar-uNear)*d - uFar); }`;
+
+const copyMat = new THREE.ShaderMaterial({
+  uniforms:{ tDiffuse:{value:null} }, vertexShader:POST_VS,
+  fragmentShader:`uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }`,
+  depthTest:false, depthWrite:false });
+
+const aoMat = new THREE.ShaderMaterial({
+  uniforms:{ tNormal:{value:nrmRT.texture}, tDepth:{value:nrmRT.depthTexture},
+    uProj:{value:new THREE.Matrix4()}, uProjInv:{value:new THREE.Matrix4()},
+    uRes:{value:new THREE.Vector2(2,2)}, uRadius:{value:0.62}, uBias:{value:0.035},
+    uInt:{value:1.6}, uNear:{value:camera.near}, uFar:{value:camera.far} },
+  vertexShader:POST_VS,
+  fragmentShader:`
+    uniform sampler2D tNormal, tDepth; uniform mat4 uProj, uProjInv;
+    uniform vec2 uRes; uniform float uRadius, uBias, uInt, uNear, uFar;
+    varying vec2 vUv;
+    `+LINZ+`
+    vec3 vpos(vec2 uv, float d){
+      vec4 c = vec4(uv*2.0-1.0, d*2.0-1.0, 1.0);
+      vec4 v = uProjInv*c; return v.xyz/v.w;
+    }
+    float h12(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+    void main(){
+      float d = texture2D(tDepth, vUv).x;
+      if(d >= 0.99995){ gl_FragColor = vec4(1.0); return; }
+      vec3 P = vpos(vUv, d);
+      vec3 N = normalize(texture2D(tNormal, vUv).xyz*2.0-1.0);
+      vec3 T = normalize(cross(N, abs(N.z)<0.9 ? vec3(0.0,0.0,1.0) : vec3(1.0,0.0,0.0)));
+      vec3 Bt = cross(N,T);
+      float rot = h12(vUv*uRes)*6.28318;
+      float occ = 0.0;
+      for(int i=0;i<12;i++){
+        float fi = float(i);
+        float ang = rot + fi*2.39996;
+        float rad = uRadius*sqrt((fi+0.6)/12.0);
+        vec3 S = P + normalize(T*cos(ang)+Bt*sin(ang)+N*0.62)*rad;
+        vec4 cp = uProj*vec4(S,1.0);
+        vec2 su = cp.xy/cp.w*0.5+0.5;
+        if(su.x<0.0||su.x>1.0||su.y<0.0||su.y>1.0) continue;
+        vec3 SP = vpos(su, texture2D(tDepth, su).x);
+        vec3 df = SP-P;
+        float dl = length(df);
+        if(dl < 1e-4) continue;
+        occ += max(dot(N, df/dl)-uBias, 0.0) * (uRadius/(uRadius+dl)) * step(dl, uRadius*2.4);
+      }
+      float ao = clamp(1.0 - occ*uInt/12.0, 0.0, 1.0);
+      gl_FragColor = vec4(ao,ao,ao,1.0);
+    }`,
+  depthTest:false, depthWrite:false });
+
+const aoBlurMat = new THREE.ShaderMaterial({
+  uniforms:{ tAO:{value:aoRT.texture}, tDepth:{value:nrmRT.depthTexture},
+    uTexel:{value:new THREE.Vector2()}, uNear:{value:camera.near}, uFar:{value:camera.far} },
+  vertexShader:POST_VS,
+  fragmentShader:`
+    uniform sampler2D tAO, tDepth; uniform vec2 uTexel; uniform float uNear, uFar;
+    varying vec2 vUv;
+    `+LINZ+`
+    void main(){
+      float zc = lz(texture2D(tDepth, vUv).x);
+      float s=0.0, w=0.0;
+      for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++){
+        vec2 o = vec2(float(x),float(y))*uTexel;
+        float a = texture2D(tAO, vUv+o).r;
+        float z = lz(texture2D(tDepth, vUv+o).x);
+        float wt = exp(-abs(z-zc)*1.6)*exp(-float(x*x+y*y)*0.18);
+        s += a*wt; w += wt;
+      }
+      float ao = s/max(w,1e-4);
+      gl_FragColor = vec4(ao,ao,ao,1.0);
+    }`,
+  depthTest:false, depthWrite:false });
+
+const compMat = new THREE.ShaderMaterial({
+  uniforms:{ tDiffuse:{value:sceneRT.texture}, tAO:{value:aoRT2.texture}, uAO:{value:1.0} },
+  vertexShader:POST_VS,
+  fragmentShader:`uniform sampler2D tDiffuse, tAO; uniform float uAO; varying vec2 vUv;
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float ao = mix(1.0, texture2D(tAO, vUv).r, uAO);
+      gl_FragColor = vec4(c*ao, 1.0);
+    }`,
+  depthTest:false, depthWrite:false });
+
+const finalMat = new THREE.ShaderMaterial({
+  uniforms:{ tDiffuse:{value:postRT.texture}, uExp:{value:exposure}, uTime:{value:0},
+    uUnder:{value:0}, uVig:{value:0.55}, uGrain:{value:0.035}, uAb:{value:1.0},
+    uRes:{value:new THREE.Vector2(2,2)} },
+  vertexShader:POST_VS,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float uExp, uTime, uUnder, uVig, uGrain, uAb;
+    uniform vec2 uRes; varying vec2 vUv;
+    vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+    vec3 srgb(vec3 c){ return mix(c*12.92, 1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055, step(vec3(0.0031308), c)); }
+    void main(){
+      vec2 uv = vUv;
+      if(uUnder > 0.001)                                     /* 水下：轻微波动折射 */
+        uv += vec2(sin(uv.y*34.0+uTime*1.9), cos(uv.x*28.0-uTime*1.5))*0.0034*uUnder;
+      vec2 dv = uv-0.5;
+      float r2 = dot(dv,dv);
+      vec3 col;
+      col.r = texture2D(tDiffuse, uv + dv*uAb*r2*0.030).r;   /* 边缘色散 */
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - dv*uAb*r2*0.030).b;
+      col *= uExp;
+      col = mix(col, col*vec3(0.88,1.00,1.06), 0.60);         /* 冷白 / 湿绿基调 */
+      col = aces(col);                                       /* ACES 近似曲线 */
+      col = mix(col, col*vec3(0.32,0.76,0.86)+vec3(0.0,0.025,0.045), uUnder*0.9);
+      col *= 1.0 - uVig*pow(clamp(r2*2.5,0.0,1.0), 1.35);     /* 暗角 */
+      float g = fract(sin(dot(uv*uRes+uTime*57.0, vec2(12.9898,78.233)))*43758.5453);
+      col += (g-0.5)*uGrain;
+      gl_FragColor = vec4(srgb(max(col,0.0)), 1.0);
+    }`,
+  depthTest:false, depthWrite:false });
+
+const fsq = new FullScreenQuad(copyMat);
+function blit(mat, target){
+  fsq.material = mat;
+  renderer.setRenderTarget(target);
+  fsq.render(renderer);
+}
+
+/* =========================================================================
+   13. 第一人称控制：行走 / 疾走 / 跳跃 / 游泳 / 自由飞行观赏
+   ========================================================================= */
+const SPAWN = { x:20.5*CS, z:3.0*CS, yaw:Math.PI };
+const P = { x:SPAWN.x, z:SPAWN.z, feet:0, vy:0, yaw:SPAWN.yaw, pitch:0, ground:true,
+            bob:0, fly:false, flyY:12, moving:0, safeX:SPAWN.x, safeZ:SPAWN.z, safeF:0 };
+let underMix = 0, locked = false, started = false;
+
+const keys = Object.create(null);
+addEventListener('keydown', e=>{
+  keys[e.code] = true;
+  if(e.code==='KeyF'){ P.fly = !P.fly;
+    if(P.fly) P.flyY = P.feet+EYE;
+    else { const h=floorHeightAt(P.x,P.z); if(h!==null){ P.feet=Math.max(h, P.flyY-EYE); P.vy=0; } }
+    toast(P.fly?'自由飞行观赏模式':'步行模式'); }
+  if(e.code==='KeyO'){ P.fly=true; P.x=19.5*CS; P.z=26*CS; P.flyY=52; P.pitch=-1.16; P.yaw=Math.PI; toast('俯瞰全图'); }
+  if(e.code==='KeyR'){ P.x=SPAWN.x; P.z=SPAWN.z; P.feet=0; P.vy=0; P.yaw=SPAWN.yaw; P.pitch=0; P.fly=false; toast('回到出生点'); }
+  if(e.code==='KeyL'){ for(const L of lamps) Object.assign(L, rollLamp()); toast('灯光故障重掷'); }
+  if(e.code==='KeyM'){ muted=!muted; if(AC) master.gain.value = muted?0:0.9; toast(muted?'静音':'音频开'); }
+  if(e.code==='BracketLeft')  { exposure=Math.max(0.35,exposure-0.06); toast('曝光 '+exposure.toFixed(2)); }
+  if(e.code==='BracketRight') { exposure=Math.min(2.6, exposure+0.06); toast('曝光 '+exposure.toFixed(2)); }
+  if(e.code==='Digit1'||e.code==='Digit2'||e.code==='Digit3'){
+    q = +e.code.slice(5)-1; sceneRT.samples = QUALITY[q].msaa; resize();
+    toast('画质 '+QUALITY[q].name);
+  }
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+addEventListener('keyup', e=>{ keys[e.code] = false; });
+
+let toastT = 0;
+function toast(msg){ const el=$('#toast'); el.textContent=msg; el.style.color='rgba(226,242,245,.85)'; toastT=2.2; }
+
+const cv = renderer.domElement;
+cv.addEventListener('click', ()=>{ if(!locked) cv.requestPointerLock(); });
+veil.addEventListener('click', ()=>{
+  if(!started) return;
+  veil.classList.add('hide');
+  setTimeout(()=>veil.style.display='none', 700);
+  cv.requestPointerLock();
+  initAudio();
+});
+document.addEventListener('pointerlockchange', ()=>{ locked = (document.pointerLockElement===cv); });
+document.addEventListener('mousemove', e=>{
+  if(!locked) return;
+  P.yaw   -= e.movementX*0.0021;
+  P.pitch -= e.movementY*0.0021;
+  P.pitch = Math.max(-1.52, Math.min(1.52, P.pitch));
+});
+
+function okAt(x,z,feetY){
+  const h = floorHeightAt(x,z);
+  if(h===null) return false;
+  return (h - feetY) <= 0.62;
+}
+function stepAxis(dx,dz){
+  if(dx!==0){
+    const s = Math.sign(dx), tx = P.x+dx;
+    if(okAt(tx+s*PR, P.z, P.feet) && okAt(tx+s*PR, P.z+PR*0.72, P.feet) && okAt(tx+s*PR, P.z-PR*0.72, P.feet)) P.x = tx;
+  }
+  if(dz!==0){
+    const s = Math.sign(dz), tz = P.z+dz;
+    if(okAt(P.x, tz+s*PR, P.feet) && okAt(P.x+PR*0.72, tz+s*PR, P.feet) && okAt(P.x-PR*0.72, tz+s*PR, P.feet)) P.z = tz;
+  }
+}
+
+function updatePlayer(dt, t){
+  const fwd = (keys.KeyW?1:0) - (keys.KeyS?1:0);
+  const str = (keys.KeyD?1:0) - (keys.KeyA?1:0);
+  const run = !!(keys.ShiftLeft||keys.ShiftRight);
+  const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+  const gh0 = floorHeightAt(P.x, P.z);
+  const depth = WATER_Y - (gh0===null ? 0 : gh0);   /* 该处水深 */
+  const swimming = depth > 1.0;                     /* 深水才游泳，浅水涉水而行 */
+  const inWater = P.feet < WATER_Y - 0.04;
+
+  if(P.fly){                                        /* 观赏模式：穿墙自由飞行 */
+    const sp = (run?26:9)*dt;
+    const cp = Math.cos(P.pitch), sp2 = Math.sin(P.pitch);
+    P.x += (-sy*cp*fwd + cy*str)*sp;
+    P.z += (-cy*cp*fwd - sy*str)*sp;
+    P.flyY += (sp2*fwd)*sp + ((keys.Space?1:0)-(keys.KeyC?1:0))*sp;
+    P.flyY = Math.max(-6, Math.min(70, P.flyY));
+    P.moving = 0;
+  }else{
+    let sp = (run?5.3:2.95)*(inWater ? (swimming?0.42:0.62) : 1)*dt;
+    const mx = (-sy*fwd + cy*str), mz = (-cy*fwd - sy*str);
+    const ml = Math.hypot(mx,mz);
+    if(ml>0.001){ stepAxis(mx/ml*sp, 0); stepAxis(0, mz/ml*sp); }
+    P.moving = ml>0.001 ? (run?1.6:1) : 0;
+
+    let h = floorHeightAt(P.x, P.z);
+    if(h===null){                                   /* 越界保护：回滚到最近合法位置 */
+      P.x = P.safeX; P.z = P.safeZ; P.feet = P.safeF; P.vy = 0;
+      h = floorHeightAt(P.x, P.z);
+      if(h===null){ P.x=SPAWN.x; P.z=SPAWN.z; P.feet=0; h=0; }
+    }else if(P.ground){ P.safeX=P.x; P.safeZ=P.z; P.safeF=h; }
+    const gh = h;
+    if(swimming){                                   /* 游泳：浮力弹簧 + 上浮/下潜 */
+      const tgt = (WATER_Y-0.34-P.feet)*2.0 + (keys.Space?2.6:0) - (keys.KeyC?4.8:0);
+      P.vy += (tgt-P.vy)*Math.min(1, dt*6);
+      P.feet += P.vy*dt;
+      if(P.feet < gh){ P.feet = gh; P.vy = Math.max(P.vy,0); }
+      if(P.feet > WATER_Y+0.02){ P.feet = WATER_Y+0.02; P.vy = Math.min(P.vy,0); }
+      P.ground = false;
+    }else{
+      P.vy -= 18.0*dt;
+      if(keys.Space && P.ground){ P.vy = 5.4; P.ground=false; }
+      P.feet += P.vy*dt;
+      if(P.feet <= gh + 1e-4){ P.feet = gh; P.vy = 0; P.ground = true; }
+      else if(P.feet - gh < 0.02) P.ground = true;
+    }
+  }
+
+  /* 呼吸式相机浮动 + 步行摇摆 */
+  P.bob += dt*(P.moving? (9.5*P.moving) : 1.25);
+  const bobY = P.moving ? Math.sin(P.bob*2)*0.032*P.moving : Math.sin(P.bob)*0.009;
+  const bobR = P.moving ? Math.sin(P.bob)*0.011*P.moving : Math.sin(P.bob*0.7)*0.0035;
+  const brY  = Math.sin(t*1.15)*0.007 + Math.sin(t*0.37)*0.004;
+  const eyeY = (P.fly? P.flyY : P.feet + EYE + bobY + brY);
+  camera.position.set(P.x, eyeY, P.z);
+  camera.rotation.set(P.pitch + (P.moving?Math.sin(P.bob*2+1.2)*0.004:0), P.yaw, bobR, 'YXZ');
+
+  const sub = (eyeY < WATER_Y - 0.01) && !P.fly;
+  underMix += ((sub?1:0)-underMix)*Math.min(1, dt*5.5);
+  if(AC && lowpass) lowpass.frequency.value = 22000 - underMix*21500;
+}
+
+/* =========================================================================
+   14. 灯光故障状态机 + 动态光源池
+   ========================================================================= */
+function jh(a,b){ const x=Math.sin(a*127.1+b*311.7)*43758.5453; return x-Math.floor(x); }
+let flickerNear = 0;
+function updateLamps(t){
+  const la = B.lamp.mesh ? B.lamp.mesh.geometry.attributes.aLvl : null;
+  const sa = B.shaft.mesh ? B.shaft.mesh.geometry.attributes.aLvl : null;
+  for(let k=0;k<lamps.length;k++){
+    const L = lamps[k]; let v;
+    if(L.mode===0)      v = 1 - 0.035*Math.sin(t*L.f+L.p);                        // 正常（微弱漂移）
+    else if(L.mode===1) v = 0.70 + 0.30*Math.sin(t*L.f+L.p)*Math.sin(t*L.f*0.41+L.p*1.7); // 明暗抖动
+    else if(L.mode===2){                                                          // 频闪
+      const s = Math.sin(t*L.f+L.p)*Math.sin(t*L.f*0.37+L.p*1.7);
+      v = s>0.30 ? 1.0 : (s>0.06 ? 0.40 : 0.025);
+    }else v = 0.012 + (jh(k, Math.floor(t*0.8))>0.975 ? 0.5 : 0);                 // 熄灭 + 偶发回魂
+    L.lvl = v;
+    if(la){ la.array[k*2]=v; la.array[k*2+1]=v; }
+  }
+  if(la) la.needsUpdate = true;
+  if(sa){ for(let s=0;s<shaftLamp.length;s++) sa.array[s]=lamps[shaftLamp[s]].lvl; sa.needsUpdate=true; }
+}
+const _best = [];
+function updateLights(){
+  _best.length = 0;
+  const cx=camera.position.x, cy=camera.position.y, cz=camera.position.z;
+  flickerNear = 0;
+  for(let k=0;k<lamps.length;k++){
+    const L = lamps[k];
+    const d2 = (L.x-cx)*(L.x-cx)+(L.y-cy)*(L.y-cy)+(L.z-cz)*(L.z-cz);
+    if(d2 < 90 && L.mode>0 && L.mode<3) flickerNear = Math.max(flickerNear, 1-d2/90);
+    if(L.lvl < 0.04 || d2 > 30*30) continue;
+    if(_best.length < LIGHT_N){ _best.push({k,d2}); _best.sort((a,b)=>a.d2-b.d2); }
+    else if(d2 < _best[_best.length-1].d2){ _best[_best.length-1] = {k,d2}; _best.sort((a,b)=>a.d2-b.d2); }
+  }
+  for(let i=0;i<LIGHT_N;i++){
+    const pl = pool[i];
+    if(i < _best.length){
+      const L = lamps[_best[i].k], d = Math.sqrt(_best[i].d2);
+      pl.position.set(L.x, L.y-0.05, L.z);
+      pl.intensity = 56*L.lvl*(1-Math.min(1,Math.max(0,(d-16)/14)));
+    }else pl.intensity = 0;
+  }
+}
+
+/* =========================================================================
+   15. WebAudio：程序化灯管嗡鸣 / 房间底噪 / 水滴回响
+   ========================================================================= */
+let AC=null, master=null, lowpass=null, humGain=null, roomGain=null, convo=null, muted=false;
+function initAudio(){
+  if(AC) return;
+  try{
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    lowpass = AC.createBiquadFilter(); lowpass.type='lowpass'; lowpass.frequency.value=22000;
+    master = AC.createGain(); master.gain.value = muted?0:0.9;
+    master.connect(lowpass); lowpass.connect(AC.destination);
+
+    const len = Math.floor(AC.sampleRate*2.6);              // 程序化混响脉冲
+    const buf = AC.createBuffer(2, len, AC.sampleRate);
+    for(let ch=0;ch<2;ch++){
+      const d = buf.getChannelData(ch);
+      for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/len, 2.7)*0.7;
+    }
+    convo = AC.createConvolver(); convo.buffer = buf;
+    const wet = AC.createGain(); wet.gain.value = 0.7;
+    convo.connect(wet); wet.connect(master);
+
+    const lp = AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300; lp.Q.value=0.8;
+    humGain = AC.createGain(); humGain.gain.value = 0.05;
+    for(const [type,f,g] of [['sine',50,1],['sine',100.7,0.6],['sawtooth',150.3,0.14]]){
+      const o = AC.createOscillator(); o.type=type; o.frequency.value=f;
+      const og = AC.createGain(); og.gain.value=g;
+      o.connect(og); og.connect(lp); o.start();
+    }
+    lp.connect(humGain); humGain.connect(master);
+
+    const nb = AC.createBuffer(1, AC.sampleRate*2, AC.sampleRate);
+    const nd = nb.getChannelData(0);
+    for(let i=0;i<nd.length;i++) nd[i] = Math.random()*2-1;
+    const ns = AC.createBufferSource(); ns.buffer=nb; ns.loop=true;
+    const nf = AC.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=420; nf.Q.value=0.5;
+    roomGain = AC.createGain(); roomGain.gain.value = 0.024;
+    ns.connect(nf); nf.connect(roomGain); roomGain.connect(master); ns.start();
+
+    scheduleDrip();
+  }catch(e){ console.warn('audio off', e); }
+}
+function scheduleDrip(){
+  if(!AC) return;
+  const wait = 1200 + Math.random()*5200;
+  setTimeout(()=>{
+    if(AC && !muted){
+      const t=AC.currentTime, o=AC.createOscillator(), g=AC.createGain();
+      const f0 = 780+Math.random()*1500;
+      o.type='sine';
+      o.frequency.setValueAtTime(f0,t);
+      o.frequency.exponentialRampToValueAtTime(f0*0.33, t+0.10);
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.13,t+0.006);
+      g.gain.exponentialRampToValueAtTime(0.0002,t+0.24);
+      o.connect(g); g.connect(convo); g.connect(master);
+      o.start(t); o.stop(t+0.3);
+    }
+    scheduleDrip();
+  }, wait);
+}
+
+/* =========================================================================
+   16. 渲染循环
+   ========================================================================= */
+renderer.setClearColor(FOG_COLOR, 1);
+let acc = 0, frames = 0, fps = 60, hudT = 0;
+
+function renderFrame(dt, t){
+  const und = underMix > 0.5;
+  for(const m of surfMats) m.userData.U.uTime.value = t;
+  shaftMat.uniforms.uTime.value = t;
+  mistMat.uniforms.uTime.value = t;
+  const wu = waterMat.uniforms;
+  wu.uTime.value = t; wu.uRes.value.set(RW,RH);
+  wu.uUnder.value = und?1:0;
+  wu.uNear.value = camera.near; wu.uFar.value = camera.far;
+  wu.uFogD2.value = scene.fog.density;
+  aoMat.uniforms.uNear.value = aoBlurMat.uniforms.uNear.value = camera.near;
+  aoMat.uniforms.uFar.value  = aoBlurMat.uniforms.uFar.value  = camera.far;
+
+  /* ① 法线 + 深度预通道（供 SSAO 与水面厚度） */
+  setLayers(camera,[L_SOLID,L_UNDER]);
+  scene.overrideMaterial = normalMat;
+  renderer.setRenderTarget(nrmRT);
+  renderer.render(scene, camera);
+  scene.overrideMaterial = null;
+
+  /* ② 平面反射（镜像相机，排除水下实体层） */
+  if(!und){
+    updateRefl();
+    setLayers(reflCam,[L_SOLID,L_DECAL,L_VOL]);
+    renderer.setRenderTarget(reflRT);
+    renderer.render(scene, reflCam);
+  }
+
+  /* ③ 主场景（线性 HDR） */
+  setLayers(camera,[L_SOLID,L_DECAL,L_UNDER]);
+  renderer.setRenderTarget(sceneRT);
+  renderer.render(scene, camera);
+
+  /* ④ 折射源拷贝（半分辨率，天然带一点模糊） */
+  copyMat.uniforms.tDiffuse.value = sceneRT.texture;
+  blit(copyMat, refrRT);
+
+  /* ⑤ 水面 + ⑥ 体积光：沿用主场景深度缓冲 */
+  renderer.autoClear = false;
+  setLayers(camera,[L_WATER]);
+  renderer.setRenderTarget(sceneRT);
+  renderer.render(scene, camera);
+  if(QUALITY[q].shafts){
+    setLayers(camera,[L_VOL]);
+    renderer.setRenderTarget(sceneRT);
+    renderer.render(scene, camera);
+  }
+  renderer.autoClear = true;
+
+  /* ⑦ SSAO → 合成 */
+  if(QUALITY[q].ssao){
+    aoMat.uniforms.uProj.value.copy(camera.projectionMatrix);
+    aoMat.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
+    aoMat.uniforms.uRes.value.set(aoRT.width, aoRT.height);
+    blit(aoMat, aoRT);
+    aoBlurMat.uniforms.uTexel.value.set(1/aoRT.width, 1/aoRT.height);
+    blit(aoBlurMat, aoRT2);
+    compMat.uniforms.uAO.value = 1.0;
+  }else compMat.uniforms.uAO.value = 0.0;
+  compMat.uniforms.tDiffuse.value = sceneRT.texture;
+  blit(compMat, postRT);
+
+  /* ⑧ Bloom：加性叠回 postRT */
+  if(QUALITY[q].bloom) bloom.render(renderer, null, postRT, dt, false);
+
+  /* ⑨ ACES + 调色 + 暗角 + 颗粒 + 水下滤镜 → 屏幕 */
+  const fu = finalMat.uniforms;
+  fu.tDiffuse.value = postRT.texture;
+  fu.uRes.value.set(RW,RH);
+  fu.uExp.value = exposure;
+  fu.uTime.value = t;
+  fu.uUnder.value = underMix;
+  fu.uVig.value = 0.52 + underMix*0.2;
+  blit(finalMat, null);
+}
+
+const clock = new THREE.Clock();
+function loop(){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, clock.getDelta());
+  const t  = clock.elapsedTime;
+
+  updatePlayer(dt, t);
+  updateLamps(t);
+  updateLights();
+  if(AC && humGain){
+    humGain.gain.value = 0.035 + 0.075*flickerNear;
+    roomGain.gain.value = 0.018 + 0.02*(regionAt(P.x,P.z)==='hall'?1:0);
+  }
+  renderFrame(dt, t);
+
+  /* 自适应分辨率：稳住 60fps */
+  acc += dt; frames++;
+  if(acc > 0.5){
+    fps = frames/acc; acc = 0; frames = 0;
+    const old = dyn;
+    if(fps < 50) dyn = Math.max(0.62, dyn-0.08);
+    else if(fps > 58) dyn = Math.min(1.0, dyn+0.05);
+    if(Math.abs(dyn-old) > 0.01) resize();
+  }
+  if(toastT>0){ toastT-=dt; if(toastT<=0) $('#toast').style.color='rgba(226,242,245,0)'; }
+  hudT += dt;
+  if(hudT > 0.25){
+    hudT = 0;
+    $('#stats').textContent =
+      `FPS ${fps.toFixed(0)}   渲染 ${RW}×${RH}   画质 ${QUALITY[q].name}   曝光 ${exposure.toFixed(2)}\n`+
+      `区域 ${regionAt(P.x,P.z)}   坐标 ${P.x.toFixed(1)} , ${(P.fly?P.flyY:P.feet+EYE).toFixed(1)} , ${P.z.toFixed(1)}\n`+
+      `批次 ${STATS.meshes+4}   三角面 ${(STATS.tri/1000).toFixed(0)}k   灯管 ${lamps.length*2} 支`+
+      (P.fly?'   [自由飞行]':'') + (underMix>0.5?'   [水下]':'');
+  }
+}
+
+/* =========================================================================
+   17. 启动
+   ========================================================================= */
+resize();
+updateLamps(0);
+camera.position.set(P.x, EYE, P.z);
+camera.rotation.set(0, P.yaw, 0, 'YXZ');
+updateLights();
+const tick = ()=> new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0)));
+setProg(0.72,'烘焙环境反射探针…'); await tick();
+bakeEnv();
+setProg(0.88,'编译着色器…'); await tick();
+setLayers(camera,[L_SOLID,L_DECAL,L_UNDER,L_WATER,L_VOL]);
+renderer.compile(scene, camera);
+setProg(1.0,'点击进入'); await tick();
+started = true;
+$('#brief').textContent += `\n\n实例批次 ${STATS.meshes} ／ 三角面 ${(STATS.tri/1000).toFixed(0)}k ／ 灯管 ${lamps.length*2} 支`;
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TSL Gerstner Ocean · WebGPU path</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #060a10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #cfe0ee; font: 13px/1.8 ui-monospace, Menlo, Consolas, monospace; text-align: center;
+    padding: 0 28px; z-index: 10; }
+  #panel { position: fixed; top: 12px; left: 12px; z-index: 20; padding: 11px 13px;
+    background: rgba(9,14,20,.82); border: 1px solid rgba(120,170,210,.22); border-radius: 9px;
+    color: #dbe6ef; font: 11px/1.7 ui-monospace, monospace; width: 232px; display: none; }
+  #panel h1 { margin: 0 0 6px; font-size: 12px; color: #7fd8ff; }
+  #panel input { width: 100%; accent-color: #ff7a3c; }
+  #panel a { color: #8fb8d8; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js",
+    "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.tsl.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="msg">检测 WebGPU / probing WebGPU…</div>
+<div id="panel">
+  <h1>TSL OCEAN · WebGPU</h1>
+  <div>海啸 Tsunami</div>
+  <input id="tsu" type="range" min="0" max="1" step="0.01" value="0">
+  <div>太阳高度 Sun elevation</div>
+  <input id="sun" type="range" min="-0.1" max="1" step="0.01" value="0.35">
+  <div style="margin-top:8px;color:#7d8fa0">← <a href="./index.html">返回主模拟器</a></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createTSLOcean, isWebGPUAvailable } from './src/webgpu/OceanTSL.js';
+
+const msg = document.getElementById('msg');
+
+if (!(await isWebGPUAvailable())) {
+  msg.innerHTML = '此浏览器/设备没有可用的 WebGPU 适配器。<br>'
+    + 'No usable WebGPU adapter — this is the optional path.<br><br>'
+    + '主模拟器走 WebGL2，完整可用：<a style="color:#8fb8d8" href="./index.html">index.html</a>';
+} else {
+  const canvas = document.createElement('canvas');
+  document.body.appendChild(canvas);
+
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+  await renderer.init();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 30000);
+  camera.position.set(0, 120, 520);
+
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.target.set(0, 0, 0);
+  controls.maxPolarAngle = Math.PI * 0.495;
+  controls.minDistance = 12;
+  controls.maxDistance = 6000;
+
+  const ocean = createTSLOcean({ size: 9000, segments: 420 });
+  scene.add(ocean.mesh);
+
+  const sun = new THREE.DirectionalLight(0xfff0dd, 3.0);
+  scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0x9fc4e8, 0x203040, 0.5));
+
+  // A minimal Golden Gate stand-in so the water has something to break against.
+  const orange = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.85 });
+  for (const sx of [-640, 640]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(13, 227, 17), orange);
+    leg.position.set(sx, 113, -10.5); scene.add(leg);
+    const leg2 = leg.clone(); leg2.position.z = 10.5; scene.add(leg2);
+  }
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(2737, 7.6, 27.4), orange);
+  deck.position.y = 67; scene.add(deck);
+
+  const sunDir = new THREE.Vector3();
+  const elevInput = document.getElementById('sun');
+  const tsuInput = document.getElementById('tsu');
+  function applySun() {
+    const e = parseFloat(elevInput.value);
+    sunDir.set(Math.cos(2.2) * Math.cos(e), Math.sin(e), Math.sin(2.2) * Math.cos(e)).normalize();
+    ocean.setSun(sunDir);
+    sun.position.copy(sunDir).multiplyScalar(3000);
+    sun.intensity = 0.3 + 3.0 * Math.max(sunDir.y, 0);
+  }
+  elevInput.addEventListener('input', applySun);
+  applySun();
+
+  let tsuX = -4200;
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  msg.remove();
+  document.getElementById('panel').style.display = 'block';
+
+  const clock = new THREE.Clock();
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const amount = parseFloat(tsuInput.value);
+    if (amount > 0.01) {
+      tsuX += 110 * dt;
+      if (tsuX > 5000) tsuX = -4200;
+      ocean.setTsunami(tsuX, 92 * amount, 620, true);
+    } else {
+      ocean.setTsunami(-4200, 0, 620, false);
+      tsuX = -4200;
+    }
+    ocean.follow(camera);
+    controls.update();
+    renderer.render(scene, camera);
+  });
+
+  window.TSL_OCEAN = { ready: true, renderer, ocean };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e10">
+<title>AH-64D 阿帕奇·长弓 — 超高精度实时 3D 模型</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#08090b;color:#e8ece9;
+    font-family:system-ui,-apple-system,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
+  canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  /* ---------- 载入层 ---------- */
+  #loading{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(120% 90% at 50% 40%,#141a1d 0%,#07080a 70%);transition:opacity .5s ease,visibility .5s}
+  #loading.hide{opacity:0;visibility:hidden}
+  .rotor{width:86px;height:86px;position:relative;margin-bottom:26px;animation:spin 1.1s linear infinite}
+  .rotor i{position:absolute;left:50%;top:50%;width:78px;height:5px;margin:-2.5px 0 0 -39px;border-radius:3px;
+    background:linear-gradient(90deg,rgba(140,175,140,.05),#93a893,rgba(140,175,140,.05))}
+  .rotor i:nth-child(2){transform:rotate(45deg)}
+  .rotor i:nth-child(3){transform:rotate(90deg)}
+  .rotor i:nth-child(4){transform:rotate(135deg)}
+  .rotor b{position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
+    background:#c8d2c4;box-shadow:0 0 18px rgba(200,210,196,.35)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loading h1{font-size:15px;letter-spacing:.34em;font-weight:600;margin:0 0 6px;color:#dfe6dd;text-transform:uppercase}
+  #loading p{margin:0 0 22px;font-size:11.5px;letter-spacing:.18em;color:#7f8b82}
+  #load-track{width:min(340px,62vw);height:2px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+  #load-bar{height:100%;width:0;background:linear-gradient(90deg,#5c7a5c,#b9c9a8);transition:width .35s ease}
+  #load-txt{margin-top:12px;font-size:11px;letter-spacing:.1em;color:#68756c;min-height:14px}
+
+  /* ---------- UI 总层 ---------- */
+  #ui{position:fixed;inset:0;z-index:20;pointer-events:none;opacity:0;transition:opacity .8s ease .1s}
+  #ui.show{opacity:1}
+  #ui button,#ui input,#ui select,#ui label,#ui .card{pointer-events:auto}
+
+  /* 顶栏 */
+  #top{position:absolute;top:0;left:0;right:0;padding:16px 18px;display:flex;justify-content:space-between;
+    align-items:flex-start;gap:14px;
+    background:linear-gradient(180deg,rgba(4,6,7,.72),rgba(4,6,7,0));}
+  .title{display:flex;flex-direction:column;gap:5px}
+  .title .t1{font-size:17px;font-weight:700;letter-spacing:.08em;line-height:1;
+    text-shadow:0 2px 14px rgba(0,0,0,.6)}
+  .title .t1 em{font-style:normal;color:#a9c08f}
+  .title .t2{font-size:10.5px;letter-spacing:.22em;color:#8d9a90;text-transform:uppercase}
+  .title .bar{width:54px;height:2px;background:linear-gradient(90deg,#a9c08f,rgba(169,192,143,0));margin-top:2px}
+
+  #hud{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .stat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+  .stat b{font-size:14px;color:#e9efe6;font-weight:650}
+  .stat span{font-size:9.5px;letter-spacing:.14em;color:#78857c;text-transform:uppercase}
+  .icons{display:flex;gap:8px}
+  .ico{width:32px;height:32px;border-radius:9px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(14,18,20,.6);color:#c8d2c8;display:grid;place-items:center;cursor:pointer;
+    backdrop-filter:blur(10px);font-size:14px;transition:.18s}
+  .ico:hover{background:rgba(40,52,44,.8);border-color:rgba(169,192,143,.5);color:#dff0d8}
+
+  /* 面板 */
+  #panel{position:absolute;top:66px;right:16px;width:292px;max-height:calc(100vh - 112px);overflow-y:auto;overflow-x:hidden;
+    padding:14px 14px 16px;border-radius:15px;border:1px solid rgba(255,255,255,.09);
+    background:linear-gradient(180deg,rgba(13,17,19,.72),rgba(9,12,13,.78));
+    backdrop-filter:blur(20px) saturate(1.1);box-shadow:0 22px 60px rgba(0,0,0,.5);
+    scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent;transition:transform .38s cubic-bezier(.3,.8,.2,1),opacity .3s}
+  #panel::-webkit-scrollbar{width:6px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+  #panel.collapsed{transform:translateX(calc(100% + 24px));opacity:0}
+  .sec{margin-bottom:14px}
+  .sec:last-child{margin-bottom:2px}
+  .sec>h3{margin:0 0 9px;font-size:9.5px;letter-spacing:.2em;color:#7f8d80;text-transform:uppercase;
+    display:flex;align-items:center;gap:8px}
+  .sec>h3:after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
+  .row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .seg{flex:1 1 auto;min-width:60px;padding:6px 8px;font-size:11px;border-radius:8px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:#b9c4ba;
+    font-family:inherit;transition:.16s;white-space:nowrap}
+  .seg:hover{background:rgba(169,192,143,.12);color:#e4efdc}
+  .seg.on{background:linear-gradient(180deg,rgba(169,192,143,.28),rgba(120,150,105,.18));
+    border-color:rgba(179,202,153,.6);color:#eaf5e2;box-shadow:0 0 0 1px rgba(169,192,143,.15) inset}
+  #btn-start{width:100%;padding:11px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:650;
+    letter-spacing:.16em;color:#dbe6d6;border:1px solid rgba(255,255,255,.14);
+    background:linear-gradient(180deg,rgba(52,62,52,.8),rgba(26,32,27,.9));transition:.2s;
+    display:flex;align-items:center;justify-content:center;gap:9px}
+  #btn-start:hover{border-color:rgba(179,202,153,.6)}
+  #btn-start .led{width:8px;height:8px;border-radius:50%;background:#5c6a5c;transition:.25s}
+  #btn-start.on{background:linear-gradient(180deg,rgba(88,116,74,.85),rgba(40,58,36,.92));border-color:rgba(179,202,153,.75)}
+  #btn-start.on .led{background:#b6e884;box-shadow:0 0 12px #8ede5c}
+  .meter{height:4px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin:9px 0 4px}
+  .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#6d8a55,#c4dba0);transition:width .12s linear}
+  .kv{display:flex;justify-content:space-between;font-size:10px;color:#8b978c;letter-spacing:.08em}
+  .slider{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+  .slider label{font-size:11px;color:#a9b4aa;width:56px;flex:none}
+  .slider .val{font-size:10px;color:#7f8d80;width:38px;text-align:right;flex:none}
+  input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:16px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:rgba(255,255,255,.14)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-5px;border-radius:50%;
+    background:#cfdcc4;border:1px solid rgba(0,0,0,.4);box-shadow:0 1px 5px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:rgba(255,255,255,.14)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#cfdcc4;border:1px solid rgba(0,0,0,.4)}
+  .chk{display:flex;align-items:center;gap:9px;font-size:11.5px;color:#b3bfb4;padding:4px 0;cursor:pointer;user-select:none}
+  .chk input{appearance:none;-webkit-appearance:none;width:32px;height:17px;border-radius:9px;margin:0;flex:none;
+    background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);position:relative;cursor:pointer;transition:.2s}
+  .chk input:after{content:"";position:absolute;top:1.5px;left:2px;width:12px;height:12px;border-radius:50%;
+    background:#8d998e;transition:.2s}
+  .chk input:checked{background:rgba(140,180,110,.4);border-color:rgba(179,202,153,.6)}
+  .chk input:checked:after{left:17px;background:#dff0d0}
+  .chk.half{width:calc(50% - 3px)}
+  select{width:100%;padding:6px 8px;font-size:11px;border-radius:8px;font-family:inherit;
+    background:rgba(255,255,255,.04);color:#c3cec3;border:1px solid rgba(255,255,255,.1);outline:none}
+
+  /* 底部提示 */
+  #hint{position:absolute;left:18px;bottom:14px;font-size:10.5px;letter-spacing:.06em;color:#7c887f;
+    display:flex;gap:14px;flex-wrap:wrap;max-width:60vw;
+    text-shadow:0 1px 8px rgba(0,0,0,.8)}
+  #hint b{color:#a9b8a6;font-weight:600}
+
+  /* 技术数据 */
+  #specs{position:absolute;left:18px;top:96px;width:270px;padding:14px;border-radius:14px;
+    border:1px solid rgba(255,255,255,.09);background:linear-gradient(180deg,rgba(13,17,19,.74),rgba(9,12,13,.8));
+    backdrop-filter:blur(18px);box-shadow:0 20px 50px rgba(0,0,0,.5);
+    opacity:0;visibility:hidden;transform:translateX(-12px);transition:.32s ease;pointer-events:none}
+  #specs.show{opacity:1;visibility:visible;transform:none}
+  #specs h3{margin:0 0 10px;font-size:10px;letter-spacing:.2em;color:#8b9a8c;text-transform:uppercase}
+  #specs table{width:100%;border-collapse:collapse;font-size:11px}
+  #specs td{padding:3.5px 0;color:#aab6ab;border-bottom:1px dashed rgba(255,255,255,.06)}
+  #specs td+td{text-align:right;color:#e2eadd;font-family:ui-monospace,Menlo,Consolas,monospace}
+
+  /* 3D 标注 */
+  #labels{position:absolute;inset:0;pointer-events:none}
+  .hot{position:absolute;left:0;top:0;will-change:transform;transition:opacity .3s}
+  .hot .dot{position:absolute;width:7px;height:7px;border-radius:50%;background:#cfe0bd;
+    box-shadow:0 0 0 4px rgba(180,205,150,.18),0 0 12px rgba(190,220,160,.5);transform:translate(-50%,-50%)}
+  .hot .line{position:absolute;left:3px;top:-1px;width:34px;height:1px;
+    background:linear-gradient(90deg,rgba(200,220,180,.75),rgba(200,220,180,.15))}
+  .hot .card{position:absolute;left:40px;top:0;transform:translateY(-50%);white-space:nowrap;
+    padding:5px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(10,14,15,.62);backdrop-filter:blur(9px);box-shadow:0 8px 22px rgba(0,0,0,.4)}
+  .hot.flip .line{left:auto;right:3px;background:linear-gradient(270deg,rgba(200,220,180,.75),rgba(200,220,180,.15))}
+  .hot.flip .card{left:auto;right:40px}
+  .hot .card b{display:block;font-size:11.5px;color:#e7f0e0;font-weight:600;letter-spacing:.02em}
+  .hot .card i{display:block;font-style:normal;font-size:9.5px;color:#8d9b8d;margin-top:1px;letter-spacing:.04em}
+
+  @media (max-width:900px){
+    #panel{top:auto;bottom:0;right:0;left:0;width:100%;max-height:52vh;border-radius:16px 16px 0 0}
+    #panel.collapsed{transform:translateY(calc(100% + 12px))}
+    #specs{top:auto;bottom:56vh;width:calc(100% - 36px)}
+    #hint{display:none}
+    .title .t1{font-size:14px}
+    #hud .stat:nth-child(n+4){display:none}
+    .hot .card i{display:none}
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loading">
+  <div class="rotor"><i></i><i></i><i></i><i></i><b></b></div>
+  <h1>AH-64D APACHE LONGBOW</h1>
+  <p>程序化超高精度实时模型 · 零外部资源</p>
+  <div id="load-track"><div id="load-bar"></div></div>
+  <div id="load-txt">初始化…</div>
+</div>
+
+<div id="ui">
+  <div id="top">
+    <div class="title">
+      <div class="t1">AH-64D <em>阿帕奇 · 长弓</em></div>
+      <div class="t2">Boeing AH-64D Apache Longbow · procedural realtime model</div>
+      <div class="bar"></div>
+    </div>
+    <div id="hud">
+      <div class="stat"><b><span id="hud-rpm">0</span></b><span>旋翼 RPM</span></div>
+      <div class="stat"><b><span id="hud-tri">0</span></b><span>三角面</span></div>
+      <div class="stat"><b><span id="hud-mesh">0</span></b><span>零件</span></div>
+      <div class="stat"><b><span id="hud-draw">0</span></b><span>Draw Call</span></div>
+      <div class="stat"><b><span id="hud-fps">0</span></b><span>FPS</span></div>
+      <div class="icons">
+        <button class="ico" id="btn-help" title="技术数据 (I)">i</button>
+        <button class="ico" id="btn-shot" title="截图 (P)">◉</button>
+        <button class="ico" id="btn-panel" title="收起面板 (H)">≡</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="labels"></div>
+
+  <div id="specs">
+    <h3>技术数据 / Specifications</h3>
+    <table>
+      <tr><td>机身长度</td><td>14.97 m</td></tr>
+      <tr><td>旋翼直径</td><td>14.63 m</td></tr>
+      <tr><td>全高（含雷达）</td><td>4.66 m</td></tr>
+      <tr><td>短翼翼展</td><td>5.23 m</td></tr>
+      <tr><td>空重 / 最大起飞</td><td>5165 / 10433 kg</td></tr>
+      <tr><td>发动机</td><td>2 × T700-GE-701D</td></tr>
+      <tr><td>单台功率</td><td>1994 shp</td></tr>
+      <tr><td>最大平飞速度</td><td>293 km/h</td></tr>
+      <tr><td>实用升限</td><td>6400 m</td></tr>
+      <tr><td>主旋翼转速</td><td>289 rpm</td></tr>
+      <tr><td>尾桨转速</td><td>1403 rpm</td></tr>
+      <tr><td>机炮</td><td>M230 30 mm / 1200 发</td></tr>
+      <tr><td>挂载</td><td>16 × AGM-114 / 76 × Hydra-70</td></tr>
+    </table>
+  </div>
+
+  <div id="panel">
+    <div class="sec">
+      <h3>动力 / 旋翼</h3>
+      <button id="btn-start"><span class="led"></span><span id="btn-start-txt">启 动</span></button>
+      <div class="meter"><i id="rotor-bar"></i></div>
+      <div class="kv"><span>N<sub>R</sub> 主旋翼转速</span><span id="rotor-pct" class="mono">0%</span></div>
+      <div class="slider" style="margin-top:9px">
+        <label>手动转速</label>
+        <input type="range" id="rpm" min="0" max="1" step="0.01" value="0">
+      </div>
+      <label class="chk"><input type="checkbox" id="chk-disc" checked>桨盘虚化 / 运动模糊</label>
+      <label class="chk"><input type="checkbox" id="chk-scan" checked>传感器扫描 + 机炮随动</label>
+    </div>
+
+    <div class="sec">
+      <h3>机位 / 镜头</h3>
+      <div class="row" id="view-row"></div>
+      <label class="chk"><input type="checkbox" id="chk-auto">自动环绕 (R)</label>
+    </div>
+
+    <div class="sec">
+      <h3>挂载 / 系统</h3>
+      <label class="chk"><input type="checkbox" id="chk-hellfire" checked>AGM-114 地狱火 × 8</label>
+      <label class="chk"><input type="checkbox" id="chk-rocket" checked>M261 火箭巢 × 2</label>
+      <label class="chk"><input type="checkbox" id="chk-radar" checked>AN/APG-78 龙弓雷达</label>
+    </div>
+
+    <div class="sec">
+      <h3>环境 / 光照</h3>
+      <div class="row" id="env-row">
+        <button class="seg on" data-env="day">白昼</button>
+        <button class="seg" data-env="dusk">黄昏</button>
+        <button class="seg" data-env="night">夜航</button>
+        <button class="seg" data-env="studio">棚拍</button>
+      </div>
+      <div class="slider"><label>曝光</label><input type="range" id="exposure" min="0.4" max="2.2" step="0.02" value="1"><span class="val mono" id="exposure-v">1.00</span></div>
+      <div class="slider"><label>泛光</label><input type="range" id="bloom" min="0" max="2.5" step="0.05" value="1"><span class="val mono" id="bloom-v">1.00</span></div>
+    </div>
+
+    <div class="sec">
+      <h3>渲染 / 检视</h3>
+      <div class="slider"><label>分解视图</label><input type="range" id="explode" min="0" max="1" step="0.01" value="0"><span class="val mono" id="explode-v">0%</span></div>
+      <label class="chk"><input type="checkbox" id="chk-shadow" checked>实时阴影 (4K 阴影贴图)</label>
+      <label class="chk"><input type="checkbox" id="chk-labels" checked>部件标注 (L)</label>
+      <label class="chk"><input type="checkbox" id="chk-wire">线框 / 网格视图 (W)</label>
+      <div class="slider" style="margin-top:8px"><label>渲染倍率</label>
+        <select id="sel-quality" style="flex:1">
+          <option value="0.7">0.7× 流畅</option>
+          <option value="1" selected>1.0× 标准</option>
+          <option value="1.35">1.35× 超采样</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <span><b>拖拽</b> 旋转</span><span><b>滚轮</b> 缩放</span><span><b>右键/双指</b> 平移</span>
+    <span><b>空格</b> 启动/停车</span><span><b>1-9</b> 机位</span><span><b>W</b> 线框</span><span><b>P</b> 截图</span>
+  </div>
+</div>
+
+<script>
+/* 运行错误可视化（无控制台时也能看到原因） */
+window.__ERR = [];
+function __showErr(msg){
+  window.__ERR.push(msg);
+  document.title = 'ERROR: ' + msg;
+  var t = document.getElementById('load-txt');
+  if (t){ t.textContent = '运行错误：' + msg; t.style.color = '#e2836b'; }
+  var l = document.getElementById('loading');
+  if (l) l.classList.remove('hide');
+}
+addEventListener('error', e => __showErr((e.message||'unknown') + ' @' + (e.filename||'').split('/').pop() + ':' + (e.lineno||0)));
+addEventListener('unhandledrejection', e => __showErr('Promise ' + ((e.reason && e.reason.message) || e.reason)));
+(function(){
+  try {
+    var c = document.createElement('canvas');
+    if (!(c.getContext('webgl2') || c.getContext('webgl'))) __showErr('当前浏览器/设备未启用 WebGL，无法渲染 3D 模型');
+  } catch(err){ __showErr('WebGL 初始化失败：' + err.message); }
+})();
+</script>
+
+<script type="module">
+/*__THREE__*/
+(function(){
+'use strict';
+/*__APP__*/
+})();
+</script>
+</body>
+</html>

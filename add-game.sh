@@ -5,7 +5,7 @@
 set -e
 
 COVERS_DIR="covers"
-INDEX_FILE="index.html"
+INDEX_FILE="第一期.html"
 
 # 通过 BV 号获取 B站空间链接
 get_bilibili_space() {
@@ -152,7 +152,7 @@ if [ -s /tmp/new_games.txt ]; then
   python3 << 'PYEOF'
 import os
 
-with open("index.html", "r") as f:
+with open("第一期.html", "r") as f:
     lines = f.readlines()
 
 # 收集新游戏条目
@@ -215,7 +215,7 @@ for line in lines2:
                 print(f"  + authorLink: {author}")
     new_lines2.append(line)
 
-with open("index.html", "w") as f:
+with open("第一期.html", "w") as f:
     f.writelines(new_lines2)
 
 print(f"\nDone. {inserted_games} games, {inserted_authors} authors added.")

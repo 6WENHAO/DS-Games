@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>巴贝奇差分机 · 可运行数字孪生</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ 左侧：输入与控制 ============ -->
+  <aside id="left">
+    <h1>差分机 <small>Difference Engine · 数字孪生</small></h1>
+
+    <section>
+      <h2>1 机器规格</h2>
+      <div class="row">
+        <label>差分列数
+          <select id="nCols">
+            <option value="2">2（一次）</option>
+            <option value="3">3（二次）</option>
+            <option value="4" selected>4（三次）</option>
+            <option value="5">5（四次）</option>
+            <option value="6">6（五次）</option>
+            <option value="7">7（六次）</option>
+          </select>
+        </label>
+        <label>每列位数
+          <select id="nDigits">
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6" selected>6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <h2>2 初始值</h2>
+      <div class="row tight">
+        <label class="rd"><input type="radio" name="inmode" value="poly" checked> 多项式系数</label>
+        <label class="rd"><input type="radio" name="inmode" value="delta"> 直接给差分值</label>
+      </div>
+      <div id="coeffs" class="grid"></div>
+      <div class="row">
+        <label>起始 x<sub>0</sub><input type="number" id="x0" value="0"></label>
+        <button id="btnLoad" class="primary">装载到数位轮</button>
+      </div>
+      <p class="note">装载时会按两相机器的递推关系做整数预调（m = L·Δ）——
+        真机同样必须这样预置初值。右侧表格里同时给出机械读数与反算出的 Δ 值。</p>
+    </section>
+
+    <section>
+      <h2>3 转动手柄</h2>
+      <div class="row btns">
+        <button id="btnTurn">转一圈（一个相）</button>
+        <button id="btnCycle" class="primary">完成一个循环</button>
+      </div>
+      <div class="row btns">
+        <button id="btnStage">单步到下一机构阶段</button>
+        <button id="btnRun">连续运行</button>
+      </div>
+      <label class="wide">转速 <span id="speedLbl"></span>
+        <input type="range" id="speed" min="0.03" max="1.5" step="0.01" value="0.35">
+      </label>
+      <label class="wide">手摇（拖动即摇柄，只能正转）
+        <input type="range" id="jog" min="0" max="100" step="0.5" value="0">
+      </label>
+      <div class="row btns"><button id="btnReset">复位重载</button></div>
+    </section>
+
+    <section>
+      <h2>4 观察</h2>
+      <div class="row btns">
+        <button class="view" data-v="iso">等轴</button>
+        <button class="view" data-v="front">正面读数</button>
+        <button class="view" data-v="top">俯视</button>
+        <button class="view" data-v="back">背面传动</button>
+        <button class="view" data-v="side">侧视</button>
+      </div>
+      <div class="grid chk">
+        <label><input type="checkbox" class="lyr" data-g="frame" checked> 机架/轴</label>
+        <label><input type="checkbox" class="lyr" data-g="wheels" checked> 数位轮</label>
+        <label><input type="checkbox" class="lyr" data-g="idlers" checked> 列间惰轮组</label>
+        <label><input type="checkbox" class="lyr" data-g="drive" checked> 驱动竖轴</label>
+        <label><input type="checkbox" class="lyr" data-g="carry" checked> 进位机构</label>
+        <label><input type="checkbox" class="lyr" data-g="lock" checked> 锁定爪梳</label>
+        <label><input type="checkbox" class="lyr" data-g="trans" checked> 传动系/凸轮</label>
+        <label><input type="checkbox" id="hl" checked> 高亮当前源/目标列</label>
+      </div>
+      <label class="wide">分解视图（把机构沿径向拉开）
+        <input type="range" id="explode" min="0" max="1" step="0.01" value="0">
+      </label>
+      <label class="wide">只看某一列
+        <select id="focus"><option value="-1">全部</option></select>
+      </label>
+      <p class="note">鼠标左键拖动＝旋转，滚轮＝缩放，右键拖动＝平移。可关掉机架和传动系直接看进位棘爪。</p>
+    </section>
+
+    <section>
+      <h2>5 机构自检</h2>
+      <div class="row">
+        <label>连续跑 <input type="number" id="vCount" value="24" min="1" max="500"> 个循环</label>
+        <button id="btnVerify" class="primary">校验齿轮结果</button>
+      </div>
+      <pre id="verifyOut" class="vout">让机构（不画动画）实际转起来，把每个循环从齿轮转角读出的数
+与独立算出的差分表 / 多项式逐个比对。</pre>
+    </section>
+  </aside>
+
+  <!-- ============ 中间：3D ============ -->
+  <main id="view"></main>
+
+  <!-- ============ 右侧：状态与验证 ============ -->
+  <aside id="right">
+    <section>
+      <h2>当前状态</h2>
+      <table class="kv">
+        <tr><td>已完成循环 k</td><td><b id="hudCycle">0</b></td></tr>
+        <tr><td>当前 x</td><td><b id="hudX">0</b></td></tr>
+        <tr><td>手柄累计圈数</td><td><b id="hudRev">0</b></td></tr>
+        <tr><td>本循环相</td><td><b id="hudPhase">—</b></td></tr>
+        <tr><td>机构阶段</td><td><b id="hudStage">—</b></td></tr>
+        <tr><td>手柄角</td><td><b id="hudAngle">0°</b></td></tr>
+        <tr><td>累计进位动作</td><td><b id="hudCarry">0</b></td></tr>
+        <tr><td>溢出</td><td><b id="hudOver" class="ok">否</b></td></tr>
+        <tr class="big"><td>最新结果 f(x)</td><td><b id="hudResult">0</b></td></tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>各列数位轮读数</h2>
+      <table class="reg">
+        <thead><tr><th>寄存器</th><th>数位轮（高位→低位）</th><th>机械读数</th><th>Δ 值</th></tr></thead>
+        <tbody id="regBody"></tbody>
+      </table>
+      <p class="note">数字直接由 <code>round(轮转角 / 36°) mod 10</code> 读出。
+        标红的位表示它的<b>进位警告杆已被闩住</b>，等待进位行程处理。
+        末列 Δ 值是用整数逆变换 L<sup>-1</sup> 从机械读数反算的真实差分值。</p>
+    </section>
+
+    <section>
+      <h2>输出表（机器 vs 独立计算）</h2>
+      <table class="reg">
+        <thead><tr><th>x</th><th>机器读数</th><th>应为</th><th></th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>它到底是怎么算的</h2>
+      <ol class="expl">
+        <li><b>加法＝把源轮转满一圈。</b>源列每个数位轮被驱动竖轴带着正转整整
+          一圈。轮子转到<b>零位</b>的瞬间，轮上的零位销撞开传动闩（闩上两根探爪
+          分别搭在左右两列的零位销上，哪一列作源就由那一列撞开），列间惰轮的
+          狗牙离合套筒落下；从这一刻起，源轮剩下的转角才被传给目标轮。
+          源轮读数 d 时，前 (10−d) 步走完才到零位，剩下正好 d 步被传出去
+          ——<b>目标轮因此加上了 d</b>，而源轮转满一圈自动回到原值。</li>
+        <li><b>进位是独立的一趟行程。</b>目标轮由 9 越过 0 时拨起并闩住警告杆。
+          随后进位竖轴转一圈，轴上按位序<b>螺旋排列</b>的棘爪依次扫过：
+          哪一位的警告杆被闩住，对应棘爪就伸出，把高一位的轮推一齿并让杆复位。
+          因为低位先动、高位后动，999999+1 这样的级联进位在同一圈内走完。</li>
+        <li><b>一个循环＝两个相。</b>相 A 做 D0+=D1、D2+=D3…，相 B 做 D1+=D2、
+          D3+=D4…。哪一半列做源，由曲柄经 2:1 减速的<b>选相凸轮轴</b>机械决定。</li>
+        <li><b>锁定爪</b>在每相首尾径向进退：爪尖插进棘齿环的齿隙，既防止轮子空转，
+          也把转角精确咬回 36° 的整数倍。棘齿环因此有两个功能——进位棘爪推它一齿，
+          锁定爪插进它定位。</li>
+      </ol>
+    </section>
+  </aside>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="src/core/diff.js"></script>
+<script src="src/core/machine.js"></script>
+<script src="src/view/geom.js"></script>
+<script src="src/view/scene.js"></script>
+<script src="src/view/sync.js"></script>
+<script src="src/ui/app.js"></script>
+</body>
+</html>

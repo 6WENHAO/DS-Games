@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>NO BLOCK'S SKY — 方块深空</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23070b12'/%3E%3Cpath d='M6 12l10-6 10 6-10 6z' fill='%23ffa62b'/%3E%3Cpath d='M6 12v9l10 6v-9z' fill='%23c47a1e'/%3E%3Cpath d='M26 12v9l-10 6v-9z' fill='%234fe3ff'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./src/ui/styles.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <!-- ================= CINEMATIC / FX OVERLAYS ================= -->
+  <div id="fx-layer">
+    <div id="fx-plasma"></div>
+    <div id="fx-vignette"></div>
+    <div id="fx-scanlines"></div>
+    <div id="fx-damage"></div>
+    <div id="fx-flash"></div>
+    <div id="fx-visor"></div>
+    <div id="fx-warp"></div>
+  </div>
+
+  <!-- ================= HUD ================= -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"><div class="ch-dot"></div><div class="ch-ring"></div><div class="ch-bar t"></div><div class="ch-bar r"></div><div class="ch-bar b"></div><div class="ch-bar l"></div></div>
+    <div id="mine-progress"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="17"/><circle class="fill" cx="20" cy="20" r="17"/></svg></div>
+
+    <div id="hud-vitals">
+      <div class="vital" data-v="shield"><div class="vi-label">护盾 SHIELD</div><div class="vi-bar"><i></i></div><div class="vi-num">100</div></div>
+      <div class="vital" data-v="health"><div class="vi-label">生命 HEALTH</div><div class="vi-bar"><i></i></div><div class="vi-num">100</div></div>
+      <div class="vital" data-v="life"><div class="vi-label">生命维持 LIFE SUPPORT</div><div class="vi-bar"><i></i></div><div class="vi-num">100</div></div>
+      <div class="vital hidden" data-v="hazard"><div class="vi-label">危害防护 HAZARD</div><div class="vi-bar"><i></i></div><div class="vi-num">100</div></div>
+      <div class="vital" data-v="jet"><div class="vi-label">喷射包 JETPACK</div><div class="vi-bar"><i></i></div><div class="vi-num">100</div></div>
+    </div>
+
+    <div id="hud-topleft">
+      <div id="planet-plate">
+        <div class="pp-hex"></div>
+        <div class="pp-body">
+          <div class="pp-name">—</div>
+          <div class="pp-sub">— · —</div>
+        </div>
+      </div>
+      <div id="hazard-plate" class="hidden"><span class="hz-icon">☀</span><span class="hz-text">高温 EXTREME HEAT</span><span class="hz-val">2</span></div>
+      <div id="creative-tag" class="hidden"><span class="ct-icon">✦</span><span>创造模式 CREATIVE</span><span class="ct-key">G</span></div>
+    </div>
+
+    <div id="hud-topright">
+      <div id="units-plate"><span class="up-icon">◈</span><span id="units-val">0</span><span class="up-unit">单位</span></div>
+      <div id="nanite-plate"><span class="up-icon">✦</span><span id="nanite-val">0</span><span class="up-unit">纳米簇</span></div>
+      <div id="clock-plate"><span id="clock-icon">☀</span><span id="clock-val">06:00</span></div>
+    </div>
+
+    <div id="compass">
+      <div id="compass-strip"></div>
+      <div id="compass-needle"></div>
+      <div id="compass-markers"></div>
+    </div>
+
+    <div id="mission-log">
+      <div class="ml-head">当前任务 · MISSION</div>
+      <div class="ml-title">—</div>
+      <div class="ml-obj">—</div>
+      <div class="ml-prog"><i></i></div>
+    </div>
+
+    <div id="beam-heat" class="hidden"><div class="bh-label">过热</div><div class="bh-bar"><i></i></div></div>
+
+    <div id="hotbar">
+      <div id="hotbar-slots"></div>
+      <div id="held-name"></div>
+    </div>
+
+    <div id="toast-stack"></div>
+    <div id="marker-layer"></div>
+    <div id="interact-prompt" class="hidden"><span class="key">E</span><span class="txt">互动</span></div>
+    <div id="subtitle" class="hidden"></div>
+
+    <!-- ship cockpit hud -->
+    <div id="ship-hud" class="hidden">
+      <div id="ship-frame"><div class="sf-l"></div><div class="sf-r"></div><div class="sf-b"></div></div>
+      <div id="ship-reticle"><div class="sr-ring"></div><div class="sr-cross"></div><div class="sr-dot"></div></div>
+      <div id="ship-left">
+        <div class="sh-gauge" data-g="throttle"><label>推力 THRUST</label><div class="g-bar"><i></i></div></div>
+        <div class="sh-gauge" data-g="shield"><label>护盾 SHIELD</label><div class="g-bar"><i></i></div></div>
+        <div class="sh-gauge" data-g="hull"><label>船体 HULL</label><div class="g-bar"><i></i></div></div>
+      </div>
+      <div id="ship-right">
+        <div class="sh-read"><label>速度 VEL</label><b id="rd-vel">0</b><span>u/s</span></div>
+        <div class="sh-read"><label>高度 ALT</label><b id="rd-alt">0</b><span>m</span></div>
+        <div class="sh-read"><label>脉冲燃料 PULSE</label><b id="rd-pulse">0</b><span>%</span></div>
+        <div class="sh-read"><label>起飞燃料 LAUNCH</label><b id="rd-launch">0</b><span>%</span></div>
+      </div>
+      <div id="ship-center-prompt" class="hidden"></div>
+      <div id="ship-target" class="hidden"><div class="st-name">—</div><div class="st-dist">—</div></div>
+    </div>
+  </div>
+
+  <!-- ================= PANELS ================= -->
+  <div id="panel-layer" class="hidden">
+    <div id="panel-inventory" class="panel hidden"></div>
+    <div id="panel-craft" class="panel hidden"></div>
+    <div id="panel-discovery" class="panel hidden"></div>
+    <div id="panel-refiner" class="panel hidden"></div>
+    <div id="panel-trade" class="panel hidden"></div>
+    <div id="panel-galaxy" class="panel hidden"></div>
+    <div id="panel-build" class="panel hidden"></div>
+  </div>
+
+  <!-- ================= SCANNER VISOR ================= -->
+  <div id="visor-ui" class="hidden">
+    <div class="vs-corner tl"></div><div class="vs-corner tr"></div><div class="vs-corner bl"></div><div class="vs-corner br"></div>
+    <div id="vs-center"><div class="vs-ring"></div><div class="vs-ring2"></div><div class="vs-tick"></div></div>
+    <div id="vs-readout"><div class="vs-r1">分析仪 ANALYSIS VISOR</div><div class="vs-r2">目标: 无</div><div class="vs-hold hidden">按住 <b>左键</b> 分析</div></div>
+    <div id="vs-grid"></div>
+  </div>
+
+  <!-- ================= TITLE SCREEN ================= -->
+  <div id="title-screen">
+    <div id="title-bg"></div>
+    <div id="title-inner">
+      <div id="title-logo">
+        <div class="tl-line1">NO BLOCK'S</div>
+        <div class="tl-line2">SKY</div>
+        <div class="tl-cn">方 块 深 空</div>
+      </div>
+      <div id="title-tag">一个由方块构成的无限宇宙 · AN INFINITE UNIVERSE MADE OF BLOCKS</div>
+      <div id="title-menu">
+        <button class="tbtn primary" data-act="new">开始新的旅程<span>NEW EXPEDITION · 生存</span></button>
+        <button class="tbtn creative" data-act="creative">创造模式<span>CREATIVE · 无限资源 / 自由飞行</span></button>
+        <button class="tbtn" data-act="continue" disabled>继续游戏<span>CONTINUE</span></button>
+        <button class="tbtn" data-act="help">操作说明<span>CONTROLS</span></button>
+        <button class="tbtn" data-act="options">设置<span>OPTIONS</span></button>
+      </div>
+      <div id="title-foot">建议使用 Chrome / Edge · 需要开启声音 <span class="blink">◂ 点击任意处启用音频</span> · 游戏中随时按 <b>G</b> 切换创造模式</div>
+    </div>
+    <div id="title-panel" class="hidden"></div>
+  </div>
+
+  <!-- ================= LOADING ================= -->
+  <div id="loading" class="hidden">
+    <div class="ld-inner">
+      <div class="ld-hex"><svg viewBox="0 0 100 100"><polygon points="50,3 93,27 93,73 50,97 7,73 7,27"/></svg></div>
+      <div class="ld-title">正在生成星球</div>
+      <div class="ld-sub">GENERATING PLANETARY SURFACE</div>
+      <div class="ld-bar"><i></i></div>
+      <div class="ld-tip"></div>
+    </div>
+  </div>
+
+  <!-- ================= CINEMATIC TEXT ================= -->
+  <div id="cine">
+    <div id="cine-bars"><div class="cb top"></div><div class="cb bottom"></div></div>
+    <div id="cine-text"><div class="ct-main"></div><div class="ct-sub"></div></div>
+  </div>
+
+  <div id="debug-overlay" class="hidden"></div>
+
+  <div id="pause-screen" class="hidden">
+    <div class="ps-inner">
+      <div class="ps-title">已暂停 · PAUSED</div>
+      <div class="ps-menu">
+        <button class="tbtn primary" data-act="resume">继续<span>RESUME</span></button>
+        <button class="tbtn" data-act="save">保存进度<span>SAVE</span></button>
+        <button class="tbtn" data-act="help">操作说明<span>CONTROLS</span></button>
+        <button class="tbtn" data-act="options">设置<span>OPTIONS</span></button>
+        <button class="tbtn danger" data-act="quit">返回标题<span>QUIT TO TITLE</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="errlog" style="position:fixed;left:0;bottom:0;z-index:99999;max-width:100vw;max-height:40vh;overflow:auto;font:11px/1.4 monospace;color:#ff8a8a;background:rgba(10,0,0,.82);padding:4px 8px;display:none;white-space:pre-wrap"></div>
+<script>
+(function () {
+  var el = document.getElementById('errlog');
+  var seen = {};
+  function log(msg) {
+    if (seen[msg]) return; seen[msg] = 1;
+    el.style.display = 'block';
+    el.textContent += msg + '\n';
+    if (el.textContent.length > 4000) el.textContent = el.textContent.slice(-4000);
+  }
+  window.addEventListener('error', function (e) {
+    log('[ERR] ' + (e.message || '') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    log('[REJECT] ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+  });
+  var origErr = console.error;
+  console.error = function () {
+    try { log('[LOG] ' + Array.prototype.map.call(arguments, function (a) { return (a && (a.stack || a.message)) || String(a); }).join(' ')); } catch (_) {}
+    origErr.apply(console, arguments);
+  };
+  window.__DBG = { log: log, dump: function () { return el.textContent; } };
+})();
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
