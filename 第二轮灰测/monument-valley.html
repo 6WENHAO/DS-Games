@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>纪念碑谷 · Monument Valley（网页版）</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#221a2e}
+  body{font-family:"Avenir Next","Segoe UI",-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+       user-select:none;-webkit-user-select:none;color:#fff}
+  #stage{position:fixed;inset:0;display:block;touch-action:none;cursor:pointer}
+  .ui{position:fixed;inset:0;pointer-events:none;z-index:5}
+  .ui button{pointer-events:auto;cursor:pointer;font-family:inherit}
+
+  /* ---- 顶栏 ---- */
+  #topbar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
+          padding:18px 22px;mix-blend-mode:normal}
+  #chapterTag{font-size:12.5px;letter-spacing:.34em;opacity:.62;text-shadow:0 1px 8px rgba(0,0,0,.35)}
+  #tools{display:flex;gap:9px}
+  #tools button{width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.4);
+    background:rgba(255,255,255,.1);color:#fff;font-size:12px;letter-spacing:0;backdrop-filter:blur(4px);
+    transition:.25s;opacity:.75}
+  #tools button:hover{opacity:1;background:rgba(255,255,255,.22)}
+  #tools button.off{opacity:.35;text-decoration:line-through}
+
+  /* ---- 底部提示 + 章节点 ---- */
+  #bottom{position:absolute;left:0;right:0;bottom:0;padding:0 22px 22px;display:flex;flex-direction:column;
+          align-items:center;gap:14px}
+  #hint{font-size:12.5px;letter-spacing:.16em;opacity:.6;text-align:center;line-height:1.9;
+        text-shadow:0 1px 10px rgba(0,0,0,.4);transition:opacity .6s}
+  #dots{display:flex;gap:11px}
+  #dots i{pointer-events:auto;cursor:pointer;width:7px;height:7px;border-radius:50%;
+    background:rgba(255,255,255,.3);transition:.3s;display:block}
+  #dots i.on{background:#fff;transform:scale(1.5)}
+  #dots i:hover{background:rgba(255,255,255,.75)}
+
+  /* ---- 章节卡 ---- */
+  #card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        gap:16px;opacity:0;transition:opacity 1s;pointer-events:none}
+  #card .c1{font-size:12px;letter-spacing:.6em;opacity:.7}
+  #card .c2{font-size:34px;letter-spacing:.42em;font-weight:300;text-indent:.42em}
+  #card .line{width:56px;height:1px;background:rgba(255,255,255,.55)}
+  #card.show{opacity:1}
+
+  /* ---- 覆盖层（标题 / 完成） ---- */
+  .veil{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        text-align:center;background:radial-gradient(ellipse at 50% 42%,rgba(46,34,66,.55),rgba(24,17,36,.94));
+        backdrop-filter:blur(3px);transition:opacity .7s,visibility 0s;z-index:6}
+  /* 隐藏的覆盖层必须彻底不可命中：visibility 让整个子树退出命中测试，
+     且子按钮绝不能再声明 pointer-events:auto，否则会盖住下层按钮抢走点击 */
+  .veil.hide{opacity:0;pointer-events:none;visibility:hidden;transition:opacity .7s,visibility 0s .7s}
+  .veil h1{font-size:clamp(30px,7.4vw,58px);font-weight:200;letter-spacing:.34em;text-indent:.34em;margin-bottom:14px}
+  .veil h2{font-size:11.5px;font-weight:300;letter-spacing:.52em;opacity:.5;margin-bottom:6px;text-indent:.52em}
+  .veil p{font-size:13px;letter-spacing:.2em;opacity:.62;line-height:2.1;margin-bottom:34px;max-width:34em;padding:0 24px}
+  .veil .btn{cursor:pointer;font-family:inherit;border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;
+    padding:13px 40px;border-radius:40px;font-size:12.5px;letter-spacing:.34em;text-indent:.34em;transition:.3s}
+  .veil .btn:hover{background:#fff;color:#2a2038;letter-spacing:.4em}
+  .veil .sig{margin-top:40px;font-size:10.5px;letter-spacing:.34em;opacity:.28}
+  #done h1{font-size:clamp(22px,5vw,34px);letter-spacing:.3em}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="ui">
+  <div id="topbar">
+    <div id="chapterTag"></div>
+    <div id="tools">
+      <button id="btnSound" title="音效">♪</button>
+      <button id="btnReset" title="重玩本章">↺</button>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="hint"></div>
+    <div id="dots"></div>
+  </div>
+  <div id="card">
+    <div class="c1"></div>
+    <div class="line"></div>
+    <div class="c2"></div>
+  </div>
+</div>
+
+<div class="veil" id="title">
+  <h2>MONUMENT VALLEY</h2>
+  <h1>纪念碑谷</h1>
+  <p>一段关于错觉与几何的静默旅程。<br>点亮的路未必真的相连，转动的世界才是答案。</p>
+  <button class="btn" id="btnStart">开始旅程</button>
+  <div class="sig">点击行走 · 点击旋钮转动 · R 重玩</div>
+</div>
+
+<div class="veil hide" id="done">
+  <h2 id="doneSub">CHAPTER COMPLETE</h2>
+  <h1 id="doneTitle">第一章 完成</h1>
+  <p id="doneText">沉默的建筑记住了她的脚步。</p>
+  <button class="btn" id="btnNext">继续前行</button>
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════
+   纪念碑谷 · 网页版      单文件实现（Canvas 2D / 无依赖）
+   ------------------------------------------------------------------
+   等距投影选用 2:1 且「立方体高度 = 瓦片宽度」，于是世界坐标
+   (x, y, z) 与 (x+1, y+1, z+1) 投影到完全相同的屏幕点 —— 这正是
+   埃舍尔式「不可能几何」的数学基础：位移 (2,1,1) 在屏幕上看起来
+   与普通的 +x 一步完全一致，却横跨了不同的高度层。
+   ══════════════════════════════════════════════════════════════════════ */
+
+//<<<LOGIC  ——（以下区块为纯逻辑，无 DOM 依赖，可被验证脚本单独求值）
+
+var TILE = { W: 32, H: 16, Z: 32 };
+var DIRV = { 'x+': [1, 0], 'x-': [-1, 0], 'y+': [0, 1], 'y-': [0, -1] };
+var WALK_KIND = { floor: 1, stair: 1, goal: 1 };
+
+function K(x, y, z) { return x + '|' + y + '|' + z; }
+
+/** 网格平面内的 90° 整数旋转（a 为 1/4 圈数）：(dx,dy) -> (-dy,dx) */
+function rot90(dx, dy, a) {
+  a = ((a % 4) + 4) % 4;
+  for (var i = 0; i < a; i++) { var t = dx; dx = -dy; dy = t; }
+  return [dx, dy];
+}
+
+function B(x, y, z, o) {
+  var b = { x: x, y: y, z: z, kind: 'floor', d: 1, rotor: null, dir: null, tone: 'stone' };
+  if (o) for (var k in o) b[k] = o[k];
+  return b;
+}
+/** 轴向直线（含首尾） */
+function runLine(x0, y0, x1, y1, z, o) {
+  var out = [], dx = Math.sign(x1 - x0), dy = Math.sign(y1 - y0), x = x0, y = y0;
+  out.push(B(x, y, z, o));
+  while (x !== x1 || y !== y1) { x += dx; y += dy; out.push(B(x, y, z, o)); }
+  return out;
+}
+/** 矩形区块 */
+function area(x0, y0, x1, y1, z, o) {
+  var out = [];
+  for (var x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+    for (var y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) out.push(B(x, y, z, o));
+  return out;
+}
+
+/* ───────────────────────────── 关卡 ───────────────────────────── */
+
+var PAL_DAWN = {
+  sky: ['#F9D5B4', '#EC9C86'], glow: '#FFE9BE', accent: '#6E5A9C', dust: '#FFF2DC',
+  tones: {
+    stone: { top: '#FFF8EE', left: '#F1D0B2', right: '#D69F7E' },
+    warm:  { top: '#FBD9A8', left: '#E3AC74', right: '#BE8250' },
+    dark:  { top: '#9E8799', left: '#836E81', right: '#67566B' }
+  }
+};
+var PAL_MINT = {
+  sky: ['#D6EAE2', '#93BEC0'], glow: '#FFFBE6', accent: '#E0715A', dust: '#FFFFFF',
+  tones: {
+    stone: { top: '#FCFBF2', left: '#D3E3D6', right: '#9DB9B2' },
+    warm:  { top: '#F8CDA0', left: '#E0A472', right: '#B87F52' },
+    dark:  { top: '#7E9A96', left: '#688480', right: '#4F6A69' }
+  }
+};
+var PAL_VIOLET = {
+  sky: ['#BCA8D8', '#7A67A6'], glow: '#F8DC9A', accent: '#F4C95D', dust: '#FFF6D8',
+  tones: {
+    stone: { top: '#F7EFF8', left: '#D2BFE1', right: '#9E86B8' },
+    warm:  { top: '#F6C98F', left: '#DDA267', right: '#B47C48' },
+    dark:  { top: '#6E5B8C', left: '#5B4A76', right: '#463962' }
+  }
+};
+var PAL_NIGHT = {
+  sky: ['#4A3F6E', '#1E1A33'], glow: '#FFC978', accent: '#F79E5C', dust: '#FFE9C4',
+  tones: {
+    stone: { top: '#EDE4F2', left: '#B7A4CE', right: '#7E6996' },
+    warm:  { top: '#F5B673', left: '#D8894F', right: '#AE6537' },
+    dark:  { top: '#584D7C', left: '#453C66', right: '#332C50' }
+  }
+};
+var PAL_SAND = {
+  sky: ['#F6C9A0', '#C7715F'], glow: '#FFEFC0', accent: '#4E4478', dust: '#FFF0D0',
+  tones: {
+    stone: { top: '#FFF4E4', left: '#EFC9A6', right: '#CE9670' },
+    warm:  { top: '#F4B384', left: '#D98F5E', right: '#B06A3E' },
+    dark:  { top: '#8B6E82', left: '#71586C', right: '#584458' }
+  }
+};
+
+var LEVELS = [
+  /* ── 一 · 启程：教会「点击行走」 ───────────────────────────── */
+  {
+    chapter: '第一章', name: '启程',
+    hint: '点击前方的地面与石阶，引导艾达前行',
+    palette: PAL_DAWN,
+    start: [0, 0, 0], goal: [6, 3, 1],
+    rotors: [], links: [],
+    blocks: [].concat(
+      runLine(0, 0, 4, 0, 0, { d: 3 }),
+      [B(5, 0, 0, { kind: 'stair', dir: 'x+', d: 3 })],
+      runLine(6, 0, 6, 2, 1, { d: 4 }),
+      [B(6, 3, 1, { kind: 'goal', d: 5 })],
+      area(0, 2, 2, 4, -1, { kind: 'deco', tone: 'warm', d: 2 }),
+      [B(3, -2, 0, { kind: 'deco', d: 4 }), B(3, -2, 1, { kind: 'deco' }),
+       B(3, -2, 2, { kind: 'deco', tone: 'warm' }),
+       B(9, 1, 0, { kind: 'deco', tone: 'dark', d: 3 }),
+       B(9, 2, 0, { kind: 'deco', tone: 'dark', d: 3 })]
+    )
+  },
+
+  /* ── 二 · 旋钮：转台，且艾达随台旋转 ───────────────────────── */
+  {
+    chapter: '第二章', name: '旋钮',
+    hint: '点击圆形旋钮可转动旋臂 —— 站在旋臂上，世界会带着她走',
+    palette: PAL_MINT,
+    start: [0, 1, 0], goal: [8, 3, 2],
+    rotors: [{ id: 'r1', pivot: [3, 3], angle: 0 }],
+    links: [],
+    blocks: [].concat(
+      [B(0, 1, 0, { d: 3 }),
+       B(0, 2, 0, { kind: 'stair', dir: 'y+', d: 3 }),
+       B(0, 3, 1, { d: 4 }),
+       B(3, 3, 1, { kind: 'knob', rotor: 'r1', d: 4, tone: 'warm' }),
+       B(2, 3, 1, { rotor: 'r1' }), B(1, 3, 1, { rotor: 'r1' }),
+       B(3, 2, 1, { rotor: 'r1' }), B(3, 1, 1, { rotor: 'r1' }),
+       B(6, 3, 1, { d: 4 }),
+       B(7, 3, 1, { kind: 'stair', dir: 'x+', d: 4 }),
+       B(8, 3, 2, { kind: 'goal', d: 6 })],
+      area(5, 6, 7, 8, 0, { kind: 'deco', tone: 'dark', d: 2 }),
+      [B(0, 6, 0, { kind: 'deco', d: 3 }), B(0, 6, 1, { kind: 'deco', tone: 'warm' }),
+       B(10, 1, 0, { kind: 'deco', tone: 'warm', d: 4 })]
+    )
+  },
+
+  /* ── 三 · 错觉：纯粹的不可能几何（(2,1,1) 位移伪装成一步） ─── */
+  {
+    chapter: '第三章', name: '错觉',
+    hint: '眼睛会说谎 —— 看起来相连的地方，就真的能走过去',
+    palette: PAL_VIOLET,
+    start: [0, 0, 0], goal: [6, 5, 2],
+    rotors: [],
+    links: [{ a: [2, 0, 0], b: [4, 1, 1] }],
+    blocks: [].concat(
+      runLine(0, 0, 2, 0, 0, { d: 3 }),
+      runLine(4, 1, 6, 1, 1, { d: 3 }),
+      [B(6, 2, 1, { d: 3 }), B(6, 3, 1, { d: 3 }),
+       B(6, 4, 1, { kind: 'stair', dir: 'y+', d: 3 }),
+       B(6, 5, 2, { kind: 'goal', d: 6 })],
+      area(9, 3, 10, 5, 0, { kind: 'deco', tone: 'warm', d: 2 }),
+      [B(1, -3, 0, { kind: 'deco', tone: 'dark', d: 5 }),
+       B(1, -3, 1, { kind: 'deco', tone: 'dark' }),
+       B(2, -4, 0, { kind: 'deco', d: 4 })]
+    )
+  },
+
+  /* ── 四 · 旋与幻：转动旋臂制造错觉，再乘旋臂横渡 ───────────── */
+  {
+    chapter: '第四章', name: '旋与幻',
+    hint: '走上旋臂，然后点击旋钮 —— 断掉的路会在别处重新接上',
+    palette: PAL_NIGHT,
+    start: [0, 0, 0], goal: [8, 4, 3],
+    rotors: [{ id: 'r1', pivot: [6, 1], angle: 0 }],
+    links: [{ a: [2, 0, 0], b: [4, 1, 1] }, { a: [6, -1, 1], b: [8, 0, 2] }],
+    blocks: [].concat(
+      runLine(0, 0, 2, 0, 0, { d: 3 }),
+      [B(6, 1, 1, { kind: 'knob', rotor: 'r1', d: 5, tone: 'warm' }),
+       B(5, 1, 1, { rotor: 'r1', d: 3 }), B(4, 1, 1, { rotor: 'r1', d: 3 })],
+      runLine(8, 0, 8, 2, 2, { d: 4 }),
+      [B(8, 3, 2, { kind: 'stair', dir: 'y+', d: 4 }),
+       B(8, 4, 3, { kind: 'goal', d: 7 })],
+      area(11, 4, 12, 6, 1, { kind: 'deco', tone: 'dark', d: 3 }),
+      [B(1, -3, 0, { kind: 'deco', tone: 'warm', d: 4 }),
+       B(3, 4, 0, { kind: 'deco', tone: 'dark', d: 3 })]
+    )
+  },
+
+  /* ── 五 · 归途：错觉 + 双次转动 + 登塔 ─────────────────────── */
+  {
+    chapter: '第五章', name: '归途',
+    hint: '一次转动不够，就再转一次 —— 高塔在等她',
+    palette: PAL_SAND,
+    start: [0, 3, 0], goal: [11, 6, 3],
+    rotors: [{ id: 'r1', pivot: [6, 4], angle: 0 }],
+    links: [{ a: [2, 3, 0], b: [4, 4, 1] }],
+    blocks: [].concat(
+      runLine(0, 3, 2, 3, 0, { d: 3 }),
+      [B(6, 4, 1, { kind: 'knob', rotor: 'r1', d: 6, tone: 'warm' }),
+       B(5, 4, 1, { rotor: 'r1', d: 3 }), B(4, 4, 1, { rotor: 'r1', d: 3 }),
+       B(9, 4, 1, { d: 5 }),
+       B(10, 4, 1, { kind: 'stair', dir: 'x+', d: 5 }),
+       B(11, 4, 2, { d: 6 }),
+       B(11, 5, 2, { kind: 'stair', dir: 'y+', d: 6 }),
+       B(11, 6, 3, { kind: 'goal', d: 8 })],
+      area(0, 6, 2, 7, -1, { kind: 'deco', tone: 'dark', d: 2 }),
+      [B(2, 0, 0, { kind: 'deco', tone: 'warm', d: 4 }),
+       B(2, 0, 1, { kind: 'deco', tone: 'warm' }),
+       B(13, 2, 1, { kind: 'deco', d: 5 }), B(13, 2, 2, { kind: 'deco', tone: 'warm' })]
+    )
+  }
+];
+
+/** 为关卡建立旋转体索引（幂等） */
+function prepLevel(lv) {
+  if (!lv._rot) {
+    lv._rot = {};
+    (lv.rotors || []).forEach(function (r) { lv._rot[r.id] = r; });
+  }
+  return lv;
+}
+
+/** 按当前旋转角计算每个方块所在的整数格 */
+function currentCells(lv, angles) {
+  prepLevel(lv);
+  var out = [];
+  for (var i = 0; i < lv.blocks.length; i++) {
+    var b = lv.blocks[i];
+    if (b.rotor) {
+      var r = lv._rot[b.rotor], a = angles[b.rotor] || 0;
+      var p = rot90(b.x - r.pivot[0], b.y - r.pivot[1], a);
+      out.push({ b: b, gx: r.pivot[0] + p[0], gy: r.pivot[1] + p[1], gz: b.z, ang: a });
+    } else {
+      out.push({ b: b, gx: b.x, gy: b.y, gz: b.z, ang: 0 });
+    }
+  }
+  return out;
+}
+
+/**
+ * 构建可行走图。
+ *  · 顶面被占 → 不可站立
+ *  · 平地：四邻同高互通（楼梯侧面不算）
+ *  · 楼梯：仅沿自身朝向连接「低端同高」与「高端 +1」
+ *  · 链接（links）：两端同时存在时激活 —— 这就是「不可能的一步」
+ */
+function buildGraph(lv, angles) {
+  var cells = currentCells(lv, angles);
+  var occ = new Map(), walk = new Map(), adj = new Map(), i, c;
+  for (i = 0; i < cells.length; i++) { c = cells[i]; occ.set(K(c.gx, c.gy, c.gz), c); }
+  for (i = 0; i < cells.length; i++) {
+    c = cells[i];
+    if (!WALK_KIND[c.b.kind]) continue;
+    if (occ.has(K(c.gx, c.gy, c.gz + 1))) continue;
+    walk.set(K(c.gx, c.gy, c.gz), c);
+  }
+  function link(a, b) {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a).add(b); adj.get(b).add(a);
+  }
+  walk.forEach(function (c, k) {
+    if (c.b.kind === 'stair') {
+      var d = DIRV[c.b.dir], p = rot90(d[0], d[1], c.ang);
+      var lo = K(c.gx - p[0], c.gy - p[1], c.gz);
+      var hi = K(c.gx + p[0], c.gy + p[1], c.gz + 1);
+      if (walk.has(lo)) link(k, lo);
+      if (walk.has(hi)) link(k, hi);
+    } else {
+      var N = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (var j = 0; j < 4; j++) {
+        var nk = K(c.gx + N[j][0], c.gy + N[j][1], c.gz), n = walk.get(nk);
+        if (n && n.b.kind !== 'stair') link(k, nk);
+      }
+    }
+  });
+  (lv.links || []).forEach(function (L) {
+    var a = K(L.a[0], L.a[1], L.a[2]), b = K(L.b[0], L.b[1], L.b[2]);
+    if (walk.has(a) && walk.has(b)) link(a, b);
+  });
+  return { cells: cells, occ: occ, walk: walk, adj: adj };
+}
+
+/** 图上最短路（BFS），返回节点 key 数组（含起点） */
+function findPath(g, from, to) {
+  if (from === to) return [from];
+  if (!g.walk.has(from) || !g.walk.has(to)) return null;
+  var prev = new Map([[from, null]]), q = [from];
+  while (q.length) {
+    var cur = q.shift();
+    var nb = g.adj.get(cur);
+    if (!nb) continue;
+    var it = nb.values(), s;
+    while (!(s = it.next()).done) {
+      var n = s.value;
+      if (prev.has(n)) continue;
+      prev.set(n, cur);
+      if (n === to) {
+        var path = [n], p = cur;
+        while (p !== null) { path.push(p); p = prev.get(p); }
+        return path.reverse();
+      }
+      q.push(n);
+    }
+  }
+  return null;
+}
+
+/** 若站在某旋转体上，旋转后她会被带到哪一格 */
+function carriedKey(lv, block, newAngle) {
+  var r = prepLevel(lv)._rot[block.rotor];
+  var p = rot90(block.x - r.pivot[0], block.y - r.pivot[1], newAngle);
+  return K(r.pivot[0] + p[0], r.pivot[1] + p[1], block.z);
+}
+
+/** 关卡可解性求解（状态 = 位置 × 各旋转体角度），供自动验证使用 */
+function solveLevel(lv) {
+  prepLevel(lv);
+  var ids = (lv.rotors || []).map(function (r) { return r.id; });
+  var init = {}; ids.forEach(function (id) { init[id] = lv._rot[id].angle || 0; });
+  var startKey = K(lv.start[0], lv.start[1], lv.start[2]);
+  var goalKey = K(lv.goal[0], lv.goal[1], lv.goal[2]);
+  var enc = function (p, a) { return p + '#' + ids.map(function (i) { return a[i]; }).join(','); };
+  var q = [{ pos: startKey, angles: init, path: [] }], seen = new Set([enc(startKey, init)]);
+  var guard = 0;
+  while (q.length) {
+    if (++guard > 200000) return null;
+    var cur = q.shift(), g = buildGraph(lv, cur.angles);
+    if (!g.walk.has(cur.pos)) continue;
+    if (cur.pos === goalKey) return cur.path;
+    var nb = g.adj.get(cur.pos);
+    if (nb) nb.forEach(function (n) {
+      var e = enc(n, cur.angles);
+      if (!seen.has(e)) { seen.add(e); q.push({ pos: n, angles: cur.angles, path: cur.path.concat(['走 ' + n])}); }
+    });
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i];
+      for (var s = -1; s <= 1; s += 2) {
+        var na = {}; for (var k in cur.angles) na[k] = cur.angles[k];
+        na[id] = (((na[id] + s) % 4) + 4) % 4;
+        var cell = g.walk.get(cur.pos), np = cur.pos;
+        if (cell && cell.b.rotor === id) np = carriedKey(lv, cell.b, na[id]);
+        var g2 = buildGraph(lv, na);
+        if (!g2.walk.has(np)) continue;
+        var e2 = enc(np, na);
+        if (!seen.has(e2)) { seen.add(e2); q.push({ pos: np, angles: na, path: cur.path.concat(['转 ' + id + ' ' + (s > 0 ? '+' : '-')]) }); }
+      }
+    }
+  }
+  return null;
+}
+
+//LOGIC>>>
+
+/* ══════════════════════════ 表现层 ══════════════════════════ */
+
+var cv = document.getElementById('stage');
+var ctx = cv.getContext('2d');
+var DPR = 1, VW = 0, VH = 0;
+
+function proj(gx, gy, gz) { return { x: (gx - gy) * TILE.W, y: (gx + gy) * TILE.H - gz * TILE.Z }; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function easeInOut(t) { return t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+function rgba(hex, a) {
+  var h = hex.replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  var n = parseInt(h, 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+function shade(hex, f) {
+  var h = hex.replace('#', ''), n = parseInt(h, 16);
+  var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  if (f >= 0) { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; }
+  else { r *= (1 + f); g *= (1 + f); b *= (1 + f); }
+  return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
+}
+
+/* ── 全局状态 ── */
+var S = {
+  screen: 'title',     // title | play | done
+  li: 0, lv: null, pal: null,
+  angles: {}, graph: null,
+  ida: { key: null, gx: 0, gy: 0, gz: 0, bob: 0, sway: 0 },
+  walk: null,          // {path, seg, t}
+  rot: null,           // {id, from, to, t, dur, carry, newKey, target}
+  cam: { s: 1, tx: 0, ty: 0, ts: 1, ttx: 0, tty: 0, px: 0, py: 0 },
+  hits: [], hover: null, hoverKnob: null,
+  t: 0, shakeT: 0, veil: 0, arrived: 0, celebrate: 0,
+  dust: [], maxSeen: 0
+};
+
+/* ── 音效（极简 WebAudio，首次交互后启用） ── */
+var AC = null, muted = false, audioDead = false;
+/** 音频初始化绝不允许影响操作流程：任何异常都吞掉并永久降级为静音 */
+function ac() {
+  if (audioDead) return null;
+  try {
+    if (!AC) { var C = window.AudioContext || window.webkitAudioContext; if (!C) { audioDead = true; return null; } AC = new C(); }
+    if (AC.state === 'suspended') AC.resume();
+    return AC;
+  } catch (e) { audioDead = true; AC = null; return null; }
+}
+function tone(freq, dur, vol, type, delay) {
+  if (muted) return;
+  var c = ac(); if (!c) return;
+  try {
+    var t0 = c.currentTime + (delay || 0);
+    var o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol || .1, t0 + .015);
+    g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(t0); o.stop(t0 + dur + .05);
+  } catch (e) {}
+}
+var SCALE = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+var stepIdx = 0;
+function sfxStep() { tone(SCALE[stepIdx++ % SCALE.length], .5, .045, 'sine'); }
+function sfxRotate() {
+  tone(261.6, .9, .05, 'triangle'); tone(392.0, .9, .035, 'triangle', .06);
+  tone(523.3, 1.0, .028, 'sine', .12);
+}
+function sfxDeny() { tone(138, .35, .05, 'sine'); }
+function sfxWin() { [523, 659, 784, 1046, 1318].forEach(function (f, i) { tone(f, 1.6, .075, 'sine', i * .13); }); }
+
+/* ── 画布尺寸 ── */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  VW = window.innerWidth; VH = window.innerHeight;
+  cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+  cv.style.width = VW + 'px'; cv.style.height = VH + 'px';
+  if (S.lv) fitCamera(true);
+}
+window.addEventListener('resize', resize);
+
+/** 取遍所有旋转角，算出稳定的取景框，避免相机在转动时跳动 */
+function fitCamera(instant) {
+  var lv = S.lv, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  function acc(gx, gy, gz, d) {
+    var p = proj(gx, gy, gz);
+    x0 = Math.min(x0, p.x - TILE.W); x1 = Math.max(x1, p.x + TILE.W);
+    y0 = Math.min(y0, p.y - TILE.H * 2.4); y1 = Math.max(y1, p.y + TILE.H + d * TILE.Z);
+  }
+  lv.blocks.forEach(function (b) {
+    if (b.rotor) {
+      var r = lv._rot[b.rotor];
+      for (var a = 0; a < 4; a++) {
+        var p = rot90(b.x - r.pivot[0], b.y - r.pivot[1], a);
+        acc(r.pivot[0] + p[0], r.pivot[1] + p[1], b.z, b.d);
+      }
+    } else acc(b.x, b.y, b.z, b.d);
+  });
+  var bw = x1 - x0, bh = y1 - y0;
+  var padX = VW < 640 ? 34 : 90, padY = VW < 640 ? 118 : 150;
+  var s = clamp(Math.min((VW - padX * 2) / bw, (VH - padY * 2) / bh), .34, 1.45);
+  S.cam.ts = s;
+  S.cam.ttx = VW / 2 - (x0 + x1) / 2 * s;
+  S.cam.tty = VH / 2 - (y0 + y1) / 2 * s + 10;
+  if (instant) { S.cam.s = s; S.cam.tx = S.cam.ttx; S.cam.ty = S.cam.tty; }
+}
+
+/* ── DOM 引用 ── */
+var elChapter = document.getElementById('chapterTag');
+var elHint = document.getElementById('hint');
+var elDots = document.getElementById('dots');
+var elCard = document.getElementById('card');
+var elTitle = document.getElementById('title');
+var elDone = document.getElementById('done');
+
+function buildDots() {
+  elDots.innerHTML = '';
+  LEVELS.forEach(function (lv, i) {
+    var d = document.createElement('i');
+    d.title = lv.chapter + ' · ' + lv.name;
+    d.addEventListener('click', function () { if (i <= S.maxSeen) loadLevel(i); });
+    elDots.appendChild(d);
+  });
+}
+function syncDots() {
+  [].forEach.call(elDots.children, function (d, i) {
+    d.className = i === S.li ? 'on' : '';
+    d.style.opacity = i <= S.maxSeen ? 1 : .25;
+    d.style.cursor = i <= S.maxSeen ? 'pointer' : 'default';
+  });
+}
+
+/* ── 关卡装载 ── */
+function loadLevel(i) {
+  S.li = clamp(i, 0, LEVELS.length - 1);
+  S.maxSeen = Math.max(S.maxSeen, S.li);
+  var lv = S.lv = prepLevel(LEVELS[S.li]);
+  S.pal = lv.palette;
+  S.angles = {};
+  (lv.rotors || []).forEach(function (r) { S.angles[r.id] = r.angle || 0; });
+  S.graph = buildGraph(lv, S.angles);
+  S.ida.key = K(lv.start[0], lv.start[1], lv.start[2]);
+  var f = footOf(S.ida.key);
+  S.ida.gx = f.gx; S.ida.gy = f.gy; S.ida.gz = f.gz; S.ida.bob = 0; S.ida.sway = 0;
+  S.walk = null; S.rot = null; S.arrived = 0; S.celebrate = 0;
+  S.hover = null; S.hoverKnob = null;
+  S.veil = 1;
+  fitCamera(true);
+  document.body.style.background = lv.palette.sky[1];
+  elChapter.textContent = lv.chapter + ' · ' + lv.name;
+  elHint.textContent = lv.hint;
+  elCard.querySelector('.c1').textContent = lv.chapter;
+  elCard.querySelector('.c2').textContent = lv.name;
+  elCard.classList.add('show');
+  clearTimeout(loadLevel._t);
+  loadLevel._t = setTimeout(function () { elCard.classList.remove('show'); }, 2200);
+  elDone.classList.add('hide');
+  S.screen = 'play';
+  syncDots();
+  makeDust();
+}
+
+/** 她站在某节点上时的世界坐标（楼梯取中段高度） */
+function footOf(key) {
+  var c = S.graph.walk.get(key);
+  if (!c) { var p = key.split('|').map(Number); return { gx: p[0], gy: p[1], gz: p[2] }; }
+  return { gx: c.gx, gy: c.gy, gz: c.gz + (c.b.kind === 'stair' ? .62 : 0) };
+}
+
+function makeDust() {
+  S.dust = [];
+  for (var i = 0; i < 46; i++) S.dust.push({
+    x: Math.random(), y: Math.random(), r: .6 + Math.random() * 1.9,
+    v: .006 + Math.random() * .02, a: .1 + Math.random() * .3, p: Math.random() * 6.28
+  });
+}
+
+/* ── 交互 ── */
+function screenToWorldPoint(cx, cy) {
+  return { x: (cx - S.cam.tx - S.cam.px) / S.cam.s, y: (cy - S.cam.ty - S.cam.py) / S.cam.s };
+}
+function inPoly(pt, poly) {
+  var inside = false;
+  for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    var a = poly[i], b = poly[j];
+    if (((a.y > pt.y) !== (b.y > pt.y)) &&
+        (pt.x < (b.x - a.x) * (pt.y - a.y) / (b.y - a.y) + a.x)) inside = !inside;
+  }
+  return inside;
+}
+function pick(cx, cy) {
+  var p = screenToWorldPoint(cx, cy), i, h;
+  for (i = S.hits.length - 1; i >= 0; i--) {   // 旋钮优先
+    h = S.hits[i];
+    if (h.type !== 'knob') continue;
+    var dx = p.x - h.c.x, dy = p.y - h.c.y;
+    if (dx * dx + dy * dy < 26 * 26 || inPoly(p, h.poly)) return h;
+  }
+  for (i = S.hits.length - 1; i >= 0; i--) {
+    h = S.hits[i];
+    if (h.type === 'tile' && inPoly(p, h.poly)) return h;
+  }
+  return null;
+}
+
+function startWalk(key) {
+  if (S.rot || S.walk || S.arrived) return;
+  var path = findPath(S.graph, S.ida.key, key);
+  if (!path || path.length < 2) { deny(); return; }
+  S.walk = { path: path, seg: 0, t: 0 };
+  sfxStep();
+}
+function deny() { S.shakeT = .42; sfxDeny(); }
+
+function startRotate(id, dir) {
+  if (S.rot || S.walk || S.arrived) return;
+  var from = S.angles[id] || 0, to = from + dir;
+  var na = {}; for (var k in S.angles) na[k] = S.angles[k];
+  na[id] = (((to % 4) + 4) % 4);
+  var cell = S.graph.walk.get(S.ida.key);
+  var carry = (cell && cell.b.rotor === id) ? cell.b : null;
+  var newKey = carry ? carriedKey(S.lv, carry, na[id]) : S.ida.key;
+  var g2 = buildGraph(S.lv, na);
+  if (!g2.walk.has(newKey)) { deny(); return; }   // 转过去会把她压在方块下 → 拒绝
+  S.rot = { id: id, from: from, to: to, t: 0, dur: .72, carry: carry, newKey: newKey, target: na };
+  sfxRotate();
+}
+
+cv.addEventListener('pointerdown', function (e) {
+  if (S.screen !== 'play') return;
+  ac();
+  var h = pick(e.clientX, e.clientY);
+  if (!h) return;
+  if (h.type === 'knob') startRotate(h.id, (e.shiftKey || e.button === 2) ? -1 : 1);
+  else startWalk(h.key);
+});
+cv.addEventListener('pointermove', function (e) {
+  S.cam.px = (e.clientX / VW - .5) * -12;
+  S.cam.py = (e.clientY / VH - .5) * -8;
+  if (S.screen !== 'play') { S.hover = S.hoverKnob = null; return; }
+  var h = pick(e.clientX, e.clientY);
+  S.hover = (h && h.type === 'tile') ? h.key : null;
+  S.hoverKnob = (h && h.type === 'knob') ? h.id : null;
+  cv.style.cursor = h ? 'pointer' : 'default';
+});
+cv.addEventListener('pointerleave', function () { S.hover = S.hoverKnob = null; S.cam.px = S.cam.py = 0; });
+cv.addEventListener('contextmenu', function (e) {
+  e.preventDefault();
+  if (S.screen !== 'play') return;
+  var h = pick(e.clientX, e.clientY);
+  if (h && h.type === 'knob') startRotate(h.id, -1);
+});
+window.addEventListener('keydown', function (e) {
+  var k = e.key.toLowerCase();
+  if (k === 'r') { if (S.screen !== 'title') loadLevel(S.li); }
+  else if (k === 'm') toggleSound();
+  else if (k >= '1' && k <= String(LEVELS.length)) { S.maxSeen = Math.max(S.maxSeen, +k - 1); loadLevel(+k - 1); elTitle.classList.add('hide'); }
+  else if (k === 'enter' || k === ' ') {
+    if (S.screen === 'title') startGame();
+    else if (S.screen === 'done') nextLevel();
+  }
+});
+
+function toggleSound() {
+  muted = !muted;
+  document.getElementById('btnSound').classList.toggle('off', muted);
+  if (!muted) { ac(); tone(880, .3, .06); }
+}
+document.getElementById('btnSound').addEventListener('click', toggleSound);
+document.getElementById('btnReset').addEventListener('click', function () { if (S.screen !== 'title') loadLevel(S.li); });
+function startGame() {
+  if (S.screen !== 'title') return;
+  elTitle.classList.add('hide');
+  loadLevel(0);
+  ac(); tone(659, .8, .06); tone(988, .9, .04, 'sine', .1);
+}
+document.getElementById('btnStart').addEventListener('click', startGame);
+function nextLevel() {
+  if (S.screen !== 'done') return;
+  elDone.classList.add('hide');
+  if (S.li + 1 < LEVELS.length) loadLevel(S.li + 1);
+  else {
+    S.maxSeen = 0; loadLevel(0);
+    elTitle.style.display = '';
+    elTitle.classList.remove('hide');
+    S.screen = 'title';
+  }
+}
+document.getElementById('btnNext').addEventListener('click', nextLevel);
+
+/* ── 更新 ── */
+function update(dt) {
+  S.t += dt;
+  S.cam.s = lerp(S.cam.s, S.cam.ts, 1 - Math.pow(.001, dt));
+  S.cam.tx = lerp(S.cam.tx, S.cam.ttx, 1 - Math.pow(.001, dt));
+  S.cam.ty = lerp(S.cam.ty, S.cam.tty, 1 - Math.pow(.001, dt));
+  if (S.veil > 0) S.veil = Math.max(0, S.veil - dt * 1.35);
+  if (S.shakeT > 0) S.shakeT = Math.max(0, S.shakeT - dt);
+  S.dust.forEach(function (d) { d.y -= d.v * dt * 6; if (d.y < -.05) { d.y = 1.05; d.x = Math.random(); } });
+  if (S.screen !== 'play' && S.screen !== 'done') return;
+
+  /* 旋转动画 */
+  if (S.rot) {
+    var R = S.rot;
+    R.t += dt / R.dur;
+    if (R.t >= 1) {
+      S.angles = R.target;
+      S.graph = buildGraph(S.lv, S.angles);
+      S.ida.key = R.newKey;
+      var f0 = footOf(S.ida.key);
+      S.ida.gx = f0.gx; S.ida.gy = f0.gy; S.ida.gz = f0.gz;
+      S.rot = null;
+      checkArrive();
+    } else if (R.carry) {
+      var af = lerp(R.from, R.to, easeInOut(R.t)), th = af * Math.PI / 2;
+      var r = S.lv._rot[R.id], dx = R.carry.x - r.pivot[0], dy = R.carry.y - r.pivot[1];
+      var c = Math.cos(th), s = Math.sin(th);
+      S.ida.gx = r.pivot[0] + dx * c - dy * s;
+      S.ida.gy = r.pivot[1] + dx * s + dy * c;
+      S.ida.gz = R.carry.z + (R.carry.kind === 'stair' ? .62 : 0);
+    }
+  }
+
+  /* 行走动画 */
+  if (S.walk) {
+    var Wk = S.walk;
+    var a = footOf(Wk.path[Wk.seg]), b = footOf(Wk.path[Wk.seg + 1]);
+    var climb = Math.abs(b.gz - a.gz) > .01;
+    var dur = climb ? .40 : .32;
+    Wk.t += dt / dur;
+    var tt = clamp(Wk.t, 0, 1), e = easeInOut(tt);
+    S.ida.gx = lerp(a.gx, b.gx, e);
+    S.ida.gy = lerp(a.gy, b.gy, e);
+    S.ida.gz = lerp(a.gz, b.gz, e) + Math.sin(tt * Math.PI) * .07;
+    S.ida.bob = Math.sin(tt * Math.PI * 2) * 1.6;
+    S.ida.sway = Math.sin(tt * Math.PI) * (b.gx - a.gx >= 0 ? 1 : -1) * .12;
+    if (Wk.t >= 1) {
+      Wk.seg++; Wk.t = 0;
+      S.ida.key = Wk.path[Wk.seg];
+      if (Wk.seg >= Wk.path.length - 1) { S.walk = null; S.ida.bob = 0; S.ida.sway = 0; checkArrive(); }
+      else sfxStep();
+    }
+  }
+
+  if (S.arrived > 0) {
+    S.arrived += dt; S.celebrate += dt;
+    if (S.arrived > 1.25 && S.screen === 'play') {
+      S.screen = 'done';
+      var last = S.li === LEVELS.length - 1;
+      document.getElementById('doneSub').textContent = last ? 'JOURNEY COMPLETE' : 'CHAPTER COMPLETE';
+      document.getElementById('doneTitle').textContent = last ? '旅程完成' : (S.lv.chapter + ' 完成');
+      document.getElementById('doneText').textContent = last
+        ? '几何是沉默的语言，而她已经读完了全部五页。'
+        : '沉默的建筑记住了她的脚步。';
+      document.getElementById('btnNext').textContent = last ? '再次启程' : '继续前行';
+      elDone.classList.remove('hide');
+    }
+  }
+}
+function checkArrive() {
+  if (S.arrived > 0) return;
+  var g = S.lv.goal;
+  if (S.ida.key === K(g[0], g[1], g[2])) { S.arrived = .0001; sfxWin(); }
+}
+
+/* ── 场景装配 ── */
+var LOCAL_N = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
+function boxItem(cx, cy, cz, th, hu, hv, thick, tone, tag) {
+  var c = Math.cos(th), s = Math.sin(th);
+  var offs = [[-hu, -hv], [hu, -hv], [hu, hv], [-hu, hv]], pts = [];
+  for (var i = 0; i < 4; i++) {
+    var u = offs[i][0], v = offs[i][1];
+    pts.push(proj(cx + (u * c - v * s), cy + (u * s + v * c), cz));
+  }
+  return { type: 'box', pts: pts, c: c, s: s, thick: thick, tone: tone,
+           depth: cx + cy + cz, center: proj(cx, cy, cz), tag: tag || null };
+}
+
+function buildScene() {
+  var lv = S.lv, items = [], hits = [];
+  var animAngle = function (id) {
+    if (S.rot && S.rot.id === id) return lerp(S.rot.from, S.rot.to, easeInOut(S.rot.t));
+    return S.angles[id] || 0;
+  };
+  lv.blocks.forEach(function (b) {
+    var gx = b.x, gy = b.y, th = 0;
+    if (b.rotor) {
+      var r = lv._rot[b.rotor], af = animAngle(b.rotor);
+      th = af * Math.PI / 2;
+      var dx = b.x - r.pivot[0], dy = b.y - r.pivot[1], c = Math.cos(th), s = Math.sin(th);
+      gx = r.pivot[0] + dx * c - dy * s;
+      gy = r.pivot[1] + dx * s + dy * c;
+    }
+    var tone = S.pal.tones[b.tone] || S.pal.tones.stone;
+    var nodeKey = WALK_KIND[b.kind] ? K(Math.round(gx), Math.round(gy), b.z) : null;
+    var walkable = nodeKey && S.graph.walk.has(nodeKey);
+
+    if (b.kind === 'stair') {
+      var d = DIRV[b.dir], cc = Math.cos(th), ss = Math.sin(th);
+      var wx = d[0] * cc - d[1] * ss, wy = d[0] * ss + d[1] * cc;   // 世界朝向
+      for (var i = 0; i < 3; i++) {
+        var t = -0.5 + (2 * i + 1) / 6;
+        var sx = gx + wx * t, sy = gy + wy * t, sz = b.z + (i + 1) / 3;
+        var hu = Math.abs(d[0]) > .5 ? 1 / 6 : .5, hv = Math.abs(d[0]) > .5 ? .5 : 1 / 6;
+        var it = boxItem(sx, sy, sz, th, hu, hv, (b.d + (i + 1) / 3) * TILE.Z, tone,
+                         { key: nodeKey, walkable: walkable, kind: 'stair' });
+        it.depth += ((wx + wy) > 0 ? i : -i) * 1e-3;
+        items.push(it);
+        if (walkable) hits.push({ type: 'tile', key: nodeKey, poly: it.pts, depth: it.depth });
+      }
+    } else {
+      var it2 = boxItem(gx, gy, b.z, th, .5, .5, b.d * TILE.Z, tone,
+                        { key: nodeKey, walkable: walkable, kind: b.kind });
+      items.push(it2);
+      if (b.kind === 'knob') {
+        it2.knob = b.rotor;
+        hits.push({ type: 'knob', id: b.rotor, poly: it2.pts, c: it2.center, depth: it2.depth });
+      } else if (walkable) {
+        hits.push({ type: 'tile', key: nodeKey, poly: it2.pts, depth: it2.depth });
+      }
+      if (b.kind === 'goal') items.push({ type: 'gate', depth: it2.depth + .35, center: it2.center });
+    }
+  });
+
+  items.push({ type: 'ida', depth: S.ida.gx + S.ida.gy + S.ida.gz + .45,
+               center: proj(S.ida.gx, S.ida.gy, S.ida.gz) });
+
+  items.sort(function (a, b) { return a.depth - b.depth; });
+  hits.sort(function (a, b) { return a.depth - b.depth; });
+  S.hits = hits;
+  return items;
+}
+
+/* ── 绘制 ── */
+function poly(pts, fill) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.strokeStyle = fill; ctx.lineWidth = 1;
+  ctx.fill(); ctx.stroke();
+}
+
+function drawBox(it) {
+  var p = it.pts, i;
+  for (i = 0; i < 4; i++) {                     // 侧面（法向朝观察者的两面）
+    var n = LOCAL_N[i];
+    var nx = n[0] * it.c - n[1] * it.s, ny = n[0] * it.s + n[1] * it.c;
+    if (nx + ny <= 1e-4) continue;
+    var a = p[i], b = p[(i + 1) % 4];
+    poly([a, b, { x: b.x, y: b.y + it.thick }, { x: a.x, y: a.y + it.thick }],
+         (nx - ny) > 0 ? it.tone.right : it.tone.left);
+  }
+  poly(p, it.tone.top);                          // 顶面
+
+  var tg = it.tag;
+  if (tg && tg.kind === 'goal') {                // 终点微光
+    ctx.save(); ctx.globalAlpha = .35 + Math.sin(S.t * 2) * .12;
+    poly(p, rgba(S.pal.glow, .8)); ctx.restore();
+  }
+  if (tg && tg.walkable && S.hover === tg.key && !S.walk && !S.rot && !S.arrived) {
+    ctx.save(); ctx.globalAlpha = .3; poly(p, '#ffffff'); ctx.restore();
+  }
+  if (it.knob) drawKnob(it);
+}
+
+function drawKnob(it) {
+  var c = it.center;
+  var hot = S.hoverKnob === it.knob;
+  var pulse = .5 + .5 * Math.sin(S.t * 2.2);
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.scale(1, TILE.H / TILE.W);                 // 顶面圆 → 椭圆
+  var R = 20;
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.2832);
+  ctx.fillStyle = rgba(S.pal.accent, hot ? .95 : .8); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, R * .66, 0, 6.2832);
+  ctx.fillStyle = rgba('#ffffff', .9); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, R * .26, 0, 6.2832);
+  ctx.fillStyle = rgba(S.pal.accent, .95); ctx.fill();
+  // 三道旋转刻痕
+  ctx.strokeStyle = rgba(S.pal.accent, .8); ctx.lineWidth = 2.4;
+  var base = S.t * .55 + (S.rot && S.rot.id === it.knob ? easeInOut(S.rot.t) * 1.57 * (S.rot.to - S.rot.from) : 0);
+  for (var i = 0; i < 3; i++) {
+    var a0 = base + i * 2.094;
+    ctx.beginPath(); ctx.arc(0, 0, R * .46, a0, a0 + .85); ctx.stroke();
+  }
+  // 待操作的呼吸环
+  if (!S.rot) {
+    ctx.beginPath(); ctx.arc(0, 0, R + 5 + pulse * 6, 0, 6.2832);
+    ctx.strokeStyle = rgba('#ffffff', (hot ? .55 : .3) * (1 - pulse * .7));
+    ctx.lineWidth = 2; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawGate(it) {
+  var c = it.center, t = S.t;
+  var lift = 40 + Math.sin(t * 1.25) * 4;
+  var g = ctx.createRadialGradient(c.x, c.y - lift, 2, c.x, c.y - lift, 62);
+  g.addColorStop(0, rgba(S.pal.glow, .55)); g.addColorStop(.55, rgba(S.pal.glow, .16));
+  g.addColorStop(1, rgba(S.pal.glow, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(c.x - 70, c.y - lift - 70, 140, 140);
+
+  var boost = S.arrived > 0 ? Math.min(1, S.celebrate * 1.1) : 0;
+  var sz = 11 + Math.sin(t * 2) * 1.3 + boost * 7;
+  var yy = c.y - lift - boost * 12;
+  var spin = t * .8 + boost * S.celebrate * 2.4;
+  var sq = Math.abs(Math.cos(spin)) * .55 + .45;                 // 伪 3D 八面体
+  ctx.beginPath();
+  ctx.moveTo(c.x, yy - sz * 1.5); ctx.lineTo(c.x + sz * sq, yy);
+  ctx.lineTo(c.x, yy + sz * 1.5); ctx.lineTo(c.x - sz * sq, yy);
+  ctx.closePath();
+  ctx.fillStyle = S.pal.accent; ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(c.x, yy - sz * 1.5); ctx.lineTo(c.x + sz * sq, yy);
+  ctx.lineTo(c.x, yy + sz * 1.5); ctx.closePath();
+  ctx.fillStyle = shade(S.pal.accent, .3); ctx.fill();
+
+  ctx.save();                                                    // 光环
+  ctx.translate(c.x, c.y - 4); ctx.scale(1, TILE.H / TILE.W);
+  ctx.beginPath(); ctx.arc(0, 0, 24 + Math.sin(t * 1.6) * 2 + boost * 26, 0, 6.2832);
+  ctx.strokeStyle = rgba(S.pal.glow, .5 * (1 - boost * .8)); ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+}
+
+function drawIda(it) {
+  var c = it.center, bob = S.ida.bob, sway = S.ida.sway * 10;
+  var x = c.x + sway, y = c.y + 2;
+  ctx.save();
+  ctx.globalAlpha = .16;                                         // 影子
+  ctx.beginPath(); ctx.ellipse(c.x, c.y + 2, 11, 5, 0, 0, 6.2832);
+  ctx.fillStyle = '#2b1f38'; ctx.fill();
+  ctx.restore();
+
+  y += bob * .35;
+  var scale = S.arrived > 0 ? Math.max(0, 1 - Math.max(0, S.celebrate - .55) * .55) : 1;
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(scale, scale); ctx.rotate(sway * .008);
+  var W = 7.4, Hh = 17;
+  ctx.beginPath();                                               // 裙
+  ctx.moveTo(-W, 0); ctx.lineTo(W, 0);
+  ctx.quadraticCurveTo(W * .62, -Hh * .5, 3.6, -Hh);
+  ctx.lineTo(-3.6, -Hh);
+  ctx.quadraticCurveTo(-W * .62, -Hh * .5, -W, 0);
+  ctx.closePath();
+  ctx.fillStyle = '#FFFFFF'; ctx.fill();
+  ctx.beginPath();                                               // 裙右侧阴影
+  ctx.moveTo(0, 0); ctx.lineTo(W, 0);
+  ctx.quadraticCurveTo(W * .62, -Hh * .5, 3.6, -Hh);
+  ctx.lineTo(0, -Hh); ctx.closePath();
+  ctx.fillStyle = 'rgba(180,168,198,.35)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -Hh - 3.6, 4.3, 0, 6.2832);        // 头
+  ctx.fillStyle = '#FFF7EC'; ctx.fill();
+  ctx.beginPath();                                               // 尖帽
+  ctx.moveTo(-6.6, -Hh - 5.4); ctx.lineTo(6.6, -Hh - 5.4);
+  ctx.lineTo(0, -Hh - 21); ctx.closePath();
+  ctx.fillStyle = '#FFFFFF'; ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0, -Hh - 5.4); ctx.lineTo(6.6, -Hh - 5.4); ctx.lineTo(0, -Hh - 21); ctx.closePath();
+  ctx.fillStyle = 'rgba(178,166,196,.3)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -Hh - 21.4, 1.7, 0, 6.2832);       // 帽顶珠
+  ctx.fillStyle = S.pal.accent; ctx.fill();
+  ctx.restore();
+}
+
+function drawSky() {
+  var g = ctx.createLinearGradient(0, 0, 0, VH);
+  g.addColorStop(0, S.pal.sky[0]); g.addColorStop(1, S.pal.sky[1]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+
+  var cx = VW / 2, cy = VH * .44;                                // 背景神圣几何
+  ctx.save(); ctx.globalAlpha = .12;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
+  var base = Math.min(VW, VH);
+  for (var i = 1; i <= 4; i++) {
+    ctx.beginPath(); ctx.arc(cx, cy, base * (.14 + i * .088) + Math.sin(S.t * .35 + i) * 2, 0, 6.2832);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = .09;
+  for (var k = 0; k < 6; k++) {
+    var a = S.t * .04 + k * Math.PI / 3, R = base * .47;
+    ctx.beginPath(); ctx.moveTo(cx - Math.cos(a) * R, cy - Math.sin(a) * R);
+    ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawDust() {
+  ctx.save();
+  S.dust.forEach(function (d) {
+    ctx.globalAlpha = d.a * (.5 + .5 * Math.sin(S.t * 1.4 + d.p));
+    ctx.beginPath();
+    ctx.arc(d.x * VW + Math.sin(S.t * .5 + d.p) * 12, d.y * VH, d.r, 0, 6.2832);
+    ctx.fillStyle = S.pal.dust; ctx.fill();
+  });
+  ctx.restore();
+}
+
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (!S.lv) {
+    var g = ctx.createLinearGradient(0, 0, 0, VH);
+    g.addColorStop(0, '#4a3f6e'); g.addColorStop(1, '#1c1830');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+    return;
+  }
+  drawSky();
+  drawDust();
+
+  var sh = S.shakeT > 0 ? Math.sin(S.shakeT * 62) * S.shakeT * 12 : 0;
+  ctx.save();
+  ctx.translate(S.cam.tx + S.cam.px + sh, S.cam.ty + S.cam.py);
+  ctx.scale(S.cam.s, S.cam.s);
+  var items = buildScene();
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (it.type === 'box') drawBox(it);
+    else if (it.type === 'gate') drawGate(it);
+    else if (it.type === 'ida') drawIda(it);
+  }
+  ctx.restore();
+
+  if (S.veil > 0) {                                              // 入场白纱
+    ctx.fillStyle = rgba('#ffffff', S.veil * .92);
+    ctx.fillRect(0, 0, VW, VH);
+  }
+  if (S.arrived > 0) {                                           // 完成时的光晕
+    var a = clamp((S.celebrate - .35) / .9, 0, 1) * .55;
+    if (a > 0) { ctx.fillStyle = rgba(S.pal.glow, a); ctx.fillRect(0, 0, VW, VH); }
+  }
+}
+
+/* ── 主循环 ── */
+var last = 0;
+function frame(ts) {
+  var dt = last ? Math.min((ts - last) / 1000, .05) : .016;
+  last = ts;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+buildDots();
+syncDots();
+resize();
+
+/* 支持 URL 直达关卡：monument-valley.html#3 或 ?lv=3
+   调试可加旋转角：#4.1 表示第四章、旋转体预置到 1/4 圈 */
+(function () {
+  var m = (location.hash + ' ' + location.search).match(/(\d+)(?:[.](\d+))?/);
+  if (!m) return;
+  var bi = clamp(+m[1] - 1, 0, LEVELS.length - 1);
+  S.maxSeen = bi;
+  elTitle.style.display = 'none';    // 深链接：直接不要标题层（无淡出过渡残留）
+  elTitle.classList.add('hide');
+  loadLevel(bi);
+  S.veil = 0;                       // 深链接直达：跳过入场白纱，画面即时可见
+  elCard.classList.remove('show');
+  if (m[2] !== undefined) {
+    var a = (+m[2]) % 4, id;
+    for (id in S.angles) S.angles[id] = a;
+    S.graph = buildGraph(S.lv, S.angles);
+    var k0 = K(S.lv.start[0], S.lv.start[1], S.lv.start[2]);
+    if (S.graph.walk.has(k0)) {
+      S.ida.key = k0;
+      var f = footOf(k0);
+      S.ida.gx = f.gx; S.ida.gy = f.gy; S.ida.gz = f.gz;
+    }
+  }
+})();
+
+requestAnimationFrame(frame);
+
+/* 开发者控制台便利入口（同时供无头渲染测试使用） */
+window.MV = {
+  S: S, LEVELS: LEVELS, load: loadLevel, solve: solveLevel, buildGraph: buildGraph,
+  buildScene: buildScene, update: update, render: render, resize: resize,
+  startWalk: startWalk, startRotate: startRotate, footOf: footOf, proj: proj, K: K
+};
+</script>
+</body>
+</html>

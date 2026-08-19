@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Kerr–Newman Ray Tracer · 严格度规测地线渲染</title>
+<style>
+  :root{
+    --bg:#05070a;
+    --panel:rgba(10,14,20,.72);
+    --panel-solid:#0a0e14;
+    --line:rgba(126,196,255,.14);
+    --line-str:rgba(126,196,255,.30);
+    --txt:#cfe3f2;
+    --txt-dim:#7c93a8;
+    --acc:#5fd0ff;
+    --acc2:#ffb457;
+    --acc3:#ff6b8b;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
+    font-family:var(--mono);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #view.drag{cursor:grabbing}
+  #vig{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(120% 100% at 50% 50%,transparent 55%,rgba(0,0,0,.35) 100%)}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;left:16px;top:14px;pointer-events:none;user-select:none;z-index:5}
+  #hud h1{margin:0;font-size:14px;letter-spacing:.24em;font-weight:600;
+    background:linear-gradient(92deg,#eaf6ff,#5fd0ff 42%,#ffb457 88%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;text-transform:uppercase}
+  #hud .sub{margin-top:3px;font-size:10px;letter-spacing:.14em;color:var(--txt-dim)}
+  #stat{margin-top:10px;font-size:10.5px;line-height:1.65;color:#9fb6c9;
+    background:rgba(6,9,13,.5);border:1px solid var(--line);border-radius:8px;padding:7px 9px;backdrop-filter:blur(8px)}
+  #stat b{color:var(--acc);font-weight:500}
+  #stat .warn{color:var(--acc3)}
+  #stat .ok{color:#8ce99a}
+  #hint{position:fixed;left:16px;bottom:12px;font-size:10px;color:#5d7186;letter-spacing:.08em;
+    pointer-events:none;z-index:5;line-height:1.7}
+  kbd{border:1px solid var(--line-str);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:#9fb6c9;font-size:9px}
+
+  /* ---------- panel ---------- */
+  #ui{position:fixed;right:0;top:0;height:100%;width:322px;z-index:9;
+    background:var(--panel);backdrop-filter:blur(18px) saturate(1.25);
+    border-left:1px solid var(--line);display:flex;flex-direction:column;
+    transition:transform .32s cubic-bezier(.4,.05,.2,1)}
+  #ui.hide{transform:translateX(100%)}
+  #uihead{padding:12px 14px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  #uihead .t{font-size:11px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+  #uihead .d{font-size:9.5px;color:var(--txt-dim);margin-top:4px;letter-spacing:.06em}
+  #presets{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .chip{font:inherit;font-size:9.5px;letter-spacing:.06em;color:#a9c2d6;cursor:pointer;
+    background:rgba(95,208,255,.07);border:1px solid var(--line);border-radius:20px;padding:3.5px 9px;
+    transition:.16s}
+  .chip:hover{background:rgba(95,208,255,.18);border-color:var(--line-str);color:#eaf6ff}
+  .chip:active{transform:translateY(1px)}
+  #uibody{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;padding:4px 0 26px;scrollbar-width:thin;
+    scrollbar-color:rgba(95,208,255,.28) transparent}
+  #uibody::-webkit-scrollbar{width:7px}
+  #uibody::-webkit-scrollbar-thumb{background:rgba(95,208,255,.24);border-radius:4px}
+  .grp{border-bottom:1px solid rgba(126,196,255,.07)}
+  .gh{display:flex;align-items:center;gap:7px;padding:9px 13px;cursor:pointer;user-select:none;
+    font-size:10px;letter-spacing:.17em;color:#9fb6c9;text-transform:uppercase;transition:.15s}
+  .gh:hover{color:#eaf6ff;background:rgba(95,208,255,.05)}
+  .gh .car{width:8px;height:8px;border-right:1.4px solid var(--acc);border-bottom:1.4px solid var(--acc);
+    transform:rotate(45deg);transition:transform .22s;opacity:.85;margin-bottom:2px}
+  .grp.col .car{transform:rotate(-45deg)}
+  .gh .dot{width:4px;height:4px;border-radius:50%;background:var(--acc);box-shadow:0 0 7px var(--acc);flex:0 0 auto}
+  .gb{padding:2px 13px 11px;display:block}
+  .grp.col .gb{display:none}
+
+  .row{margin:9px 0 0}
+  .row .lab{display:flex;justify-content:space-between;align-items:baseline;font-size:10px;
+    color:#a9c2d6;letter-spacing:.05em;margin-bottom:4px}
+  .row .lab .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .lab .vv{color:var(--acc2);font-variant-numeric:tabular-nums;font-size:10px;flex:0 0 auto;padding-left:8px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:14px;background:transparent;margin:0;cursor:ew-resize}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:3px;
+    background:linear-gradient(90deg,rgba(95,208,255,.55) 0%,rgba(95,208,255,.55) var(--p,50%),rgba(255,255,255,.09) var(--p,50%))}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:#dff2ff;margin-top:-4px;box-shadow:0 0 0 1px rgba(95,208,255,.7),0 0 9px rgba(95,208,255,.55);transition:.12s}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;box-shadow:0 0 0 1px #fff,0 0 13px rgba(95,208,255,.9)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:3px;background:rgba(255,255,255,.09)}
+  input[type=range]::-moz-range-progress{height:3px;border-radius:3px;background:rgba(95,208,255,.55)}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border:none;border-radius:50%;background:#dff2ff;
+    box-shadow:0 0 0 1px rgba(95,208,255,.7),0 0 9px rgba(95,208,255,.55)}
+
+  .trow{display:flex;align-items:center;justify-content:space-between;margin:10px 0 0;font-size:10px;color:#a9c2d6}
+  .sw{width:34px;height:16px;border-radius:10px;background:rgba(255,255,255,.10);border:1px solid var(--line);
+    position:relative;cursor:pointer;flex:0 0 auto;transition:.2s}
+  .sw::after{content:"";position:absolute;left:2px;top:1.5px;width:11px;height:11px;border-radius:50%;
+    background:#8fa6b8;transition:.2s}
+  .sw.on{background:rgba(95,208,255,.28);border-color:var(--line-str)}
+  .sw.on::after{left:19px;background:#dff2ff;box-shadow:0 0 8px var(--acc)}
+  select{font:inherit;font-size:10px;color:#cfe3f2;background:rgba(255,255,255,.05);border:1px solid var(--line);
+    border-radius:6px;padding:3px 6px;outline:none;cursor:pointer}
+  select:hover{border-color:var(--line-str)}
+  .btnrow{display:flex;gap:6px;margin-top:11px}
+  .btn{flex:1;font:inherit;font-size:9.5px;letter-spacing:.09em;color:#bcd6e8;cursor:pointer;
+    background:rgba(95,208,255,.08);border:1px solid var(--line);border-radius:7px;padding:6px 4px;transition:.16s}
+  .btn:hover{background:rgba(95,208,255,.2);color:#fff}
+  .note{font-size:9px;color:#61758a;line-height:1.6;margin-top:8px;letter-spacing:.03em}
+  #toggle{position:fixed;right:12px;top:12px;z-index:11;width:30px;height:30px;border-radius:8px;
+    background:rgba(10,14,20,.7);border:1px solid var(--line);cursor:pointer;display:flex;
+    align-items:center;justify-content:center;backdrop-filter:blur(8px);transition:.2s}
+  #toggle:hover{border-color:var(--line-str)}
+  #toggle div{width:13px;height:1.4px;background:var(--acc);position:relative;box-shadow:0 -4px 0 var(--acc),0 4px 0 var(--acc)}
+  #ui.hide ~ #toggle{right:12px}
+  #err{position:fixed;inset:0;z-index:99;background:#05070a;color:#ff8ea3;padding:26px;
+    font-size:11px;line-height:1.6;overflow:auto;white-space:pre-wrap;display:none}
+  #spin{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8;font-size:10px;
+    letter-spacing:.2em;color:var(--acc);text-transform:uppercase;pointer-events:none;transition:opacity .5s}
+  @media (max-width:760px){
+    #ui{width:100%;height:52%;top:auto;bottom:0;border-left:none;border-top:1px solid var(--line)}
+    #ui.hide{transform:translateY(100%)}
+    #hud{font-size:9px}
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="vig"></div>
+
+<div id="hud">
+  <h1>Kerr–Newman Ray Tracer</h1>
+  <div class="sub">INGOING CARTESIAN KERR–SCHILD · HAMILTONIAN GEODESICS · RK4</div>
+  <div id="stat">booting…</div>
+</div>
+<div id="hint">
+  <kbd>drag</kbd> 环绕 &nbsp; <kbd>wheel</kbd> 距离 &nbsp; <kbd>shift+drag</kbd> 视场 &nbsp; <kbd>H</kbd> 面板 &nbsp; <kbd>R</kbd> 重置 &nbsp; <kbd>P</kbd> 存图
+</div>
+
+<div id="toggle" title="面板 (H)"><div></div></div>
+<div id="ui">
+  <div id="uihead">
+    <div class="t">Control Deck</div>
+    <div class="d">M = 1 (几何单位 G=c=1)，a 与 Q 均以 M 为单位</div>
+    <div id="presets"></div>
+  </div>
+  <div id="uibody"></div>
+</div>
+<div id="spin">initialising webgl2…</div>
+<div id="err"></div>
+
+<!-- ===================== 全屏三角形顶点着色器 ===================== -->
+<script id="vs-quad" type="x-shader/x-vertex">#version 300 es
+precision highp float;
+out vec2 vUV;
+void main(){
+  vec2 v = vec2(float((gl_VertexID & 1) << 2) - 1.0, float((gl_VertexID & 2) << 1) - 1.0);
+  vUV = v*0.5 + 0.5;
+  gl_Position = vec4(v, 0.0, 1.0);
+}
+</script>
+
+<!-- ===================== 光子输运主着色器 ===================== -->
+<script id="fs-trace" type="x-shader/x-fragment">#version 300 es
+/*==============================================================================
+  KERR–NEWMAN 光子输运器
+  ------------------------------------------------------------------------------
+  度规: ingoing (advanced) 笛卡尔 Kerr–Schild 形式
+        g_uv = eta_uv + f k_u k_v ,  eta = diag(-1,1,1,1)
+        f    = (2 M r - Q^2)/Sigma ,  Sigma = r^2 + a^2 cos^2(theta) = sqrt(b^2+4a^2z^2)
+        k_u  = ( 1 , (r x + a y)/(r^2+a^2) , (r y - a x)/(r^2+a^2) , z/r )
+        r^2  = ( (R^2-a^2) + sqrt((R^2-a^2)^2 + 4 a^2 z^2) )/2
+  笛卡尔形式在极轴/赤道处均无坐标奇性(仅奇环 Sigma=0 是真奇点)。
+  k 是零矢量(对 eta 与 g 皆然) ==> 逆度规解析: g^uv = eta^uv - f k^u k^v
+  ------------------------------------------------------------------------------
+  哈密顿量(零测地线):  H = 1/2 g^uv p_u p_v = 1/2[ |p|^2 - p_t^2 - f (k.p - p_t)^2 ]
+  正则方程(全部解析梯度, 无数值差分):
+        dx^i/dl =  dH/dp_i = p_i - f S k_i                       , S = k.p - p_t
+        dp_i/dl = -dH/dx^i = 1/2 S^2 (grad f)_i + f S (d_i k_j) p_j
+        dt  /dl =  dH/dp_t = -p_t + f S                          (= p^t, 红移探针)
+  度规静态 ==> p_t 严格守恒, 不参与积分(只需演化 x, p, 以及诊断用的 t)。
+  ------------------------------------------------------------------------------
+  符号约定(要求 1.3):
+    物理光子朝相机飞来。我们对同一条零测地线做仿射参数反演 l -> -l (等价于 p -> -p),
+    于是"向后追踪"变为标准正向积分。因此本着色器中演化的 p 满足:
+        p(here) = -p(physical)  ,  p_t = +E > 0 ,  dt/dl < 0 (沿坐标时间回溯)
+    亦即: 在 ingoing、自旋 a 的系里, 物理光子动量指向相机(与 raydir 反向);
+          完全等价于在 outgoing、自旋 -a 的系里光子动量背离相机。
+    初动量由静态观者正交四标架给出(要求 1.6), 绝不把 p 的空间分量当作 raydir。
+==============================================================================*/
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+
+out vec4 fragCol;
+
+uniform vec2  uRes;
+uniform float uFrameF, uAlpha;
+uniform sampler2D uPrev;
+uniform float uTimeD;
+uniform vec3  uCamPos;
+uniform vec4  uE0, uER, uEU, uEF;      // 正交归一四标架 (t,x,y,z) 分量
+uniform float uTanHalf;
+
+uniform float uSpin, uChg, uRplus, uHasH;
+uniform float uQual, uMaxSteps, uPtMax, uSkyR, uHamFix, uRetard, uSub;
+uniform float uDiskOn, uRin, uRout, uThick, uFlare, uEdge;
+uniform float uDensPow, uTempPow, uEmisPow, uT0, uDens, uEmis, uAbsorb, uRedden;
+uniform float uTurb, uTurbScale, uSpiral, uProgr;
+uniform float uStarDens, uStarBright, uStarSize, uNebula, uSkyGain, uAntiMode, uAntiGain;
+uniform float uDebug;
+
+const float PI = 3.14159265358979;
+
+/*---------------------------- 随机数 / 噪声 -----------------------------*/
+uint rngState = 1u;
+float rnd(){
+  rngState = rngState*747796405u + 2891336453u;
+  uint w = ((rngState >> ((rngState >> 28u) + 4u)) ^ rngState) * 277803737u;
+  w = (w >> 22u) ^ w;
+  return float(w) * (1.0/4294967296.0);
+}
+float hash13(vec3 p3){
+  p3 = fract(p3*0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y)*p3.z);
+}
+vec3 hash33(vec3 p3){
+  p3 = fract(p3*vec3(0.1031,0.1030,0.0973));
+  p3 += dot(p3, p3.yxz + 33.33);
+  return fract((p3.xxy + p3.yxx)*p3.zyx);
+}
+// 整数哈希 (PCG3D): 星场格点坐标可达 ±700, 浮点哈希会精度退化并产生伪星, 这里用整数管线
+vec3 hash33i(ivec3 v){
+  uvec3 x = uvec3(v + ivec3(4096));
+  x = x*1664525u + 1013904223u;
+  x.x += x.y*x.z; x.y += x.z*x.x; x.z += x.x*x.y;
+  x ^= x >> 16u;
+  x.x += x.y*x.z; x.y += x.z*x.x; x.z += x.x*x.y;
+  return vec3(x)*(1.0/4294967296.0);
+}
+float vnoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  vec3 u = f*f*(3.0 - 2.0*f);
+  float n000 = hash13(i);
+  float n100 = hash13(i + vec3(1.0,0.0,0.0));
+  float n010 = hash13(i + vec3(0.0,1.0,0.0));
+  float n110 = hash13(i + vec3(1.0,1.0,0.0));
+  float n001 = hash13(i + vec3(0.0,0.0,1.0));
+  float n101 = hash13(i + vec3(1.0,0.0,1.0));
+  float n011 = hash13(i + vec3(0.0,1.0,1.0));
+  float n111 = hash13(i + vec3(1.0,1.0,1.0));
+  return mix(mix(mix(n000,n100,u.x), mix(n010,n110,u.x), u.y),
+             mix(mix(n001,n101,u.x), mix(n011,n111,u.x), u.y), u.z);
+}
+const mat3 NROT = mat3( 0.00, 0.80, 0.60,
+                       -0.80, 0.36,-0.48,
+                       -0.60,-0.48, 0.64);
+float fbm3(vec3 p, int oct){
+  float s = 0.0, a = 0.5;
+  for (int i=0;i<oct;i++){ s += a*vnoise(p); p = NROT*p*2.03; a *= 0.5; }
+  return s;
+}
+
+/*---------------------------- 黑体色 (CIE 普朗克轨迹) -----------------------------*/
+vec3 planckRGB(float T){
+  float t = clamp(T, 900.0, 26000.0);
+  float u = 1.0/t, u2 = u*u, u3 = u2*u;
+  float xc = (t < 4000.0)
+     ? (-0.2661239e9*u3 - 0.2343589e6*u2 + 0.8776956e3*u + 0.179910)
+     : (-3.0258469e9*u3 + 2.1070379e6*u2 + 0.2226347e3*u + 0.240390);
+  float x2 = xc*xc, x3 = x2*xc;
+  float yc;
+  if (t < 2222.0)      yc = -1.1063814*x3 - 1.34811020*x2 + 2.18555832*xc - 0.20219683;
+  else if (t < 4000.0) yc = -0.9549476*x3 - 1.37418593*x2 + 2.09137015*xc - 0.16748867;
+  else                 yc =  3.0817580*x3 - 5.87338670*x2 + 3.75112997*xc - 0.37001483;
+  yc = max(yc, 1.0e-3);
+  float X = xc/yc, Y = 1.0, Z = (1.0 - xc - yc)/yc;
+  vec3 c = vec3( 3.2404542*X - 1.5371385*Y - 0.4985314*Z,
+                -0.9692660*X + 1.8760108*Y + 0.0415560*Z,
+                 0.0556434*X - 0.2040259*Y + 1.0572252*Z);
+  c = max(c, vec3(0.0));
+  return c/max(dot(c, vec3(0.2126,0.7152,0.0722)), 1.0e-4);
+}
+
+/*==================== Kerr–Schild 场量与解析梯度 ====================*/
+struct Fld {
+  float rs;    // 带符号 Boyer–Lindquist 型半径 (br<0 即奇环另一侧 r<0 页)
+  float sig;   // Sigma = r^2 + a^2 cos^2 theta
+  float ct;    // cos(theta) = z / rs
+  float f;
+  vec3  k;     // k_i (协变空间分量), k_t = 1
+  vec3  gr;    // grad rs
+  vec3  gf;    // grad f
+};
+
+void radialAt(in vec3 x, in float br, out float rs, out float sig, out float ct){
+  float a  = uSpin, a2 = a*a;
+  float R2 = dot(x,x);
+  float b  = R2 - a2;
+  float z  = x.z;
+  float az2 = 4.0*a2*z*z;
+  float d  = sqrt(max(b*b + az2, 0.0));
+  // b<0 时 (b+d)/2 是两个近似相等量之差 -> 改用等价的稳定形式, 杜绝灾难性抵消
+  float r2 = (b >= 0.0) ? 0.5*(b + d) : (0.5*az2)/max(d - b, 1.0e-30);
+  float rp = sqrt(max(r2, 0.0));
+  rs  = br*rp;
+  sig = max(d, 1.0e-12);
+  if (a2 < 1.0e-14){
+    ct = (rp > 1.0e-20) ? br*z/rp : 0.0;
+  } else {
+    // cos^2 = (Sigma - r^2)/a^2 , 符号 = sign(z * rs) : 穿过内盘翻页时连续
+    float s = sqrt(max(d - r2, 0.0))/abs(a);
+    ct = clamp((z*rs >= 0.0) ? s : -s, -1.0, 1.0);
+  }
+}
+
+Fld fieldAt(in vec3 x, in float br){
+  Fld F;
+  float a = uSpin, a2 = a*a;
+  radialAt(x, br, F.rs, F.sig, F.ct);
+  float rs = F.rs, sig = F.sig;
+  F.f = (2.0*rs - uChg*uChg)/sig;                       // M = 1
+  float w = 1.0/max(rs*rs + a2, 1.0e-12);
+  F.k = vec3((rs*x.x + a*x.y)*w, (rs*x.y - a*x.x)*w, F.ct);
+  // grad r : (r x/Sigma , r y/Sigma , cos(theta)(r^2+a^2)/Sigma)  —— 后者已消去 1/r 的奇性
+  F.gr = vec3(rs*x.x/sig, rs*x.y/sig, F.ct*(rs*rs + a2)/sig);
+  float b = dot(x,x) - a2;
+  vec3 gsig = vec3(2.0*b*x.x, 2.0*b*x.y, 2.0*b*x.z + 4.0*a2*x.z)/sig;
+  F.gf = (2.0*F.gr - F.f*gsig)/sig;                     // grad f = (2M grad r - f grad Sigma)/Sigma
+  return F;
+}
+
+// 由场量给出正则方程右端
+void derivFrom(in Fld F, in vec3 x, in vec3 p, in float pt,
+               out vec3 dx, out vec3 dp, out float dtt){
+  float a = uSpin;
+  float S  = dot(F.k, p) - pt;
+  float fS = F.f*S;
+  dx  = p - fS*F.k;
+  dtt = -pt + fS;
+  float w   = 1.0/max(F.rs*F.rs + a*a, 1.0e-12);
+  float Pxy = x.x*p.x + x.y*p.y;
+  float Kxy = F.k.x*p.x + F.k.y*p.y;
+  // v_i = (d_i k_j) p_j , 全解析; k_z 部分用 (1-cos^2)/Sigma 形式避免 1/r 抵消
+  vec3 v = w*((Pxy - 2.0*F.rs*Kxy)*F.gr + F.rs*vec3(p.x,p.y,0.0) + a*vec3(-p.y,p.x,0.0))
+         + p.z*vec3(-F.ct*x.x/F.sig, -F.ct*x.y/F.sig, F.rs*(1.0 - F.ct*F.ct)/F.sig);
+  dp = 0.5*S*S*F.gf + fS*v;
+}
+void derivAt(in vec3 x, in vec3 p, in float pt, in float br,
+             out vec3 dx, out vec3 dp, out float dtt){
+  Fld F = fieldAt(x, br);
+  derivFrom(F, x, p, pt, dx, dp, dtt);
+}
+
+// 零锥投影: 固定 p_t 与方向, 解析求 |p| 的缩放使 H=0 (防止光子"获得质量")
+vec3 projectNull(in Fld F, in vec3 p, in float pt){
+  float kq = dot(F.k, p);
+  float A = dot(p,p) - F.f*kq*kq;
+  float B = 2.0*F.f*kq*pt;
+  float C = -pt*pt*(1.0 + F.f);
+  float s;
+  if (abs(A) < 1.0e-12){
+    if (abs(B) < 1.0e-12) return p;
+    s = -C/B;
+  } else {
+    float disc = B*B - 4.0*A*C;
+    if (disc < 0.0) return p;
+    float sq = sqrt(disc);
+    float s1 = (-B + sq)/(2.0*A), s2 = (-B - sq)/(2.0*A);
+    s = (abs(s1 - 1.0) < abs(s2 - 1.0)) ? s1 : s2;
+  }
+  if (!(s > 0.02 && s < 50.0)) return p;                // 含 NaN 防护
+  return p*s;
+}
+float hamVal(in vec3 x, in vec3 p, in float pt, in float br){
+  Fld F = fieldAt(x, br);
+  float S = dot(F.k,p) - pt;
+  return dot(p,p) - pt*pt - F.f*S*S;                    // = 2H
+}
+
+/*==================== 自适应仿射步长 ====================*/
+float diskH(float r){
+  return max(uThick*pow(max(r,1.0e-3)/max(uRin,1.0e-3), uFlare), 3.0e-3);
+}
+float ringDist(vec3 x){
+  float d = length(x.xy) - abs(uSpin);
+  return sqrt(d*d + x.z*x.z);
+}
+// 仿射参数取自然标度: 绝不用 h = 空间步长/|dx/dl| (那会在视界附近一步跨过视界)
+float stepLen(in vec3 x, in float rs, in float f, in vec3 gf, in vec3 p, in vec3 dp){
+  float R  = length(x);
+  float ar = abs(rs);
+  float h  = 0.10 + 0.130*R;                 // 远场放行
+  h = min(h, 0.030 + 0.085*ar);              // 强场 / 近视界精细化
+  h = min(h, 0.002 + 0.300*ringDist(x));     // 奇环邻域 (裸奇环也安全: 比例收缩)
+  // 场梯度特征长度 L=(|f|+e)/|grad f| : 自动含 a (Sigma) 与 Q (f 中的 -Q^2 项) 的依赖,
+  // 对裸奇点(Q>1)的强斥力区与近视界区同时收敛
+  h = min(h, 0.45*(abs(f) + 0.15)/max(length(gf), 1.0e-6));
+  h *= uQual;
+  h = min(h, 0.18*length(p)/max(length(dp), 1.0e-7));   // 限制单步动量相对变化
+  float rho = length(x.xy);
+  if (uDiskOn > 0.5 && rho < uRout*1.3 && rho > uRin*0.3){
+    h = min(h, 0.42*abs(x.z) + 0.30*diskH(max(ar,1.0e-3)));  // 几何式趋近盘面, 不会跨越薄盘
+  }
+  return clamp(h, 2.0e-4, 8.0);
+}
+
+/*==================== 吸积盘 (三维体积介质) ====================*/
+float keplerOm(float r){
+  float sgn = (uProgr > 0.5) ? 1.0 : -1.0;
+  float rr  = max(r, 1.0e-3);
+  float den = rr*sqrt(rr) + sgn*uSpin;       // Kerr 赤道圆轨道: Omega = ±M^1/2/(r^3/2 ± a M^1/2)
+  den = (abs(den) < 1.0e-3) ? ((den < 0.0) ? -1.0e-3 : 1.0e-3) : den;
+  return sgn/den;
+}
+void sampleDisk(in vec3 xs, in vec3 ps, in float pt, in float dlam, in float tRet,
+                inout vec3 col, inout vec3 tr, inout float gdbg){
+  float rho2 = dot(xs.xy, xs.xy);
+  float rho  = sqrt(rho2);
+  if (rho > uRout*1.30 || rho < uRin*0.28) return;
+  float rs, sig, ct;
+  radialAt(xs, 1.0, rs, sig, ct);
+  float r = max(rs, 1.0e-3);
+  float H  = diskH(r);
+  float zn = xs.z/H;
+  if (abs(zn) > 3.9) return;
+  float eIn  = max(uEdge*uRin,  1.0e-3);
+  float eOut = max(uEdge*uRout, 1.0e-3);
+  float win = smoothstep(0.0,1.0,(r - uRin)/eIn) * (1.0 - smoothstep(0.0,1.0,(r - uRout + eOut)/eOut));
+  if (win < 1.0e-4) return;                                   // 内外缘平滑淡出, 无硬边
+  float shape = win*exp(-0.5*zn*zn);
+  if (uTurb > 1.0e-3){
+    float phi = atan(xs.y, xs.x);
+    float om  = keplerOm(r);
+    float tw  = uTimeD + tRet*uRetard;                        // tRet<0: 含光行时延迟
+    float ang = phi - om*tw - uSpiral*log(max(r/uRin, 0.05)); // 共动相位 + 对数螺旋
+    float rad = r*uTurbScale*0.30;
+    vec3  q   = vec3(cos(ang)*rad, sin(ang)*rad, zn*0.9);
+    float n   = clamp(fbm3(q, 4)*1.07, 0.0, 1.0);
+    shape *= mix(1.0, pow(n, 1.55)*2.35, uTurb);
+  }
+  if (shape < 1.0e-5) return;
+  // ---- 相对论运动学: 圆轨道四速 + 多普勒/引力频移因子 g ----
+  Fld F = fieldAt(xs, 1.0);
+  float kap = xs.x*F.k.y - xs.y*F.k.x;                        // k_phi
+  float gtt = -1.0 + F.f;
+  float gtp = F.f*kap;
+  float gpp = rho2 + F.f*kap*kap;
+  float om  = keplerOm(r);
+  float w0  = -gtp/max(gpp, 1.0e-9);                          // ZAMO 角速度
+  float dw  = sqrt(max(w0*w0 - gtt/max(gpp,1.0e-9), 0.0));
+  om = clamp(om, w0 - 0.985*dw, w0 + 0.985*dw);               // 保证 U 类时 (含 ISCO 内/裸奇点)
+  float VV = gtt + 2.0*om*gtp + om*om*gpp;
+  float N  = inversesqrt(max(-VV, 1.0e-9));
+  float Lz = xs.x*ps.y - xs.y*ps.x;
+  float pU = max(N*(pt + om*Lz), 1.0e-4);                     // = -P.U = 流体系频率
+  float g  = clamp(1.0/pU, 0.02, 60.0);                       // g = nu_cam / nu_emit
+  if (gdbg < 0.0) gdbg = g;
+  float dl = dlam*pU;                                         // 流体系固有长度 = dl/g
+  float rr = max(r, uRin*0.40);
+  float T  = uT0*pow(uRin/rr, uTempPow);                      // 温度剖面
+  float dens = uDens*pow(uRin/rr, uDensPow)*shape;            // 密度剖面
+  float jbol = uEmis*pow(uRin/rr, uEmisPow)*shape;            // 亮度剖面
+  vec3  kap3 = vec3(pow(650.0/550.0, -uRedden), 1.0, pow(450.0/550.0, -uRedden)); // 蓝端消光更强 -> 红化
+  float g2 = g*g;
+  col += tr*(jbol*g2*g2)*planckRGB(T*g)*dl;                   // I ~ g^4 , 色温 T -> gT
+  tr  *= exp(-uAbsorb*dens*kap3*dl);
+}
+void marchSeg(in vec3 x0, in vec3 x1, in vec3 p0, in vec3 p1, in float pt,
+              in float h, in float t0, in float dtSeg,
+              inout vec3 col, inout vec3 tr, inout float gdbg){
+  float rho0 = length(x0.xy), rho1 = length(x1.xy);
+  if (max(rho0,rho1) < uRin*0.28 || min(rho0,rho1) > uRout*1.35) return;
+  float zlo = min(x0.z, x1.z), zhi = max(x0.z, x1.z);
+  float Hb = diskH(clamp(max(rho0,rho1), uRin, uRout))*4.2;
+  if (zlo > Hb || zhi < -Hb) return;
+  int n = int(uSub);
+  float fn = float(n);
+  for (int j=0;j<n;j++){
+    float u = (float(j) + rnd())/fn;                          // 分层 + 随机抖动: 消除层纹
+    sampleDisk(mix(x0,x1,u), mix(p0,p1,u), pt, h/fn, t0 + u*dtSeg, col, tr, gdbg);
+  }
+}
+
+/*==================== 星空 / 星云 / antiverse ====================*/
+vec3 starField(vec3 d, float pxAng){
+  vec3 acc = vec3(0.0);
+  for (int L=0; L<3; L++){
+    float scale = (L==0) ? 90.0 : ((L==1) ? 260.0 : 700.0);
+    float amp   = (L==0) ? 1.00 : ((L==1) ? 0.46 : 0.20);
+    float dens  = uStarDens*((L==0) ? 0.0080 : ((L==1) ? 0.0012 : 0.00025));
+    ivec3 base = ivec3(floor(d*scale));
+    for (int i=-1;i<=1;i++)
+    for (int j=-1;j<=1;j++)
+    for (int k=-1;k<=1;k++){
+      ivec3 ci = base + ivec3(i,j,k);
+      vec3 h1 = hash33i(ci + ivec3(7,13,29));
+      if (h1.x > dens) continue;
+      vec3 h2 = hash33i(ci + ivec3(131,57,19));
+      vec3 sd = normalize(vec3(ci) + 0.5 + (h2 - 0.5)*0.94);
+      float ang = length(cross(d, sd));
+      float mag = pow(h1.y, 4.0);                       // 少数亮星 + 大量暗星
+      float sz  = pxAng*uStarSize*(0.75 + 1.35*mag);     // 约 1 像素的点源
+      float I   = exp(-(ang*ang)/(sz*sz + 1.0e-20));
+      if (I < 0.0025) continue;
+      acc += planckRGB(mix(2600.0, 13500.0, pow(h1.z,0.75)))*I*amp*(0.03 + 3.2*mag);
+    }
+  }
+  return acc*uStarBright;
+}
+vec3 nebulaCol(vec3 d){
+  if (uNebula < 1.0e-4) return vec3(0.0);
+  vec3 gn = normalize(vec3(0.34, 0.86, -0.38));
+  float bb = dot(d, gn);
+  float band = exp(-bb*bb/(2.0*0.155*0.155));
+  float dust = clamp(fbm3(d*5.7 + vec3(4.2,1.7,9.3), 4)*1.07, 0.0, 1.0);
+  float big  = clamp(fbm3(d*1.9 - vec3(7.7,3.3,1.1), 3)*1.13, 0.0, 1.0);
+  vec3 warm = vec3(1.00,0.74,0.45), cool = vec3(0.34,0.55,1.00), mag = vec3(0.72,0.34,0.86);
+  vec3 c = band*(0.35 + 1.05*dust)*mix(warm, cool, 0.40 + 0.55*big);
+  c += (0.12 + 0.55*big)*mix(cool, mag, dust)*0.42;
+  c *= mix(0.30, 1.0, smoothstep(0.12, 0.72, dust));           // 暗尘带
+  return c*uNebula*0.028;
+}
+vec3 skyColor(vec3 d){
+  float pxAng = 2.0*uTanHalf/uRes.y;
+  return (nebulaCol(d) + starField(d, pxAng))*uSkyGain;
+}
+// 奇环另一侧: 天空取"相反色"
+vec3 antiColor(vec3 c){
+  if (uAntiMode < 0.5){
+    vec3 s = c/(1.0 + c);                                      // 负片
+    return (vec3(1.0) - s)*uAntiGain;
+  }
+  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  return (vec3(mx + mn) - c)*uAntiGain;                        // 补色(保黑)
+}
+vec3 heat(float t){
+  t = clamp(t, 0.0, 1.0);
+  return clamp(vec3(1.6*t - 0.35, 1.35*t*t*(1.35 - 0.35*t), 0.55*sin(3.14159*t) + 0.85*pow(1.0-t,2.5)), 0.0, 1.0);
+}
+
+/*==================== 主程序 ====================*/
+void main(){
+  vec2 pix = gl_FragCoord.xy;
+  rngState = uint(pix.x) + 1973u*uint(pix.y) + 9277u*uint(uFrameF) + 26699u;
+  rnd(); rnd();
+  // R2 低差异序列 + 每像素随机旋转 -> 收敛快且无相关条纹
+  vec2 jit = fract(vec2(0.7548776662, 0.5698402909)*uFrameF + vec2(rnd(), rnd())) - 0.5;
+  vec2 uv  = (2.0*(pix + 0.5 + jit) - uRes)/uRes.y;
+
+  vec3 dloc = normalize(vec3(uv.x*uTanHalf, uv.y*uTanHalf, 1.0));   // 观者局部天球方向
+  vec4 P4 = -uE0 + dloc.x*uER + dloc.y*uEU + dloc.z*uEF;            // p^mu = -u^mu + d^mu (反演后)
+  vec3  x  = uCamPos;
+  float br = 1.0;
+  Fld F0 = fieldAt(x, br);
+  float kP = P4.x + dot(F0.k, P4.yzw);                              // k_mu p^mu
+  float pt = -P4.x + F0.f*kP;                                       // p_t = +E (守恒)
+  vec3  p  = P4.yzw + F0.f*kP*F0.k;                                 // p_i
+
+  vec3  col = vec3(0.0);
+  vec3  tr  = vec3(1.0);
+  float tRet = 0.0, gdbg = -1.0;
+  vec3  dirOut = dloc;
+  int   endKind = 3;                    // 0 天空 1 视界/无限红移 2 奇环 3 步数耗尽 4 不透明
+  int   nmax = int(uMaxSteps);
+  int   used = 0;
+
+  for (int i=0; i<nmax; i++){
+    used = i;
+    Fld F1 = fieldAt(x, br);
+    if (uHamFix > 0.5) p = projectNull(F1, p, pt);                  // 每步重投影到零锥
+    vec3 dx1, dp1; float dt1;
+    derivFrom(F1, x, p, pt, dx1, dp1, dt1);
+    dirOut = dx1;
+    // ---- 终止判据 ----
+    if (abs(dt1) > uPtMax){ endKind = 1; break; }                   // |p^t| 爆炸 = 无限红移面
+    if (uHasH > 0.5 && br > 0.0 && F1.rs < uRplus){ endKind = 1; break; }
+    if (ringDist(x) < 0.012){ endKind = 2; break; }
+    if (dot(x,x) > uSkyR*uSkyR){ endKind = 0; break; }
+    // ---- RK4 ----
+    float h = stepLen(x, F1.rs, F1.f, F1.gf, p, dp1);
+    vec3 dx2, dp2, dx3, dp3, dx4, dp4; float dt2, dt3, dt4;
+    derivAt(x + 0.5*h*dx1, p + 0.5*h*dp1, pt, br, dx2, dp2, dt2);
+    derivAt(x + 0.5*h*dx2, p + 0.5*h*dp2, pt, br, dx3, dp3, dt3);
+    derivAt(x + h*dx3,     p + h*dp3,     pt, br, dx4, dp4, dt4);
+    float h6 = h/6.0;
+    vec3 xn = x + h6*(dx1 + 2.0*dx2 + 2.0*dx3 + dx4);
+    vec3 pn = p + h6*(dp1 + 2.0*dp2 + 2.0*dp3 + dp4);
+    float dtSeg = h6*(dt1 + 2.0*dt2 + 2.0*dt3 + dt4);
+    // ---- 体积吸积盘 ----
+    if (uDiskOn > 0.5 && br > 0.0) marchSeg(x, xn, p, pn, pt, h, tRet, dtSeg, col, tr, gdbg);
+    // ---- 穿过奇环内盘 -> 翻到 r<0 页 (antiverse) ----
+    if (x.z*xn.z < 0.0){
+      float s = clamp(x.z/(x.z - xn.z), 0.0, 1.0);
+      vec2 q = mix(x.xy, xn.xy, s);
+      if (dot(q,q) < uSpin*uSpin) br = -br;
+    }
+    x = xn; p = pn; tRet += dtSeg;
+    if (all(lessThan(tr, vec3(0.0025)))){ endKind = 4; break; }
+  }
+
+  if (endKind == 0 || endKind == 3){
+    bool esc = (endKind == 0) || (dot(x,x) > 900.0 && dot(x, dirOut) > 0.0);
+    if (esc){
+      vec3 sky = skyColor(normalize(dirOut));
+      if (br < 0.0) sky = antiColor(sky);
+      col += tr*sky;
+    }
+  }
+
+  if (uDebug > 0.5){
+    if      (uDebug < 1.5) col = heat(float(used)/max(uMaxSteps,1.0));
+    else if (uDebug < 2.5) col = heat(clamp((log2(abs(hamVal(x,p,pt,br)) + 1.0e-22) + 46.0)/46.0, 0.0, 1.0));
+    else if (uDebug < 3.5) col = (br < 0.0) ? vec3(1.0,0.22,0.48)
+                                : ((endKind==1) ? vec3(0.02) : ((endKind==2) ? vec3(1.0,0.9,0.2) : vec3(0.10,0.34,0.55)));
+    else                   col = (gdbg > 0.0) ? heat(clamp(log2(gdbg)*0.65 + 0.5, 0.0, 1.0)) : vec3(0.02);
+  }
+
+  if (!(dot(col,col) >= 0.0)) col = vec3(0.0);                      // NaN/Inf 清除
+  col = min(col, vec3(6.0e4));
+  vec3 prev = texture(uPrev, pix/uRes).rgb;
+  fragCol = vec4(mix(prev, col, uAlpha), 1.0);
+}
+</script>
+
+<!-- ===================== 泛光降采样 (13 tap + Karis 均值 + 软阈值) ===================== -->
+<script id="fs-down" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 fragCol;
+uniform sampler2D uTex;
+uniform vec2  uTexel;
+uniform float uFirstPass, uBloomThr, uBloomKnee;
+
+vec3 bright(vec3 c){
+  if (uFirstPass < 0.5) return c;
+  float l = max(max(c.r, c.g), c.b);
+  float k = max(uBloomKnee, 1.0e-4);
+  float soft = clamp(l - uBloomThr + k, 0.0, 2.0*k);
+  soft = soft*soft/(4.0*k);
+  return c*max(soft, l - uBloomThr)/max(l, 1.0e-5);
+}
+vec3 T(vec2 o){ return bright(texture(uTex, vUV + o*uTexel).rgb); }
+float kw(vec3 c){ return 1.0/(1.0 + dot(c, vec3(0.2126,0.7152,0.0722))); }
+vec3 kavg(vec3 a, vec3 b, vec3 c, vec3 d){
+  float wa = kw(a), wb = kw(b), wc = kw(c), wd = kw(d);
+  return (a*wa + b*wb + c*wc + d*wd)/max(wa + wb + wc + wd, 1.0e-6);
+}
+void main(){
+  vec3 a = T(vec2(-2.0, 2.0)), b = T(vec2( 0.0, 2.0)), c = T(vec2( 2.0, 2.0));
+  vec3 d = T(vec2(-2.0, 0.0)), e = T(vec2( 0.0, 0.0)), f = T(vec2( 2.0, 0.0));
+  vec3 g = T(vec2(-2.0,-2.0)), h = T(vec2( 0.0,-2.0)), i = T(vec2( 2.0,-2.0));
+  vec3 j = T(vec2(-1.0, 1.0)), k = T(vec2( 1.0, 1.0));
+  vec3 l = T(vec2(-1.0,-1.0)), m = T(vec2( 1.0,-1.0));
+  vec3 o = kavg(j,k,l,m)*0.5;
+  o += kavg(a,b,d,e)*0.125;
+  o += kavg(b,c,e,f)*0.125;
+  o += kavg(d,e,g,h)*0.125;
+  o += kavg(e,f,h,i)*0.125;
+  fragCol = vec4(o, 1.0);
+}
+</script>
+
+<!-- ===================== 泛光升采样 (9 tap tent, 加性混合) ===================== -->
+<script id="fs-up" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 fragCol;
+uniform sampler2D uTex;
+uniform vec2  uTexel;
+uniform float uRadius, uMix;
+vec3 T(vec2 o){ return texture(uTex, vUV + o*uTexel*uRadius).rgb; }
+void main(){
+  vec3 s = T(vec2(-1.0, 1.0)) + T(vec2(0.0, 1.0))*2.0 + T(vec2(1.0, 1.0))
+         + T(vec2(-1.0, 0.0))*2.0 + T(vec2(0.0,0.0))*4.0 + T(vec2(1.0, 0.0))*2.0
+         + T(vec2(-1.0,-1.0)) + T(vec2(0.0,-1.0))*2.0 + T(vec2(1.0,-1.0));
+  fragCol = vec4(s*(1.0/16.0)*uMix, 1.0);
+}
+</script>
+
+<!-- ===================== 合成 / 色散 / 色调映射 ===================== -->
+<script id="fs-post" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 fragCol;
+uniform sampler2D uHDR, uBloomTex;
+uniform float uTimeF;
+uniform float uExposure, uBloom, uDisp, uGrain, uVig, uSat, uChroma;
+
+// 光谱权重: t=0 长波(红) -> t=1 短波(蓝)
+vec3 specW(float t){
+  float a = (t - 0.13)/0.30, b = (t - 0.50)/0.28, c = (t - 0.87)/0.30;
+  return vec3(exp(-a*a), exp(-b*b), exp(-c*c));
+}
+vec3 aces(vec3 x){
+  x *= 0.62;
+  return clamp((x*(2.51*x + 0.03))/(x*(2.43*x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 toSRGB(vec3 c){
+  c = clamp(c, 0.0, 1.0);
+  return mix(12.92*c, 1.055*pow(c, vec3(1.0/2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+float hash12(vec2 p){
+  vec3 p3 = fract(vec3(p.xyx)*0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y)*p3.z);
+}
+void main(){
+  vec2 uv  = vUV;
+  vec2 cen = uv - 0.5;
+  float r2 = dot(cen, cen);
+  vec3 sum = vec3(0.0), wsum = vec3(0.0);
+  const int NT = 9;
+  for (int i=0;i<NT;i++){
+    float t  = (float(i) + 0.5)/float(NT);
+    // 径向横向色差: 长波向外, 短波向内; 场边缘更强
+    float sc = 1.0 + uDisp*0.011*(t - 0.45)*(0.22 + 2.4*r2);
+    vec2  su = 0.5 + cen*sc;
+    vec3  c  = texture(uHDR, su).rgb + texture(uBloomTex, su).rgb*uBloom;
+    vec3  w  = specW(t);
+    sum += c*w; wsum += w;
+  }
+  vec3 col = sum/max(wsum, vec3(1.0e-5));
+  // 额外的细腻横向色散(仅泛光层, 制造彩虹晕)
+  if (uChroma > 1.0e-3){
+    vec2 d = cen*uChroma*0.004;
+    vec3 b1 = texture(uBloomTex, uv + d).rgb;
+    vec3 b2 = texture(uBloomTex, uv - d).rgb;
+    col += vec3(b1.r, 0.0, b2.b)*uBloom*0.45*uChroma;
+  }
+  col *= uExposure;
+  // 饱和度
+  float lum = dot(col, vec3(0.2126,0.7152,0.0722));
+  col = mix(vec3(lum), col, uSat);
+  col = aces(max(col, vec3(0.0)));
+  // 暗角
+  float v = 1.0 - uVig*smoothstep(0.18, 0.95, r2*1.75);
+  col *= v;
+  // 颗粒 (暗部更明显) + 抖动
+  float n = hash12(gl_FragCoord.xy + vec2(fract(uTimeF*61.7)*512.0, fract(uTimeF*37.3)*512.0));
+  col += (n - 0.5)*uGrain*0.055*(1.25 - dot(col, vec3(0.33)));
+  col = toSRGB(col);
+  col += (hash12(gl_FragCoord.xy*1.37 + 7.1) - 0.5)/255.0;
+  fragCol = vec4(col, 1.0);
+}
+</script>
+
+<script>
+"use strict";
+(function(){
+/*==============================================================================
+  0. 基础设施
+==============================================================================*/
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => v<a?a:(v>b?b:v);
+const fmt = (v,d) => (d===0? Math.round(v).toString() : v.toFixed(d));
+let FATAL = false;
+function fatal(msg){
+  FATAL = true;
+  const e = $('#err'); e.style.display='block';
+  e.textContent = '⚠  ' + msg;
+  const sp = $('#spin'); if (sp) sp.style.display='none';
+  throw new Error(msg);
+}
+
+const cv = $('#view');
+const gl = cv.getContext('webgl2', {
+  antialias:false, depth:false, stencil:false, alpha:false,
+  premultipliedAlpha:false, preserveDrawingBuffer:false, powerPreference:'high-performance'
+});
+if (!gl) fatal('此设备/浏览器不支持 WebGL2，无法运行本渲染器。');
+const EXT_CBF = gl.getExtension('EXT_color_buffer_float');
+const EXT_LF  = gl.getExtension('OES_texture_float_linear');
+if (!EXT_CBF) fatal('缺少 EXT_color_buffer_float：无法进行 HDR 浮点累积渲染。');
+const HDR_32 = !!EXT_LF;
+
+/*==============================================================================
+  1. 参数表 —— UI / uniform / 预设的唯一真源
+==============================================================================*/
+const SPEC = [
+{ g:'时空 · SPACETIME', open:true, note:'a²+Q²>1 时视界消失 → 裸奇环/裸奇点，可穿过奇环看到 antiverse。', items:[
+  {k:'spin',  u:'uSpin',  l:'自旋 a<sub>*</sub>',  min:0,   max:1.60, st:0.001, v:0.94, d:3},
+  {k:'chg',   u:'uChg',   l:'电荷 Q',              min:0,   max:1.60, st:0.001, v:0.00, d:3},
+]},
+{ g:'相机 · CAMERA (静态观者)', open:true, items:[
+  {k:'dist',  u:null, l:'距离 r<sub>obs</sub>', min:1.2, max:140,   st:0.05, v:26,  d:2},
+  {k:'incl',  u:null, l:'倾角 θ (°)',           min:0.5, max:179.5, st:0.1,  v:76,  d:1},
+  {k:'azim',  u:null, l:'方位 φ (°)',           min:-180,max:180,   st:0.1,  v:38,  d:1},
+  {k:'fov',   u:null, l:'视场 FOV (°)',         min:8,   max:120,   st:0.5,  v:44,  d:1},
+]},
+{ g:'积分器 · INTEGRATOR', open:false, note:'RK4 + 每步零锥解析重投影；步长按 r / a / Q / 奇环距离自适应，仿射参数不做速度归一化。', items:[
+  {k:'qual',  u:'uQual',     l:'步长系数 (越小越准)', min:0.04, max:1.5, st:0.01, v:0.42, d:2},
+  {k:'steps', u:'uMaxSteps', l:'最大步数',            min:200,  max:8000,st:50,   v:1600, d:0},
+  {k:'ptexp', u:null,        l:'视界判据 log₁₀|p<sup>t</sup>|', min:2, max:7, st:0.1, v:4.2, d:1},
+  {k:'skyr',  u:'uSkyR',     l:'天球半径',            min:60,   max:1500,st:10,   v:420,  d:0},
+  {k:'sub',   u:'uSub',      l:'体积子采样 / 步',      min:1,    max:4,   st:1,    v:2,    d:0},
+  {k:'hamfix',u:'uHamFix',   l:'零锥重投影 H=0', t:'sw', v:1},
+  {k:'retard',u:'uRetard',   l:'光行时延迟',      t:'sw', v:1},
+]},
+{ g:'吸积盘 · ACCRETION DISK', open:true, note:'三维体积介质：分层抖动步进 + 逐通道消光（蓝端更强 → 红化）。', items:[
+  {k:'diskon',u:'uDiskOn',  l:'启用体积盘', t:'sw', v:1},
+  {k:'rin',   u:'uRin',     l:'内缘 r<sub>in</sub>',  min:0.4, max:24, st:0.02, v:4.5,  d:2},
+  {k:'rout',  u:'uRout',    l:'外缘 r<sub>out</sub>', min:3,   max:70, st:0.1,  v:16,   d:1},
+  {k:'thick', u:'uThick',   l:'厚度 H₀',              min:0.02,max:3,  st:0.01, v:0.28, d:2},
+  {k:'flare', u:'uFlare',   l:'张开指数 H∝r^n',       min:0,   max:2.5,st:0.01, v:1.10, d:2},
+  {k:'edge',  u:'uEdge',    l:'边缘淡出宽度',          min:0.03,max:0.6,st:0.01, v:0.17, d:2},
+  {k:'dens',  u:'uDens',    l:'密度系数',              min:0,   max:6,  st:0.01, v:1.10, d:2},
+  {k:'denspow',u:'uDensPow',l:'密度指数 ρ∝r^-n',      min:0,   max:6,  st:0.01, v:2.20, d:2},
+  {k:'emis',  u:'uEmis',    l:'亮度系数',              min:0,   max:6,  st:0.01, v:1.45, d:2},
+  {k:'emispow',u:'uEmisPow',l:'亮度指数 j∝r^-n',      min:0,   max:7,  st:0.01, v:3.00, d:2},
+  {k:'t0',    u:'uT0',      l:'内缘温度 T₀ (K)',      min:1500,max:42000,st:100, v:11500,d:0},
+  {k:'temppow',u:'uTempPow',l:'温度指数 T∝r^-n',      min:0,   max:2,  st:0.01, v:0.75, d:2},
+  {k:'absorb',u:'uAbsorb',  l:'消光系数 κ',            min:0,   max:5,  st:0.01, v:0.85, d:2},
+  {k:'redden',u:'uRedden',  l:'红化指数 (λ^-n)',       min:0,   max:4,  st:0.01, v:1.60, d:2},
+  {k:'turb',  u:'uTurb',    l:'湍流强度',              min:0,   max:1,  st:0.01, v:0.72, d:2},
+  {k:'turbsc',u:'uTurbScale',l:'湍流尺度',             min:0.2, max:8,  st:0.01, v:1.70, d:2},
+  {k:'spiral',u:'uSpiral',  l:'螺旋缠绕',              min:-6,  max:6,  st:0.05, v:1.60, d:2},
+  {k:'progr', u:'uProgr',   l:'顺行轨道 (prograde)', t:'sw', v:1},
+  {k:'anim',  u:null,       l:'动画 (盘旋转)',        t:'sw', v:0},
+  {k:'tspeed',u:null,       l:'动画速率',              min:0,   max:6,  st:0.01, v:0.90, d:2},
+  {k:'tblend',u:null,       l:'动画时域混合',          min:0.03,max:1,  st:0.01, v:0.22, d:2},
+]},
+{ g:'星空 · SKY', open:false, items:[
+  {k:'stardens',u:'uStarDens', l:'星密度',      min:0, max:4,   st:0.01, v:1.00, d:2},
+  {k:'starbr', u:'uStarBright',l:'星亮度',      min:0, max:5,   st:0.01, v:1.15, d:2},
+  {k:'starsz', u:'uStarSize',  l:'星点尺寸 (px)',min:0.4,max:3, st:0.01, v:1.05, d:2},
+  {k:'nebula', u:'uNebula',    l:'星云强度',    min:0, max:3,   st:0.01, v:1.00, d:2},
+  {k:'skygain',u:'uSkyGain',   l:'天空总增益',  min:0, max:4,   st:0.01, v:1.00, d:2},
+  {k:'antimode',u:'uAntiMode', l:'Antiverse 配色', t:'se', v:0, opts:['负片 (negative)','补色 (complement)']},
+  {k:'antigain',u:'uAntiGain', l:'Antiverse 增益', min:0, max:2, st:0.01, v:0.55, d:2},
+]},
+{ g:'后处理 · POST', open:true, items:[
+  {k:'expo',  u:'uExposure', l:'曝光',        min:0.05,max:5,  st:0.01, v:1.00, d:2},
+  {k:'sat',   u:'uSat',      l:'饱和度',      min:0,   max:2,  st:0.01, v:1.08, d:2},
+  {k:'bloom', u:'uBloom',    l:'泛光强度',    min:0,   max:2.5,st:0.01, v:0.55, d:2},
+  {k:'bthr',  u:'uBloomThr', l:'泛光阈值',    min:0,   max:5,  st:0.01, v:0.85, d:2},
+  {k:'bknee', u:'uBloomKnee',l:'泛光软膝',    min:0.01,max:2,  st:0.01, v:0.55, d:2},
+  {k:'bradius',u:'uRadius',  l:'泛光半径',    min:0.4, max:3,  st:0.01, v:1.15, d:2},
+  {k:'disp',  u:'uDisp',     l:'棱镜色散',    min:0,   max:3,  st:0.01, v:0.55, d:2},
+  {k:'chroma',u:'uChroma',   l:'泛光色差',    min:0,   max:2,  st:0.01, v:0.45, d:2},
+  {k:'grain', u:'uGrain',    l:'胶片颗粒',    min:0,   max:1,  st:0.01, v:0.22, d:2},
+  {k:'vig',   u:'uVig',      l:'暗角',        min:0,   max:1,  st:0.01, v:0.35, d:2},
+]},
+{ g:'渲染 · RENDER', open:false, note:'静止时逐帧累积抖动样本 → 消除体积噪点与锯齿；任何参数改动都会重新累积。', items:[
+  {k:'res',   u:null, l:'分辨率倍率',  min:0.2, max:1.5, st:0.01, v:0.62, d:2},
+  {k:'maxsamp',u:null,l:'累积样本上限', min:1,  max:2000, st:1,   v:400,  d:0},
+  {k:'debug', u:'uDebug', l:'调试视图', t:'se', v:0,
+     opts:['关闭','步数热图','|2H| 守恒误差','终止类型 / 分页','红移因子 g']},
+]},
+];
+
+const P = {};
+const ITEMS = [];
+const BYKEY = {};
+SPEC.forEach(g => g.items.forEach(it => { P[it.k] = it.v; ITEMS.push(it); BYKEY[it.k] = it; }));
+
+const PRESETS = {
+  '经典 Kerr':          {spin:0.94, chg:0,    dist:26, incl:76, azim:38, fov:44, diskon:1, rin:4.5, rout:16, thick:0.28, t0:11500, turb:0.72, emis:1.45, spiral:1.6},
+  '极端自旋':            {spin:0.999,chg:0,    dist:22, incl:85, azim:24, fov:44, diskon:1, rin:2.0, rout:14, thick:0.18, t0:15000, emis:1.6,  spiral:2.0},
+  '带电 KN':            {spin:0.55, chg:0.83, dist:25, incl:72, azim:52, fov:46, diskon:1, rin:3.4, rout:15, thick:0.26, t0:13000, emis:1.5},
+  '裸奇环 + Antiverse':  {spin:1.45, chg:0,    dist:5.8, incl:24, azim:15, fov:50, diskon:0, antigain:0.62, stardens:1.0, starbr:1.3, qual:0.22, steps:3200},
+  '裸奇点 (Q>1)':       {spin:0.15, chg:1.30, dist:9,  incl:70, azim:30, fov:60, diskon:0, stardens:1.1, starbr:1.3},
+  '俯视盘面':            {spin:0.9,  chg:0,    dist:30, incl:24, azim:0,  fov:46, diskon:1, rin:5,   rout:19, thick:0.3, turb:0.8, spiral:2.6, emis:1.45},
+  '纯引力透镜':          {spin:0.6,  chg:0,    dist:20, incl:82, diskon:0, stardens:1.2, starbr:1.6, nebula:1.4, qual:0.3, steps:2600},
+  '薄环特写':            {spin:0.98, chg:0,    dist:13, incl:88, azim:8,  fov:62, diskon:1, rin:1.6, rout:8.5, thick:0.09, t0:20000, emis:2.0, qual:0.25, steps:3000, spiral:1.2},
+};
+
+/*==============================================================================
+  2. UI 构建
+==============================================================================*/
+let dirty = true;                 // 需要重置累积
+let needResize = true;
+function markDirty(){ dirty = true; }
+
+function buildUI(){
+  const body = $('#uibody');
+  SPEC.forEach(grp => {
+    const box = document.createElement('div');
+    box.className = 'grp' + (grp.open ? '' : ' col');
+    const head = document.createElement('div');
+    head.className = 'gh';
+    head.innerHTML = '<span class="car"></span><span class="dot"></span><span>' + grp.g + '</span>';
+    const bd = document.createElement('div'); bd.className = 'gb';
+    head.addEventListener('click', () => box.classList.toggle('col'));
+    box.appendChild(head); box.appendChild(bd);
+
+    grp.items.forEach(it => {
+      if (it.t === 'sw'){
+        const row = document.createElement('div'); row.className = 'trow';
+        const lb = document.createElement('span'); lb.innerHTML = it.l;
+        const sw = document.createElement('div'); sw.className = 'sw' + (P[it.k] > 0.5 ? ' on' : '');
+        sw.addEventListener('click', () => {
+          P[it.k] = P[it.k] > 0.5 ? 0 : 1;
+          sw.classList.toggle('on', P[it.k] > 0.5);
+          onParam(it);
+        });
+        it._upd = () => sw.classList.toggle('on', P[it.k] > 0.5);
+        row.appendChild(lb); row.appendChild(sw); bd.appendChild(row);
+      } else if (it.t === 'se'){
+        const row = document.createElement('div'); row.className = 'trow';
+        const lb = document.createElement('span'); lb.innerHTML = it.l;
+        const se = document.createElement('select');
+        it.opts.forEach((o,i) => { const op=document.createElement('option'); op.value=i; op.textContent=o; se.appendChild(op); });
+        se.value = P[it.k];
+        se.addEventListener('change', () => { P[it.k] = parseFloat(se.value); onParam(it); });
+        it._upd = () => { se.value = P[it.k]; };
+        row.appendChild(lb); row.appendChild(se); bd.appendChild(row);
+      } else {
+        const row = document.createElement('div'); row.className = 'row';
+        const lab = document.createElement('div'); lab.className = 'lab';
+        const nm = document.createElement('span'); nm.className='nm'; nm.innerHTML = it.l;
+        const vv = document.createElement('span'); vv.className='vv';
+        lab.appendChild(nm); lab.appendChild(vv);
+        const inp = document.createElement('input');
+        inp.type='range'; inp.min=it.min; inp.max=it.max; inp.step=it.st; inp.value=P[it.k];
+        const upd = () => {
+          vv.textContent = fmt(P[it.k], it.d);
+          inp.style.setProperty('--p', ((P[it.k]-it.min)/(it.max-it.min)*100).toFixed(2)+'%');
+        };
+        inp.addEventListener('input', () => { P[it.k] = parseFloat(inp.value); upd(); onParam(it); });
+        it._upd = () => { inp.value = P[it.k]; upd(); };
+        upd();
+        row.appendChild(lab); row.appendChild(inp); bd.appendChild(row);
+      }
+    });
+    if (grp.note){ const n=document.createElement('div'); n.className='note'; n.textContent=grp.note; bd.appendChild(n); }
+    body.appendChild(box);
+  });
+
+  // 按钮
+  const box = document.createElement('div'); box.className='grp'; const bd=document.createElement('div'); bd.className='gb';
+  bd.style.paddingTop='11px';
+  const br = document.createElement('div'); br.className='btnrow';
+  const mk = (t,fn)=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=t; b.addEventListener('click',fn); return b; };
+  br.appendChild(mk('重置全部', resetAll));
+  br.appendChild(mk('随机盘面', randomizeDisk));
+  br.appendChild(mk('保存 PNG', () => { shotReq = true; }));
+  bd.appendChild(br); box.appendChild(bd); body.appendChild(box);
+
+  const pr = $('#presets');
+  Object.keys(PRESETS).forEach(name => {
+    const c = document.createElement('button'); c.className='chip'; c.textContent=name;
+    c.addEventListener('click', () => applyPreset(name));
+    pr.appendChild(c);
+  });
+}
+function refreshUI(){ ITEMS.forEach(it => it._upd && it._upd()); }
+function refreshOne(){ for (let i=0;i<arguments.length;i++){ const it = BYKEY[arguments[i]]; if (it && it._upd) it._upd(); } }
+function onParam(it){
+  if (it.k === 'res') needResize = true;
+  if (it.k === 'spin' || it.k === 'chg') clampCamera();
+  markDirty();
+}
+function applyPreset(name){
+  const q = PRESETS[name]; if (!q) return;
+  Object.keys(q).forEach(k => { if (k in P) P[k] = q[k]; });
+  clampCamera(); refreshUI(); markDirty();
+}
+function resetAll(){
+  ITEMS.forEach(it => P[it.k] = it.v);
+  needResize = true; clampCamera(); refreshUI(); markDirty();
+}
+function randomizeDisk(){
+  const R = (a,b) => a + Math.random()*(b-a);
+  P.rin = R(1.8, 7); P.rout = P.rin + R(8, 30); P.thick = R(0.08, 0.7);
+  P.flare = R(0.4, 1.8); P.turb = R(0.35, 0.95); P.turbsc = R(0.7, 3.4);
+  P.spiral = R(-3.5, 3.5); P.t0 = R(5000, 24000); P.denspow = R(1, 4);
+  P.emispow = R(1.5, 5); P.temppow = R(0.4, 1.1); P.absorb = R(0.3, 1.8);
+  refreshUI(); markDirty();
+}
+
+/*==============================================================================
+  3. GL 资源
+==============================================================================*/
+function compile(type, src, name){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(s) || '';
+    const lines = src.split('\n');
+    let ctx = '';
+    const m = /:(\d+):(\d+):/.exec(log) || /^\D*(\d+):(\d+)/.exec(log);
+    if (m){
+      const ln = parseInt(m[2],10);
+      for (let i=Math.max(0,ln-4); i<Math.min(lines.length, ln+3); i++)
+        ctx += (i+1===ln?'>> ':'   ') + (i+1) + ' | ' + lines[i] + '\n';
+    }
+    fatal('着色器 ' + name + ' 编译失败:\n\n' + log + '\n' + ctx);
+  }
+  return s;
+}
+function makeProgram(vsId, fsId){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER,   $('#'+vsId).textContent, vsId));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, $('#'+fsId).textContent, fsId));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal('程序链接失败 ' + fsId + ':\n' + gl.getProgramInfoLog(p));
+  p._loc = {};
+  return p;
+}
+function loc(p,n){ if (!(n in p._loc)) p._loc[n] = gl.getUniformLocation(p,n); return p._loc[n]; }
+function u1f(p,n,v){ const l=loc(p,n); if (l) gl.uniform1f(l,v); }
+function u2f(p,n,a,b){ const l=loc(p,n); if (l) gl.uniform2f(l,a,b); }
+function u3f(p,n,a,b,c){ const l=loc(p,n); if (l) gl.uniform3f(l,a,b,c); }
+function u4f(p,n,a,b,c,d){ const l=loc(p,n); if (l) gl.uniform4f(l,a,b,c,d); }
+function bindTex(p,n,t,unit){
+  const l = loc(p,n); if (!l) return;
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.uniform1i(l, unit);
+}
+function mkTex(w,h,internal,fmt,type,filter){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, fmt, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function mkFBO(w,h,hdr32){
+  const internal = hdr32 ? gl.RGBA32F : gl.RGBA16F;
+  const t = mkTex(w,h,internal,gl.RGBA,gl.FLOAT,gl.LINEAR);
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (st !== gl.FRAMEBUFFER_COMPLETE) fatal('帧缓冲不完整 (0x'+st.toString(16)+')，尝试降低分辨率倍率。');
+  gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {t:t, f:f, w:w, h:h};
+}
+function delFBO(o){ if(!o) return; gl.deleteTexture(o.t); gl.deleteFramebuffer(o.f); }
+
+const progTrace = makeProgram('vs-quad','fs-trace');
+const progDown  = makeProgram('vs-quad','fs-down');
+const progUp    = makeProgram('vs-quad','fs-up');
+const progPost  = makeProgram('vs-quad','fs-post');
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+const drawQuad = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+let accum = [null,null], curA = 0, mips = [], RW = 0, RH = 0;
+function rebuildTargets(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cw = Math.max(8, Math.floor(cv.clientWidth  * dpr));
+  const ch = Math.max(8, Math.floor(cv.clientHeight * dpr));
+  cv.width = cw; cv.height = ch;
+  let rw = Math.max(24, Math.round(cw * P.res));
+  const CAP = 1920;
+  if (rw > CAP) rw = CAP;
+  let rh = Math.max(16, Math.round(rw * ch / cw));
+  RW = rw; RH = rh;
+  delFBO(accum[0]); delFBO(accum[1]); mips.forEach(delFBO);
+  accum = [mkFBO(RW,RH,HDR_32), mkFBO(RW,RH,HDR_32)];
+  curA = 0;
+  mips = [];
+  let w = Math.max(2, RW>>1), h = Math.max(2, RH>>1);
+  for (let i=0;i<6 && w>4 && h>4;i++){
+    mips.push(mkFBO(w,h,false));
+    w = Math.max(2, w>>1); h = Math.max(2, h>>1);
+  }
+  markDirty();
+}
+
+/*==============================================================================
+  4. 度规 / 正交四标架 (JS 双精度, 与着色器逐式对应)
+     g_uv = eta_uv + f k_u k_v  ==>  <A,B> = -A0 B0 + A·B + f (k·A)(k·B),
+     其中 (k·A) = A0 + k_i A^i   (k_t = 1)
+==============================================================================*/
+function ksFieldJS(x,y,z){
+  const a = P.spin, Q = P.chg, a2 = a*a;
+  const R2 = x*x + y*y + z*z, b = R2 - a2, az2 = 4*a2*z*z;
+  const d  = Math.sqrt(Math.max(b*b + az2, 0));
+  const r2 = (b >= 0) ? 0.5*(b + d) : (0.5*az2)/Math.max(d - b, 1e-300);
+  const r  = Math.sqrt(Math.max(r2, 0));
+  let ct;
+  if (a2 < 1e-14) ct = r > 1e-20 ? z/r : 0;
+  else { const s = Math.sqrt(Math.max(d - r2, 0))/Math.abs(a); ct = (z >= 0 ? s : -s); }
+  ct = clamp(ct, -1, 1);
+  const sig = Math.max(d, 1e-12);
+  const f = (2*r - Q*Q)/sig;
+  const w = 1/Math.max(r*r + a2, 1e-12);
+  return {r:r, sig:sig, ct:ct, f:f, k:[(r*x + a*y)*w, (r*y - a*x)*w, ct]};
+}
+function dot4(A,B,f,k){
+  const kA = A[0] + k[0]*A[1] + k[1]*A[2] + k[2]*A[3];
+  const kB = B[0] + k[0]*B[1] + k[1]*B[2] + k[2]*B[3];
+  return -A[0]*B[0] + A[1]*B[1] + A[2]*B[2] + A[3]*B[3] + f*kA*kB;
+}
+const cross3 = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const len3   = a => Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
+const norm3  = a => { const l = len3(a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+
+function horizons(){
+  const a = P.spin, Q = P.chg, disc = 1 - a*a - Q*Q;
+  if (disc >= 0){ const s = Math.sqrt(disc); return {has:true, rp:1+s, rm:1-s, ex:s < 1e-4}; }
+  return {has:false, rp:0, rm:0, ex:false};
+}
+function iscoR(a){
+  if (Math.abs(a) > 1) return NaN;
+  const Z1 = 1 + Math.cbrt(1-a*a)*(Math.cbrt(1+a) + Math.cbrt(1-a));
+  const Z2 = Math.sqrt(3*a*a + Z1*Z1);
+  return 3 + Z2 - Math.sqrt(Math.max((3-Z1)*(3+Z1+2*Z2), 0));
+}
+function photonR(a){
+  if (Math.abs(a) > 1) return NaN;
+  return 2*(1 + Math.cos((2/3)*Math.acos(-clamp(a,-1,1))));
+}
+function minDist(){
+  const H = horizons();
+  return H.has ? H.rp*1.05 + 0.30 : Math.max(Math.abs(P.spin)*1.35 + 0.9, 1.3);
+}
+function clampCamera(){ const md = minDist(); if (!(P.dist >= md)) P.dist = md; }
+
+const CAM = {pos:[0,0,20], e0:[1,0,0,0], eF:[0,0,0,1], eR:[0,1,0,0], eU:[0,0,1,0],
+             tanHalf:1, mode:'static', err:0, f:0, r:0};
+function updateFrame(){
+  const th = P.incl*Math.PI/180, ph = P.azim*Math.PI/180;
+  const st = Math.sin(th), ctv = Math.cos(th);
+  const pos = [P.dist*st*Math.cos(ph), P.dist*st*Math.sin(ph), P.dist*ctv];
+  CAM.pos = pos;
+  const F = ksFieldJS(pos[0], pos[1], pos[2]);
+  CAM.f = F.f; CAM.r = F.r;
+  // --- 观者四速: 优先静态观者; 若已在能层内(g_tt>=0)则退化为 ZAMO ---
+  let V, mode;
+  if (-1 + F.f < -0.02){ V = [1,0,0,0]; mode = 'static'; }
+  else {
+    const kap = pos[0]*F.k[1] - pos[1]*F.k[0];
+    const rho2 = pos[0]*pos[0] + pos[1]*pos[1];
+    const gtp = F.f*kap, gpp = rho2 + F.f*kap*kap;
+    const om = -gtp/Math.max(gpp, 1e-12);
+    V = [1, -om*pos[1], om*pos[0], 0]; mode = 'ZAMO';
+  }
+  let nn = -dot4(V, V, F.f, F.k);
+  if (!(nn > 1e-9)){ V = [1,0,0,0]; nn = Math.max(1 - F.f, 1e-6); mode = '退化!'; }
+  const e0 = V.map(v => v/Math.sqrt(nn));
+  CAM.mode = mode;
+  // --- 空间三标架: 先取坐标基视线向量, 再对 e0 与彼此做 Gram–Schmidt ---
+  let fwd = norm3([-pos[0], -pos[1], -pos[2]]);
+  let up0 = [0,0,1];
+  let right = cross3(fwd, up0);
+  if (len3(right) < 1e-3){ up0 = [0,1,0]; right = cross3(fwd, up0); }
+  right = norm3(right);
+  const up = norm3(cross3(right, fwd));
+  const seeds = [[0,fwd[0],fwd[1],fwd[2]], [0,right[0],right[1],right[2]], [0,up[0],up[1],up[2]]];
+  const basis = [];
+  for (let s=0;s<3;s++){
+    const v = seeds[s].slice();
+    const d0 = dot4(v, e0, F.f, F.k);
+    for (let i=0;i<4;i++) v[i] += d0*e0[i];              // e0·e0 = -1
+    for (let b=0;b<basis.length;b++){
+      const dd = dot4(v, basis[b], F.f, F.k);
+      for (let i=0;i<4;i++) v[i] -= dd*basis[b][i];
+    }
+    const n2 = Math.sqrt(Math.max(dot4(v, v, F.f, F.k), 1e-14));
+    basis.push(v.map(q => q/n2));
+  }
+  CAM.e0 = e0; CAM.eF = basis[0]; CAM.eR = basis[1]; CAM.eU = basis[2];
+  CAM.tanHalf = Math.tan(clamp(P.fov,1,170)*Math.PI/360);
+  const B = [e0, basis[0], basis[1], basis[2]], sg = [-1,1,1,1];
+  let er = 0;
+  for (let i=0;i<4;i++) for (let j=0;j<4;j++){
+    er = Math.max(er, Math.abs(dot4(B[i],B[j],F.f,F.k) - (i===j ? sg[i] : 0)));
+  }
+  CAM.err = er;
+}
+
+function setScene(p){
+  for (let i=0;i<ITEMS.length;i++){ const it = ITEMS[i]; if (it.u) u1f(p, it.u, P[it.k]); }
+  const H = horizons();
+  u1f(p,'uRplus', H.has ? H.rp : 0);
+  u1f(p,'uHasH',  H.has ? 1 : 0);
+  u1f(p,'uPtMax', Math.pow(10, P.ptexp));
+  u1f(p,'uTanHalf', CAM.tanHalf);
+  u1f(p,'uTimeD', tDisk);
+  u3f(p,'uCamPos', CAM.pos[0], CAM.pos[1], CAM.pos[2]);
+  u4f(p,'uE0', CAM.e0[0], CAM.e0[1], CAM.e0[2], CAM.e0[3]);
+  u4f(p,'uEF', CAM.eF[0], CAM.eF[1], CAM.eF[2], CAM.eF[3]);
+  u4f(p,'uER', CAM.eR[0], CAM.eR[1], CAM.eR[2], CAM.eR[3]);
+  u4f(p,'uEU', CAM.eU[0], CAM.eU[1], CAM.eU[2], CAM.eU[3]);
+}
+
+/*==============================================================================
+  5. 渲染循环
+==============================================================================*/
+let nAcc = 0, frameIdx = 0, tDisk = 0, lastT = performance.now(), shotReq = false;
+let fpsAvg = 0, fpsT = performance.now(), fpsN = 0, statT = 0;
+
+function frame(now){
+  requestAnimationFrame(frame);
+  if (FATAL) return;
+  const dt = Math.min(0.1, Math.max(0, (now - lastT)*0.001));
+  lastT = now;
+  if (needResize){ needResize = false; rebuildTargets(); }
+  if (dirty){ dirty = false; nAcc = 0; updateFrame(); }
+
+  const animating = (P.anim > 0.5) && (P.tspeed > 1e-3) && (P.diskon > 0.5);
+  if (animating) tDisk += dt*P.tspeed;
+  let alpha = 1/(nAcc + 1);
+  if (animating) alpha = Math.max(alpha, P.tblend);
+  const converged = !animating && (nAcc >= P.maxsamp);
+
+  gl.bindVertexArray(vao);
+  gl.disable(gl.BLEND);
+
+  // ---- (1) 光子输运 + HDR 累积 ----
+  if (!converged){
+    const dst = accum[1-curA], src = accum[curA];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f);
+    gl.viewport(0,0,RW,RH);
+    gl.useProgram(progTrace);
+    setScene(progTrace);
+    u2f(progTrace,'uRes', RW, RH);
+    u1f(progTrace,'uFrameF', frameIdx % 8192);
+    u1f(progTrace,'uAlpha', alpha);
+    bindTex(progTrace,'uPrev', src.t, 0);
+    drawQuad();
+    curA = 1 - curA;
+    nAcc++; frameIdx++;
+  }
+
+  // ---- (2) 泛光: 逐级降采样 ----
+  let src = accum[curA];
+  for (let i=0;i<mips.length;i++){
+    const m = mips[i];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, m.f);
+    gl.viewport(0,0,m.w,m.h);
+    gl.useProgram(progDown);
+    u2f(progDown,'uTexel', 1/src.w, 1/src.h);
+    u1f(progDown,'uFirstPass', i===0 ? 1 : 0);
+    u1f(progDown,'uBloomThr', P.bthr);
+    u1f(progDown,'uBloomKnee', P.bknee);
+    bindTex(progDown,'uTex', src.t, 0);
+    drawQuad();
+    src = m;
+  }
+  // ---- (3) 泛光: 加性升采样 ----
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  for (let i=mips.length-1;i>0;i--){
+    const d = mips[i-1];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, d.f);
+    gl.viewport(0,0,d.w,d.h);
+    gl.useProgram(progUp);
+    u2f(progUp,'uTexel', 1/mips[i].w, 1/mips[i].h);
+    u1f(progUp,'uRadius', P.bradius);
+    u1f(progUp,'uMix', 1.0);
+    bindTex(progUp,'uTex', mips[i].t, 0);
+    drawQuad();
+  }
+  gl.disable(gl.BLEND);
+
+  // ---- (4) 合成 / 色散 / 色调映射 ----
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0,0,cv.width,cv.height);
+  gl.useProgram(progPost);
+  setScene(progPost);
+  u1f(progPost,'uTimeF', now*0.001);
+  bindTex(progPost,'uHDR', accum[curA].t, 0);
+  bindTex(progPost,'uBloomTex', mips.length ? mips[0].t : accum[curA].t, 1);
+  drawQuad();
+
+  if (shotReq){
+    shotReq = false;
+    try{
+      const a = document.createElement('a');
+      a.download = 'kerr_newman_a' + P.spin.toFixed(3) + '_Q' + P.chg.toFixed(3) + '.png';
+      a.href = cv.toDataURL('image/png');
+      a.click();
+    }catch(e){ /* 忽略 */ }
+  }
+
+  // ---- FPS / 状态 ----
+  fpsN++;
+  if (now - fpsT > 500){ fpsAvg = fpsN*1000/(now - fpsT); fpsN = 0; fpsT = now; }
+  if (now - statT > 220){ statT = now; updateStatus(); }
+  const sp = $('#spin');
+  if (sp && sp.style.opacity !== '0'){ sp.style.opacity = '0'; setTimeout(()=>{ if(sp) sp.style.display='none'; }, 600); }
+}
+
+function updateStatus(){
+  const H = horizons(), a = P.spin, Q = P.chg, k = a*a + Q*Q;
+  let s = 'a=<b>'+a.toFixed(3)+'</b>  Q=<b>'+Q.toFixed(3)+'</b>  a²+Q²=<b>'+k.toFixed(3)+'</b><br>';
+  if (H.has){
+    s += 'r₊=<b>'+H.rp.toFixed(4)+'</b>  r₋='+H.rm.toFixed(4);
+    if (H.ex) s += ' <span class="warn">(极端)</span>';
+    s += '<br>';
+  } else {
+    s += '<span class="warn">无视界 → 裸奇环 (可穿越至 antiverse)</span><br>';
+  }
+  const rE = (Q <= 1) ? (1 + Math.sqrt(1 - Q*Q)) : NaN;
+  const ri = iscoR(a), rp = photonR(a);
+  s += 'r<sub>ergo</sub>(赤道)=' + (isFinite(rE) ? rE.toFixed(3) : '—') +
+       '  r<sub>ISCO</sub>=' + (isFinite(ri) ? ri.toFixed(3) : '—') +
+       '  r<sub>ph</sub>=' + (isFinite(rp) ? rp.toFixed(3) : '—') + '<br>';
+  s += '相机 r=' + CAM.r.toFixed(3) + '  f=' + CAM.f.toFixed(4) +
+       '  标架=<b>' + CAM.mode + '</b>  ε=' + CAM.err.toExponential(1) + '<br>';
+  s += '样本 <b>' + nAcc + '</b>/' + Math.round(P.maxsamp) + '   ' + RW + '×' + RH +
+       '   <b>' + fpsAvg.toFixed(1) + '</b> fps' + (HDR_32 ? '   <span class="ok">HDR32F</span>' : '   HDR16F');
+  $('#stat').innerHTML = s;
+}
+
+/*==============================================================================
+  6. 交互
+==============================================================================*/
+const ptrs = new Map();
+let lastPinch = -1;
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  cv.classList.add('drag');
+  lastPinch = -1;
+});
+cv.addEventListener('pointermove', e => {
+  const pr = ptrs.get(e.pointerId); if (!pr) return;
+  const dx = e.clientX - pr.x, dy = e.clientY - pr.y;
+  pr.x = e.clientX; pr.y = e.clientY;
+  if (ptrs.size >= 2){
+    const arr = Array.from(ptrs.values());
+    const d = Math.hypot(arr[0].x - arr[1].x, arr[0].y - arr[1].y);
+    if (lastPinch > 0 && d > 0){
+      P.dist = clamp(P.dist*(lastPinch/d), minDist(), 140);
+      refreshOne('dist'); markDirty();
+    }
+    lastPinch = d;
+    return;
+  }
+  if (e.shiftKey){
+    P.fov = clamp(P.fov - dy*0.22, 8, 120);
+    refreshOne('fov');
+  } else {
+    P.azim = P.azim - dx*0.30;
+    while (P.azim > 180) P.azim -= 360;
+    while (P.azim < -180) P.azim += 360;
+    P.incl = clamp(P.incl + dy*0.24, 0.5, 179.5);
+    refreshOne('azim','incl');
+  }
+  markDirty();
+});
+const endPtr = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) lastPinch = -1; if (!ptrs.size) cv.classList.remove('drag'); };
+cv.addEventListener('pointerup', endPtr);
+cv.addEventListener('pointercancel', endPtr);
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  P.dist = clamp(P.dist*Math.exp(clamp(e.deltaY,-200,200)*0.0013), minDist(), 140);
+  refreshOne('dist'); markDirty();
+}, {passive:false});
+cv.addEventListener('dblclick', () => { $('#ui').classList.toggle('hide'); });
+
+$('#toggle').addEventListener('click', () => $('#ui').classList.toggle('hide'));
+window.addEventListener('keydown', e => {
+  const t = e.key.toLowerCase();
+  if (t === 'h'){ $('#ui').classList.toggle('hide'); }
+  else if (t === 'r'){ resetAll(); }
+  else if (t === 'p'){ shotReq = true; }
+  else if (t === ' '){ P.anim = P.anim > 0.5 ? 0 : 1; refreshOne('anim'); markDirty(); e.preventDefault(); }
+  else if (t === 'd'){ P.debug = (P.debug + 1) % 5; refreshOne('debug'); markDirty(); }
+});
+let rzT = 0;
+window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { needResize = true; }, 120); });
+
+/*==============================================================================
+  7. 启动
+==============================================================================*/
+buildUI();
+clampCamera();
+refreshUI();
+updateFrame();
+rebuildTargets();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

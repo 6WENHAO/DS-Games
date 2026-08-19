@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>托卡马克磁约束核聚变装置 - 3D 交互式教学演示</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#060a14; font-family:"Microsoft YaHei","PingFang SC","Helvetica Neue",Arial,sans-serif; color:#dbe7f5; }
+  #container { position:fixed; inset:0; touch-action:none; }
+  #container canvas { display:block; cursor:grab; }
+  #bg { position:fixed; inset:0; background:radial-gradient(ellipse at 50% 42%, #101a30 0%, #080d1a 55%, #04060d 100%); z-index:-1; }
+
+  /* 左上角标题 */
+  #title { position:fixed; top:14px; left:16px; z-index:20; pointer-events:none; }
+  #title h1 { font-size:20px; font-weight:700; letter-spacing:2px; color:#e8f4ff; text-shadow:0 0 18px rgba(80,160,255,.55); }
+  #title .sub { font-size:12px; margin-top:4px; color:#7fa8cf; letter-spacing:1px; }
+  #title .hint { font-size:11px; margin-top:6px; color:#5d7d9e; }
+
+  /* 右上角图例 */
+  #legend { position:fixed; top:14px; right:16px; z-index:20; background:rgba(8,14,28,.72); border:1px solid rgba(110,180,255,.22); border-radius:10px; padding:10px 12px; font-size:12px; backdrop-filter:blur(8px); min-width:132px; }
+  #legend .lg-title { font-size:12px; font-weight:700; color:#9fd0ff; margin-bottom:6px; letter-spacing:2px; }
+  .lg-item { display:flex; align-items:center; gap:7px; margin:4px 0; color:#c6d9ec; }
+  .lg-item .sw { width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(255,255,255,.25); flex:none; }
+
+  /* 右侧控制面板 */
+  #controls { position:fixed; top:50%; right:16px; transform:translateY(-50%); z-index:25; width:264px; background:rgba(8,14,28,.78); border:1px solid rgba(110,180,255,.22); border-radius:12px; padding:12px 14px; backdrop-filter:blur(10px); max-height:calc(100vh - 140px); overflow-y:auto; transition:transform .3s ease; }
+  #controls .panel-title { font-weight:700; color:#9fd0ff; font-size:14px; letter-spacing:2px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+  #panelClose { display:none; background:none; border:none; color:#7f9cc0; font-size:18px; cursor:pointer; padding:0 4px; }
+  .ctrl-row { display:flex; align-items:center; justify-content:space-between; margin:8px 0; font-size:13px; color:#cfe2f3; }
+  .ctrl-row .tgl { min-width:52px; padding:4px 10px; border-radius:14px; border:1px solid rgba(110,180,255,.35); background:rgba(20,34,60,.6); color:#9db8d4; font-size:12px; cursor:pointer; transition:all .2s; }
+  .ctrl-row .tgl.active { background:#174a86; border-color:#5cb8ff; color:#eaf6ff; box-shadow:0 0 10px rgba(60,160,255,.35); }
+  .ctrl-row.sl { flex-direction:column; align-items:stretch; gap:6px; margin:12px 0; }
+  .ctrl-row.sl .sl-h { display:flex; justify-content:space-between; font-size:13px; }
+  .ctrl-row.sl .val { color:#7fd0ff; font-size:12px; }
+  input[type=range] { width:100%; accent-color:#4fc3f7; height:20px; }
+  #btnReset { width:100%; margin-top:8px; padding:7px 0; border-radius:8px; border:1px solid rgba(110,180,255,.4); background:rgba(23,74,134,.35); color:#cfe6ff; font-size:13px; cursor:pointer; }
+  #btnReset:hover { background:rgba(23,74,134,.6); }
+  #panelToggle { display:none; }
+
+  /* 底部信息栏 */
+  #infoBar { position:fixed; left:0; right:0; bottom:0; z-index:22; min-height:56px; padding:8px 16px; background:rgba(6,10,22,.82); border-top:1px solid rgba(110,180,255,.2); backdrop-filter:blur(8px); display:flex; align-items:center; gap:14px; }
+  #infoHint { color:#6f8cab; font-size:13px; }
+  #infoName { font-size:15px; font-weight:700; flex:none; min-width:110px; color:#7fd0ff; display:none; }
+  #infoDesc { font-size:13px; line-height:1.6; color:#cfe2f3; display:none; }
+  #infoBar.hasInfo #infoHint { display:none; }
+  #infoBar.hasInfo #infoName, #infoBar.hasInfo #infoDesc { display:block; }
+
+  /* 底部科普卡片 */
+  #knowledge { position:fixed; left:50%; transform:translateX(-50%); bottom:70px; z-index:21; display:flex; gap:8px; max-width:min(980px,96vw); }
+  .kc { width:190px; background:rgba(8,14,28,.75); border:1px solid rgba(110,180,255,.22); border-radius:10px; padding:8px 10px; cursor:pointer; transition:all .25s; backdrop-filter:blur(8px); }
+  .kc:hover { border-color:rgba(125,200,255,.5); }
+  .kc-h { font-size:12.5px; font-weight:700; color:#9fd0ff; letter-spacing:1px; }
+  .kc-b { display:none; font-size:12px; line-height:1.7; color:#c3d6e8; margin-top:6px; text-align:justify; }
+  .kc.open { width:330px; background:rgba(14,26,48,.88); border-color:#5cb8ff; }
+  .kc.open .kc-b { display:block; }
+  .kc .tag { font-size:10px; color:#5d8fbf; margin-right:4px; }
+
+  /* 3D 部件标注 */
+  .lbl { position:relative; font-size:12px; color:#cfe8ff; background:rgba(8,14,28,.72); border:1px solid rgba(110,180,255,.35); border-radius:9px; padding:2px 8px; white-space:nowrap; cursor:pointer; pointer-events:auto; user-select:none; }
+  .lbl::after { content:''; position:absolute; left:50%; bottom:-9px; transform:translateX(-50%); border:5px solid transparent; border-top-color:rgba(110,180,255,.45); }
+  .lbl:hover { background:rgba(24,44,84,.9); }
+  .lbl.active { background:#1c3a66; border-color:#7fd0ff; color:#fff; box-shadow:0 0 10px rgba(90,170,255,.4); }
+
+  /* 加载中 */
+  #loading { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:#060a14; color:#9fc0e0; font-size:14px; letter-spacing:2px; }
+  .spin { width:40px; height:40px; border:3px solid rgba(90,160,255,.25); border-top-color:#5cb8ff; border-radius:50%; animation:rot 1s linear infinite; }
+  @keyframes rot { to { transform:rotate(360deg); } }
+
+  /* 移动端适配 */
+  @media (max-width:768px) {
+    #title h1 { font-size:16px; }
+    #title .hint { display:none; }
+    #legend { font-size:11px; padding:8px 9px; min-width:0; }
+    #legend .lg-title { font-size:11px; }
+    #controls { top:auto; right:10px; bottom:70px; transform:translateX(115%); width:250px; max-height:70vh; }
+    #controls.open { transform:translateX(0); }
+    #panelToggle { display:block; position:fixed; right:10px; bottom:64px; z-index:26; padding:8px 12px; border-radius:18px; border:1px solid rgba(110,180,255,.45); background:rgba(14,30,58,.85); color:#cfe6ff; font-size:12.5px; cursor:pointer; backdrop-filter:blur(8px); }
+    #panelClose { display:block; }
+    #knowledge { bottom:122px; max-width:96vw; overflow-x:auto; padding-bottom:4px; }
+    .kc { min-width:148px; width:148px; }
+    .kc.open { width:min(320px, 88vw); }
+    #infoBar { padding:6px 10px; gap:8px; min-height:52px; }
+    #infoName { font-size:13px; min-width:0; }
+    #infoDesc { font-size:11.5px; }
+  }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="container"></div>
+<div id="loading"><div class="spin"></div>正在加载 3D 场景…</div>
+
+<div id="title">
+  <h1>托卡马克磁约束核聚变装置</h1>
+  <div class="sub">磁约束核聚变 · 3D 交互式教学演示</div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 点击部件查看详情</div>
+</div>
+
+<div id="legend">
+  <div class="lg-title">图 例</div>
+  <div class="lg-item"><i class="sw" id="swPlasma"></i>等离子体</div>
+  <div class="lg-item"><i class="sw" style="background:#6fb6ff"></i>磁力线 / 磁场</div>
+  <div class="lg-item"><i class="sw" style="background:rgba(127,212,232,.55);border-color:rgba(160,230,255,.6)"></i>真空室</div>
+  <div class="lg-item"><i class="sw" style="background:#d99a4e"></i>磁场线圈</div>
+  <div class="lg-item"><i class="sw" style="background:#ff7f50"></i>偏滤器</div>
+</div>
+
+<div id="controls">
+  <div class="panel-title">控制面板 <button id="panelClose" title="关闭">&times;</button></div>
+  <div class="ctrl-row"><span>剖面视图</span><button id="btnSection" class="tgl">关</button></div>
+  <div class="ctrl-row"><span>磁场线</span><button id="btnField" class="tgl active">开</button></div>
+  <div class="ctrl-row"><span>自动旋转</span><button id="btnRotate" class="tgl">关</button></div>
+  <div class="ctrl-row"><span>部件标注</span><button id="btnLabels" class="tgl active">开</button></div>
+  <div class="ctrl-row sl">
+    <div class="sl-h"><span>等离子体温度</span><span class="val" id="tempVal">1.0 亿 ℃</span></div>
+    <input type="range" id="tempSlider" min="1500" max="15000" step="50" value="10000">
+  </div>
+  <div class="ctrl-row sl">
+    <div class="sl-h"><span>等离子体密度</span><span class="val" id="densVal">1.0 &times;10&sup2;&#8304; m&#8315;&sup3;</span></div>
+    <input type="range" id="densSlider" min="2" max="30" step="1" value="10">
+  </div>
+  <button id="btnReset">重置视角</button>
+</div>
+<button id="panelToggle">☰ 控制面板</button>
+
+<div id="infoBar">
+  <div id="infoHint">拖拽旋转 · 滚轮缩放 · 点击任意部件查看功能说明</div>
+  <div id="infoName"></div>
+  <div id="infoDesc"></div>
+</div>
+
+<div id="knowledge">
+  <div class="kc open">
+    <div class="kc-h"><span class="tag">科普 1</span>托卡马克原理</div>
+    <div class="kc-b">托卡马克用强磁场把超过 1 亿 ℃ 的等离子体约束在环形真空室内，避免其接触器壁。环向场线圈产生环向磁场，等离子体电流与极向场线圈产生极向磁场，二者合成螺旋形磁力线，等离子体沿磁力线螺旋运动，被稳定"锁"在磁笼中。</div>
+  </div>
+  <div class="kc">
+    <div class="kc-h"><span class="tag">科普 2</span>温度数据</div>
+    <div class="kc-b">太阳核心约 1500 万 ℃，而托卡马克等离子体可达 1.5 亿 ℃，比太阳中心热 10 倍。只有如此高温，氘氚原子核才能克服库仑斥力发生聚变。2021 年中国 EAST 实现 1.2 亿 ℃ 运行 101 秒，2023 年实现高约束模式 403 秒，均创世界纪录。</div>
+  </div>
+  <div class="kc">
+    <div class="kc-h"><span class="tag">科普 3</span>代表项目</div>
+    <div class="kc-b">ITER 国际热核聚变实验堆位于法国南部，由中、美、俄、欧、日、韩、印等 35 国合作建造，目标实现 Q=10 的聚变功率增益，是全球最大的科学工程之一。中国 EAST（东方超环，合肥）是国际领先的托卡马克装置；后续还规划有 CFETR 聚变工程实验堆。</div>
+  </div>
+  <div class="kc">
+    <div class="kc-h"><span class="tag">科普 4</span>核心挑战</div>
+    <div class="kc-b">等离子体不稳定性（如边界局域模 ELM、破裂）可能瞬间释放能量损伤第一壁，需要主动控制与缓解。能量增益因子 Q＝聚变输出功率 ÷ 加热输入功率，Q＞1 才算净能量产出，ITER 的目标是 Q=10。此外还有氚自持、钨/铍第一壁材料、超导磁体等工程挑战。</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+
+const isMobile = window.innerWidth < 768;
+
+/* CDN 加载失败提示 */
+window.addEventListener('error', () => {
+  const el = document.getElementById('loading');
+  if (el) el.innerHTML = '<div style="text-align:center;line-height:2.2">场景加载失败<br><span style="font-size:12px;color:#7f9cc0">请检查网络连接后刷新页面</span></div>';
+});
+
+/* ================= 渲染器 ================= */
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 400);
+camera.position.set(10.5, 6.2, 12.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+container.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.left = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+container.appendChild(labelRenderer.domElement);
+
+/* ================= 后处理：泛光 + 描边 ================= */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.1, 0.55, 0.2);
+composer.addPass(bloomPass);
+const outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
+outlinePass.edgeStrength = 3.5;
+outlinePass.edgeGlow = 0.6;
+outlinePass.edgeThickness = 1.4;
+outlinePass.visible = false;
+composer.addPass(outlinePass);
+
+/* ================= 控制器 ================= */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 7;
+controls.maxDistance = 30;
+controls.target.set(0, 0, 0);
+
+/* ================= 灯光 ================= */
+scene.add(new THREE.AmbientLight(0x46536b, 0.6));
+scene.add(new THREE.HemisphereLight(0x3f6ea8, 0x0c0f16, 0.7));
+const key = new THREE.DirectionalLight(0xe8f2ff, 1.25);
+key.position.set(10, 14, 8);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.left = -15; key.shadow.camera.right = 15;
+key.shadow.camera.top = 15; key.shadow.camera.bottom = -15;
+key.shadow.camera.near = 1; key.shadow.camera.far = 45;
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.PointLight(0x3f7fff, 1.5, 80);
+rim.position.set(-9, -2, -10);
+scene.add(rim);
+const warm = new THREE.PointLight(0xff9a4d, 0.55, 50);
+warm.position.set(-7, 5, 9);
+scene.add(warm);
+
+/* ================= 装置几何尺寸 ================= */
+const R = 5.0;    // 大半径
+const VT = 1.4;   // 真空室管半径
+
+/* ================= 材质 ================= */
+const matChamber = new THREE.MeshPhysicalMaterial({ color:0x7fd4e8, transparent:true, opacity:0.16, metalness:0.2, roughness:0.1, side:THREE.DoubleSide, depthWrite:false, clearcoat:1.0, clearcoatRoughness:0.15 });
+const matFirstWall = new THREE.MeshStandardMaterial({ color:0xb7c2cc, transparent:true, opacity:0.08, metalness:0.3, roughness:0.5, side:THREE.DoubleSide, depthWrite:false });
+const coreMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.92, blending:THREE.AdditiveBlending, depthWrite:false });
+const glowMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.30, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide });
+const hotMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false });
+const matTF = new THREE.MeshStandardMaterial({ color:0x5b8cff, transparent:true, opacity:0.6, metalness:0.55, roughness:0.3, side:THREE.DoubleSide, depthWrite:false });
+const matPF = new THREE.MeshStandardMaterial({ color:0xd99a4e, metalness:0.75, roughness:0.35, transparent:true, opacity:0.85, depthWrite:false });
+const matCS = new THREE.MeshStandardMaterial({ color:0xb8860b, metalness:0.75, roughness:0.4, transparent:true, opacity:0.92, depthWrite:false });
+const matDiv = new THREE.MeshStandardMaterial({ color:0xff7f50, metalness:0.65, roughness:0.35, transparent:true, opacity:0.95, depthWrite:false });
+const matPort = new THREE.MeshStandardMaterial({ color:0x6b7280, metalness:0.6, roughness:0.5, transparent:true, opacity:0.9 });
+const matStruct = new THREE.MeshStandardMaterial({ color:0x4a5264, metalness:0.7, roughness:0.45 });
+const matCryo = new THREE.MeshPhysicalMaterial({ color:0x66aaff, transparent:true, opacity:0.05, side:THREE.DoubleSide, depthWrite:false });
+const matField = new THREE.MeshBasicMaterial({ color:0x6fb6ff, transparent:true, opacity:0.5, depthWrite:false });
+
+/* ================= 剖面裁剪 ================= */
+const clipPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+const clipMats = [matChamber, matFirstWall, coreMat, glowMat, hotMat, matTF, matPF, matCS, matDiv, matPort, matStruct, matCryo];
+
+/* ================= 构建装置 ================= */
+const machine = new THREE.Group();
+scene.add(machine);
+
+/* --- 环形真空室 --- */
+const chamber = new THREE.Mesh(new THREE.TorusGeometry(R, VT, 48, 96), matChamber);
+machine.add(chamber);
+
+/* --- 第一壁 --- */
+const firstWall = new THREE.Mesh(new THREE.TorusGeometry(R, VT - 0.16, 48, 96), matFirstWall);
+machine.add(firstWall);
+
+/* --- 等离子体（独立旋转子组） --- */
+const plasmaSpin = new THREE.Group();
+machine.add(plasmaSpin);
+const plasmaCore = new THREE.Mesh(new THREE.TorusGeometry(R - 0.25, 0.72, 48, 128), coreMat);
+const plasmaGlow = new THREE.Mesh(new THREE.TorusGeometry(R - 0.25, 1.05, 40, 96), glowMat);
+plasmaSpin.add(plasmaCore, plasmaGlow);
+/* 高温热点：模拟等离子体粒子流动 */
+const hotGeo = new THREE.SphereGeometry(0.16, 16, 16);
+const hot1 = new THREE.Mesh(hotGeo, hotMat);
+const hot2 = new THREE.Mesh(hotGeo, hotMat);
+plasmaSpin.add(hot1, hot2);
+
+/* --- 环向场线圈 TF（D 形包围真空室） --- */
+const tfGroup = new THREE.Group();
+const tfGeo = new THREE.TorusGeometry(R, 0.08, 12, 72);
+tfGeo.rotateY(Math.PI / 2);
+const N_TF = 18;
+for (let i = 0; i < N_TF; i++) {
+  const c = new THREE.Mesh(tfGeo, matTF);
+  c.rotation.y = (i * Math.PI * 2) / N_TF;
+  tfGroup.add(c);
+}
+machine.add(tfGroup);
+
+/* --- 极向场线圈 PF（水平环） --- */
+const pfGroup = new THREE.Group();
+const pfArr = [[6.4, -3.0], [6.4, 3.0], [7.4, -4.8], [7.4, 4.8], [4.8, -5.6], [4.8, 5.6]];
+pfArr.forEach(([r, h]) => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.09, 10, 64), matPF);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = h;
+  pfGroup.add(ring);
+});
+machine.add(pfGroup);
+
+/* --- 中心螺线管 CS --- */
+const csGroup = new THREE.Group();
+for (let i = 0; i < 5; i++) {
+  const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 1.24, 24), matCS);
+  seg.position.y = -2.5 + i * 1.28;
+  csGroup.add(seg);
+}
+machine.add(csGroup);
+
+/* --- 偏滤器（上 / 下） --- */
+const divGeo = new THREE.TorusGeometry(4.9, 0.34, 24, 64);
+const divBottom = new THREE.Mesh(divGeo, matDiv);
+divBottom.position.y = -1.35;
+const divTop = new THREE.Mesh(divGeo, matDiv);
+divTop.position.y = 1.35;
+machine.add(divBottom, divTop);
+
+/* --- 端口（诊断 / 加热窗口） --- */
+const ports = new THREE.Group();
+const portGeo = new THREE.CylinderGeometry(0.34, 0.4, 2.4, 16);
+for (let i = 0; i < 6; i++) {
+  const a = (i * Math.PI) / 3;
+  const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+  const p = new THREE.Mesh(portGeo, matPort);
+  p.position.copy(dir).multiplyScalar(6.7);
+  p.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  p.castShadow = true;
+  ports.add(p);
+}
+const topPort = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.5, 16), matPort);
+topPort.position.set(5.0, 2.35, 0);
+topPort.castShadow = true;
+ports.add(topPort);
+machine.add(ports);
+
+/* --- 磁力线（螺旋形，绕等离子体环绕） --- */
+const fieldGroup = new THREE.Group();
+function helixPoints(Rm, rm, q, turns, segs) {
+  const pts = [];
+  const tMax = turns * Math.PI * 2;
+  for (let i = 0; i <= segs; i++) {
+    const t = (i / segs) * tMax;
+    const phi = q * t;
+    const rr = Rm + rm * Math.cos(phi);
+    pts.push(new THREE.Vector3(rr * Math.cos(t), rm * Math.sin(phi), rr * Math.sin(t)));
+  }
+  return pts;
+}
+function makeFieldLine() {
+  const curve = new THREE.CatmullRomCurve3(helixPoints(R - 0.25, 1.1, 1.0, 3, 400));
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, 300, 0.05, 8, false), matField);
+}
+for (let i = 0; i < 4; i++) {
+  const line = makeFieldLine();
+  line.rotation.y = i * (Math.PI / 2);
+  fieldGroup.add(line);
+}
+machine.add(fieldGroup);
+
+/* --- 低温恒温器（外层壳） --- */
+const cryo = new THREE.Mesh(new THREE.CylinderGeometry(8.0, 8.4, 11.8, 48, 1, true), matCryo);
+machine.add(cryo);
+const cryoEdge = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.CylinderGeometry(8.0, 8.4, 11.8, 48, 1, true)),
+  new THREE.LineBasicMaterial({ color: 0x4488cc, transparent: true, opacity: 0.16 })
+);
+machine.add(cryoEdge);
+
+/* --- 底座与支撑结构 --- */
+const base = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 8.0, 0.5, 40), matStruct);
+base.position.y = -6.6;
+base.castShadow = true;
+base.receiveShadow = true;
+machine.add(base);
+const legs = new THREE.Group();
+const legGeo = new THREE.BoxGeometry(0.7, 4.9, 0.7);
+for (let i = 0; i < 6; i++) {
+  const a = Math.PI / 6 + (i * Math.PI) / 3;
+  const leg = new THREE.Mesh(legGeo, matStruct);
+  leg.position.set(Math.cos(a) * 5.8, -4.1, Math.sin(a) * 5.8);
+  leg.rotation.y = -a;
+  leg.castShadow = true;
+  legs.add(leg);
+}
+machine.add(legs);
+const strut = new THREE.Mesh(new THREE.TorusGeometry(5.8, 0.1, 8, 64), matStruct);
+strut.rotation.x = Math.PI / 2;
+strut.position.y = -2.4;
+machine.add(strut);
+
+/* --- 地面 --- */
+const floor = new THREE.Mesh(new THREE.CircleGeometry(24, 48), new THREE.MeshStandardMaterial({ color: 0x0b101c, roughness: 0.95 }));
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -6.85;
+floor.receiveShadow = true;
+scene.add(floor);
+const floorGlow = new THREE.Mesh(new THREE.RingGeometry(7.8, 9.2, 48),
+  new THREE.MeshBasicMaterial({ color: 0x2f6fe0, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }));
+floorGlow.rotation.x = -Math.PI / 2;
+floorGlow.position.y = -6.82;
+scene.add(floorGlow);
+
+/* --- 星空背景 --- */
+const starCount = 700;
+const starPos = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount; i++) {
+  const r = 70 + Math.random() * 90;
+  const th = Math.random() * Math.PI * 2;
+  const ph = Math.acos(2 * Math.random() - 1);
+  starPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+  starPos[i * 3 + 1] = r * Math.cos(ph);
+  starPos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9fc0ff, size: 0.22, transparent: true, opacity: 0.75, sizeAttenuation: true })));
+
+/* --- 剖面视图的切面 --- */
+const cutGroup = new THREE.Group();
+cutGroup.visible = false;
+const cutPlasmaMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+const cutPlasma = new THREE.Mesh(new THREE.CircleGeometry(0.72, 64), cutPlasmaMat);
+cutPlasma.rotation.y = -Math.PI / 2;
+cutPlasma.position.set(0, 0, R - 0.25);
+const cutWallMat = new THREE.MeshStandardMaterial({ color: 0x8fd0de, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false });
+const cutWall = new THREE.Mesh(new THREE.RingGeometry(VT - 0.16, VT, 64), cutWallMat);
+cutWall.rotation.y = -Math.PI / 2;
+cutWall.position.set(0, 0, R);
+const cutFWMat = new THREE.MeshStandardMaterial({ color: 0x9aa7b5, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+const cutFW = new THREE.Mesh(new THREE.RingGeometry(0.95, VT - 0.16, 64), cutFWMat);
+cutFW.rotation.y = -Math.PI / 2;
+cutFW.position.set(0, 0, R);
+cutGroup.add(cutPlasma, cutWall, cutFW);
+machine.add(cutGroup);
+
+/* ================= 部件数据（可点击 + 标注） ================= */
+const PARTS = {
+  chamber:   { name: '环形真空室', color: '#7fd4e8', meshes: [chamber], desc: '由不锈钢与铍/钨内衬构成的高真空环形容器，内部气压约 10⁻⁶ Pa。它容纳并隔离等离子体，防止杂质进入导致等离子体冷却。' },
+  firstwall: { name: '第一壁', color: '#b7c2cc', meshes: [firstWall], desc: '真空室内壁，直接面对等离子体，采用钨/铍材料制造，承受高能粒子轰击与极高热负荷（局部可达 MW/m² 量级），是保护外部结构的关键部件。' },
+  plasma:    { name: '等离子体', color: '#9fdcff', meshes: [plasmaCore, plasmaGlow], desc: '被加热到 1 亿 ℃ 以上的电离气体（氘氚混合物），呈蓝白色发光状态。等离子体被磁场约束，悬浮在真空室中央，不与器壁直接接触——这就是"磁约束"。' },
+  tf:        { name: '环向场线圈 TF', color: '#5b8cff', meshes: tfGroup.children, desc: '18 个环绕真空室的大型线圈，产生沿环向（绕大环方向）的强磁场（ITER 中心场约 11.8 T），是约束等离子体的主磁场，采用超导材料（Nb₃Sn/NbTi）以降低能耗。' },
+  pf:        { name: '极向场线圈 PF', color: '#d99a4e', meshes: pfGroup.children, desc: '位于真空室外侧的水平环状线圈，控制等离子体的位置与截面形状，与等离子体电流共同产生极向磁场。环向场 + 极向场合成螺旋磁场，才能稳定约束等离子体。' },
+  cs:        { name: '中心螺线管 CS', color: '#c8914f', meshes: csGroup.children, desc: '位于装置中心的柱状线圈。通过改变磁通量，感应产生并维持等离子体电流（等离子体本身相当于一个导电环）。等离子体电流可达兆安级，它产生的极向磁场是"磁笼"的重要组成部分。' },
+  divertor:  { name: '偏滤器', color: '#ff7f50', meshes: [divBottom, divTop], desc: '位于真空室底部（及顶部）的钨制部件。引导高温粒子与杂质沿磁力线排出，避免等离子体直接冲刷第一壁，同时回收聚变产生的氦灰。它承受全装置最高的热负荷。' },
+  support:   { name: '支撑结构与底座', color: '#4a5264', meshes: [base, strut, ...legs.children, ...ports.children], desc: '承载整个装置的钢结构与混凝土基础。线圈通电磁力可达上万吨（ITER 总重约 2.3 万吨），支撑结构必须抵御巨型电磁力与热应力，保证装置稳定运行。' },
+  cryo:      { name: '低温恒温器', color: '#66aaff', meshes: [cryo], desc: '包覆整个装置的外壳。内部充满液氦（4 K，-269 ℃），维持超导磁体的超导态，并屏蔽辐射与热量，同时防止氚泄漏到环境。' }
+};
+
+/* 部件标注（CSS2D） */
+const labelData = [
+  { key: 'chamber',   text: '真空室',       pos: [6.4, 1.35, 0] },
+  { key: 'plasma',    text: '等离子体',     pos: [0, 1.2, 4.85] },
+  { key: 'tf',        text: '环向场线圈 TF', pos: [0, 5.75, 0] },
+  { key: 'pf',        text: '极向场线圈 PF', pos: [7.6, 4.9, 0] },
+  { key: 'cs',        text: '中心螺线管',   pos: [0, 3.4, 0] },
+  { key: 'divertor',  text: '偏滤器',       pos: [5.7, -1.8, 0] },
+  { key: 'firstwall', text: '第一壁',       pos: [4.2, -0.75, 0] },
+  { key: 'support',   text: '支撑结构',     pos: [4.5, -4.2, 3.5] },
+  { key: 'cryo',      text: '低温恒温器',   pos: [8.3, 2.3, 0] }
+];
+const labels = [];
+labelData.forEach(d => {
+  const el = document.createElement('div');
+  el.className = 'lbl';
+  el.textContent = d.text;
+  el.addEventListener('click', () => selectPart(d.key));
+  const obj = new CSS2DObject(el);
+  obj.position.set(d.pos[0], d.pos[1], d.pos[2]);
+  machine.add(obj);
+  labels.push({ key: d.key, el });
+});
+
+/* 可拾取网格列表（低温恒温器外壳除外，避免挡住内部部件的点击） */
+const pickables = [];
+Object.entries(PARTS).forEach(([key, p]) => {
+  if (key !== 'cryo') p.meshes.forEach(m => pickables.push(m));
+});
+
+/* ================= 交互：选择部件 ================= */
+let selectedKey = null;
+const infoBar = document.getElementById('infoBar');
+const infoHint = document.getElementById('infoHint');
+const infoName = document.getElementById('infoName');
+const infoDesc = document.getElementById('infoDesc');
+
+function selectPart(key) {
+  selectedKey = key;
+  const part = key ? PARTS[key] : null;
+  outlinePass.visible = !!part;
+  outlinePass.selectedObjects = part ? part.meshes : [];
+  labels.forEach(l => l.el.classList.toggle('active', l.key === key));
+  if (part) {
+    infoName.textContent = part.name;
+    infoName.style.color = part.color;
+    infoDesc.textContent = part.desc;
+    infoBar.classList.add('hasInfo');
+  } else {
+    infoBar.classList.remove('hasInfo');
+  }
+}
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let downX = 0, downY = 0;
+
+function pickAt(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(pickables, true);
+  if (hits.length === 0) return null;
+  let m = hits[0].object;
+  while (m && !(m.userData && m.userData.partKey)) m = m.parent;
+  return m ? m.userData.partKey : null;
+}
+
+/* 每个部件网格登记 partKey */
+pickables.forEach(m => {
+  const key = Object.keys(PARTS).find(k => PARTS[k].meshes.includes(m));
+  m.userData.partKey = key;
+});
+
+renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener('pointerup', e => {
+  const dx = e.clientX - downX, dy = e.clientY - downY;
+  if (dx * dx + dy * dy > 36) return; // 拖拽不算点击
+  selectPart(pickAt(e.clientX, e.clientY));
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse') return;
+  const key = pickAt(e.clientX, e.clientY);
+  renderer.domElement.style.cursor = key ? 'pointer' : 'grab';
+});
+
+/* ================= 控制面板逻辑 ================= */
+function makeToggle(btn, initial, fn) {
+  let on = initial;
+  const set = v => { on = v; btn.classList.toggle('active', on); btn.textContent = on ? '开' : '关'; fn(on); };
+  btn.addEventListener('click', () => set(!on));
+  set(initial);
+}
+
+/* 剖面视图 */
+makeToggle(document.getElementById('btnSection'), false, on => {
+  clipMats.forEach(m => { m.clippingPlanes = on ? [clipPlane] : null; });
+  cutGroup.visible = on;
+});
+/* 磁场线 */
+makeToggle(document.getElementById('btnField'), true, on => { fieldGroup.visible = on; });
+/* 自动旋转 */
+let autoRotate = false;
+makeToggle(document.getElementById('btnRotate'), false, on => { autoRotate = on; });
+/* 部件标注 */
+makeToggle(document.getElementById('btnLabels'), true, on => {
+  labels.forEach(l => { l.el.style.display = on ? '' : 'none'; });
+});
+
+/* 温度 / 密度滑块 */
+const tempSlider = document.getElementById('tempSlider');
+const densSlider = document.getElementById('densSlider');
+const tempVal = document.getElementById('tempVal');
+const densVal = document.getElementById('densVal');
+
+function formatTemp(v) { return v >= 10000 ? (v / 10000).toFixed(1) + ' 亿 ℃' : v + ' 万 ℃'; }
+function formatDens(v) { return (v / 10).toFixed(1) + ' ×10²⁰ m⁻³'; }
+
+const COLOR_BLUE = new THREE.Color(0x2f6fe0);
+const COLOR_CYAN = new THREE.Color(0x9fdcff);
+const COLOR_WHITE = new THREE.Color(0xffffff);
+
+function updatePlasma() {
+  const t = (parseFloat(tempSlider.value) - 1500) / (15000 - 1500); // 0..1
+  const d = parseFloat(densSlider.value) / 10;                       // 0.2..3.0
+  tempVal.textContent = formatTemp(parseFloat(tempSlider.value));
+  densVal.textContent = formatDens(parseFloat(densSlider.value));
+
+  const base = new THREE.Color();
+  if (t < 0.5) base.lerpColors(COLOR_BLUE, COLOR_CYAN, t * 2);
+  else base.lerpColors(COLOR_CYAN, COLOR_WHITE, (t - 0.5) * 2);
+
+  const bright = 0.9 + t * 1.5;          // 温度 → 亮度
+  const dens = 0.6 + d * 0.35;           // 密度 → 亮度系数
+
+  coreMat.color.copy(base).multiplyScalar(bright * dens);
+  coreMat.opacity = 0.85 + d * 0.05;
+  glowMat.color.copy(base).multiplyScalar(bright * dens * 0.4);
+  glowMat.opacity = 0.2 + d * 0.09;
+  hotMat.color.copy(base).multiplyScalar(bright * dens * 1.6);
+  cutPlasmaMat.color.copy(base).multiplyScalar(bright * dens * 1.2);
+  bloomPass.strength = 0.85 + t * 0.55 + d * 0.12;
+
+  document.getElementById('swPlasma').style.background =
+    '#' + base.getHexString();
+}
+tempSlider.addEventListener('input', updatePlasma);
+densSlider.addEventListener('input', updatePlasma);
+updatePlasma();
+
+/* 重置视角 */
+document.getElementById('btnReset').addEventListener('click', () => {
+  camera.position.set(10.5, 6.2, 12.5);
+  controls.target.set(0, 0, 0);
+});
+
+/* 移动端面板开合 */
+const controlsPanel = document.getElementById('controls');
+document.getElementById('panelToggle').addEventListener('click', () => controlsPanel.classList.toggle('open'));
+document.getElementById('panelClose').addEventListener('click', () => controlsPanel.classList.remove('open'));
+
+/* 科普卡片（手风琴） */
+document.querySelectorAll('.kc').forEach(card => {
+  card.addEventListener('click', () => {
+    const isOpen = card.classList.contains('open');
+    document.querySelectorAll('.kc').forEach(c => c.classList.remove('open'));
+    if (!isOpen) card.classList.add('open');
+  });
+});
+
+/* ================= 窗口缩放 ================= */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ================= 动画循环 ================= */
+const clock = new THREE.Clock();
+let firstFrame = true;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  if (autoRotate) machine.rotation.y += dt * 0.25;
+  plasmaSpin.rotation.y += dt * 0.4;
+
+  /* 热点沿等离子体环流动 */
+  const a1 = t * 0.9;
+  hot1.position.set((R - 0.25) * Math.cos(a1), Math.sin(t * 2.3) * 0.15, (R - 0.25) * Math.sin(a1));
+  const a2 = a1 + Math.PI;
+  hot2.position.set((R - 0.25) * Math.cos(a2), -Math.sin(t * 2.3) * 0.15, (R - 0.25) * Math.sin(a2));
+  const hs = 1 + 0.25 * Math.sin(t * 6);
+  hot1.scale.setScalar(hs);
+  hot2.scale.setScalar(1.6 - hs * 0.6);
+
+  /* 等离子体微光脉动 */
+  glowMat.opacity = Math.max(0.12, (0.2 + parseFloat(densSlider.value) / 10 * 0.09) + 0.02 * Math.sin(t * 3));
+
+  /* 剖面裁剪平面跟随装置旋转 */
+  clipPlane.normal.set(1, 0, 0).applyQuaternion(machine.quaternion);
+
+  controls.update();
+  composer.render();
+  labelRenderer.render(scene, camera);
+
+  if (firstFrame) {
+    firstFrame = false;
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+animate();
+</script>
+</body>
+</html>

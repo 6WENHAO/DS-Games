@@ -1,0 +1,3958 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OptiBench Web · 光学系统模拟器 (光线追迹 / 波前 / PSF / MTF)</title>
+<style>
+:root{
+  --bg:#060a12; --bg2:#0a1120; --panel:rgba(16,24,40,.72); --panel2:rgba(20,30,50,.55);
+  --line:rgba(110,150,200,.20); --line2:rgba(110,150,200,.38);
+  --txt:#d6e4f5; --txt2:#9fb6d4; --txt3:#6a86ad;
+  --acc:#7fe7ff; --acc2:#ffd479; --acc3:#ff8fd0; --ok:#7dffa8; --err:#ff6b6b;
+  --glow:0 0 18px rgba(127,231,255,.22);
+  --mono:ui-monospace,"SF Mono",Consolas,"Cascadia Mono",monospace;
+  --sans:ui-sans-serif,system-ui,"Segoe UI","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  background:
+    radial-gradient(1200px 620px at 12% -10%,rgba(40,90,160,.30),transparent 60%),
+    radial-gradient(900px 520px at 96% 8%,rgba(120,40,140,.20),transparent 60%),
+    radial-gradient(700px 400px at 50% 108%,rgba(20,120,140,.16),transparent 60%),
+    var(--bg);
+  color:var(--txt);font:13px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;user-select:none;
+}
+#app{display:grid;grid-template-rows:48px minmax(0,1fr) 258px;height:100vh;gap:0}
+
+/* ------------------------------------------------------------- 顶栏 */
+.topbar{
+  display:flex;align-items:center;gap:10px;padding:0 12px;
+  background:linear-gradient(180deg,rgba(18,28,48,.92),rgba(10,16,28,.78));
+  border-bottom:1px solid var(--line);backdrop-filter:blur(10px);z-index:30;
+}
+.brand{display:flex;align-items:center;gap:9px;padding-right:8px;border-right:1px solid var(--line)}
+.brand .logo{
+  width:26px;height:26px;border-radius:7px;position:relative;flex:0 0 auto;
+  background:conic-gradient(from 200deg,#7fe7ff,#4b8cff,#ff8fd0,#ffd479,#7fe7ff);
+  box-shadow:0 0 14px rgba(127,231,255,.5),inset 0 0 8px rgba(0,0,0,.5);
+}
+.brand .logo::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#0a1120;box-shadow:inset 0 0 6px rgba(127,231,255,.7)}
+.brand b{font-size:14.5px;letter-spacing:.3px}
+.brand span{font-size:10.5px;color:var(--txt3);letter-spacing:.6px;display:block;margin-top:-3px}
+.seg{display:flex;background:rgba(8,14,26,.7);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{
+  background:transparent;border:0;color:var(--txt2);padding:6px 11px;font:12px var(--sans);
+  cursor:pointer;transition:.16s;border-right:1px solid rgba(110,150,200,.12)
+}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:rgba(127,231,255,.10);color:var(--txt)}
+.seg button.on{background:linear-gradient(180deg,rgba(127,231,255,.28),rgba(127,231,255,.12));color:#eaf7ff;box-shadow:inset 0 -2px 0 var(--acc)}
+button.tb{
+  background:rgba(14,22,38,.8);border:1px solid var(--line);color:var(--txt2);
+  padding:6px 10px;border-radius:8px;cursor:pointer;font:12px var(--sans);transition:.16s;white-space:nowrap
+}
+button.tb:hover{border-color:var(--line2);color:var(--txt);box-shadow:var(--glow);transform:translateY(-1px)}
+button.tb:active{transform:translateY(0)}
+button.tb.on{color:var(--acc);border-color:rgba(127,231,255,.45)}
+.spacer{flex:1}
+select.preset{
+  background:rgba(10,18,32,.9);color:var(--txt);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 8px;font:12px var(--sans);max-width:260px;cursor:pointer
+}
+#fpsBox{font:11px var(--mono);color:var(--txt3);white-space:nowrap}
+
+/* ------------------------------------------------------------- 主区 */
+main{display:grid;grid-template-columns:270px minmax(0,1fr) 336px;min-height:0}
+.sidebar{
+  overflow-y:auto;overflow-x:hidden;padding:10px;display:flex;flex-direction:column;gap:9px;
+  background:linear-gradient(180deg,rgba(10,16,30,.55),rgba(8,12,22,.35));
+}
+.sidebar.left{border-right:1px solid var(--line)}
+.sidebar.right{border-left:1px solid var(--line)}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  box-shadow:0 4px 18px rgba(0,0,0,.28)
+}
+.card>h3{
+  font:600 11.5px var(--sans);letter-spacing:.6px;color:var(--acc);
+  padding:7px 10px;background:linear-gradient(180deg,rgba(127,231,255,.10),transparent);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer
+}
+.card>h3::before{content:"";width:3px;height:11px;border-radius:2px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.card>h3 .tog{margin-left:auto;color:var(--txt3);font-size:10px;transition:.2s}
+.card.collapsed>h3 .tog{transform:rotate(-90deg)}
+.card.collapsed>.body{display:none}
+.card>.body{padding:8px 10px;display:flex;flex-direction:column;gap:7px}
+.row{display:flex;align-items:center;gap:6px}
+.row>label{flex:0 0 92px;color:var(--txt2);font-size:11.5px}
+.row.wide>label{flex:0 0 auto}
+.hint{font-size:10.5px;color:var(--txt3);line-height:1.45}
+input,select{font-family:var(--sans)}
+input.mini,select.mini{
+  background:rgba(6,12,22,.92);border:1px solid var(--line);color:var(--txt);
+  border-radius:6px;padding:4px 6px;font:11.5px var(--mono);min-width:0;width:100%;transition:.14s
+}
+input.mini:focus,select.mini:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 2px rgba(127,231,255,.14)}
+input.num{text-align:right;cursor:ew-resize}
+input.num:hover{border-color:var(--line2);background:rgba(12,22,40,.95)}
+input[type=checkbox]{accent-color:#4ec9ff;width:13px;height:13px;cursor:pointer}
+select.mini{cursor:pointer}
+.chip{
+  background:rgba(10,18,32,.85);border:1px solid var(--line);color:var(--txt3);
+  border-radius:20px;padding:3.5px 9px;font:11px var(--sans);cursor:pointer;transition:.15s
+}
+.chip:hover{color:var(--txt);border-color:var(--line2)}
+.chip.on{color:#06121c;background:linear-gradient(180deg,#9fefff,#4fc9ef);border-color:transparent;font-weight:600;box-shadow:0 0 10px rgba(127,231,255,.35)}
+#layerBox{display:flex;flex-wrap:wrap;gap:5px}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:2px 0;border-bottom:1px dashed rgba(110,150,200,.10)}
+.kv .k{color:var(--txt3)}
+.kv .v{font-family:var(--mono);color:var(--txt);text-align:right}
+#presetDesc{font-size:11px;color:var(--txt2);line-height:1.55}
+#presetDesc b{color:var(--acc)}
+
+/* 波长列表 */
+.wrow{display:flex;align-items:center;gap:5px}
+.wrow .swatch{width:12px;height:12px;border-radius:3px;box-shadow:0 0 8px currentColor;flex:0 0 auto}
+.wrow input.w{width:58px}
+.wrow input.w2{width:38px}
+.wrow .unit{font-size:10px;color:var(--txt3)}
+.wrow .x{color:var(--txt3);cursor:pointer;padding:0 3px;font-size:14px;line-height:1}
+.wrow .x:hover{color:var(--err)}
+.wrow input[type=radio]{accent-color:#ffd479;width:12px;height:12px}
+.wrow.add{margin-top:2px}
+
+/* 视场表 */
+#fieldTable{display:flex;flex-direction:column;gap:1px;font-size:11px}
+.ftrow{display:grid;grid-template-columns:1fr 1fr 1fr 1fr .9fr;gap:4px;padding:3px 4px;border-radius:5px;cursor:pointer;font-family:var(--mono)}
+.ftrow.head{color:var(--txt3);font-family:var(--sans);font-size:10px;cursor:default;border-bottom:1px solid var(--line)}
+.ftrow:hover:not(.head){background:rgba(127,231,255,.08)}
+.ftrow.sel{background:rgba(127,231,255,.14);box-shadow:inset 2px 0 0 var(--acc)}
+.ftrow span{text-align:right;overflow:hidden;text-overflow:ellipsis}
+.ftrow span:first-child{text-align:left}
+
+/* ------------------------------------------------------------ 视口 */
+.viewport{position:relative;min-width:0;min-height:0;overflow:hidden;background:#060a12}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.vp-hint{
+  position:absolute;left:10px;top:8px;font:10.5px var(--mono);color:rgba(159,182,212,.72);
+  background:rgba(6,10,20,.55);border:1px solid var(--line);border-radius:7px;padding:5px 8px;
+  pointer-events:none;backdrop-filter:blur(4px);line-height:1.6
+}
+.vp-hint b{color:var(--acc)}
+#probeBox{
+  position:absolute;display:none;z-index:20;min-width:238px;pointer-events:none;
+  background:rgba(6,12,22,.93);border:1px solid rgba(127,231,255,.42);border-radius:9px;
+  padding:8px 10px;box-shadow:0 10px 30px rgba(0,0,0,.55),0 0 22px rgba(127,231,255,.14);backdrop-filter:blur(6px)
+}
+#probeBox .ptitle{font:600 11px var(--sans);margin-bottom:5px;letter-spacing:.4px}
+#probeBox .prow{display:flex;justify-content:space-between;gap:10px;font:10.5px var(--mono);padding:1.5px 0}
+#probeBox .prow span{color:var(--txt3)}
+#probeBox .prow b{color:#e8f4ff;font-weight:500}
+#errBox{
+  position:absolute;left:50%;top:14px;transform:translateX(-50%);display:none;z-index:25;
+  background:rgba(60,10,16,.92);border:1px solid rgba(255,107,107,.5);color:#ffd7d7;
+  padding:7px 12px;border-radius:8px;font:11.5px var(--mono)
+}
+
+/* --------------------------------------------------------- 透镜表 */
+#lensTable{display:flex;flex-direction:column;gap:2px;font-size:11px}
+.lrow{display:grid;grid-template-columns:20px 62px 1fr 1fr 74px 1fr 16px;gap:3px;align-items:center}
+.lrow.head{color:var(--txt3);font-size:9.5px;padding-bottom:3px;border-bottom:1px solid var(--line);text-align:center}
+.lrow.head span:nth-child(3),.lrow.head span:nth-child(4),.lrow.head span:nth-child(6){text-align:right}
+.lrow .idx{
+  text-align:center;color:var(--txt3);font:10px var(--mono);cursor:pointer;
+  border-radius:4px;background:rgba(255,255,255,.04);padding:2px 0
+}
+.lrow .idx:hover{color:var(--acc);background:rgba(127,231,255,.14)}
+.lrow.sel .idx{background:var(--acc);color:#04121c;font-weight:700}
+.lrow .exp{text-align:center;color:var(--txt3);cursor:pointer;font-size:13px;line-height:1}
+.lrow .exp:hover{color:var(--acc)}
+.lrow.detail{display:block;background:rgba(8,14,26,.6);border:1px solid var(--line);border-radius:8px;padding:7px;margin:2px 0 5px}
+.dgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.dcell{display:flex;flex-direction:column;gap:2px}
+.dcell.wide{grid-column:1/-1;flex-direction:row;align-items:center;gap:5px;flex-wrap:wrap}
+.dcell label{font-size:9.5px;color:var(--txt3);white-space:nowrap}
+.dcell label.inline{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--txt2)}
+.ops{gap:4px !important}
+button.sm{
+  background:rgba(14,24,42,.9);border:1px solid var(--line);color:var(--txt2);border-radius:6px;
+  padding:3px 7px;font:10.5px var(--sans);cursor:pointer;transition:.14s
+}
+button.sm:hover{border-color:var(--acc);color:var(--acc)}
+button.sm.danger:hover{border-color:var(--err);color:var(--err)}
+.tinfo{font-size:10px;color:var(--txt3);margin-top:6px;line-height:1.5}
+.tinfo b{color:var(--acc2)}
+
+/* ------------------------------------------------------------ 底部图表 */
+.dock{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:8px;
+  border-top:1px solid var(--line);background:linear-gradient(180deg,rgba(10,16,30,.6),rgba(6,10,18,.85));min-height:0
+}
+.dock.hasZoom .panel:not(.zoom){display:none}
+.panel{
+  display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.3)
+}
+.panel.zoom{grid-column:1/-1}
+.panel .ph{
+  display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(127,231,255,.07),transparent);cursor:pointer;flex:0 0 auto
+}
+.panel .ph b{font:600 11px var(--sans);color:var(--txt);letter-spacing:.3px}
+.panel .ph .ctl{margin-left:auto;display:flex;align-items:center;gap:4px}
+.panel .ph .ctl *{font-size:10px}
+.panel .ph select,.panel .ph input{
+  background:rgba(6,12,22,.9);border:1px solid var(--line);color:var(--txt2);border-radius:5px;
+  padding:2px 4px;font:10px var(--mono)
+}
+.panel .ph input.tiny{width:44px;text-align:right}
+.panel .tabs{display:flex;gap:2px}
+.panel .tabs button{
+  background:transparent;border:1px solid transparent;color:var(--txt3);border-radius:5px;
+  padding:2px 6px;font:10px var(--sans);cursor:pointer
+}
+.panel .tabs button:hover{color:var(--txt)}
+.panel .tabs button.on{color:var(--acc);border-color:rgba(127,231,255,.4);background:rgba(127,231,255,.10)}
+.panel .cv{position:relative;flex:1;min-height:0}
+.panel canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+/* ------------------------------------------------------------ 帮助面板 */
+#helpPanel{
+  position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+  background:rgba(3,6,12,.72);backdrop-filter:blur(6px)
+}
+#helpPanel.show{display:flex}
+.helpbox{
+  width:min(1020px,92vw);max-height:86vh;overflow-y:auto;background:linear-gradient(180deg,rgba(14,22,40,.98),rgba(8,14,26,.98));
+  border:1px solid rgba(127,231,255,.35);border-radius:14px;padding:20px 24px;
+  box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 40px rgba(127,231,255,.10);user-select:text
+}
+.helpbox h2{font-size:17px;color:var(--acc);margin-bottom:4px;letter-spacing:.5px}
+.helpbox h4{font-size:12.5px;color:var(--acc2);margin:14px 0 5px;letter-spacing:.4px}
+.helpbox p,.helpbox li{font-size:12px;color:var(--txt2);line-height:1.75}
+.helpbox ul{padding-left:18px}
+.helpbox code{
+  font:11.5px var(--mono);background:rgba(127,231,255,.10);color:#bfeaff;
+  padding:1px 5px;border-radius:4px;border:1px solid rgba(127,231,255,.18)
+}
+.helpbox .eq{
+  font:12px var(--mono);background:rgba(6,12,22,.85);border-left:2px solid var(--acc);
+  padding:7px 11px;margin:6px 0;color:#d6f2ff;border-radius:0 6px 6px 0;overflow-x:auto;white-space:pre
+}
+.helpbox .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.helpclose{position:sticky;top:0;float:right;background:rgba(255,107,107,.15);border:1px solid rgba(255,107,107,.4);color:#ffb3b3;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:11px}
+.helpclose:hover{background:rgba(255,107,107,.28)}
+.tag{display:inline-block;font:10px var(--mono);color:#04121c;background:var(--acc);border-radius:4px;padding:1px 5px;margin-right:5px}
+
+/* ------------------------------------------------------------ 提示条 */
+.toast{
+  position:fixed;left:50%;bottom:280px;transform:translate(-50%,20px);opacity:0;pointer-events:none;
+  background:rgba(10,20,36,.95);border:1px solid rgba(127,231,255,.42);color:#e6f6ff;
+  padding:9px 16px;border-radius:9px;font-size:12px;z-index:80;transition:.3s;
+  box-shadow:0 12px 34px rgba(0,0,0,.55),0 0 20px rgba(127,231,255,.14)
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.err{border-color:rgba(255,107,107,.55);color:#ffd7d7}
+
+/* ------------------------------------------------------------ 滚动条 */
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:rgba(255,255,255,.03)}
+::-webkit-scrollbar-thumb{background:rgba(110,150,200,.28);border-radius:5px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(127,231,255,.45);background-clip:padding-box}
+
+@media (max-width:1500px){
+  main{grid-template-columns:248px minmax(0,1fr) 306px}
+  #app{grid-template-rows:48px minmax(0,1fr) 232px}
+}
+@media (max-width:1180px){
+  .dock{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+  #app{grid-template-rows:48px minmax(0,1fr) 320px}
+}
+
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div><b>OptiBench Web</b><span>光学系统模拟器 · 几何+波动光学</span></div>
+    </div>
+    <select id="presetSel" class="preset" title="预设光学系统"></select>
+    <div class="seg" title="视图模式 (快捷键 1 / 2)">
+      <button id="btnMode2d" data-mode="2d" class="on">2D 剖面</button>
+      <button id="btnMode3d" data-mode="3d">3D 视图</button>
+    </div>
+    <div class="seg" title="追迹模式">
+      <button data-trace="seq" class="on">顺序追迹</button>
+      <button data-trace="ns">非顺序追迹</button>
+    </div>
+    <button class="tb" id="btnFocus" title="搜索使 RMS 斑径最小的像面位置 (快捷键 F)">◎ 自动对焦</button>
+    <button class="tb" id="btnFit" title="视图自适应 (快捷键 R / 双击视口)">⤢ 适配视图</button>
+    <button class="tb" id="btnReset" title="恢复当前预设">↺ 重置系统</button>
+    <div class="spacer"></div>
+    <span id="fpsBox">—</span>
+    <button class="tb" id="btnPng" title="导出当前视口 PNG">⇩ PNG</button>
+    <button class="tb" id="btnJson" title="导出系统处方 JSON">⇩ JSON</button>
+    <button class="tb" id="btnImport" title="导入系统处方 JSON">⇧ 导入</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none">
+    <button class="tb on" id="btnSound" title="界面音效开关">🔊 音效</button>
+    <button class="tb" id="btnHelp" title="光学原理与算法说明 (快捷键 ?)">? 原理</button>
+  </header>
+
+  <!-- ================= 主区 ================= -->
+  <main>
+    <!-- ---------- 左侧控制栏 ---------- -->
+    <aside class="sidebar left">
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">当前系统 <span class="tog">▾</span></h3>
+        <div class="body"><div id="presetDesc"></div></div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">光源 &amp; 孔径 <span class="tog">▾</span></h3>
+        <div class="body">
+          <div class="row"><label>光源类型</label>
+            <select id="srcType" class="mini">
+              <option value="collimated">平行光 (无限远物)</option>
+              <option value="point">点光源 (有限共轭)</option>
+              <option value="gaussian">高斯光束 (振幅切趾)</option>
+            </select>
+          </div>
+          <div class="row" data-srcdep="collimated,gaussian"><label>起始距离</label><input id="launchDist" class="mini num"><span class="unit">mm</span></div>
+          <div class="row" data-srcdep="point"><label>物距 L</label><input id="objDist" class="mini num"><span class="unit">mm</span></div>
+          <div class="row" data-srcdep="point"><label>发散半角 (0=孔径定)</label><input id="coneHalf" class="mini num"><span class="unit">°</span></div>
+          <div class="row" data-srcdep="gaussian"><label>光瞳填充 w/a</label><input id="gaussFill" class="mini num"></div>
+          <div class="row" data-srcdep="gaussian"><label>束腰 w₀</label><input id="gaussW0" class="mini num"><span class="unit">mm</span></div>
+          <div class="row"><label>孔径定义</label>
+            <select id="epdMode" class="mini">
+              <option value="stop">由光阑决定 (浮动入瞳)</option>
+              <option value="epd">指定入瞳直径 EPD</option>
+              <option value="fno">指定 F 数 F/#</option>
+            </select>
+          </div>
+          <div class="row"><label>EPD</label><input id="epdVal" class="mini num"><span class="unit">mm</span></div>
+          <div class="row"><label>F/#</label><input id="fnoVal" class="mini num"></div>
+          <div class="hint">孔径定义为「由光阑决定」时, 程序用<b>近轴反向追迹</b>把光阑映射到物空间求入射光瞳的位置与直径。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">视场 <span class="tog">▾</span></h3>
+        <div class="body">
+          <div class="row"><label>定义方式</label>
+            <select id="fieldModeSel" class="mini">
+              <option value="angle">视场角 (°)</option>
+              <option value="height">物高 (mm)</option>
+            </select>
+          </div>
+          <div class="row"><label>视场列表</label><input id="fieldInput" class="mini" placeholder="0, 14, 20"></div>
+          <div id="fieldTable"></div>
+          <div class="hint">点击表格行可切换 PSF / MTF / 波前图所分析的视场。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">波长 (nm) &amp; 权重 <span class="tog">▾</span></h3>
+        <div class="body"><div id="waveList"></div>
+          <div class="hint">◉ 单选按钮 = 主波长 (参考波长, 用于近轴量、波前与像元标定)。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">采样 &amp; 蒙特卡洛 <span class="tog">▾</span></h3>
+        <div class="body">
+          <div id="seqBox" style="display:flex;flex-direction:column;gap:7px">
+            <div class="row"><label>光瞳采样</label>
+              <select id="pupilPattern" class="mini">
+                <option value="hexapolar">六角极坐标 Hexapolar</option>
+                <option value="grid">方格 Grid</option>
+                <option value="random">随机 (蒙特卡洛)</option>
+                <option value="cross">十字扇形</option>
+                <option value="fanY">子午扇形 Py</option>
+                <option value="single">仅主光线</option>
+              </select>
+            </div>
+            <div class="row"><label>光线数 / 视场</label><input id="rayCount" class="mini num"></div>
+          </div>
+          <div id="nsBox" style="display:none;flex-direction:column;gap:7px">
+            <div class="row"><label>入射光线数</label><input id="nsRays" class="mini num"></div>
+            <div class="row"><label>最大分支深度</label><input id="nsDepth" class="mini num"></div>
+            <div class="row wide"><label class="inline"><input type="checkbox" id="nsGhost"> 追迹菲涅尔鬼像 (Ghost)</label></div>
+          </div>
+          <div class="row"><label>随机种子</label><input id="seedVal" class="mini num"></div>
+          <div class="row"><label>光源散射 σ</label><input id="scatterVal" class="mini num"><span class="unit">mrad</span></div>
+          <div class="hint">散射与表面粗糙度均由 <b>mulberry32(seed)</b> 及坐标哈希生成 —— 同一参数每次运行结果<b>完全一致</b>。表面粗糙度在透镜表内逐面设置。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">图层 <span class="tog">▾</span></h3>
+        <div class="body"><div id="layerBox"></div></div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">系统性能读数 <span class="tog">▾</span></h3>
+        <div class="body"><div id="readout"></div></div>
+      </div>
+
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">像差分析 (数值追迹结果) <span class="tog">▾</span></h3>
+        <div class="body"><div id="abReport"></div>
+          <div class="hint">全部由真实光线追迹数值求得: 球差取边缘与近轴光线轴向交点差; 色差取 F/C 谱线最佳焦面差; 像散取子午/弧矢焦面差。</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ---------- 中央视口 ---------- -->
+    <section class="viewport">
+      <canvas id="view"></canvas>
+      <div class="vp-hint" id="hint2d">
+        <b>滚轮</b> 缩放 · <b>拖拽空白</b> 平移 · <b>拖拽元件</b> 改变轴向位置(实时重算)<br>
+        <b>悬停光线</b> 读取光程/能量/入射角 · <b>双击</b> 适配视图 · 快捷键 1/2 L N G H F R
+      </div>
+      <div class="vp-hint" id="hint3d" style="display:none">
+        <b>拖拽</b> 轨道旋转 · <b>Shift+拖拽</b> 平移 · <b>滚轮</b> 推拉 · <b>双击</b> 适配视图
+      </div>
+      <div id="probeBox"></div>
+      <div id="errBox"></div>
+    </section>
+
+    <!-- ---------- 右侧透镜表 ---------- -->
+    <aside class="sidebar right">
+      <div class="card">
+        <h3>透镜数据表 Lens Data Editor <span class="tog">▾</span></h3>
+        <div class="body">
+          <div id="lensTable"></div>
+          <div class="hint" style="margin-top:6px">
+            半径填 <code>∞</code> 或 <code>0</code> 表示平面 · 材料可直接键入数字作为自定义折射率 (如 <code>1.62</code>)<br>
+            点击行号可高亮该面, 点 <b>⋯</b> 展开圆锥常数 k / 非球面 a₄a₆a₈ / 倾斜 / 遮拦 / 粗糙度 / 分束比 / 反射率 / 绝对坐标。<br>
+            数字框支持<b>横向拖拽微调</b>, 图形与所有分析图表实时刷新。
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 onclick="this.parentElement.classList.toggle('collapsed')">材料库 (Sellmeier) <span class="tog">▾</span></h3>
+        <div class="body"><div id="matInfo" class="hint"></div></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ================= 底部分析面板 ================= -->
+  <section class="dock" id="dock">
+    <div class="panel">
+      <div class="ph"><b>① 点阵图 Spot Diagram</b>
+        <div class="ctl">
+          <span style="color:var(--txt3)">±</span><input id="spotScale" class="tiny" title="方框半宽 (µm)">
+          <button class="chip on" id="spotAuto" title="自动量程">自动</button>
+        </div>
+      </div>
+      <div class="cv"><canvas id="cSpot"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><b>② 波前 / 扇形图</b>
+        <div class="ctl tabs">
+          <button data-fantab="opd" class="on">OPD 扇形</button>
+          <button data-fantab="ray">光线扇形</button>
+          <button data-fantab="wave">波前伪彩</button>
+        </div>
+      </div>
+      <div class="cv"><canvas id="cFan"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><b>③ PSF / 干涉屏</b>
+        <div class="ctl">
+          <select id="psfNsel" title="FFT 网格"><option>64</option><option>128</option><option>192</option><option>256</option></select>
+          <select id="psfNpsel" title="光瞳采样点数"><option>16</option><option>24</option><option>32</option><option>48</option><option>64</option></select>
+          <select id="psfZoom" title="显示像素数"><option>24</option><option>32</option><option>48</option><option>64</option><option>96</option><option>128</option></select>
+          <label class="inline" style="color:var(--txt3)"><input type="checkbox" id="psfLog"> log</label>
+        </div>
+      </div>
+      <div class="cv"><canvas id="cPsf"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><b>④ MTF 调制传递函数</b><div class="ctl"><span style="color:var(--txt3)">悬停读数</span></div></div>
+      <div class="cv"><canvas id="cMtf"></canvas></div>
+    </div>
+  </section>
+</div>
+
+<datalist id="matlist"></datalist>
+<div class="toast" id="toast"></div>
+
+<!-- ================= 原理说明 ================= -->
+<div id="helpPanel">
+  <div class="helpbox">
+    <button class="helpclose" id="helpClose">关闭 ✕</button>
+    <h2>光学原理与算法说明</h2>
+    <p>本模拟器的全部图像与曲线均由下述物理方程实时计算得到, 不含任何预设动画、贴图或经验拟合曲线。长度单位 mm, 波长 nm, 弥散/像元 µm, 波前以波长 λ 为单位。</p>
+
+    <div class="grid2">
+      <div>
+        <h4>1. 几何光线追迹 — 矢量形式斯涅尔定律</h4>
+        <p>光线用起点 <code>O</code> 与单位方向 <code>d</code> 表示。在界面处取指向入射侧的单位法线 <code>n</code> (使 cos θᵢ = −d·n &gt; 0), 则折射方向由矢量形式的斯涅尔定律给出:</p>
+        <div class="eq">μ = n₁/n₂
+sin²θₜ = μ²(1 − cos²θᵢ)
+若 sin²θₜ &gt; 1 → 全内反射 (TIR), 改用反射公式
+T = μ·d + (μ·cosθᵢ − cosθₜ)·n
+R = d − 2(d·n)·n</div>
+        <p>该形式无需分解到入射面内, 对任意倾斜/离轴/非旋转对称几何均严格成立。程序对每条光线在每个面上都做一次上述计算, 因此色散、倾斜面、棱镜、折转镜自然被包含。</p>
+
+        <h4>2. 面型与求交 (二次曲面 + 偶次非球面)</h4>
+        <div class="eq">矢高  z(r) = c·r² / (1 + √(1 − (1+k)c²r²)) + Σ aᵢ·r^(2i+2)
+其中 c = 1/R, k = 圆锥常数, a₄a₆a₈a₁₀ 为高阶项
+隐式二次曲面  F = c(x²+y²+(1+k)z²) − 2z = 0</div>
+        <p>纯二次曲面时把光线参数式代入 <code>F=0</code> 得<b>解析二次方程</b>并取靠近顶点的根 (数值稳定形式 q = −½(B+sgn(B)√Δ)); 含高阶非球面项时以该根为初值做<b>牛顿迭代</b> f(t)=z(t)−sag(r(t)), 收敛判据 |f|&lt;10⁻¹¹ mm。法线由梯度求得:</p>
+        <div class="eq">N_local = normalize( −s′(r)·x/r , −s′(r)·y/r , 1 )
+s′(r) = c·r/√(1−(1+k)c²r²) + 4a₄r³ + 6a₆r⁵ + 8a₈r⁷ + 10a₁₀r⁹</div>
+        <p>k=−1 时为抛物面: 自检脚本验证平行光聚焦残差 &lt; 10⁻⁸ nm (严格无球差)。</p>
+
+        <h4>3. 色散模型 — Sellmeier / Cauchy</h4>
+        <div class="eq">n²(λ) = 1 + Σᵢ Bᵢλ² / (λ² − Cᵢ)      (λ 单位 µm)
+Cauchy:  n(λ) = A + B/λ² + C/λ⁴</div>
+        <p>内置 N-BK7 / N-K5 / N-SK16 / N-SF5 / F2 / N-SF11 / 熔融石英 / CaF₂ 的 Schott 三项 Sellmeier 系数, PMMA 与水用 Cauchy 式; 阿贝数由 n_d、n_F、n_C 现算。材料栏直接键入数字即可作为常数折射率使用。</p>
+      </div>
+
+      <div>
+        <h4>4. 能量传输 — 菲涅尔方程</h4>
+        <div class="eq">rs = (n₁cosθᵢ − n₂cosθₜ)/(n₁cosθᵢ + n₂cosθₜ)
+rp = (n₂cosθᵢ − n₁cosθₜ)/(n₂cosθᵢ + n₁cosθₜ)
+Rs = |rs|²,  Rp = |rp|²,  T = 1 − R (无吸收)</div>
+        <p>s、p 两个偏振分量的能量<b>分别</b>沿光路累乘; 探针面板可读出任意光线在任意面的 Rs/Rp 与残余能量。布儒斯特角处 Rp→0 已在自检中验证。反射镜按设定反射率衰减, 分束器按透射比 T 分配, 非顺序模式下同时产生透射与反射两个子分支 (可开启菲涅尔鬼像追迹)。</p>
+
+        <h4>5. 顺序 / 非顺序追迹</h4>
+        <p><b>顺序</b>: 按透镜表顺序逐面求交, 用于成像系统的像差与 MTF 分析; 参考轴在反射镜处自动折转, 因此厚度始终取"沿传播方向的正距离"。<b>非顺序</b>: 每一步在全部面中搜索最近的合法交点, 遇分束器/界面时按能量分裂为多条子光线 (深度与能量阈值双重截断), 可模拟干涉仪、鬼像与杂散光。</p>
+
+        <h4>6. 光瞳、视场与近轴量</h4>
+        <p>用 y–nū 近轴追迹求 EFL、BFL (反射面处令 n→−n 并翻转传播符号)。入射光瞳由<b>光阑反向近轴追迹</b>得到: 以 (y=0,u=1) 与 (y=1,u=0) 两条虚拟光线反向穿过光阑之前的所有面, 前者的零点给出入瞳位置, 后者给出入瞳放大率。光线在入瞳面上按六角极坐标/方格/随机采样后指向物点或按视场角倾斜发射。</p>
+
+        <h4>7. 波前 (OPD) 与参考球面</h4>
+        <div class="eq">OPL_total = Σ nᵢ·Lᵢ (到出射点) + n_img·|R − P_exit|
+OPD(px,py) = [OPL_total − ⟨OPL_total⟩] / λ   (单位: 波长)</div>
+        <p>R 取该视场主波长像面交点的<b>能量质心</b>, 因此 OPD 即相对"汇聚于 R 的理想球面波"的偏差, 已自动去除活塞项与主要倾斜项; 非主波长保留其倾斜, 于是<b>倍率色差</b>会真实体现在 OPD/PSF 上。</p>
+
+        <h4>8. PSF — 光瞳复振幅衍射积分 (FFT)</h4>
+        <div class="eq">P(px,py) = A(px,py)·exp( −i·2π·OPD )
+PSF = |FFT₂{P}|²,   Strehl = |Σ A e^{iφ}|² / (Σ A)²
+像元标定  Δx = 0.5·λ·Np/(NA·N)
+⇒ 艾里半径 = 0.61λ/NA 恰为 1.22·N/Np 个像素</div>
+        <p>A 为振幅 (含菲涅尔透过率、高斯切趾与遮拦), Np 为光瞳直径占据的采样点数, N 为补零后的 FFT 网格。多波长时各自计算后按 Δx 双线性重采样到公共像元再加权叠加。自检: 抛物面镜 Strehl=1.0000, 第一暗环位置与 0.61λ/NA 相差 &lt; 2.5%。</p>
+
+        <h4>9. MTF 与衍射极限</h4>
+        <div class="eq">OTF(f) = FFT₂{PSF},  MTF = |OTF| / |OTF(0)|
+截止频率 f_c = 2·NA/λ = 1/(λ·F/#)
+理想圆孔  MTF(ν) = (2/π)[arccos ν − ν√(1−ν²)],  ν = f/f_c</div>
+        <p>子午 (T) 取频域 fy 轴、弧矢 (S) 取 fx 轴。自检: 无像差系统与理想衍射极限曲线平均偏差 0.002。</p>
+      </div>
+    </div>
+
+    <h4>10. 像差量的数值定义 (全部来自实际追迹, 非塞德尔近似)</h4>
+    <ul>
+      <li><b>球差 LSA</b> = 边缘光线 (归一化光瞳 0.999) 与近轴光线 (0.05) 与光轴交点的轴向差。</li>
+      <li><b>轴向色差 LCA</b> = F 线 (486.13 nm) 与 C 线 (656.27 nm) 各自最佳焦面位置之差 (黄金分割搜索 RMS 极小点)。</li>
+      <li><b>倍率色差</b> = 最大视场下 F 线与 C 线像高质心之差。</li>
+      <li><b>彗差</b> = 最大视场上下缘光线像点平均值与主光线像点之差。</li>
+      <li><b>像散</b> = 子午扇形 y 向弥散极小面与弧矢扇形 x 向弥散极小面的轴向距离。</li>
+      <li><b>场曲</b> = 各视场最佳焦面相对当前像面的偏移量。<b>畸变</b> = (实际像高 − f·tanθ)/(f·tanθ)×100%。</li>
+    </ul>
+
+    <h4>11. 相干干涉 (非顺序模式)</h4>
+    <div class="eq">I(x,y) = | Σⱼ aⱼ · exp(i·k·OPLⱼ) · G(x−xⱼ, y−yⱼ) |²,   k = 2π/λ</div>
+    <p>到达屏的每条光线携带自身 OPL 与振幅, 按高斯足迹投放到屏格并做<b>复振幅相加</b>后取模方 —— 迈克尔逊/马赫-曾德尔预设中两臂光程差随镜面倾角变化, 直接给出等厚干涉直条纹, 面板同时给出条纹对比度与间距估计。</p>
+
+    <h4>12. 确定性与性能</h4>
+    <p>散射与表面粗糙度分别使用 <code>mulberry32(seed)</code> 与 <code>hash(rayId, surfaceIdx, seed)</code>, 无 <code>Math.random</code>: 相同参数与采样密度下每次运行<b>逐位一致</b>。拖拽元件时自动降采样 (光线数与 FFT 网格) 保证 60 fps 交互, 停止操作 170 ms 后自动以全精度重算并刷新全部图表。</p>
+
+    <h4>13. 已知近似 (据实说明, 非"待实现")</h4>
+    <ul>
+      <li>偏振仅追踪 s/p 两个强度分量, 不做琼斯矢量的相位耦合与双折射。</li>
+      <li>未建模多层膜: 反射率/透射比为逐面标量参数 (镜面反射率、分束比), 界面默认按裸表面菲涅尔计算。</li>
+      <li>光瞳采样在入射光瞳面上按规则图案发射, 未对每条光线做迭代瞄准 (ray aiming); 强烈渐晕系统的边缘光线可能被口径截断, 表格与读数中会给出"到达像面光线"计数。</li>
+      <li>PSF 采用远场/傅里叶光学近似 (出射光瞳到像面的 Fraunhofer 近似), 未做逐面的菲涅尔场传播。</li>
+      <li>非顺序模式的干涉计算假设完全相干单色光, 未引入有限相干长度与光谱平均。</li>
+    </ul>
+
+    <h4>14. 交互速查</h4>
+    <p><span class="tag">1 / 2</span>2D / 3D 视图 <span class="tag">F</span>自动对焦 <span class="tag">R</span>适配视图 <span class="tag">L</span>光线 <span class="tag">N</span>法线 <span class="tag">G</span>网格 <span class="tag">H</span>标注 <span class="tag">+ / −</span>光线密度 <span class="tag">?</span>本说明 <span class="tag">双击面板标题</span>放大图表 <span class="tag">拖拽数字框</span>连续微调</p>
+  </div>
+</div>
+
+<script>
+/* =============================================================================
+ *  OptiBench Web — 光学系统模拟引擎 (纯计算, 无 DOM 依赖)
+ *  Physics core: sequential / non-sequential ray tracing, Sellmeier dispersion,
+ *  vector Snell's law, Fresnel energy split, conic + even asphere surfaces,
+ *  paraxial solve, aberration report, diffraction PSF (FFT) & MTF.
+ *  确定性: 全部随机量来自 mulberry32(seed), 不使用 Math.random。
+ * ========================================================================== */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.OPT = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ 向量 */
+  const V = {
+    v: (x, y, z) => ({ x: x, y: y, z: z }),
+    add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
+    sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
+    mul: (a, s) => ({ x: a.x * s, y: a.y * s, z: a.z * s }),
+    madd: (a, b, s) => ({ x: a.x + b.x * s, y: a.y + b.y * s, z: a.z + b.z * s }),
+    dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
+    cross: (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x }),
+    len: (a) => Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z),
+    dist: (a, b) => Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)),
+    norm: (a) => { const l = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z) || 1; return { x: a.x / l, y: a.y / l, z: a.z / l }; },
+    neg: (a) => ({ x: -a.x, y: -a.y, z: -a.z }),
+    clone: (a) => ({ x: a.x, y: a.y, z: a.z }),
+    /** 绕 X 轴旋转 (子午面 = y-z 面, 因此所有倾斜都在 2D 视图内可见) */
+    rotX: (a, t) => { const c = Math.cos(t), s = Math.sin(t); return { x: a.x, y: a.y * c - a.z * s, z: a.y * s + a.z * c }; },
+    reflect: (d, n) => { const k = 2 * V.dot(d, n); return { x: d.x - k * n.x, y: d.y - k * n.y, z: d.z - k * n.z }; }
+  };
+  const DEG = Math.PI / 180;
+
+  /* --------------------------------------------------------------- 伪随机 */
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  /** 由整数三元组得到确定性 [0,1) 随机数 (用于表面粗糙度种子) */
+  function hashRand(a, b, c) {
+    let h = (a * 374761393 + b * 668265263 + c * 2147483647) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  /** Box-Muller (确定性), 返回标准正态 */
+  function gauss2(u1, u2) {
+    const r = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-12)));
+    return [r * Math.cos(2 * Math.PI * u2), r * Math.sin(2 * Math.PI * u2)];
+  }
+
+  /* ------------------------------------------------------------ 材料 / 色散 */
+  // Sellmeier: n^2 = 1 + Σ Bi·λ² / (λ² − Ci)   (λ 单位 µm, C 单位 µm²)
+  // Cauchy:    n = A + B/λ² + C/λ⁴
+  const MATERIALS = {
+    AIR: { label: '空气 Air (n=1)', kind: 'const', n: 1.0, glass: false, nd: 1.0, vd: Infinity },
+    'AIR-REAL': { label: '实际空气 (15℃,1atm)', kind: 'const', n: 1.000273, glass: false, nd: 1.000273, vd: Infinity },
+    MIRROR: { label: '反射面 Mirror', kind: 'mirror', glass: false, nd: NaN, vd: NaN },
+    'N-BK7': { label: 'N-BK7 冕牌玻璃', kind: 'sellmeier', glass: true, nd: 1.51680, vd: 64.17, B: [1.03961212, 0.231792344, 1.01046945], C: [0.00600069867, 0.0200179144, 103.560653] },
+    'N-K5': { label: 'N-K5 轻冕', kind: 'sellmeier', glass: true, nd: 1.52249, vd: 59.48, B: [1.08511833, 0.199562005, 0.930511663], C: [0.00661099503, 0.024110866, 111.982777] },
+    'N-SK16': { label: 'N-SK16 重冕', kind: 'sellmeier', glass: true, nd: 1.62041, vd: 60.32, B: [1.34317774, 0.241144399, 0.994317969], C: [0.00704687339, 0.0229005, 92.7508526] },
+    'N-SF5': { label: 'N-SF5 火石', kind: 'sellmeier', glass: true, nd: 1.67271, vd: 32.25, B: [1.52481889, 0.187085527, 1.42729015], C: [0.011254756, 0.0588995392, 129.141675] },
+    F2: { label: 'F2 火石玻璃', kind: 'sellmeier', glass: true, nd: 1.62004, vd: 36.37, B: [1.34533359, 0.209073176, 0.937357162], C: [0.00997743871, 0.0470450767, 111.886764] },
+    'N-SF11': { label: 'N-SF11 重火石', kind: 'sellmeier', glass: true, nd: 1.78472, vd: 25.68, B: [1.73759695, 0.313747346, 1.89878101], C: [0.013188707, 0.0623068142, 155.23629] },
+    SILICA: { label: '熔融石英 SiO₂', kind: 'sellmeier', glass: true, nd: 1.45850, vd: 67.82, B: [0.6961663, 0.4079426, 0.8974794], C: [0.0046791427, 0.0135120631, 97.9340025] },
+    CAF2: { label: '氟化钙 CaF₂', kind: 'sellmeier', glass: true, nd: 1.43385, vd: 94.99, B: [0.5675888, 0.4710914, 3.8484723], C: [0.00252643, 0.01007833, 1200.556] },
+    PMMA: { label: 'PMMA 光学塑料', kind: 'cauchy', glass: true, nd: 1.49166, vd: 57.44, A: 1.4831, Bc: 0.004683, Cc: 0.0 },
+    WATER: { label: '水 H₂O (20℃)', kind: 'cauchy', glass: true, nd: 1.33300, vd: 55.7, A: 1.32491, Bc: 0.003174, Cc: 0.0 }
+  };
+
+  /** 折射率: name 可为材料键, 也可为纯数字字符串(自定义常数折射率) */
+  function indexAt(name, lambdaNm) {
+    if (name === undefined || name === null || name === '') return 1;
+    if (typeof name === 'number') return name;
+    const num = Number(name);
+    if (!Number.isNaN(num) && name.trim() !== '' && /^[0-9.]+$/.test(String(name).trim())) return num;
+    const m = MATERIALS[name];
+    if (!m) return 1;
+    if (m.kind === 'const') return m.n;
+    if (m.kind === 'mirror') return 1;
+    const L = lambdaNm / 1000, L2 = L * L;
+    if (m.kind === 'sellmeier') {
+      let s = 1;
+      for (let i = 0; i < m.B.length; i++) s += (m.B[i] * L2) / (L2 - m.C[i]);
+      return Math.sqrt(Math.max(s, 1e-6));
+    }
+    if (m.kind === 'cauchy') return m.A + m.Bc / L2 + (m.Cc || 0) / (L2 * L2);
+    return 1;
+  }
+  function isGlass(name) {
+    if (!name) return false;
+    if (MATERIALS[name]) return !!MATERIALS[name].glass;
+    const num = Number(name);
+    return !Number.isNaN(num) && num > 1.05;
+  }
+  /** 阿贝数 (由 F/d/C 三线数值求出, 自定义材料返回 Infinity) */
+  function abbe(name) {
+    const nd = indexAt(name, 587.5618), nF = indexAt(name, 486.1327), nC = indexAt(name, 656.2725);
+    if (Math.abs(nF - nC) < 1e-9) return Infinity;
+    return (nd - 1) / (nF - nC);
+  }
+
+  /* ----------------------------------------------------- 波长 → RGB 光谱色 */
+  function wavelengthRGB(nm) {
+    let r = 0, g = 0, b = 0;
+    if (nm >= 380 && nm < 440) { r = -(nm - 440) / 60; g = 0; b = 1; }
+    else if (nm < 490) { r = 0; g = (nm - 440) / 50; b = 1; }
+    else if (nm < 510) { r = 0; g = 1; b = -(nm - 510) / 20; }
+    else if (nm < 580) { r = (nm - 510) / 70; g = 1; b = 0; }
+    else if (nm < 645) { r = 1; g = -(nm - 645) / 65; b = 0; }
+    else if (nm <= 780) { r = 1; g = 0; b = 0; }
+    else if (nm > 780) { r = 0.55; g = 0.11; b = 0.11; }   // 近红外示意
+    else { r = 0.45; g = 0.1; b = 0.75; }                  // 近紫外示意
+    let f = 1;
+    if (nm > 700) f = 0.3 + 0.7 * (780 - nm) / 80;
+    else if (nm < 420) f = 0.3 + 0.7 * (nm - 350) / 70;
+    f = Math.min(1, Math.max(0.25, f));
+    const gm = 0.85;
+    return [Math.round(255 * Math.pow(Math.max(0, r) * f, gm)),
+      Math.round(255 * Math.pow(Math.max(0, g) * f, gm)),
+      Math.round(255 * Math.pow(Math.max(0, b) * f, gm))];
+  }
+  function rgbCss(nm, a) {
+    const c = wavelengthRGB(nm);
+    return a === undefined ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  }
+
+  /* --------------------------------------------------------------- 面型定义 */
+  const SURF_DEFAULT = {
+    kind: 'refract',      // refract | mirror | stop | dummy | splitter | image
+    R: Infinity,          // 曲率半径 mm ( +: 曲率中心在光线传播方向一侧 )
+    conic: 0,             // 二次曲面常数 k
+    asph: [0, 0, 0, 0],   // a4 a6 a8 a10 (非球面高阶系数, r 单位 mm)
+    thickness: 0,         // 到下一面的轴向间距 mm
+    material: 'AIR',      // 该面之后的介质
+    semiDia: 12.5,        // 通光半口径 mm
+    innerDia: 0,          // 中心遮拦半径 mm
+    tilt: 0,              // 绕 x 轴倾斜 (deg)
+    splitT: 0.5,          // 分束器透射比
+    reflectivity: 0.96,   // 镜面反射率
+    roughness: 0,         // 表面粗糙度 (法线抖动 σ, mrad)
+    label: ''
+  };
+  function normSurface(s) {
+    const o = Object.assign({}, SURF_DEFAULT, s);
+    o.asph = (s && s.asph ? s.asph.slice(0, 4) : [0, 0, 0, 0]).map(Number);
+    while (o.asph.length < 4) o.asph.push(0);
+    o.R = (s && (s.R === Infinity || s.R === 'inf' || s.R === '' || s.R === null || s.R === undefined || Number(s.R) === 0)) ? Infinity : Number(s.R);
+    if (!isFinite(o.R)) o.R = Infinity;
+    o.conic = Number(o.conic) || 0;
+    o.thickness = Number(o.thickness) || 0;
+    o.semiDia = Math.abs(Number(o.semiDia)) || 1e-3;
+    o.innerDia = Math.abs(Number(o.innerDia)) || 0;
+    o.tilt = Number(o.tilt) || 0;
+    o.splitT = Math.min(1, Math.max(0, Number(o.splitT)));
+    o.reflectivity = Math.min(1, Math.max(0, Number(o.reflectivity)));
+    o.roughness = Math.max(0, Number(o.roughness) || 0);
+    if (o.kind === 'mirror') o.material = 'MIRROR';
+    return o;
+  }
+  function hasAsph(s) { return s.asph.some((a) => a !== 0); }
+
+  /** 面型矢高 sag(r): 二次曲面 + 偶次非球面 */
+  function sag(s, r) {
+    const c = isFinite(s.R) ? 1 / s.R : 0;
+    let z = 0;
+    if (c !== 0) {
+      const q = 1 - (1 + s.conic) * c * c * r * r;
+      if (q < 0) return NaN;
+      z = (c * r * r) / (1 + Math.sqrt(q));
+    }
+    const r2 = r * r, r4 = r2 * r2;
+    z += s.asph[0] * r4 + s.asph[1] * r4 * r2 + s.asph[2] * r4 * r4 + s.asph[3] * r4 * r4 * r2;
+    return z;
+  }
+  /** d(sag)/dr = c·r/√(1−(1+k)c²r²) + 4a₄r³ + 6a₆r⁵ + 8a₈r⁷ + 10a₁₀r⁹ */
+  function sagP(s, r) {
+    const c = isFinite(s.R) ? 1 / s.R : 0;
+    let d = 0;
+    if (c !== 0) {
+      const q = 1 - (1 + s.conic) * c * c * r * r;
+      if (q < 0) return NaN;
+      d = (c * r) / Math.sqrt(q);
+    }
+    const r2 = r * r, r3 = r2 * r, r5 = r3 * r2, r7 = r5 * r2, r9 = r7 * r2;
+    d += 4 * s.asph[0] * r3 + 6 * s.asph[1] * r5 + 8 * s.asph[2] * r7 + 10 * s.asph[3] * r9;
+    return d;
+  }
+
+  /* ------------------------------------------------------------- 系统装配 */
+  /**
+   * 依据面表构建全局几何: 每个面拥有全局顶点 vertex、局部坐标基 (u,v,axis)。
+   * 参考轴在反射镜处折转 —— 因此 45° 折转镜、牛顿望远镜可以直接工作。
+   */
+  function buildSystem(spec) {
+    const surfaces = (spec.surfaces || []).map(normSurface);
+    const mirrorR = spec.mirrorR === undefined ? 0.96 : spec.mirrorR;
+    let pos = V.v(0, 0, 0), dir = V.v(0, 0, 1);
+    let medium = spec.objMaterial || 'AIR';
+    const out = [];
+    for (let i = 0; i < surfaces.length; i++) {
+      const s = surfaces[i];
+      if (s.abs) {                                  // 绝对定位 (非顺序场景用)
+        pos = V.v(0, Number(s.absY) || 0, Number(s.absZ) || 0);
+        dir = V.v(0, 0, 1);
+      }
+      const axis = V.norm(V.rotX(dir, s.tilt * DEG));
+      // 局部基: u 恒为全局 x (所有倾斜绕 x 轴, axis 始终位于 y-z 面内)
+      let u = V.v(1, 0, 0);
+      let v = V.cross(axis, u);
+      if (V.len(v) < 1e-9) { u = V.v(0, 1, 0); v = V.cross(axis, u); }
+      v = V.norm(v);
+      u = V.norm(V.cross(v, axis));
+      let mediumAfter;
+      if (s.kind === 'mirror') mediumAfter = medium;
+      else if (s.kind === 'refract' || s.kind === 'splitter') mediumAfter = s.material;
+      else mediumAfter = (s.material && s.material !== 'AIR') ? s.material : medium;
+      if (s.kind === 'stop' || s.kind === 'dummy' || s.kind === 'image') mediumAfter = medium;
+      const e = Object.assign({}, s, {
+        index: i, vertex: pos, axis: axis, u: u, v: v, inDir: dir,
+        mediumBefore: medium, mediumAfter: mediumAfter,
+        asphActive: hasAsph(s)
+      });
+      let outDir = dir;
+      if (s.kind === 'mirror') outDir = V.norm(V.reflect(dir, axis));
+      e.outDir = outDir;
+      out.push(e);
+      pos = V.madd(pos, outDir, s.thickness);
+      dir = outDir;
+      medium = mediumAfter;
+    }
+    const sys = { surf: out, spec: spec, mirrorR: mirrorR };
+    sys.imageIdx = out.findIndex((s) => s.kind === 'image');
+    if (sys.imageIdx < 0) sys.imageIdx = out.length - 1;
+    sys.stopIdx = out.findIndex((s) => s.kind === 'stop');
+    sys.axialEnd = pos;
+    return sys;
+  }
+
+  /* --------------------------------------------------------------- 求交计算 */
+  function toLocal(s, p) {
+    const r = V.sub(p, s.vertex);
+    return { x: V.dot(r, s.u), y: V.dot(r, s.v), z: V.dot(r, s.axis) };
+  }
+  function toGlobal(s, l) {
+    return {
+      x: s.vertex.x + s.u.x * l.x + s.v.x * l.y + s.axis.x * l.z,
+      y: s.vertex.y + s.u.y * l.x + s.v.y * l.y + s.axis.y * l.z,
+      z: s.vertex.z + s.u.z * l.x + s.v.z * l.y + s.axis.z * l.z
+    };
+  }
+
+  /**
+   * 光线与面求交 (局部坐标解析求解二次曲面, 非球面用牛顿迭代精化)
+   * @return {t, p, n, r, lx, ly, lz} 或 null
+   */
+  function intersect(s, o, d, tmin) {
+    tmin = tmin === undefined ? 1e-7 : tmin;
+    const ol = toLocal(s, o);
+    const dl = { x: V.dot(d, s.u), y: V.dot(d, s.v), z: V.dot(d, s.axis) };
+    const c = isFinite(s.R) ? 1 / s.R : 0;
+    const k = s.conic;
+    let t = NaN;
+    if (c === 0) {
+      if (Math.abs(dl.z) < 1e-12) return null;
+      t = -ol.z / dl.z;
+    } else {
+      const A = c * (dl.x * dl.x + dl.y * dl.y + (1 + k) * dl.z * dl.z);
+      const B = 2 * (c * (ol.x * dl.x + ol.y * dl.y + (1 + k) * ol.z * dl.z) - dl.z);
+      const C = c * (ol.x * ol.x + ol.y * ol.y + (1 + k) * ol.z * ol.z) - 2 * ol.z;
+      if (Math.abs(A) < 1e-14) {
+        if (Math.abs(B) < 1e-16) return null;
+        t = -C / B;
+      } else {
+        const disc = B * B - 4 * A * C;
+        if (disc < 0) return null;
+        const sq = Math.sqrt(disc);
+        const q = -0.5 * (B + (B >= 0 ? sq : -sq));
+        const t1 = q / A, t2 = (Math.abs(q) > 1e-300 ? C / q : Infinity);
+        const cand = [];
+        [t1, t2].forEach((tt) => {
+          if (!isFinite(tt) || tt <= tmin) return;
+          const zl = ol.z + dl.z * tt;
+          const xx = ol.x + dl.x * tt, yy = ol.y + dl.y * tt;
+          cand.push({ t: tt, z: Math.abs(zl), r: Math.hypot(xx, yy) });
+        });
+        if (!cand.length) return null;
+        // 物理面是靠近顶点的那一瓣: 优先口径内, 再取 |z| 最小
+        cand.sort((a, b) => {
+          const ia = a.r <= s.semiDia ? 0 : 1, ib = b.r <= s.semiDia ? 0 : 1;
+          if (ia !== ib) return ia - ib;
+          return a.z - b.z;
+        });
+        t = cand[0].t;
+      }
+    }
+    if (!isFinite(t) || t <= tmin) return null;
+    if (s.asphActive) {
+      // 牛顿迭代: f(t) = z(t) − sag(r(t))
+      for (let it = 0; it < 32; it++) {
+        const x = ol.x + dl.x * t, y = ol.y + dl.y * t, z = ol.z + dl.z * t;
+        const r = Math.hypot(x, y);
+        const sg = sag(s, r);
+        if (!isFinite(sg)) return null;
+        const f = z - sg;
+        if (Math.abs(f) < 1e-11) break;
+        const sp = sagP(s, r) || 0;
+        const dfdt = dl.z - (r > 1e-12 ? sp * (x * dl.x + y * dl.y) / r : 0);
+        if (Math.abs(dfdt) < 1e-14) break;
+        t -= f / dfdt;
+        if (!isFinite(t) || t <= tmin) return null;
+      }
+    }
+    const lx = ol.x + dl.x * t, ly = ol.y + dl.y * t, lz = ol.z + dl.z * t;
+    const r = Math.hypot(lx, ly);
+    let sp = sagP(s, r);
+    if (!isFinite(sp)) sp = 0;
+    let nl;
+    if (r < 1e-12) nl = { x: 0, y: 0, z: 1 };
+    else nl = V.norm({ x: -sp * lx / r, y: -sp * ly / r, z: 1 });
+    const n = {
+      x: s.u.x * nl.x + s.v.x * nl.y + s.axis.x * nl.z,
+      y: s.u.y * nl.x + s.v.y * nl.y + s.axis.y * nl.z,
+      z: s.u.z * nl.x + s.v.z * nl.y + s.axis.z * nl.z
+    };
+    return { t: t, p: { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t }, n: V.norm(n), r: r, lx: lx, ly: ly, lz: lz };
+  }
+
+  /* --------------------------------------------- 斯涅尔定律 / 菲涅尔公式 */
+  /**
+   * 矢量形式斯涅尔定律。n 已定向为与入射方向相对 (cosI>0)。
+   * T = μ·d + (μ·cosI − cosT)·n ,  μ = n1/n2
+   */
+  function refract(d, n, n1, n2) {
+    const mu = n1 / n2;
+    const cosI = -V.dot(d, n);
+    const sin2T = mu * mu * (1 - cosI * cosI);
+    if (sin2T > 1) return null;                      // 全内反射
+    const cosT = Math.sqrt(1 - sin2T);
+    return { dir: V.norm({ x: mu * d.x + (mu * cosI - cosT) * n.x, y: mu * d.y + (mu * cosI - cosT) * n.y, z: mu * d.z + (mu * cosI - cosT) * n.z }), cosI: cosI, cosT: cosT };
+  }
+  /** 菲涅尔功率反射率 (s / p 分量) */
+  function fresnel(n1, n2, cosI, cosT) {
+    const rs = (n1 * cosI - n2 * cosT) / (n1 * cosI + n2 * cosT);
+    const rp = (n2 * cosI - n1 * cosT) / (n2 * cosI + n1 * cosT);
+    return { Rs: rs * rs, Rp: rp * rp };
+  }
+
+  /* ------------------------------------------------------- 顺序光线追迹 */
+  /**
+   * @param sys  buildSystem 结果
+   * @param ray  {o,d,lambda,weight,amp,Is,Ip,rayId,px,py,fieldIdx,waveIdx}
+   * @param opt  {branch:'transmit'|'reflect', roughSeed}
+   */
+  function traceSequential(sys, ray, opt) {
+    opt = opt || {};
+    const seed = opt.roughSeed === undefined ? 12345 : opt.roughSeed;
+    const lam = ray.lambda;
+    let o = V.clone(ray.o), d = V.norm(ray.d);
+    let opl = 0, Is = ray.Is === undefined ? 1 : ray.Is, Ip = ray.Ip === undefined ? 1 : ray.Ip;
+    const pts = [V.clone(o)];
+    const hits = [];
+    let blocked = null, blockIdx = -1, tir = false;
+    for (let i = 0; i < sys.surf.length; i++) {
+      const s = sys.surf[i];
+      const hit = intersect(s, o, d, 1e-7);
+      if (!hit) { blocked = 'miss'; blockIdx = i; break; }
+      const forward = V.dot(d, s.axis) > 0;
+      const nA = indexAt(forward ? s.mediumBefore : s.mediumAfter, lam);
+      const nB = indexAt(forward ? s.mediumAfter : s.mediumBefore, lam);
+      opl += nA * hit.t;
+      pts.push(V.clone(hit.p));
+      if (hit.r > s.semiDia * (1 + 1e-9) || hit.r < s.innerDia) {
+        blocked = (hit.r < s.innerDia) ? 'obscured' : 'aperture'; blockIdx = i; break;
+      }
+      // 表面粗糙度: 法线随机抖动 (确定性种子)
+      let n = hit.n;
+      if (s.roughness > 0) {
+        const g = gauss2(hashRand(ray.rayId | 0, i, seed), hashRand(ray.rayId | 0, i + 977, seed));
+        const sg = s.roughness * 1e-3;
+        n = V.norm({ x: n.x + g[0] * sg, y: n.y + g[1] * sg, z: n.z });
+      }
+      if (V.dot(d, n) > 0) n = V.neg(n);
+      const aoi = Math.acos(Math.min(1, Math.max(-1, -V.dot(d, n)))) / DEG;
+      const rec = { si: i, p: V.clone(hit.p), n: V.clone(n), r: hit.r, lx: hit.lx, ly: hit.ly, aoi: aoi, opl: opl, n1: nA, n2: nB, Rs: 0, Rp: 0, kind: s.kind };
+      hits.push(rec);
+      if (s.kind === 'image') { break; }
+      if (s.kind === 'mirror') {
+        d = V.norm(V.reflect(d, n));
+        const R = s.reflectivity;
+        Is *= R; Ip *= R; rec.Rs = R; rec.Rp = R;
+      } else if (s.kind === 'splitter') {
+        const rr = refract(d, n, nA, nB);
+        if (opt.branch === 'reflect' || !rr) {
+          d = V.norm(V.reflect(d, n));
+          Is *= (1 - s.splitT); Ip *= (1 - s.splitT);
+        } else {
+          d = rr.dir; Is *= s.splitT; Ip *= s.splitT;
+        }
+        rec.Rs = 1 - s.splitT; rec.Rp = 1 - s.splitT;
+      } else if (Math.abs(nA - nB) < 1e-12) {
+        /* 同介质: 直接通过 (光阑 / 虚面) */
+      } else {
+        const rr = refract(d, n, nA, nB);
+        if (!rr) {                                   // 全反射
+          d = V.norm(V.reflect(d, n));
+          tir = true; rec.Rs = 1; rec.Rp = 1;
+        } else {
+          const F = fresnel(nA, nB, rr.cosI, rr.cosT);
+          rec.Rs = F.Rs; rec.Rp = F.Rp;
+          Is *= (1 - F.Rs); Ip *= (1 - F.Rp);
+          d = rr.dir;
+        }
+      }
+      o = hit.p;
+    }
+    const last = hits.length ? hits[hits.length - 1] : null;
+    const path = {
+      pts: pts, hits: hits, lambda: lam, weight: ray.weight === undefined ? 1 : ray.weight,
+      amp: ray.amp === undefined ? 1 : ray.amp, px: ray.px, py: ray.py,
+      fieldIdx: ray.fieldIdx | 0, waveIdx: ray.waveIdx | 0, rayId: ray.rayId | 0,
+      opl: opl, Is: Is, Ip: Ip, I: 0.5 * (Is + Ip), blocked: blocked, blockIdx: blockIdx, tir: tir,
+      dirOut: d, ok: !blocked && last && last.kind === 'image'
+    };
+    if (path.ok) {
+      path.img = { x: last.lx, y: last.ly };
+      path.exitPt = hits.length > 1 ? hits[hits.length - 2].p : pts[0];
+      path.exitOpl = hits.length > 1 ? hits[hits.length - 2].opl : 0;
+      path.nImg = last.n1;
+    }
+    return path;
+  }
+
+  /* --------------------------------------------------- 非顺序光线追迹 */
+  function traceNonSequential(sys, ray, opt) {
+    opt = opt || {};
+    const maxDepth = opt.maxDepth === undefined ? 8 : opt.maxDepth;
+    const minE = opt.minEnergy === undefined ? 0.004 : opt.minEnergy;
+    const far = opt.far === undefined ? 400 : opt.far;
+    const lam = ray.lambda;
+    const paths = [];
+    const stack = [{
+      o: V.clone(ray.o), d: V.norm(ray.d), opl: 0, Is: ray.Is === undefined ? 1 : ray.Is,
+      Ip: ray.Ip === undefined ? 1 : ray.Ip, medium: opt.medium || 'AIR', last: -1, depth: 0,
+      pts: [V.clone(ray.o)], hits: [], tag: ''
+    }];
+    let guard = 0;
+    while (stack.length && guard++ < 4000) {
+      const st = stack.pop();
+      let best = null;
+      for (let i = 0; i < sys.surf.length; i++) {
+        if (i === st.last) continue;
+        const s = sys.surf[i];
+        const h = intersect(s, st.o, st.d, 1e-6);
+        if (!h) continue;
+        if (h.r > s.semiDia || h.r < s.innerDia) continue;
+        if (!best || h.t < best.h.t) best = { s: s, h: h, i: i };
+      }
+      const nMed = indexAt(st.medium, lam);
+      if (!best) {
+        const pts = st.pts.concat([V.madd(st.o, st.d, far)]);
+        paths.push(finishNS(st, pts, lam, ray, st.opl + nMed * far, null));
+        continue;
+      }
+      const s = best.s, h = best.h;
+      const opl = st.opl + nMed * h.t;
+      const pts = st.pts.concat([V.clone(h.p)]);
+      let n = h.n;
+      if (s.roughness > 0) {
+        const g = gauss2(hashRand(ray.rayId | 0, best.i, opt.roughSeed | 0), hashRand(ray.rayId | 0, best.i + 977, opt.roughSeed | 0));
+        n = V.norm({ x: n.x + g[0] * s.roughness * 1e-3, y: n.y + g[1] * s.roughness * 1e-3, z: n.z });
+      }
+      if (V.dot(st.d, n) > 0) n = V.neg(n);
+      const forward = V.dot(st.d, s.axis) > 0;
+      const nextMedium = forward ? s.mediumAfter : s.mediumBefore;
+      const nA = nMed, nB = indexAt(s.kind === 'mirror' ? st.medium : nextMedium, lam);
+      const aoi = Math.acos(Math.min(1, Math.max(-1, -V.dot(st.d, n)))) / DEG;
+      const hits = st.hits.concat([{ si: best.i, p: V.clone(h.p), aoi: aoi, opl: opl, r: h.r, lx: h.lx, ly: h.ly, n1: nA, n2: nB, kind: s.kind }]);
+      if (s.kind === 'image') { paths.push(finishNS(st, pts, lam, ray, opl, { lx: h.lx, ly: h.ly, hits: hits })); continue; }
+      if (st.depth >= maxDepth) { paths.push(finishNS(st, pts, lam, ray, opl, null)); continue; }
+      const children = [];
+      if (s.kind === 'mirror') {
+        children.push({ d: V.norm(V.reflect(st.d, n)), fs: s.reflectivity, fp: s.reflectivity, med: st.medium, tag: 'M' });
+      } else if (s.kind === 'stop' || s.kind === 'dummy') {
+        children.push({ d: st.d, fs: 1, fp: 1, med: nextMedium, tag: '' });
+      } else if (s.kind === 'splitter') {
+        const rr = refract(st.d, n, nA, nB);
+        if (rr) children.push({ d: rr.dir, fs: s.splitT, fp: s.splitT, med: nextMedium, tag: 'T' });
+        children.push({ d: V.norm(V.reflect(st.d, n)), fs: 1 - s.splitT, fp: 1 - s.splitT, med: st.medium, tag: 'R' });
+      } else {
+        const rr = refract(st.d, n, nA, nB);
+        if (!rr) {
+          children.push({ d: V.norm(V.reflect(st.d, n)), fs: 1, fp: 1, med: st.medium, tag: 'TIR' });
+        } else {
+          const F = fresnel(nA, nB, rr.cosI, rr.cosT);
+          children.push({ d: rr.dir, fs: 1 - F.Rs, fp: 1 - F.Rp, med: nextMedium, tag: 'T' });
+          if (opt.ghosts !== false) children.push({ d: V.norm(V.reflect(st.d, n)), fs: F.Rs, fp: F.Rp, med: st.medium, tag: 'G' });
+        }
+      }
+      for (const ch of children) {
+        const Is = st.Is * ch.fs, Ip = st.Ip * ch.fp;
+        if (0.5 * (Is + Ip) < minE) continue;
+        stack.push({ o: V.clone(h.p), d: ch.d, opl: opl, Is: Is, Ip: Ip, medium: ch.med, last: best.i, depth: st.depth + 1, pts: pts, hits: hits, tag: st.tag + ch.tag });
+      }
+      if (!children.length) paths.push(finishNS(st, pts, lam, ray, opl, null));
+    }
+    return paths;
+  }
+  function finishNS(st, pts, lam, ray, opl, imgInfo) {
+    const p = {
+      pts: pts, hits: st.hits, lambda: lam, weight: ray.weight === undefined ? 1 : ray.weight,
+      amp: ray.amp === undefined ? 1 : ray.amp, px: ray.px, py: ray.py, rayId: ray.rayId | 0,
+      fieldIdx: ray.fieldIdx | 0, waveIdx: ray.waveIdx | 0,
+      opl: opl, Is: st.Is, Ip: st.Ip, I: 0.5 * (st.Is + st.Ip), blocked: imgInfo ? null : 'exit',
+      tag: st.tag, ok: !!imgInfo
+    };
+    if (imgInfo) { p.img = { x: imgInfo.lx, y: imgInfo.ly }; p.hits = imgInfo.hits; }
+    return p;
+  }
+
+  /* --------------------------------------------------------- 近轴计算 */
+  /** y–nu 近轴追迹 (物在无限远, 入射高度 1), 返回 EFL/BFL 及各面数据 */
+  function paraxial(sys, lam) {
+    const S = sys.surf;
+    const rows = [];
+    let y = 1, u = 0, sign = 1;
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i];
+      const nB = sign * indexAt(s.mediumBefore, lam);
+      let nA = sign * indexAt(s.mediumAfter, lam);
+      if (s.kind === 'mirror') { nA = -nB; sign = -sign; }
+      const c = isFinite(s.R) ? 1 / s.R : 0;
+      const P = (nA - nB) * c;
+      u = (nB * u - y * P) / nA;
+      rows.push({ i: i, y: y, u: u, n: nA, P: P });
+      y = y + u * s.thickness * sign;   // 折转约定: thickness 恒为沿传播方向的正距离
+    }
+    const imgIdx = sys.imageIdx;
+    // 取像面之前最后一个有效面
+    let li = Math.max(0, imgIdx - 1);
+    while (li > 0 && Math.abs(rows[li].P) < 1e-15 && Math.abs(rows[li].u - (rows[li - 1] ? rows[li - 1].u : 0)) < 1e-15) li--;
+    const last = rows[Math.max(0, imgIdx - 1)];
+    const uF = last ? last.u : 0;
+    const nImg = last ? Math.abs(last.n) : 1;
+    const efl = Math.abs(uF) > 1e-12 ? -1 / (uF * nImg) * nImg : Infinity;
+    const bfl = Math.abs(uF) > 1e-12 ? -rows[Math.max(0, imgIdx - 1)].y / uF : Infinity;
+    const yAtImage = rows[imgIdx] ? rows[imgIdx].y : y;
+    return { rows: rows, efl: efl, bfl: bfl, uFinal: uF, yImage: yAtImage, nImg: nImg };
+  }
+
+  /** 由光阑反向近轴追迹求入射光瞳位置与半径 */
+  function entrancePupil(sys, lam) {
+    const S = sys.surf;
+    const si = sys.stopIdx;
+    if (si === undefined || si < 0) return { z: 0, semi: null, fromStop: false };
+    if (si === 0) return { z: 0, semi: S[0].semiDia, fromStop: true };
+    // 反向追迹两条近轴光线: A(y=0,u=1) 与 B(y=1,u=0)
+    const trace = (y0, u0) => {
+      let y = y0, u = u0;
+      for (let i = si - 1; i >= 0; i--) {
+        const s = S[i];
+        y = y - u * s.thickness;                      // 反向平移
+        const nB = indexAt(s.mediumBefore, lam), nA = indexAt(s.mediumAfter, lam);
+        const c = isFinite(s.R) ? 1 / s.R : 0;
+        const P = (nA - nB) * c;
+        u = (nA * u + y * P) / nB;                    // 反向折射
+      }
+      return { y: y, u: u };
+    };
+    const A = trace(0, 1), B = trace(1, 0);
+    if (Math.abs(A.u) < 1e-12) return { z: 0, semi: S[0].semiDia, fromStop: false };
+    const z = -A.y / A.u;                             // 相对第一面顶点
+    const yB = B.y + B.u * z;
+    const semi = Math.abs(yB) * S[si].semiDia;
+    if (!isFinite(z) || !isFinite(semi) || semi <= 0) return { z: 0, semi: S[0].semiDia, fromStop: false };
+    return { z: z, semi: semi, fromStop: true };
+  }
+
+  /* ---------------------------------------------------------- 光瞳采样 */
+  function pupilSamples(pattern, count, seed) {
+    const out = [];
+    if (pattern === 'single') { out.push([0, 0]); return out; }
+    if (pattern === 'fanY') {
+      const n = Math.max(3, count | 0);
+      for (let i = 0; i < n; i++) out.push([0, -1 + 2 * i / (n - 1)]);
+      return out;
+    }
+    if (pattern === 'fanX') {
+      const n = Math.max(3, count | 0);
+      for (let i = 0; i < n; i++) out.push([-1 + 2 * i / (n - 1), 0]);
+      return out;
+    }
+    if (pattern === 'cross') {
+      const n = Math.max(3, (count / 2) | 0);
+      for (let i = 0; i < n; i++) { const t = -1 + 2 * i / (n - 1); out.push([0, t]); out.push([t, 0]); }
+      return out;
+    }
+    if (pattern === 'grid') {
+      const n = Math.max(2, Math.round(Math.sqrt(count * 4 / Math.PI)));
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const x = -1 + 2 * (i + 0.5) / n, y = -1 + 2 * (j + 0.5) / n;
+        if (x * x + y * y <= 1) out.push([x, y]);
+      }
+      return out;
+    }
+    if (pattern === 'random') {
+      const rnd = mulberry32(seed | 0 || 1);
+      for (let i = 0; i < count; i++) {
+        const r = Math.sqrt(rnd()), th = 2 * Math.PI * rnd();
+        out.push([r * Math.cos(th), r * Math.sin(th)]);
+      }
+      return out;
+    }
+    // hexapolar (默认)
+    const rings = Math.max(1, Math.round((Math.sqrt(1 + 12 * Math.max(1, count) / 3) - 1) / 2));
+    out.push([0, 0]);
+    for (let i = 1; i <= rings; i++) {
+      const nPts = 6 * i, rr = i / rings;
+      for (let j = 0; j < nPts; j++) {
+        const th = 2 * Math.PI * j / nPts;
+        out.push([rr * Math.cos(th), rr * Math.sin(th)]);
+      }
+    }
+    return out;
+  }
+
+  /** 规则方格光瞳采样 (供 PSF 用, 保证 Np×Np 对齐) */
+  function pupilGrid(Np) {
+    const list = [];
+    for (let j = 0; j < Np; j++) for (let i = 0; i < Np; i++) {
+      const x = (2 * (i + 0.5) - Np) / Np, y = (2 * (j + 0.5) - Np) / Np;
+      list.push({ px: x, py: y, i: i, j: j, inside: (x * x + y * y) <= 1.0 });
+    }
+    return list;
+  }
+
+  /* ------------------------------------------------------------ 光源生成 */
+  /**
+   * cfg: {
+   *  source:{type:'collimated'|'point'|'gaussian', launchDist, objDist, gaussFill, coneHalfAngle, divergence},
+   *  fieldMode:'angle'|'height', fields:[deg|mm], waves:[{nm,weight}],
+   *  epd (mm), epZ (mm), seed, scatter (mrad)
+   * }
+   */
+  function makeRays(sys, cfg, samples, opts) {
+    opts = opts || {};
+    const src = cfg.source, rays = [];
+    const a = cfg.epd / 2, epZ = cfg.epZ || 0;
+    const launch = src.launchDist === undefined ? 25 : src.launchDist;
+    const rnd = mulberry32((cfg.seed | 0) || 1);
+    let id = 0;
+    const fields = cfg.fields.length ? cfg.fields : [0];
+    for (let fi = 0; fi < fields.length; fi++) {
+      const fv = Number(fields[fi]) || 0;
+      for (let wi = 0; wi < cfg.waves.length; wi++) {
+        const w = cfg.waves[wi];
+        for (let si = 0; si < samples.length; si++) {
+          const smp = samples[si];
+          const px = Array.isArray(smp) ? smp[0] : smp.px;
+          const py = Array.isArray(smp) ? smp[1] : smp.py;
+          const P = V.v(px * a, py * a, epZ);
+          let o, d;
+          if (src.type === 'point') {
+            const L = Math.abs(src.objDist || 200);
+            const h = cfg.fieldMode === 'height' ? fv : L * Math.tan(fv * DEG);
+            o = V.v(0, h, -L);
+            d = V.norm(V.sub(P, o));
+          } else {
+            const th = cfg.fieldMode === 'height'
+              ? Math.atan2(fv, (cfg.eflRef || 100)) : fv * DEG;
+            d = V.norm(V.v(0, Math.sin(th), Math.cos(th)));
+            o = V.madd(P, d, -launch);
+          }
+          let amp = 1;
+          if (src.type === 'gaussian') {
+            const g = src.gaussFill || 0.6;
+            amp = Math.exp(-(px * px + py * py) / (g * g));
+          }
+          if (cfg.scatter > 0) {
+            const gg = gauss2(rnd(), rnd());
+            const sc = cfg.scatter * 1e-3;
+            d = V.norm({ x: d.x + gg[0] * sc, y: d.y + gg[1] * sc, z: d.z });
+          }
+          if (src.type === 'point' && src.coneHalfAngle > 0) {
+            const u1 = rnd(), u2 = rnd();
+            const ca = Math.cos(src.coneHalfAngle * DEG);
+            const cz = 1 - u1 * (1 - ca), sr = Math.sqrt(Math.max(0, 1 - cz * cz)), ph = 2 * Math.PI * u2;
+            d = V.norm(V.v(sr * Math.cos(ph), sr * Math.sin(ph), cz));
+          }
+          rays.push({
+            o: o, d: d, lambda: w.nm, weight: w.weight === undefined ? 1 : w.weight,
+            amp: amp, px: px, py: py, fieldIdx: fi, waveIdx: wi, rayId: id++,
+            Is: amp * amp, Ip: amp * amp
+          });
+        }
+      }
+    }
+    return rays;
+  }
+
+  /* --------------------------------------------------- 像面平移与交点 */
+  /** 把像面沿其法向平移 dz 后, 求某条已完成追迹的光线的交点 (局部 x,y) */
+  function imageIntercept(sys, path, dz) {
+    const img = sys.surf[sys.imageIdx];
+    if (!path || !path.ok) return null;
+    const pv = V.madd(img.vertex, img.axis, dz || 0);
+    const P = path.exitPt ? path.exitPt : path.pts[path.pts.length - 2];
+    const d = path.dirOut || V.norm(V.sub(path.pts[path.pts.length - 1], P));
+    const den = V.dot(d, img.axis);
+    if (Math.abs(den) < 1e-12) return null;
+    const t = V.dot(V.sub(pv, P), img.axis) / den;
+    const q = V.madd(P, d, t);
+    const rel = V.sub(q, pv);
+    return { x: V.dot(rel, img.u), y: V.dot(rel, img.v), t: t, p: q };
+  }
+
+  /* --------------------------------------------------------- 统计与分析 */
+  function spotStats(list, dz, sys) {
+    let sw = 0, cx = 0, cy = 0;
+    const pts = [];
+    for (const p of list) {
+      const q = imageIntercept(sys, p, dz);
+      if (!q) continue;
+      const w = p.weight * p.I;
+      pts.push({ x: q.x, y: q.y, w: w, lambda: p.lambda, waveIdx: p.waveIdx });
+      sw += w; cx += q.x * w; cy += q.y * w;
+    }
+    if (!sw) return { n: 0, rms: 0, geo: 0, cx: 0, cy: 0, pts: pts };
+    cx /= sw; cy /= sw;
+    let s2 = 0, gm = 0;
+    for (const q of pts) {
+      const r2 = (q.x - cx) * (q.x - cx) + (q.y - cy) * (q.y - cy);
+      s2 += r2 * q.w; gm = Math.max(gm, r2);
+    }
+    return { n: pts.length, rms: Math.sqrt(s2 / sw) * 1000, geo: Math.sqrt(gm) * 1000, cx: cx, cy: cy, pts: pts };
+  }
+
+  /** 数值求最佳像面偏移 (黄金分割), 目标: 加权 RMS 斑径最小 */
+  function bestFocus(sys, paths, range) {
+    const R = range || 5;
+    const f = (dz) => spotStats(paths, dz, sys).rms;
+    let lo = -R, hi = R;
+    const gr = 0.6180339887;
+    let c = hi - gr * (hi - lo), d = lo + gr * (hi - lo);
+    let fc = f(c), fd = f(d);
+    for (let i = 0; i < 60; i++) {
+      if (fc < fd) { hi = d; d = c; fd = fc; c = hi - gr * (hi - lo); fc = f(c); }
+      else { lo = c; c = d; fc = fd; d = lo + gr * (hi - lo); fd = f(d); }
+      if (Math.abs(hi - lo) < 1e-6) break;
+    }
+    return 0.5 * (lo + hi);
+  }
+
+  /** 由边缘光线求像方数值孔径 */
+  function imageNA(sys, paths) {
+    const img = sys.surf[sys.imageIdx];
+    let na = 0;
+    for (const p of paths) {
+      if (!p.ok || p.fieldIdx !== 0) continue;
+      const r = Math.hypot(p.px, p.py);
+      if (r < 0.9) continue;
+      const c = Math.abs(V.dot(p.dirOut, img.axis));
+      const s = Math.sqrt(Math.max(0, 1 - c * c));
+      na = Math.max(na, (p.nImg || 1) * s);
+    }
+    return na;
+  }
+  function airyRadiusUm(lamNm, na) { return na > 1e-9 ? 0.61 * (lamNm / 1000) / na : NaN; }
+
+  /* ------------------------------------------------ 波前 / OPD 计算 */
+  /**
+   * 相对理想球面波(汇聚于参考点 R)的光程差, 单位: 波长
+   * OPL_total = OPL(到出射点) + n·|R − P_exit| , 去除常量(活塞)
+   */
+  function opdSet(sys, paths, dz, refPoint) {
+    const R = refPoint;
+    const out = [];
+    let sum = 0, sw = 0;
+    for (const p of paths) {
+      if (!p.ok) continue;
+      const nImg = p.nImg || 1;
+      const L = p.exitOpl + nImg * V.dist(R, p.exitPt);
+      const w = p.weight * p.I * p.amp;
+      out.push({ px: p.px, py: p.py, L: L, lambda: p.lambda, amp: Math.sqrt(Math.max(0, p.I)) * p.amp, weight: p.weight, path: p });
+      sum += L * w; sw += w;
+    }
+    const mean = sw > 0 ? sum / sw : 0;
+    for (const o of out) o.waves = (o.L - mean) / (o.lambda * 1e-6);   // mm → 波长数
+    return out;
+  }
+  function refPointFor(sys, paths, dz) {
+    const img = sys.surf[sys.imageIdx];
+    const st = spotStats(paths, dz, sys);
+    const pv = V.madd(img.vertex, img.axis, dz || 0);
+    return V.add(pv, V.add(V.mul(img.u, st.cx), V.mul(img.v, st.cy)));
+  }
+
+  /* ------------------------------------------------------------ FFT */
+  function fft1(re, im, inv) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (inv ? 2 : -2) * Math.PI / len;
+      const wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const ur = re[i + k], ui = im[i + k];
+          const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+          const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+          re[i + k] = ur + vr; im[i + k] = ui + vi;
+          re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+          const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+        }
+      }
+    }
+    if (inv) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+  }
+  function fft2(re, im, N, inv) {
+    const rr = new Float64Array(N), ii = new Float64Array(N);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) { rr[x] = re[y * N + x]; ii[x] = im[y * N + x]; }
+      fft1(rr, ii, inv);
+      for (let x = 0; x < N; x++) { re[y * N + x] = rr[x]; im[y * N + x] = ii[x]; }
+    }
+    for (let x = 0; x < N; x++) {
+      for (let y = 0; y < N; y++) { rr[y] = re[y * N + x]; ii[y] = im[y * N + x]; }
+      fft1(rr, ii, inv);
+      for (let y = 0; y < N; y++) { re[y * N + x] = rr[y]; im[y * N + x] = ii[y]; }
+    }
+  }
+
+  /* -------------------------------------------------------- PSF / MTF */
+  /**
+   * 衍射 PSF: 由实际追迹得到的光瞳函数 A·exp(i·2π·OPD/λ) 做 FFT。
+   * 像面采样: Δx = 0.5·λ·Np/(NA·N)  (由 艾里半径 = 1.22·N/Np 像素 推得)
+   * @return {img:Float64Array(N*N), N, dxUm, strehl, rmsWaves, pvWaves, na, opdMap}
+   */
+  function computePSF(sys, cfg, o) {
+    o = o || {};
+    const N = o.N || 128, Np = o.Np || 32;
+    const fieldIdx = o.fieldIdx || 0;
+    const dz = o.dz || 0;
+    const waves = cfg.waves.length ? cfg.waves : [{ nm: 550, weight: 1 }];
+    const grid = pupilGrid(Np);
+    const acc = new Float64Array(N * N);
+    const primary = refWave(cfg);
+    let dx0 = 0, strehl = 0, rmsW = 0, pvW = 0, naOut = 0, wsum = 0, opdMap = null, lamUm0 = primary.nm / 1000;
+    for (let wi = 0; wi < waves.length; wi++) {
+      const w = waves[wi];
+      const sub = Object.assign({}, cfg, { waves: [{ nm: w.nm, weight: 1 }], fields: [cfg.fields[fieldIdx]] });
+      const rays = makeRays(sys, sub, grid.map((g) => [g.px, g.py]));
+      const paths = rays.map((r) => traceSequential(sys, r, { roughSeed: cfg.seed }));
+      const okList = paths.filter((p) => p.ok);
+      if (!okList.length) continue;
+      const R = refPointFor(sys, okList, dz);
+      const opd = opdSet(sys, okList, dz, R);
+      const opdBy = new Map();
+      for (const rec of opd) opdBy.set(rec.path, rec);
+      const na = imageNAField(sys, paths, img0(sys));
+      if (!(na > 1e-9)) continue;
+      naOut = Math.max(naOut, na);
+      const lamUm = w.nm / 1000;
+      const dx = 0.5 * lamUm * Np / (na * N);
+      if (!dx0) { dx0 = dx; lamUm0 = lamUm; }
+      // 光瞳复振幅
+      const re = new Float64Array(N * N), im = new Float64Array(N * N);
+      const off = Math.floor((N - Np) / 2);
+      let sA = 0, sRe = 0, sIm = 0, s1 = 0, s2 = 0, mn = Infinity, mx = -Infinity;
+      const map = { N: Np, data: new Float64Array(Np * Np).fill(NaN) };
+      for (let idx = 0; idx < grid.length; idx++) {
+        const g = grid[idx];
+        if (!g.inside) continue;
+        const p = paths[idx];
+        if (!p || !p.ok) continue;
+        const rec = opdBy.get(p);
+        if (!rec) continue;
+        const ph = -2 * Math.PI * rec.waves;
+        const A = rec.amp;
+        const gi = (off + g.j) * N + (off + g.i);
+        re[gi] = A * Math.cos(ph); im[gi] = A * Math.sin(ph);
+        map.data[g.j * Np + g.i] = rec.waves;
+        sA += A; sRe += A * Math.cos(ph); sIm += A * Math.sin(ph);
+        s1 += rec.waves * A; s2 += rec.waves * rec.waves * A;
+        mn = Math.min(mn, rec.waves); mx = Math.max(mx, rec.waves);
+      }
+      if (sA <= 0) continue;
+      const st = (sRe * sRe + sIm * sIm) / (sA * sA);
+      const mean = s1 / sA;
+      const rms = Math.sqrt(Math.max(0, s2 / sA - mean * mean));
+      if (wi === 0 || w.nm === primary.nm) { strehl = st; rmsW = rms; pvW = mx - mn; opdMap = map; }
+      fft2(re, im, N, false);
+      // fftshift + 强度, 重采样到公共像素尺度 dx0
+      const inten = new Float64Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const sx = (x + N / 2) % N, sy = (y + N / 2) % N;
+        const k = sy * N + sx;
+        inten[y * N + x] = re[k] * re[k] + im[k] * im[k];
+      }
+      const scale = dx / dx0;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const fx = (x - N / 2) / scale + N / 2, fy = (y - N / 2) / scale + N / 2;
+        const x0 = Math.floor(fx), y0 = Math.floor(fy);
+        if (x0 < 0 || y0 < 0 || x0 + 1 >= N || y0 + 1 >= N) continue;
+        const tx = fx - x0, ty = fy - y0;
+        const v = inten[y0 * N + x0] * (1 - tx) * (1 - ty) + inten[y0 * N + x0 + 1] * tx * (1 - ty)
+          + inten[(y0 + 1) * N + x0] * (1 - tx) * ty + inten[(y0 + 1) * N + x0 + 1] * tx * ty;
+        acc[y * N + x] += v * w.weight;
+      }
+      wsum += w.weight;
+    }
+    let peak = 0;
+    for (let i = 0; i < acc.length; i++) peak = Math.max(peak, acc[i]);
+    if (peak > 0) for (let i = 0; i < acc.length; i++) acc[i] /= peak;
+    return { img: acc, N: N, Np: Np, dxUm: dx0 || 1, lamUm: lamUm0, strehl: strehl, rmsWaves: rmsW, pvWaves: pvW, na: naOut, opdMap: opdMap, valid: peak > 0 };
+  }
+  function img0(sys) { return sys.surf[sys.imageIdx]; }
+  function imageNAField(sys, paths, img) {
+    let na = 0;
+    for (const p of paths) {
+      if (!p.ok) continue;
+      const r = Math.hypot(p.px, p.py);
+      if (r < 0.85) continue;
+      const c = Math.abs(V.dot(p.dirOut, img.axis));
+      na = Math.max(na, (p.nImg || 1) * Math.sqrt(Math.max(0, 1 - c * c)));
+    }
+    return na;
+  }
+
+  /** 由 PSF 求 MTF: OTF = FFT{PSF}; 返回 sag/tan 两方向曲线 (cycles/mm) */
+  function computeMTF(psf) {
+    const N = psf.N, re = new Float64Array(N * N), im = new Float64Array(N * N);
+    for (let i = 0; i < N * N; i++) re[i] = psf.img[i];
+    fft2(re, im, N, false);
+    const dc = Math.hypot(re[0], im[0]) || 1;
+    const dfCycPerUm = 1 / (N * psf.dxUm);
+    const cutoff = psf.na > 0 ? (2 * psf.na / (psf.lamUm || 0.55)) : 0;
+    const nOut = Math.min(N / 2, Math.max(8, psf.Np));
+    const sag = [], tan = [];
+    for (let k = 0; k <= nOut; k++) {
+      const fx = k * dfCycPerUm * 1000;             // cycles/mm
+      const ms = Math.hypot(re[k], im[k]) / dc;      // 沿 x (弧矢)
+      const mt = Math.hypot(re[k * N], im[k * N]) / dc; // 沿 y (子午)
+      sag.push({ f: fx, m: Math.min(1, ms) });
+      tan.push({ f: fx, m: Math.min(1, mt) });
+    }
+    return { sag: sag, tan: tan, df: dfCycPerUm * 1000, cutoff: cutoff * 1000 };
+  }
+  /** 理想衍射极限 MTF */
+  function diffractionMTF(f, fc) {
+    if (fc <= 0) return 0;
+    const nu = Math.min(1, f / fc);
+    return (2 / Math.PI) * (Math.acos(nu) - nu * Math.sqrt(Math.max(0, 1 - nu * nu)));
+  }
+
+  /* --------------------------------------------------- 相干干涉屏计算 */
+  /**
+   * 非顺序模式: 在像面上对所有到达光线做复振幅相干叠加 |Σ aᵢ·e^{i·k·OPLᵢ}|²
+   * 用于迈克尔逊 / 马赫-曾德尔干涉条纹。
+   */
+  function coherentScreen(sys, paths, o) {
+    o = o || {};
+    const N = o.N || 192, half = o.halfWidth || 6;   // mm
+    const img = new Float64Array(N * N);
+    const re = new Float64Array(N * N), im = new Float64Array(N * N);
+    const px = (2 * half) / N;
+    const sigma = o.sigma === undefined ? px * 1.6 : o.sigma;
+    const rad = Math.max(1, Math.ceil(2.5 * sigma / px));
+    let any = false;
+    for (const p of paths) {
+      if (!p.ok || !p.img) continue;
+      any = true;
+      const k = 2 * Math.PI / (p.lambda * 1e-6);      // mm⁻¹
+      const ph = k * p.opl;
+      const A = Math.sqrt(Math.max(0, p.I)) * (p.amp || 1) * (p.weight || 1);
+      const cx = (p.img.x + half) / px, cy = (p.img.y + half) / px;
+      const i0 = Math.round(cx), j0 = Math.round(cy);
+      for (let j = j0 - rad; j <= j0 + rad; j++) {
+        if (j < 0 || j >= N) continue;
+        for (let i = i0 - rad; i <= i0 + rad; i++) {
+          if (i < 0 || i >= N) continue;
+          const dx = (i + 0.5 - cx) * px, dy = (j + 0.5 - cy) * px;
+          const g = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+          if (g < 1e-4) continue;
+          const idx = j * N + i;
+          re[idx] += A * g * Math.cos(ph);
+          im[idx] += A * g * Math.sin(ph);
+        }
+      }
+    }
+    let mx = 0;
+    for (let i = 0; i < N * N; i++) { img[i] = re[i] * re[i] + im[i] * im[i]; mx = Math.max(mx, img[i]); }
+    if (mx > 0) for (let i = 0; i < N * N; i++) img[i] /= mx;
+    return { img: img, N: N, halfWidth: half, valid: any };
+  }
+
+  /* ------------------------------------------------------- 像差报告 */
+  /** 沿光轴扫描, 求某方向弥散最小的像面偏移 */
+  function focusOf(sys, list, axisKey, range) {
+    const f = (dz) => {
+      let s = 0, n = 0, m = 0;
+      const vals = [];
+      for (const p of list) {
+        const q = imageIntercept(sys, p, dz);
+        if (!q) continue;
+        vals.push(axisKey === 'x' ? q.x : q.y);
+      }
+      if (vals.length < 2) return 1e9;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      for (const v of vals) s += (v - mean) * (v - mean);
+      return Math.sqrt(s / vals.length);
+    };
+    const R = range || 20;
+    let lo = -R, hi = R;
+    const gr = 0.6180339887;
+    let c = hi - gr * (hi - lo), d = lo + gr * (hi - lo), fc = f(c), fd = f(d);
+    for (let i = 0; i < 50; i++) {
+      if (fc < fd) { hi = d; d = c; fd = fc; c = hi - gr * (hi - lo); fc = f(c); }
+      else { lo = c; c = d; fc = fd; d = lo + gr * (hi - lo); fd = f(d); }
+      if (Math.abs(hi - lo) < 1e-5) break;
+    }
+    return 0.5 * (lo + hi);
+  }
+
+  function aberrationReport(sys, cfg) {
+    const px = paraxial(sys, refWave(cfg).nm);
+    const out = { efl: px.efl, bfl: px.bfl, fields: [], lsa: NaN, lca: NaN, latColor: NaN, coma: NaN, astig: NaN };
+    const w0 = refWave(cfg);
+    // 球差: 边缘光线与近轴光线的轴向交点差 (轴上视场)
+    const mk = (pupils, fieldsArr, waves) => {
+      const c2 = Object.assign({}, cfg, { fields: fieldsArr, waves: waves });
+      const rays = makeRays(sys, c2, pupils);
+      return rays.map((r) => traceSequential(sys, r, { roughSeed: cfg.seed })).filter((p) => p.ok);
+    };
+    const axMarg = mk([[0, 0.999]], [0], [w0]);
+    const axPar = mk([[0, 0.05]], [0], [w0]);
+    if (axMarg.length && axPar.length) {
+      const zc = (p) => {
+        // 与光轴 (局部 y=0) 的交点相对像面偏移
+        const img = sys.surf[sys.imageIdx];
+        const P = p.exitPt, d = p.dirOut;
+        const yl = V.dot(V.sub(P, img.vertex), img.v), dy = V.dot(d, img.v);
+        if (Math.abs(dy) < 1e-12) return 0;
+        const t = -yl / dy;
+        const q = V.madd(P, d, t);
+        return V.dot(V.sub(q, img.vertex), img.axis);
+      };
+      out.lsa = zc(axMarg[0]) - zc(axPar[0]);
+    }
+    // 轴向色差 (F/C 线焦点差) 与倍率色差
+    const wF = { nm: 486.1327, weight: 1 }, wC = { nm: 656.2725, weight: 1 };
+    const fF = mk(pupilSamples('fanY', 9), [0], [wF]);
+    const fC = mk(pupilSamples('fanY', 9), [0], [wC]);
+    if (fF.length && fC.length) out.lca = bestFocus(sys, fF, 30) - bestFocus(sys, fC, 30);
+    const maxField = cfg.fields.reduce((a, b) => Math.abs(b) > Math.abs(a) ? b : a, cfg.fields[0] || 0);
+    if (Math.abs(maxField) > 1e-9) {
+      const eF = mk(pupilSamples('hexapolar', 30), [maxField], [wF]);
+      const eC = mk(pupilSamples('hexapolar', 30), [maxField], [wC]);
+      if (eF.length && eC.length) out.latColor = (spotStats(eF, 0, sys).cy - spotStats(eC, 0, sys).cy) * 1000;
+      // 彗差: 上下边缘光线与主光线的横向偏差均值
+      const fan = mk([[0, 0], [0, 0.999], [0, -0.999]], [maxField], [w0]);
+      if (fan.length === 3) {
+        const y0 = imageIntercept(sys, fan[0], 0).y, yu = imageIntercept(sys, fan[1], 0).y, yd = imageIntercept(sys, fan[2], 0).y;
+        out.coma = ((yu + yd) / 2 - y0) * 1000;
+      }
+      // 像散: 子午/弧矢焦点差
+      const tanRays = mk(pupilSamples('fanY', 11), [maxField], [w0]);
+      const sagRays = mk(pupilSamples('fanX', 11), [maxField], [w0]);
+      if (tanRays.length > 2 && sagRays.length > 2) {
+        const zt = focusOf(sys, tanRays, 'y', 30), zs = focusOf(sys, sagRays, 'x', 30);
+        out.astig = zt - zs; out.zTan = zt; out.zSag = zs;
+      }
+    }
+    // 各视场: 畸变 / 场曲 / RMS
+    for (let i = 0; i < cfg.fields.length; i++) {
+      const fv = cfg.fields[i];
+      const list = mk(pupilSamples('hexapolar', 60), [fv], [w0]);
+      const st = spotStats(list, 0, sys);
+      const zf = list.length > 3 ? bestFocus(sys, list, 25) : 0;
+      let dist = NaN, ref = NaN;
+      if (cfg.fieldMode === 'angle' && isFinite(px.efl) && Math.abs(fv) > 1e-9) {
+        ref = px.efl * Math.tan(fv * DEG);
+        dist = (st.cy - ref) / ref * 100;
+      }
+      out.fields.push({ field: fv, rms: st.rms, geo: st.geo, cy: st.cy, refY: ref, distortion: dist, fieldFocus: zf, n: st.n });
+    }
+    return out;
+  }
+  function refWave(cfg) {
+    const ws = cfg.waves && cfg.waves.length ? cfg.waves : [{ nm: 587.5618, weight: 1 }];
+    return ws.find((w) => w.primary) || ws[Math.floor(ws.length / 2)] || ws[0];
+  }
+
+  /* ------------------------------------------- 高斯光束 (ABCD q 传播) */
+  /**
+   * 用归一化复参数 q̃ = q/n 沿参考轴传播:
+   *   平移 t :  q̃ ← q̃ + t/n
+   *   折射   :  1/q̃ ← 1/q̃ − P,  P = (n′−n)/R  (反射镜 P = −2n/R)
+   *   束宽    :  w = √( λ₀·|q̃|² / (π·Im q̃) )
+   * 返回沿轴的 [{p, w}] 采样序列(分段), 供 2D 视图绘制束腰包络。
+   */
+  function gaussianEnvelope(sys, cfg, w0mm) {
+    const lam0 = refWave(cfg).nm * 1e-6;                 // mm
+    const segs = [];
+    let qr = 0, qi = Math.PI * w0mm * w0mm / lam0;       // 束腰处 q̃ = i·π·w0²/λ₀
+    const widthAt = (dz, n) => {
+      const rr = qr + dz / n, ii = qi;
+      const mod2 = rr * rr + ii * ii;
+      return Math.sqrt(Math.max(1e-12, lam0 * mod2 / (Math.PI * Math.max(1e-12, ii))));
+    };
+    const seg = (from, dir, len, n) => {
+      const steps = Math.max(2, Math.min(48, Math.ceil(Math.abs(len) / 3)));
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const z = len * i / steps;
+        pts.push({ p: V.madd(from, dir, z), w: widthAt(z, n) });
+      }
+      qr += len / n;
+      return pts;
+    };
+    const L0 = cfg.source.launchDist === undefined ? 25 : cfg.source.launchDist;
+    const s0 = sys.surf[0];
+    let n = indexAt(s0.mediumBefore, refWave(cfg).nm);
+    segs.push(seg(V.madd(s0.vertex, s0.inDir, -L0), s0.inDir, L0, n));
+    for (let i = 0; i < sys.surf.length; i++) {
+      const s = sys.surf[i];
+      const nB = indexAt(s.mediumBefore, refWave(cfg).nm);
+      const nA = s.kind === 'mirror' ? nB : indexAt(s.mediumAfter, refWave(cfg).nm);
+      const c = isFinite(s.R) ? 1 / s.R : 0;
+      const P = s.kind === 'mirror' ? -2 * nB * c : (nA - nB) * c;
+      const den = qr * qr + qi * qi;
+      let iR = qr / den - P, iI = -qi / den;
+      const d2 = iR * iR + iI * iI;
+      if (d2 > 1e-300) { qr = iR / d2; qi = -iI / d2; }
+      n = nA;
+      if (i < sys.surf.length - 1 && s.thickness !== 0) {
+        segs.push(seg(s.vertex, s.outDir, Math.abs(s.thickness), n));
+      }
+    }
+    return segs;
+  }
+
+  /* --------------------------------------------------------- 预设系统 */
+  const IMG = (t) => ({ kind: 'image', R: Infinity, thickness: 0, material: 'AIR', semiDia: t || 12, label: '像面' });
+  const PRESETS = {
+    singlet: {
+      name: '① 单透镜 (球差/色差演示)',
+      desc: 'BK7 平凸单透镜 f≈100mm。可清晰观察球差(边缘光线焦点前移)与轴向色差(蓝光焦点更靠前), 与②④预设对比可体会校正效果。',
+      cfg: { epd: 20, fieldMode: 'angle', fields: [0, 3, 4], waves: [656.2725, 587.5618, 486.1327], source: { type: 'collimated', launchDist: 25 } },
+      surfaces: [
+        { kind: 'refract', R: 51.68, thickness: 6, material: 'N-BK7', semiDia: 13, label: 'L1 前' },
+        { kind: 'refract', R: Infinity, thickness: 1, material: 'AIR', semiDia: 13, label: 'L1 后' },
+        { kind: 'stop', R: Infinity, thickness: 95.2, semiDia: 10.5, label: '光阑' },
+        IMG(7)
+      ]
+    },
+    achromat: {
+      name: '② 消色差双胶合镜 (N-BK7 / N-SF5)',
+      desc: '经典双胶合消色差物镜 f≈100mm F/5。F 线与 C 线焦点几乎重合 (残留二级光谱), 球差也得到显著控制, 与单透镜预设对比可直观体会"消色差+消球差"。',
+      cfg: { epd: 20, fieldMode: 'angle', fields: [0, 1.5, 3], waves: [656.2725, 587.5618, 486.1327], source: { type: 'collimated', launchDist: 25 } },
+      surfaces: [
+        { kind: 'stop', R: Infinity, thickness: 2, semiDia: 10, label: '光阑' },
+        { kind: 'refract', R: 63.2117, thickness: 6.0, material: 'N-BK7', semiDia: 12.5, label: '冕牌 前' },
+        { kind: 'refract', R: -45.5585, thickness: 2.5, material: 'N-SF5', semiDia: 12.5, label: '胶合面' },
+        { kind: 'refract', R: -125.8035, thickness: 95.8285, material: 'AIR', semiDia: 12.5, label: '火石 后' },
+        IMG(7)
+      ]
+    },
+    cooke: {
+      name: '③ 库克三片式镜头 (f=50 F/5)',
+      desc: '经典 Cooke Triplet: 正-负-正三片分离 (N-SK16/F2), 同时校正球差、彗差、像散、场曲与畸变。数值优化后 EFL=50.01mm, 轴上 RMS≈4.9µm, ±20° 视场可用。',
+      cfg: { epd: 10, fieldMode: 'angle', fields: [0, 14, 20], waves: [656.2725, 587.5618, 486.1327], source: { type: 'collimated', launchDist: 20 } },
+      surfaces: [
+        { kind: 'refract', R: 22.1334, thickness: 3.259, material: 'N-SK16', semiDia: 11, label: 'L1 前' },
+        { kind: 'refract', R: -370.1662, thickness: 5.7858, material: 'AIR', semiDia: 10.5, label: 'L1 后' },
+        { kind: 'refract', R: -22.235, thickness: 1.0, material: 'F2', semiDia: 6.6, label: 'L2 前' },
+        { kind: 'refract', R: 19.6369, thickness: 4.1421, material: 'AIR', semiDia: 6.6, label: 'L2 后' },
+        { kind: 'stop', R: Infinity, thickness: 0.9519, semiDia: 5.0, label: '光阑' },
+        { kind: 'refract', R: 76.4613, thickness: 2.953, material: 'N-SK16', semiDia: 8.8, label: 'L3 前' },
+        { kind: 'refract', R: -18.3759, thickness: 43.1317, material: 'AIR', semiDia: 8.8, label: 'L3 后' },
+        IMG(22)
+      ]
+    },
+    asphere: {
+      name: '④ 非球面单透镜 (高阶系数校正)',
+      desc: '单片 N-BK7 非球面透镜: 通过圆锥常数 k=−0.556 与 a₄/a₆/a₈ 高阶项把轴上球差压到衍射极限 (Strehl≈0.9998, 波前 RMS≈0.0024λ), 与预设①对比极为明显。',
+      cfg: { epd: 20, fieldMode: 'angle', fields: [0, 1], waves: [587.5618], source: { type: 'collimated', launchDist: 25 } },
+      surfaces: [
+        { kind: 'refract', R: 51.68, conic: -0.5560, asph: [-7.422e-8, 6.690e-10, -2.785e-12, 0], thickness: 6, material: 'N-BK7', semiDia: 13, label: '非球面 S1' },
+        { kind: 'refract', R: Infinity, thickness: 2.5, material: 'AIR', semiDia: 13, label: '平面 S2' },
+        { kind: 'stop', R: Infinity, thickness: 93.7414, semiDia: 10.5, label: '光阑' },
+        IMG(4)
+      ]
+    },
+    kepler: {
+      name: '⑤ 开普勒望远镜 (消色差物镜 + 目镜 + 成像镜)',
+      desc: '开普勒式折射望远镜: 200mm 消色差物镜汇聚到中间实像, 目镜将光束准直成平行光, 末端成像镜把平行出射光束成像以便定量分析。全组均为双胶合消色差, 角放大率≈7.5×。',
+      cfg: { epd: 26, fieldMode: 'angle', fields: [0, 0.4, 0.8], waves: [656.2725, 587.5618, 486.1327], source: { type: 'collimated', launchDist: 30 } },
+      surfaces: [
+        { kind: 'stop', R: Infinity, thickness: 3, semiDia: 13, label: '入瞳/光阑' },
+        { kind: 'refract', R: 126.4234, thickness: 12, material: 'N-BK7', semiDia: 16, label: '物镜 冕牌' },
+        { kind: 'refract', R: -91.117, thickness: 5, material: 'N-SF5', semiDia: 16, label: '物镜 胶合面' },
+        { kind: 'refract', R: -251.607, thickness: 216.967, material: 'AIR', semiDia: 16, label: '物镜 后' },
+        { kind: 'refract', R: 16.9081, thickness: 3, material: 'N-BK7', semiDia: 9, label: '目镜 冕牌' },
+        { kind: 'refract', R: -9.5388, thickness: 1.4, material: 'N-SF5', semiDia: 9, label: '目镜 胶合面' },
+        { kind: 'refract', R: -27.2344, thickness: 121.938, material: 'AIR', semiDia: 9, label: '目镜 后' },
+        { kind: 'refract', R: 65.2893, thickness: 6, material: 'N-BK7', semiDia: 12, label: '成像镜 冕牌' },
+        { kind: 'refract', R: -36.0857, thickness: 2.5, material: 'N-SF5', semiDia: 12, label: '成像镜 胶合面' },
+        { kind: 'refract', R: -101.3347, thickness: 96.5698, material: 'AIR', semiDia: 12, label: '成像镜 后' },
+        { kind: 'image', R: Infinity, thickness: 0, material: 'AIR', semiDia: 16, label: '像面' }
+      ]
+    },
+    newton: {
+      name: '⑥ 牛顿反射望远镜 (抛物面+45°折转)',
+      desc: '抛物面主镜 (k=−1) 对轴上光线严格无球差, 45° 平面折转镜把焦点引出镜筒; 中心遮拦会压低 MTF 中频。厚度按"折转后沿传播方向的正距离"计。',
+      cfg: { epd: 100, fieldMode: 'angle', fields: [0, 0.15, 0.3], waves: [587.5618], source: { type: 'collimated', launchDist: 60 } },
+      surfaces: [
+        { kind: 'dummy', R: Infinity, thickness: 400, semiDia: 55, label: '镜筒入口' },
+        { kind: 'mirror', R: -800, conic: -1, thickness: 320, semiDia: 55, innerDia: 8, reflectivity: 0.94, label: '抛物面主镜' },
+        { kind: 'mirror', R: Infinity, tilt: 45, thickness: 80, semiDia: 20, reflectivity: 0.94, label: '45°折转镜' },
+        IMG(8)
+      ]
+    },
+    prism: {
+      name: '⑦ 色散棱镜 (Sellmeier 色散)',
+      desc: '30° 顶角 N-SF11 棱镜: n(λ) 随波长变化导致偏折角不同, 屏上直接展开为光谱。可测量角色散 dδ/dλ。',
+      cfg: { epd: 8, fieldMode: 'angle', fields: [0], waves: [430, 470, 510, 550, 590, 630, 670], source: { type: 'collimated', launchDist: 30 } },
+      surfaces: [
+        { kind: 'refract', R: Infinity, tilt: -15, thickness: 22, material: 'N-SF11', semiDia: 24, label: '棱镜 入射面' },
+        { kind: 'refract', R: Infinity, tilt: 15, thickness: 120, material: 'AIR', semiDia: 24, label: '棱镜 出射面' },
+        { kind: 'image', R: Infinity, thickness: 0, material: 'AIR', semiDia: 90, label: '光谱屏' }
+      ]
+    },
+    michelson: {
+      name: '⑧ 迈克尔逊干涉仪 (非顺序 + 相干叠加)',
+      desc: '50/50 分束器 + 两臂反射镜, 元件按绝对坐标布置。两条光路在屏上做复振幅相干叠加 |Σaᵢe^{ikLᵢ}|² 形成等厚干涉条纹; 调整 M1 倾角或臂长(absZ/absY)即可改变条纹间距与方向。本预设强制非顺序追迹。',
+      ns: true,
+      cfg: { epd: 16, fieldMode: 'angle', fields: [0], waves: [632.8], source: { type: 'collimated', launchDist: 45 }, nsRays: 1400 },
+      surfaces: [
+        { kind: 'splitter', abs: true, absZ: 0, absY: 0, tilt: 45, R: Infinity, thickness: 0, material: 'AIR', semiDia: 17, splitT: 0.5, label: '分束器 BS 50/50' },
+        { kind: 'mirror', abs: true, absZ: 60, absY: 0, tilt: 0.12, R: Infinity, thickness: 0, semiDia: 17, reflectivity: 0.98, label: 'M1 固定臂(倾斜0.12°)' },
+        { kind: 'mirror', abs: true, absZ: 0, absY: 60, tilt: 90, R: Infinity, thickness: 0, semiDia: 17, reflectivity: 0.98, label: 'M2 可动臂' },
+        { kind: 'image', abs: true, absZ: 0, absY: -55, tilt: 90, R: Infinity, thickness: 0, semiDia: 17, label: '干涉屏' }
+      ]
+    },
+    mach: {
+      name: '⑨ 马赫-曾德尔干涉仪 (非顺序)',
+      desc: '两块分束器 + 两块平行全反射镜构成环路: 光束分离后经不同路径再合并。轻微倾斜 M2 (135°→135.08°) 即产生直条纹。',
+      ns: true,
+      cfg: { epd: 12, fieldMode: 'angle', fields: [0], waves: [532], source: { type: 'collimated', launchDist: 45 }, nsRays: 1400 },
+      surfaces: [
+        { kind: 'splitter', abs: true, absZ: 0, absY: 0, tilt: 45, R: Infinity, thickness: 0, material: 'AIR', semiDia: 14, splitT: 0.5, label: 'BS1 分束' },
+        { kind: 'mirror', abs: true, absZ: 0, absY: -80, tilt: -45, R: Infinity, thickness: 0, semiDia: 14, reflectivity: 0.99, label: 'M1' },
+        { kind: 'mirror', abs: true, absZ: 80, absY: 0, tilt: -45.08, R: Infinity, thickness: 0, semiDia: 14, reflectivity: 0.99, label: 'M2 (可倾斜)' },
+        { kind: 'splitter', abs: true, absZ: 80, absY: -80, tilt: 45, R: Infinity, thickness: 0, material: 'AIR', semiDia: 14, splitT: 0.5, label: 'BS2 合束' },
+        { kind: 'image', abs: true, absZ: 80, absY: -150, tilt: 90, R: Infinity, thickness: 0, semiDia: 16, label: '干涉屏' }
+      ]
+    },
+  };
+
+  /* ------------------------------------------------------------ 导出 */
+  return {
+    V: V, DEG: DEG, MATERIALS: MATERIALS, SURF_DEFAULT: SURF_DEFAULT, PRESETS: PRESETS,
+    mulberry32: mulberry32, hashRand: hashRand, gauss2: gauss2,
+    indexAt: indexAt, isGlass: isGlass, abbe: abbe, wavelengthRGB: wavelengthRGB, rgbCss: rgbCss,
+    normSurface: normSurface, sag: sag, sagP: sagP, buildSystem: buildSystem,
+    intersect: intersect, toLocal: toLocal, toGlobal: toGlobal,
+    refract: refract, fresnel: fresnel,
+    traceSequential: traceSequential, traceNonSequential: traceNonSequential,
+    paraxial: paraxial, entrancePupil: entrancePupil,
+    pupilSamples: pupilSamples, pupilGrid: pupilGrid, makeRays: makeRays,
+    imageIntercept: imageIntercept, spotStats: spotStats, bestFocus: bestFocus,
+    imageNA: imageNA, airyRadiusUm: airyRadiusUm, opdSet: opdSet, refPointFor: refPointFor,
+    fft1: fft1, fft2: fft2, computePSF: computePSF, computeMTF: computeMTF, diffractionMTF: diffractionMTF,
+    coherentScreen: coherentScreen, aberrationReport: aberrationReport, focusOf: focusOf,
+    gaussianEnvelope: gaussianEnvelope, refWave: refWave
+  };
+});
+
+</script>
+<script>
+/* =============================================================================
+ *  OptiBench Web — 渲染层
+ *  · 2D 子午面光路视图 (透镜剖面 / 光线 / 法线 / 标注 / 高斯包络)
+ *  · 自研 3D 轨道相机渲染 (面型网格 + 深度排序 + 3D 光线)
+ *  · 科学图表: 点阵图 / OPD-光线扇形图 / 波前伪彩 / PSF 热力图 / MTF 曲线
+ *  全部由追迹数据实时生成, 不使用任何外部贴图或图片资源。
+ * ========================================================================== */
+(function (root, factory) {
+  const api = factory(root.OPT);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.RND = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (OPT) {
+  'use strict';
+  const V = OPT.V;
+
+  /* ----------------------------------------------------------- 通用工具 */
+  const CL = {
+    bg0: '#070b14', bg1: '#0d1424', grid: 'rgba(90,130,190,0.10)', gridB: 'rgba(90,130,190,0.20)',
+    axis: 'rgba(120,220,255,0.55)', text: '#9fb6d4', textDim: '#5d7characters', hi: '#7fe7ff',
+    glass: 'rgba(150,210,255,0.16)', glassEdge: 'rgba(190,235,255,0.75)',
+    mirror: 'rgba(255,225,160,0.9)', stop: '#2b3550', img: '#ff9d5c', warn: '#ff6b6b'
+  };
+  CL.textDim = '#5d7ca6';
+
+  function niceStep(range, target) {
+    const raw = range / Math.max(1, target);
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / p;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * p;
+  }
+  function fmt(v, d) {
+    if (!isFinite(v)) return '∞';
+    const a = Math.abs(v);
+    if (a !== 0 && (a < 1e-3 || a >= 1e5)) return v.toExponential(d === undefined ? 2 : d);
+    return v.toFixed(d === undefined ? (a < 1 ? 3 : a < 100 ? 2 : 1) : d);
+  }
+  /** inferno 风格色标 (0..1) */
+  function inferno(t) {
+    t = Math.min(1, Math.max(0, t));
+    const r = Math.min(255, Math.max(0, 255 * (0.0002 + 2.9 * t - 2.2 * t * t + 0.45 * t * t * t)));
+    const g = Math.min(255, Math.max(0, 255 * (-0.13 * t + 1.35 * t * t * t + 0.02)));
+    const b = Math.min(255, Math.max(0, 255 * (0.28 * Math.sin(Math.PI * Math.pow(t, 0.85)) + 0.9 * Math.pow(t, 6))));
+    return [r, g, b];
+  }
+  /** turbo 风格色标 (0..1), 用于波前图 */
+  function turbo(t) {
+    t = Math.min(1, Math.max(0, t));
+    const r = 34.61 + t * (1172.33 + t * (-10793.56 + t * (33300.12 + t * (-38394.49 + t * 14825.05))));
+    const g = 23.31 + t * (557.33 + t * (1225.33 + t * (-3574.96 + t * (2413.83 + t * -671.15))));
+    const b = 27.2 + t * (3211.1 + t * (-15327.97 + t * (27814 + t * (-22569.18 + t * 6838.66))));
+    return [Math.min(255, Math.max(0, r)), Math.min(255, Math.max(0, g)), Math.min(255, Math.max(0, b))];
+  }
+  function bgFill(ctx, W, H) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#0a1020'); g.addColorStop(1, '#060a12');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+
+  /* ======================================================================
+   *  2D 子午面视图
+   * ==================================================================== */
+  function makeMap2D(view, W, H) {
+    const s = view.scale;
+    return {
+      X: (z) => W / 2 + (z - view.cz) * s,
+      Y: (y) => H / 2 - (y - view.cy) * s,
+      inv: (sx, sy) => ({ z: (sx - W / 2) / s + view.cz, y: -(sy - H / 2) / s + view.cy }),
+      s: s
+    };
+  }
+  /** 面型剖面点 (子午面内), 返回全局 (z,y) 点数组 */
+  function surfProfile(s, n) {
+    n = n || 41;
+    const pts = [];
+    const rmax = s.semiDia, rmin = s.innerDia || 0;
+    for (let i = 0; i <= n; i++) {
+      const r = -rmax + (2 * rmax) * i / n;
+      if (rmin > 0 && Math.abs(r) < rmin) { pts.push(null); continue; }
+      let zz = OPT.sag(s, Math.abs(r));
+      if (!isFinite(zz)) zz = 0;
+      pts.push({ z: s.vertex.z + s.v.z * r + s.axis.z * zz, y: s.vertex.y + s.v.y * r + s.axis.y * zz });
+    }
+    return pts;
+  }
+  function pathOf(ctx, m, pts, close) {
+    let started = false;
+    for (const p of pts) {
+      if (!p) { started = false; continue; }
+      const X = m.X(p.z), Y = m.Y(p.y);
+      if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
+    }
+    if (close) ctx.closePath();
+  }
+
+  function drawGrid2D(ctx, W, H, m, view) {
+    const wl = m.inv(0, H), wr = m.inv(W, 0);
+    const stepMajor = niceStep(wr.z - wl.z, 8);
+    const stepMinor = stepMajor / 5;
+    ctx.lineWidth = 1;
+    for (let pass = 0; pass < 2; pass++) {
+      const st = pass ? stepMajor : stepMinor;
+      ctx.strokeStyle = pass ? CL.gridB : CL.grid;
+      ctx.beginPath();
+      const z0 = Math.ceil(wl.z / st) * st, z1 = wr.z;
+      for (let z = z0; z <= z1; z += st) { const X = Math.round(m.X(z)) + 0.5; ctx.moveTo(X, 0); ctx.lineTo(X, H); }
+      const y0 = Math.ceil(wl.y / st) * st, y1 = wr.y;
+      for (let y = y0; y <= y1; y += st) { const Y = Math.round(m.Y(y)) + 0.5; ctx.moveTo(0, Y); ctx.lineTo(W, Y); }
+      ctx.stroke();
+    }
+    // 刻度数字
+    ctx.fillStyle = CL.textDim; ctx.font = '10px ui-monospace,Consolas,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const z0 = Math.ceil(wl.z / stepMajor) * stepMajor;
+    for (let z = z0; z <= wr.z; z += stepMajor) {
+      if (Math.abs(m.X(z) - W / 2) < 1e-6 && false) continue;
+      ctx.fillText(fmt(z, stepMajor < 1 ? 2 : 0), m.X(z), H - 14);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const y0 = Math.ceil(wl.y / stepMajor) * stepMajor;
+    for (let y = y0; y <= wr.y; y += stepMajor) {
+      if (Math.abs(y) < stepMajor * 0.01) continue;
+      ctx.fillText(fmt(y, stepMajor < 1 ? 2 : 0), 4, m.Y(y));
+    }
+    ctx.fillStyle = CL.textDim; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText('z (mm)', W - 6, H - 4);
+  }
+
+  function drawScaleBar(ctx, W, H, m) {
+    const target = 120 / m.s;
+    const st = niceStep(target, 1);
+    const px = st * m.s;
+    const x0 = W - px - 18, y0 = H - 26;
+    ctx.strokeStyle = 'rgba(200,230,255,0.7)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + px, y0);
+    ctx.moveTo(x0, y0 - 4); ctx.lineTo(x0, y0 + 4); ctx.moveTo(x0 + px, y0 - 4); ctx.lineTo(x0 + px, y0 + 4);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(200,230,255,0.85)'; ctx.font = '11px ui-monospace,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(st >= 1 ? st + ' mm' : (st * 1000) + ' µm', x0 + px / 2, y0 - 5);
+  }
+
+  /** 玻璃体分组: 返回 [{i, j}] 表示 surf[i]→surf[j] 之间是同一块玻璃 */
+  function glassGroups(sys) {
+    const out = [];
+    for (let i = 0; i < sys.surf.length - 1; i++) {
+      const s = sys.surf[i];
+      if (s.kind === 'refract' && OPT.isGlass(s.mediumAfter)) out.push({ i: i, j: i + 1 });
+    }
+    return out;
+  }
+
+  function drawElements2D(ctx, m, sys, opt) {
+    const groups = glassGroups(sys);
+    // 玻璃体填充
+    for (const g of groups) {
+      const A = sys.surf[g.i], B = sys.surf[g.j];
+      const pa = surfProfile(A, 48).filter(Boolean), pb = surfProfile(B, 48).filter(Boolean);
+      if (!pa.length || !pb.length) continue;
+      ctx.beginPath();
+      pathOf(ctx, m, pa, false);
+      pathOf(ctx, m, pb.slice().reverse(), false);
+      ctx.closePath();
+      const c0 = m.Y(A.vertex.y + A.semiDia), c1 = m.Y(A.vertex.y - A.semiDia);
+      const grd = ctx.createLinearGradient(0, c0, 0, c1);
+      grd.addColorStop(0, 'rgba(120,190,255,0.30)');
+      grd.addColorStop(0.42, 'rgba(215,245,255,0.13)');
+      grd.addColorStop(0.5, 'rgba(255,255,255,0.20)');
+      grd.addColorStop(0.58, 'rgba(215,245,255,0.13)');
+      grd.addColorStop(1, 'rgba(120,190,255,0.30)');
+      ctx.fillStyle = grd; ctx.fill();
+      ctx.strokeStyle = 'rgba(190,235,255,0.85)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); pathOf(ctx, m, pa, false); ctx.stroke();
+      ctx.beginPath(); pathOf(ctx, m, pb, false); ctx.stroke();
+      // 边缘连线
+      ctx.strokeStyle = 'rgba(190,235,255,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(m.X(pa[0].z), m.Y(pa[0].y)); ctx.lineTo(m.X(pb[0].z), m.Y(pb[0].y));
+      ctx.moveTo(m.X(pa[pa.length - 1].z), m.Y(pa[pa.length - 1].y)); ctx.lineTo(m.X(pb[pb.length - 1].z), m.Y(pb[pb.length - 1].y));
+      ctx.stroke();
+    }
+    // 单面元件
+    for (let i = 0; i < sys.surf.length; i++) {
+      const s = sys.surf[i];
+      const prof = surfProfile(s, 48);
+      const inGlass = groups.some((g) => g.i === i || g.j === i);
+      if (s.kind === 'mirror') {
+        ctx.strokeStyle = CL.mirror; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,225,160,0.35)'; ctx.lineWidth = 1;
+        // 背面斜纹
+        const back = V.mul(s.axis, 1);
+        ctx.beginPath();
+        for (let k = 0; k <= 14; k++) {
+          const p = prof[Math.round(k / 14 * (prof.length - 1))];
+          if (!p) continue;
+          const dz = (V.dot(s.axis, V.v(0, 0, 1)) >= 0 ? 1 : -1);
+          ctx.moveTo(m.X(p.z), m.Y(p.y));
+          ctx.lineTo(m.X(p.z + back.z * 3.2), m.Y(p.y + back.y * 3.2));
+        }
+        ctx.stroke(); ctx.lineCap = 'butt';
+      } else if (s.kind === 'stop') {
+        const bar = Math.max(s.semiDia * 0.55, 3);
+        ctx.strokeStyle = '#ffd479'; ctx.lineWidth = 4;
+        for (const sgn of [1, -1]) {
+          const p0 = { z: s.vertex.z + s.v.z * sgn * s.semiDia, y: s.vertex.y + s.v.y * sgn * s.semiDia };
+          const p1 = { z: s.vertex.z + s.v.z * sgn * (s.semiDia + bar), y: s.vertex.y + s.v.y * sgn * (s.semiDia + bar) };
+          ctx.beginPath(); ctx.moveTo(m.X(p0.z), m.Y(p0.y)); ctx.lineTo(m.X(p1.z), m.Y(p1.y)); ctx.stroke();
+        }
+      } else if (s.kind === 'splitter') {
+        ctx.strokeStyle = 'rgba(180,255,220,0.9)'; ctx.lineWidth = 2.4;
+        ctx.setLineDash([]);
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+        ctx.strokeStyle = 'rgba(180,255,220,0.28)'; ctx.lineWidth = 8;
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+      } else if (s.kind === 'image') {
+        ctx.strokeStyle = CL.img; ctx.lineWidth = 2;
+        ctx.setLineDash([7, 5]);
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+        ctx.setLineDash([]);
+        // 端部把手
+        const e0 = prof[0], e1 = prof[prof.length - 1];
+        ctx.fillStyle = CL.img;
+        for (const e of [e0, e1]) if (e) { ctx.beginPath(); ctx.arc(m.X(e.z), m.Y(e.y), 3.4, 0, 7); ctx.fill(); }
+      } else if (s.kind === 'dummy') {
+        ctx.strokeStyle = 'rgba(140,170,210,0.35)'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke(); ctx.setLineDash([]);
+      } else if (!inGlass) {
+        ctx.strokeStyle = 'rgba(190,235,255,0.7)'; ctx.lineWidth = 1.3;
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+      }
+      // 选中/悬停高亮
+      if (opt && (opt.selected === i || opt.hoverSurf === i)) {
+        ctx.strokeStyle = opt.selected === i ? 'rgba(126,231,255,0.95)' : 'rgba(126,231,255,0.45)';
+        ctx.lineWidth = opt.selected === i ? 2.6 : 2;
+        ctx.setLineDash([]);
+        ctx.beginPath(); pathOf(ctx, m, prof, false); ctx.stroke();
+        const v0 = prof.filter(Boolean)[0];
+        ctx.fillStyle = 'rgba(126,231,255,0.9)';
+        ctx.beginPath(); ctx.arc(m.X(s.vertex.z), m.Y(s.vertex.y), 3, 0, 7); ctx.fill();
+      }
+    }
+  }
+
+  function drawAxis2D(ctx, m, sys) {
+    ctx.strokeStyle = CL.axis; ctx.lineWidth = 1; ctx.setLineDash([9, 6]);
+    ctx.beginPath();
+    const s0 = sys.surf[0];
+    let p = V.madd(s0.vertex, s0.inDir, -1e4 * 0 - 60);
+    ctx.moveTo(m.X(p.z), m.Y(p.y));
+    for (const s of sys.surf) { ctx.lineTo(m.X(s.vertex.z), m.Y(s.vertex.y)); }
+    const sl = sys.surf[sys.surf.length - 1];
+    const pe = V.madd(sl.vertex, sl.outDir, 25);
+    ctx.lineTo(m.X(pe.z), m.Y(pe.y));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function drawRays2D(ctx, m, paths, opt) {
+    const dimBlocked = opt.showBlocked;
+    ctx.lineCap = 'round';
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of paths) {
+      if (p.blocked && !dimBlocked) continue;
+      const col = OPT.wavelengthRGB(p.lambda);
+      const e = Math.max(0, Math.min(1, p.I * (p.amp === undefined ? 1 : p.amp)));
+      const a = (p.blocked ? 0.18 : 0.10 + 0.62 * Math.pow(e, 0.6)) * (opt.rayAlpha || 1);
+      ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      ctx.lineWidth = opt.rayWidth || 1;
+      ctx.beginPath();
+      const pts = p.pts;
+      ctx.moveTo(m.X(pts[0].z), m.Y(pts[0].y));
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(m.X(pts[i].z), m.Y(pts[i].y));
+      ctx.stroke();
+      if (p.blocked === 'aperture' || p.blocked === 'obscured') {
+        const q = pts[pts.length - 1];
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(255,90,90,0.75)';
+        ctx.beginPath(); ctx.arc(m.X(q.z), m.Y(q.y), 2, 0, 7); ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'butt';
+  }
+
+  function drawNormals2D(ctx, m, paths, len) {
+    ctx.strokeStyle = 'rgba(255,180,80,0.55)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    const L = len || 6;
+    for (const p of paths) {
+      if (!p.hits) continue;
+      for (const h of p.hits) {
+        if (!h.n) continue;
+        ctx.moveTo(m.X(h.p.z - h.n.z * L * 0.5), m.Y(h.p.y - h.n.y * L * 0.5));
+        ctx.lineTo(m.X(h.p.z + h.n.z * L * 0.5), m.Y(h.p.y + h.n.y * L * 0.5));
+      }
+    }
+    ctx.stroke();
+  }
+
+  function drawLabels2D(ctx, m, sys, opt) {
+    ctx.font = '11px ui-sans-serif,system-ui,"Segoe UI",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let i = 0; i < sys.surf.length; i++) {
+      const s = sys.surf[i];
+      const top = { z: s.vertex.z + s.v.z * s.semiDia, y: s.vertex.y + s.v.y * s.semiDia };
+      const X = m.X(top.z), Y = m.Y(top.y) - 6;
+      ctx.fillStyle = 'rgba(160,200,240,0.9)';
+      const tag = `S${i + 1}`;
+      ctx.fillText(tag, X, Y);
+      if (opt.detail) {
+        ctx.fillStyle = 'rgba(130,170,215,0.75)';
+        ctx.font = '10px ui-monospace,monospace';
+        const t2 = s.kind === 'image' ? '像面' : (s.label || '');
+        if (t2) ctx.fillText(t2, X, Y - 12);
+        if (OPT.isGlass(s.mediumAfter)) ctx.fillText(s.mediumAfter, X, Y - 24);
+        ctx.font = '11px ui-sans-serif,system-ui,sans-serif';
+      }
+    }
+  }
+
+  function drawGauss2D(ctx, m, segs) {
+    ctx.strokeStyle = 'rgba(255,120,220,0.55)'; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+    for (const sgn of [1, -1]) {
+      ctx.beginPath();
+      let started = false;
+      for (const seg of segs) for (const q of seg) {
+        const yy = q.p.y + sgn * q.w, zz = q.p.z;
+        if (!started) { ctx.moveTo(m.X(zz), m.Y(yy)); started = true; } else ctx.lineTo(m.X(zz), m.Y(yy));
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  function drawScene2D(ctx, W, H, st) {
+    bgFill(ctx, W, H);
+    const m = makeMap2D(st.view, W, H);
+    if (st.layers.grid) drawGrid2D(ctx, W, H, m, st.view);
+    if (st.layers.axis) drawAxis2D(ctx, m, st.sys);
+    if (st.layers.rays) drawRays2D(ctx, m, st.paths, st);
+    if (st.layers.gauss && st.gaussSegs) drawGauss2D(ctx, m, st.gaussSegs);
+    drawElements2D(ctx, m, st.sys, st);
+    if (st.layers.normals) drawNormals2D(ctx, m, st.probePath ? [st.probePath] : st.paths.slice(0, 60), st.normalLen);
+    if (st.layers.labels) drawLabels2D(ctx, m, st.sys, { detail: st.layers.detail });
+    // 探针高亮
+    if (st.probePath) {
+      const p = st.probePath, col = OPT.wavelengthRGB(p.lambda);
+      ctx.strokeStyle = `rgba(255,255,255,0.95)`; ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(m.X(p.pts[0].z), m.Y(p.pts[0].y));
+      for (let i = 1; i < p.pts.length; i++) ctx.lineTo(m.X(p.pts[i].z), m.Y(p.pts[i].y));
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.95)`; ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      for (const h of p.hits) { ctx.beginPath(); ctx.arc(m.X(h.p.z), m.Y(h.p.y), 2.6, 0, 7); ctx.fill(); }
+    }
+    drawScaleBar(ctx, W, H, m);
+    return m;
+  }
+
+  /* ======================================================================
+   *  3D 渲染 (自研轨道相机 + painter 深度排序)
+   * ==================================================================== */
+  function makeCam(cam, W, H) {
+    const ce = Math.cos(cam.el), se = Math.sin(cam.el), ca = Math.cos(cam.az), sa = Math.sin(cam.az);
+    const dir = { x: ce * sa, y: se, z: ce * ca };
+    const eye = V.madd(cam.target, dir, cam.dist);
+    const fwd = V.norm(V.sub(cam.target, eye));
+    let up = V.v(0, 1, 0);
+    if (Math.abs(V.dot(fwd, up)) > 0.999) up = V.v(0, 0, 1);
+    const right = V.norm(V.cross(fwd, up));
+    up = V.norm(V.cross(right, fwd));
+    const f = (H / 2) / Math.tan(cam.fov * 0.5);
+    return {
+      eye: eye, fwd: fwd, right: right, up: up, f: f, W: W, H: H,
+      proj: function (p) {
+        const d = V.sub(p, eye);
+        const zc = V.dot(d, fwd);
+        if (zc <= 0.05) return null;
+        const xc = V.dot(d, right), yc = V.dot(d, up);
+        return { x: W / 2 + f * xc / zc, y: H / 2 - f * yc / zc, d: zc };
+      },
+      depth: function (p) { return V.dot(V.sub(p, eye), fwd); }
+    };
+  }
+  /** 面型三维网格 (环 × 辐条) */
+  function surfMesh(s, nAz, nR) {
+    nAz = nAz || 30; nR = nR || 5;
+    const grid = [];
+    const r0 = s.innerDia || 0;
+    for (let ir = 0; ir <= nR; ir++) {
+      const r = r0 + (s.semiDia - r0) * ir / nR;
+      const ring = [];
+      let zz = OPT.sag(s, r);
+      if (!isFinite(zz)) zz = 0;
+      for (let ia = 0; ia < nAz; ia++) {
+        const th = 2 * Math.PI * ia / nAz;
+        const lx = r * Math.cos(th), ly = r * Math.sin(th);
+        ring.push({
+          x: s.vertex.x + s.u.x * lx + s.v.x * ly + s.axis.x * zz,
+          y: s.vertex.y + s.u.y * lx + s.v.y * ly + s.axis.y * zz,
+          z: s.vertex.z + s.u.z * lx + s.v.z * ly + s.axis.z * zz
+        });
+      }
+      grid.push(ring);
+    }
+    return grid;
+  }
+  function drawScene3D(ctx, W, H, st) {
+    bgFill(ctx, W, H);
+    const cam = makeCam(st.cam, W, H);
+    const items = [];
+    const LIGHT = V.norm(V.v(-0.4, 0.75, -0.5));
+    // 参考轴
+    if (st.layers.axis) {
+      const pts = [];
+      const s0 = st.sys.surf[0];
+      pts.push(V.madd(s0.vertex, s0.inDir, -60));
+      for (const s of st.sys.surf) pts.push(s.vertex);
+      const sl = st.sys.surf[st.sys.surf.length - 1];
+      pts.push(V.madd(sl.vertex, sl.outDir, 20));
+      for (let i = 1; i < pts.length; i++) {
+        items.push({ type: 'line', a: pts[i - 1], b: pts[i], col: 'rgba(120,220,255,0.35)', w: 1, dash: [8, 6], d: cam.depth(V.mul(V.add(pts[i - 1], pts[i]), 0.5)) });
+      }
+    }
+    // 元件网格
+    for (let i = 0; i < st.sys.surf.length; i++) {
+      const s = st.sys.surf[i];
+      const isSel = (st.selected === i);
+      const mesh = surfMesh(s, s.kind === 'image' ? 4 : 30, s.kind === 'image' ? 1 : 5);
+      const nAz = mesh[0].length;
+      let base;
+      if (s.kind === 'mirror') base = [255, 220, 150];
+      else if (s.kind === 'stop') base = [255, 200, 110];
+      else if (s.kind === 'image') base = [255, 150, 90];
+      else if (s.kind === 'splitter') base = [160, 255, 210];
+      else base = [150, 205, 255];
+      const alpha = s.kind === 'mirror' ? 0.55 : s.kind === 'image' ? 0.18 : s.kind === 'dummy' ? 0.05 : 0.20;
+      for (let ir = 0; ir < mesh.length - 1; ir++) {
+        for (let ia = 0; ia < nAz; ia++) {
+          const ja = (ia + 1) % nAz;
+          const q = [mesh[ir][ia], mesh[ir][ja], mesh[ir + 1][ja], mesh[ir + 1][ia]];
+          const c = V.mul(V.add(V.add(q[0], q[1]), V.add(q[2], q[3])), 0.25);
+          let n = V.cross(V.sub(q[1], q[0]), V.sub(q[3], q[0]));
+          const nl = V.len(n); if (nl < 1e-12) continue;
+          n = V.mul(n, 1 / nl);
+          let lam = Math.abs(V.dot(n, LIGHT));
+          const shade = 0.35 + 0.65 * Math.pow(lam, 0.8);
+          items.push({
+            type: 'quad', pts: q, d: cam.depth(c),
+            fill: `rgba(${Math.round(base[0] * shade)},${Math.round(base[1] * shade)},${Math.round(base[2] * shade)},${alpha + (isSel ? 0.16 : 0)})`,
+            stroke: ir === mesh.length - 2 || ia % 5 === 0 ? `rgba(${base[0]},${base[1]},${base[2]},${0.16 + (isSel ? 0.3 : 0)})` : null
+          });
+        }
+      }
+      // 口径外轮廓
+      const outer = mesh[mesh.length - 1];
+      for (let ia = 0; ia < nAz; ia++) {
+        const ja = (ia + 1) % nAz;
+        items.push({ type: 'line', a: outer[ia], b: outer[ja], col: `rgba(${base[0]},${base[1]},${base[2]},${isSel ? 0.95 : 0.6})`, w: isSel ? 2 : 1.2, d: cam.depth(V.mul(V.add(outer[ia], outer[ja]), 0.5)) });
+      }
+    }
+    // 光线
+    if (st.layers.rays) {
+      const step = Math.max(1, Math.ceil(st.paths.length / (st.max3DRays || 900)));
+      for (let k = 0; k < st.paths.length; k += step) {
+        const p = st.paths[k];
+        if (p.blocked && !st.showBlocked) continue;
+        const col = OPT.wavelengthRGB(p.lambda);
+        const e = Math.max(0, Math.min(1, p.I));
+        const a = (p.blocked ? 0.12 : 0.10 + 0.5 * Math.pow(e, 0.6)) * (st.rayAlpha || 1);
+        for (let i = 1; i < p.pts.length; i++) {
+          items.push({
+            type: 'line', a: p.pts[i - 1], b: p.pts[i], add: true,
+            col: `rgba(${col[0]},${col[1]},${col[2]},${a})`, w: 1,
+            d: cam.depth(V.mul(V.add(p.pts[i - 1], p.pts[i]), 0.5))
+          });
+        }
+      }
+    }
+    items.sort((a, b) => b.d - a.d);
+    for (const it of items) {
+      if (it.type === 'quad') {
+        const P = it.pts.map((p) => cam.proj(p));
+        if (P.some((p) => !p)) continue;
+        ctx.beginPath();
+        ctx.moveTo(P[0].x, P[0].y);
+        for (let i = 1; i < 4; i++) ctx.lineTo(P[i].x, P[i].y);
+        ctx.closePath();
+        ctx.fillStyle = it.fill; ctx.fill();
+        if (it.stroke) { ctx.strokeStyle = it.stroke; ctx.lineWidth = 1; ctx.stroke(); }
+      } else {
+        const A = cam.proj(it.a), B = cam.proj(it.b);
+        if (!A || !B) continue;
+        if (it.add) ctx.globalCompositeOperation = 'lighter';
+        if (it.dash) ctx.setLineDash(it.dash);
+        ctx.strokeStyle = it.col; ctx.lineWidth = it.w;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        if (it.dash) ctx.setLineDash([]);
+        if (it.add) ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    // 元件标注
+    if (st.layers.labels) {
+      ctx.font = '11px ui-sans-serif,system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      for (let i = 0; i < st.sys.surf.length; i++) {
+        const s = st.sys.surf[i];
+        const top = V.madd(s.vertex, s.v, s.semiDia * 1.08);
+        const P = cam.proj(top);
+        if (!P) continue;
+        ctx.fillStyle = st.selected === i ? '#7fe7ff' : 'rgba(160,200,240,0.85)';
+        ctx.fillText(`S${i + 1}${st.layers.detail && s.label ? ' ' + s.label : ''}`, P.x, P.y - 4);
+      }
+    }
+    // 视图信息
+    ctx.fillStyle = CL.textDim; ctx.font = '11px ui-monospace,monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`3D 轨道相机   方位 ${(st.cam.az * 180 / Math.PI).toFixed(0)}°  俯仰 ${(st.cam.el * 180 / Math.PI).toFixed(0)}°  距离 ${st.cam.dist.toFixed(0)}mm`, 10, H - 8);
+    return cam;
+  }
+
+  /* ======================================================================
+   *  图表: 坐标框架
+   * ==================================================================== */
+  function frame(ctx, box, o) {
+    const { x, y, w, h } = box;
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,16,28,0.75)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(110,150,200,0.35)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    const xmin = o.xmin, xmax = o.xmax, ymin = o.ymin, ymax = o.ymax;
+    const X = (v) => x + (v - xmin) / (xmax - xmin) * w;
+    const Y = (v) => y + h - (v - ymin) / (ymax - ymin) * h;
+    const sx = niceStep(xmax - xmin, o.nx || 5), sy = niceStep(ymax - ymin, o.ny || 4);
+    ctx.strokeStyle = 'rgba(110,150,200,0.13)';
+    ctx.beginPath();
+    for (let v = Math.ceil(xmin / sx) * sx; v <= xmax; v += sx) { ctx.moveTo(X(v), y); ctx.lineTo(X(v), y + h); }
+    for (let v = Math.ceil(ymin / sy) * sy; v <= ymax; v += sy) { ctx.moveTo(x, Y(v)); ctx.lineTo(x + w, Y(v)); }
+    ctx.stroke();
+    // 零线
+    ctx.strokeStyle = 'rgba(140,180,230,0.4)';
+    ctx.beginPath();
+    if (0 > ymin && 0 < ymax) { ctx.moveTo(x, Y(0)); ctx.lineTo(x + w, Y(0)); }
+    if (0 > xmin && 0 < xmax) { ctx.moveTo(X(0), y); ctx.lineTo(X(0), y + h); }
+    ctx.stroke();
+    ctx.fillStyle = CL.textDim; ctx.font = '9.5px ui-monospace,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    if (o.xticks !== false) for (let v = Math.ceil(xmin / sx) * sx; v <= xmax; v += sx) ctx.fillText(fmt(v, sx < 1 ? (sx < 0.1 ? 2 : 1) : 0), X(v), y + h + 3);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    if (o.yticks !== false) for (let v = Math.ceil(ymin / sy) * sy; v <= ymax; v += sy) ctx.fillText(fmt(v, sy < 1 ? (sy < 0.1 ? 2 : 1) : 0), x - 4, Y(v));
+    if (o.title) {
+      ctx.fillStyle = '#bcd4ee'; ctx.font = '11px ui-sans-serif,system-ui,sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(o.title, x, y - 3);
+    }
+    if (o.xlabel) {
+      ctx.fillStyle = CL.textDim; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      ctx.fillText(o.xlabel, x + w, y + h + 14);
+    }
+    if (o.ylabel) {
+      ctx.save(); ctx.translate(x - 30, y);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = CL.textDim; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(o.ylabel, -h, 0); ctx.restore();
+    }
+    ctx.restore();
+    return { X: X, Y: Y, box: box, clip: () => { ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); } };
+  }
+
+  /* ------------------------------------------------------ 点阵图 Spot */
+  function drawSpot(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    const fields = data.fields || [];
+    if (!fields.length) { noData(ctx, W, H); return []; }
+    const n = fields.length;
+    const pad = 30, gap = 14, top = 26, bot = 34;
+    const bw = (W - pad - gap * (n - 1) - 12) / n;
+    const bh = Math.min(H - top - bot, bw);
+    const boxes = [];
+    for (let i = 0; i < n; i++) {
+      const f = fields[i];
+      const x = pad + i * (bw + gap), y = top + (H - top - bot - bh) / 2;
+      const R = data.scaleUm;                       // 半宽 µm
+      const fr = frame(ctx, { x: x, y: y, w: bw, h: bh }, {
+        xmin: -R, xmax: R, ymin: -R, ymax: R, nx: 4, ny: 4,
+        title: `视场 ${fmt(f.field, 2)}${data.fieldUnit}`, xticks: i >= 0, yticks: i === 0
+      });
+      boxes.push({ box: fr.box, field: f });
+      fr.clip();
+      // 艾里斑
+      if (isFinite(data.airyUm) && data.airyUm > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(fr.X(0), fr.Y(0), Math.abs(fr.X(data.airyUm) - fr.X(0)), 0, 7); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // RMS 圆
+      ctx.strokeStyle = 'rgba(126,231,255,0.5)'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.arc(fr.X(0), fr.Y(0), Math.abs(fr.X(f.rms) - fr.X(0)), 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      // 交点
+      ctx.globalCompositeOperation = 'lighter';
+      for (const p of f.pts) {
+        const c = OPT.wavelengthRGB(p.lambda);
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.75)`;
+        const px = fr.X((p.x - f.cx) * 1000), py = fr.Y((p.y - f.cy) * 1000);
+        ctx.fillRect(px - 0.9, py - 0.9, 1.8, 1.8);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+      // 十字
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath();
+      ctx.moveTo(fr.X(0) - 5, fr.Y(0)); ctx.lineTo(fr.X(0) + 5, fr.Y(0));
+      ctx.moveTo(fr.X(0), fr.Y(0) - 5); ctx.lineTo(fr.X(0), fr.Y(0) + 5); ctx.stroke();
+      // 数值
+      ctx.font = '9.5px ui-monospace,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillStyle = '#7fe7ff'; ctx.fillText(`RMS ${fmt(f.rms, 2)}µm`, fr.box.x + 4, fr.box.y + fr.box.h + 16);
+      ctx.fillStyle = '#ffd479'; ctx.fillText(`GEO ${fmt(f.geo, 2)}µm`, fr.box.x + 4, fr.box.y + fr.box.h + 27);
+    }
+    ctx.font = '10px ui-monospace,monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.fillStyle = CL.textDim;
+    ctx.fillText(`方框半宽 ±${fmt(data.scaleUm, 1)} µm   艾里半径 ${isFinite(data.airyUm) ? fmt(data.airyUm, 2) + ' µm' : '—'}`, W - 8, 6);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#9fb6d4';
+    ctx.fillText('点阵图 Spot Diagram (像面交点分布, 相对各视场质心)', 8, 6);
+    return boxes;
+  }
+  function noData(ctx, W, H) {
+    ctx.fillStyle = 'rgba(160,190,225,0.55)'; ctx.font = '12px ui-sans-serif,system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('无有效数据 — 请检查孔径/视场设置或切换追迹模式', W / 2, H / 2);
+  }
+
+  /* ------------------------------------------- 光线扇形图 / OPD 扇形图 */
+  function drawFan(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    if (!data.series || !data.series.length) { noData(ctx, W, H); return; }
+    const pad = 44, top = 24, bot = 34, gap = 30;
+    const bw = (W - pad - gap - 18) / 2, bh = H - top - bot;
+    const isOPD = data.mode === 'opd';
+    let ymax = 1e-9;
+    for (const s of data.series) for (const p of s.pts) ymax = Math.max(ymax, Math.abs(p.v));
+    ymax = ymax * 1.15;
+    const cols = [{ key: 'ty', label: '子午 (Tangential, Py)' }, { key: 'tx', label: '弧矢 (Sagittal, Px)' }];
+    for (let c = 0; c < 2; c++) {
+      const x = pad + c * (bw + gap);
+      const fr = frame(ctx, { x: x, y: top, w: bw, h: bh }, {
+        xmin: -1, xmax: 1, ymin: -ymax, ymax: ymax, nx: 4, ny: 5,
+        title: cols[c].label,
+        xlabel: c === 1 ? '归一化光瞳坐标' : '',
+        ylabel: c === 0 ? (isOPD ? 'OPD (波长 λ)' : '横向像差 (µm)') : ''
+      });
+      fr.clip();
+      for (const s of data.series) {
+        if (s.dir !== cols[c].key) continue;
+        const col = OPT.wavelengthRGB(s.lambda);
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.95)`;
+        ctx.lineWidth = s.fieldIdx === 0 ? 1.8 : 1.2;
+        ctx.setLineDash(s.fieldIdx === 0 ? [] : s.fieldIdx === 1 ? [6, 3] : [2, 3]);
+        ctx.beginPath();
+        let started = false;
+        for (const p of s.pts) {
+          if (!isFinite(p.v)) { started = false; continue; }
+          const X = fr.X(p.p), Y = fr.Y(p.v);
+          if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      // 衍射参考 (±0.25λ Rayleigh 判据)
+      if (isOPD && ymax > 0.25) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(fr.box.x, fr.Y(0.25)); ctx.lineTo(fr.box.x + fr.box.w, fr.Y(0.25));
+        ctx.moveTo(fr.box.x, fr.Y(-0.25)); ctx.lineTo(fr.box.x + fr.box.w, fr.Y(-0.25)); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    }
+    // 图例
+    ctx.font = '9.5px ui-monospace,monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    let ly = 6;
+    const seen = new Set();
+    for (const s of data.series) {
+      if (seen.has(s.lambda)) continue; seen.add(s.lambda);
+      const col = OPT.wavelengthRGB(s.lambda);
+      ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+      ctx.fillText(`${fmt(s.lambda, 1)} nm`, W - 8, ly); ly += 12;
+    }
+    ctx.textAlign = 'left'; ctx.fillStyle = '#9fb6d4';
+    ctx.fillText(isOPD ? '波前光程差 OPD Fan (实线=轴上, 虚线=离轴视场)' : '横向光线像差 Ray Fan (实线=轴上, 虚线=离轴视场)', 8, 6);
+  }
+
+  /* ----------------------------------------------- 波前 2D 伪彩 + 等值线 */
+  function drawWavefront(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    const map = data.map;
+    if (!map || !map.data) { noData(ctx, W, H); return; }
+    const N = map.N;
+    const size = Math.min(W - 150, H - 40);
+    const x0 = 40, y0 = (H - size) / 2;
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < map.data.length; i++) { const v = map.data[i]; if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); } }
+    if (!isFinite(mn)) { noData(ctx, W, H); return; }
+    const rng = Math.max(1e-6, mx - mn);
+    const cv = document.createElement('canvas'); cv.width = N; cv.height = N;
+    const cc = cv.getContext('2d');
+    const idata = cc.createImageData(N, N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const v = map.data[j * N + i];
+      const k = ((N - 1 - j) * N + i) * 4;
+      if (!isFinite(v)) { idata.data[k + 3] = 0; continue; }
+      const c = turbo((v - mn) / rng);
+      idata.data[k] = c[0]; idata.data[k + 1] = c[1]; idata.data[k + 2] = c[2]; idata.data[k + 3] = 255;
+    }
+    cc.putImageData(idata, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(cv, x0, y0, size, size);
+    // 等值线 (每 0.25λ)
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
+    const step = rng > 2 ? 0.5 : rng > 0.6 ? 0.25 : 0.05;
+    for (let lev = Math.ceil(mn / step) * step; lev < mx; lev += step) {
+      ctx.beginPath();
+      for (let j = 0; j < N - 1; j++) for (let i = 0; i < N - 1; i++) {
+        const a = map.data[j * N + i], b = map.data[j * N + i + 1], c2 = map.data[(j + 1) * N + i];
+        if (!isFinite(a)) continue;
+        const px = x0 + (i + 0.5) / N * size, py = y0 + size - (j + 0.5) / N * size;
+        const dx = size / N, dy = size / N;
+        if (isFinite(b) && ((a - lev) * (b - lev) < 0)) { const t = (lev - a) / (b - a); ctx.moveTo(px + t * dx, py); ctx.lineTo(px + t * dx, py - 0.9); }
+        if (isFinite(c2) && ((a - lev) * (c2 - lev) < 0)) { const t = (lev - a) / (c2 - a); ctx.moveTo(px, py - t * dy); ctx.lineTo(px + 0.9, py - t * dy); }
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(180,220,255,0.5)'; ctx.strokeRect(x0, y0, size, size);
+    // 色标
+    const bx = x0 + size + 26, bw = 14, bh = size;
+    const g = ctx.createLinearGradient(0, y0 + bh, 0, y0);
+    for (let i = 0; i <= 10; i++) { const c = turbo(i / 10); g.addColorStop(i / 10, `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`); }
+    ctx.fillStyle = g; ctx.fillRect(bx, y0, bw, bh);
+    ctx.strokeStyle = 'rgba(180,220,255,0.4)'; ctx.strokeRect(bx, y0, bw, bh);
+    ctx.fillStyle = CL.text; ctx.font = '10px ui-monospace,monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const v = mn + rng * i / 4;
+      ctx.fillText(fmt(v, 3) + 'λ', bx + bw + 4, y0 + bh - bh * i / 4);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#9fb6d4'; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+    ctx.fillText(`波前图 Wavefront Map @ 视场 ${data.fieldLabel}, λ=${fmt(data.lambda, 1)}nm`, 8, 6);
+    ctx.fillStyle = CL.textDim;
+    ctx.fillText(`RMS ${fmt(data.rms, 4)}λ   PV ${fmt(data.pv, 4)}λ   等值线 ${step}λ`, 8, H - 16);
+  }
+
+  /* ------------------------------------------------------- PSF 热力图 */
+  function drawPSF(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    const psf = data.psf;
+    if (!psf || !psf.valid) { noData(ctx, W, H); return; }
+    const N = psf.N;
+    const zoom = Math.max(4, Math.min(N, data.zoomPix || 48));   // 显示中心 zoom×zoom 像素
+    const size = Math.min(W - 170, H - 44);
+    const x0 = 34, y0 = (H - size) / 2;
+    const cv = document.createElement('canvas'); cv.width = zoom; cv.height = zoom;
+    const cc = cv.getContext('2d');
+    const idata = cc.createImageData(zoom, zoom);
+    const off = (N - zoom) >> 1;
+    const logMode = data.log;
+    for (let j = 0; j < zoom; j++) for (let i = 0; i < zoom; i++) {
+      let v = psf.img[(off + j) * N + (off + i)];
+      if (logMode) v = Math.max(0, (Math.log10(Math.max(v, 1e-6)) + 6) / 6);
+      const c = inferno(v);
+      const k = ((zoom - 1 - j) * zoom + i) * 4;
+      idata.data[k] = c[0]; idata.data[k + 1] = c[1]; idata.data[k + 2] = c[2]; idata.data[k + 3] = 255;
+    }
+    cc.putImageData(idata, 0, 0);
+    ctx.imageSmoothingEnabled = data.smooth !== false;
+    ctx.drawImage(cv, x0, y0, size, size);
+    ctx.strokeStyle = 'rgba(180,220,255,0.45)'; ctx.strokeRect(x0, y0, size, size);
+    // 艾里环参考
+    if (isFinite(data.airyUm) && data.airyUm > 0) {
+      const rpx = data.airyUm / psf.dxUm / zoom * size;
+      ctx.strokeStyle = 'rgba(140,230,255,0.8)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x0 + size / 2, y0 + size / 2, rpx, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // 横截面曲线
+    const csH = size * 0.28;
+    ctx.strokeStyle = 'rgba(126,231,255,0.9)'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < zoom; i++) {
+      let v = psf.img[(N / 2 | 0) * N + off + i];
+      if (logMode) v = Math.max(0, (Math.log10(Math.max(v, 1e-6)) + 6) / 6);
+      const X = x0 + (i + 0.5) / zoom * size, Y = y0 + size - v * csH;
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    }
+    ctx.stroke();
+    // 标尺
+    const spanUm = zoom * psf.dxUm;
+    const st = niceStep(spanUm, 4);
+    ctx.strokeStyle = 'rgba(180,220,255,0.3)'; ctx.fillStyle = CL.textDim;
+    ctx.font = '9.5px ui-monospace,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.beginPath();
+    for (let v = -Math.floor(spanUm / 2 / st) * st; v <= spanUm / 2; v += st) {
+      const X = x0 + size / 2 + v / spanUm * size;
+      ctx.moveTo(X, y0 + size); ctx.lineTo(X, y0 + size + 4);
+      ctx.fillText(fmt(v, st < 1 ? 2 : 1), X, y0 + size + 6);
+    }
+    ctx.stroke();
+    ctx.textAlign = 'right'; ctx.fillText('µm', x0 + size, y0 + size + 18);
+    // 数值面板
+    const tx = x0 + size + 18;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = '10px ui-monospace,monospace';
+    const rows = [
+      ['视场', data.fieldLabel],
+      ['像元 Δx', fmt(psf.dxUm, 4) + ' µm'],
+      ['显示范围', fmt(spanUm, 2) + ' µm'],
+      ['Strehl 比', fmt(psf.strehl, 4)],
+      ['波前 RMS', fmt(psf.rmsWaves, 4) + ' λ'],
+      ['波前 PV', fmt(psf.pvWaves, 4) + ' λ'],
+      ['像方 NA', fmt(psf.na, 4)],
+      ['艾里半径', isFinite(data.airyUm) ? fmt(data.airyUm, 3) + ' µm' : '—'],
+      ['标度', logMode ? 'log₁₀ (6 阶)' : '线性']
+    ];
+    let ty = y0 + 2;
+    for (const r of rows) {
+      ctx.fillStyle = CL.textDim; ctx.fillText(r[0], tx, ty);
+      ctx.fillStyle = '#d8e8fa'; ctx.fillText(String(r[1]), tx + 62, ty);
+      ty += 14;
+    }
+    ctx.fillStyle = '#9fb6d4'; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText('点扩散函数 PSF (光瞳复振幅 FFT, 伪彩=归一化强度)', 8, 6);
+  }
+
+  /* -------------------------------------------------------- 干涉屏 */
+  function drawScreen(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    const scr = data.screen;
+    if (!scr || !scr.valid) { noData(ctx, W, H); return; }
+    const N = scr.N;
+    const size = Math.min(W - 170, H - 44);
+    const x0 = 34, y0 = (H - size) / 2;
+    const cv = document.createElement('canvas'); cv.width = N; cv.height = N;
+    const cc = cv.getContext('2d');
+    const idata = cc.createImageData(N, N);
+    const wl = data.lambda || 550;
+    const base = OPT.wavelengthRGB(wl);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const v = Math.pow(scr.img[j * N + i], 0.75);
+      const k = ((N - 1 - j) * N + i) * 4;
+      idata.data[k] = base[0] * v; idata.data[k + 1] = base[1] * v; idata.data[k + 2] = base[2] * v; idata.data[k + 3] = 255;
+    }
+    cc.putImageData(idata, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(cv, x0, y0, size, size);
+    ctx.strokeStyle = 'rgba(180,220,255,0.45)'; ctx.strokeRect(x0, y0, size, size);
+    // 中心行强度曲线
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    const row = N >> 1;
+    for (let i = 0; i < N; i++) {
+      const v = scr.img[row * N + i];
+      const X = x0 + (i + 0.5) / N * size, Y = y0 + size - v * size * 0.3;
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    }
+    ctx.stroke();
+    const tx = x0 + size + 18;
+    ctx.font = '10px ui-monospace,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    const rows = [
+      ['屏半宽', fmt(scr.halfWidth, 2) + ' mm'],
+      ['波长', fmt(wl, 1) + ' nm'],
+      ['到达光线', String(data.nRays)],
+      ['条纹对比度', fmt(data.contrast, 3)],
+      ['估计条纹间距', data.fringeMM ? fmt(data.fringeMM, 3) + ' mm' : '—']
+    ];
+    let ty = y0 + 2;
+    for (const r of rows) {
+      ctx.fillStyle = CL.textDim; ctx.fillText(r[0], tx, ty);
+      ctx.fillStyle = '#d8e8fa'; ctx.fillText(String(r[1]), tx + 74, ty); ty += 14;
+    }
+    ctx.fillStyle = '#9fb6d4'; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+    ctx.fillText('相干叠加干涉屏 |Σ aᵢ·e^{i·k·OPLᵢ}|² (非顺序追迹)', 8, 6);
+  }
+
+  /* ----------------------------------------------------------- MTF */
+  function drawMTF(ctx, W, H, data) {
+    bgFill(ctx, W, H);
+    if (!data.curves || !data.curves.length) { noData(ctx, W, H); return; }
+    const pad = 46, top = 26, bot = 36;
+    const fr = frame(ctx, { x: pad, y: top, w: W - pad - 96, h: H - top - bot }, {
+      xmin: 0, xmax: data.fmax, ymin: 0, ymax: 1, nx: 6, ny: 5,
+      xlabel: '空间频率 (lp/mm)', ylabel: '调制传递函数 MTF'
+    });
+    fr.clip();
+    // 衍射极限
+    if (data.cutoff > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.4; ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const f = data.fmax * i / 120;
+        const v = OPT.diffractionMTF(f, data.cutoff);
+        const X = fr.X(f), Y = fr.Y(v);
+        if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    const COLS = ['#7fe7ff', '#ffd479', '#ff8fd0', '#9dff9d'];
+    for (const c of data.curves) {
+      ctx.strokeStyle = COLS[c.fieldIdx % 4];
+      ctx.lineWidth = c.dir === 'tan' ? 1.9 : 1.2;
+      ctx.setLineDash(c.dir === 'tan' ? [] : [4, 3]);
+      ctx.beginPath();
+      let started = false;
+      for (const p of c.pts) {
+        if (p.f > data.fmax) break;
+        const X = fr.X(p.f), Y = fr.Y(p.m);
+        if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // 游标
+    if (data.cursorF !== undefined && data.cursorF !== null) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.moveTo(fr.X(data.cursorF), fr.box.y); ctx.lineTo(fr.X(data.cursorF), fr.box.y + fr.box.h); ctx.stroke();
+    }
+    ctx.restore();
+    // 图例
+    ctx.font = '9.5px ui-monospace,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    let ly = top + 2;
+    const tx = W - 90;
+    ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.fillText('— 衍射极限', tx, ly); ly += 13;
+    const seen = new Set();
+    for (const c of data.curves) {
+      if (seen.has(c.fieldIdx)) continue; seen.add(c.fieldIdx);
+      ctx.fillStyle = COLS[c.fieldIdx % 4];
+      ctx.fillText(`— 视场 ${fmt(c.field, 2)}${data.fieldUnit}`, tx, ly); ly += 13;
+    }
+    ctx.fillStyle = CL.textDim;
+    ctx.fillText('实线 子午 T', tx, ly); ly += 12;
+    ctx.fillText('虚线 弧矢 S', tx, ly); ly += 16;
+    if (data.cursorF !== undefined && data.cursorF !== null) {
+      ctx.fillStyle = '#fff'; ctx.fillText(`f = ${fmt(data.cursorF, 1)}`, tx, ly); ly += 12;
+      for (const c of data.curves) {
+        const v = sampleCurve(c.pts, data.cursorF);
+        ctx.fillStyle = COLS[c.fieldIdx % 4];
+        ctx.fillText(`${c.dir === 'tan' ? 'T' : 'S'}${c.fieldIdx} ${fmt(v, 3)}`, tx, ly); ly += 11;
+      }
+    }
+    ctx.fillStyle = '#9fb6d4'; ctx.font = '10px ui-sans-serif,system-ui,sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText(`调制传递函数 MTF (由 PSF 傅里叶变换求得)  截止 ${fmt(data.cutoff, 1)} lp/mm`, 8, 6);
+    return fr;
+  }
+  function sampleCurve(pts, f) {
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].f >= f) {
+        const t = (f - pts[i - 1].f) / Math.max(1e-9, pts[i].f - pts[i - 1].f);
+        return pts[i - 1].m + t * (pts[i].m - pts[i - 1].m);
+      }
+    }
+    return pts.length ? pts[pts.length - 1].m : 0;
+  }
+
+  return {
+    CL: CL, fmt: fmt, niceStep: niceStep, inferno: inferno, turbo: turbo,
+    makeMap2D: makeMap2D, surfProfile: surfProfile, glassGroups: glassGroups,
+    drawScene2D: drawScene2D, drawScene3D: drawScene3D, makeCam: makeCam,
+    drawSpot: drawSpot, drawFan: drawFan, drawWavefront: drawWavefront,
+    drawPSF: drawPSF, drawMTF: drawMTF, drawScreen: drawScreen, sampleCurve: sampleCurve, frame: frame
+  };
+});
+
+</script>
+<script>
+/* =============================================================================
+ *  OptiBench Web — 应用层: 状态管理 / UI / 交互 / 实时计算调度
+ * ========================================================================== */
+(function () {
+  'use strict';
+  const V = OPT.V;
+  const $ = (id) => document.getElementById(id);
+  const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
+  const fmt = RND.fmt;
+
+  /* --------------------------------------------------------------- 状态 */
+  const S = {
+    presetKey: 'cooke',
+    surfaces: [],
+    mode: '2d',
+    tracing: 'seq',
+    source: { type: 'collimated', launchDist: 25, objDist: 300, gaussFill: 0.62, w0: 3, coneHalfAngle: 8 },
+    apertureMode: 'stop', epd: 10, fno: 5,
+    fieldMode: 'angle', fields: [0, 14, 20],
+    waves: [],
+    rayCount: 240, pupilPattern: 'hexapolar', seed: 1234, scatter: 0,
+    nsMaxDepth: 6, nsGhosts: false, nsRays: 900,
+    layers: { rays: true, normals: false, labels: true, detail: true, grid: true, axis: true, gauss: false, blocked: true },
+    view2d: { cz: 0, cy: 0, scale: 4 },
+    cam3d: { az: -0.62, el: 0.34, dist: 260, target: { x: 0, y: 0, z: 60 }, fov: 0.85 },
+    psfN: 128, psfNp: 32, psfLog: false, psfZoom: 48,
+    fanTab: 'opd', dockTab: null,
+    selectedField: 0, selected: -1, hoverSurf: -1,
+    sound: true, mtfCursor: null,
+    spotScaleAuto: true, spotScaleUm: 50
+  };
+  const LINES = [
+    { nm: 656.2725, name: 'C (氢红)' }, { nm: 587.5618, name: 'd (氦黄)' }, { nm: 486.1327, name: 'F (氢蓝)' },
+    { nm: 435.8343, name: 'g (汞紫)' }, { nm: 632.8, name: 'HeNe 632.8' }, { nm: 532, name: '倍频 YAG 532' },
+    { nm: 1064, name: 'YAG 1064' }
+  ];
+
+  let sys = null, cfgCache = null, paths = [], nsPaths = [], analysis = {}, gaussSegs = null;
+  let dirty = { view: true, charts: true };
+  let dragging = null, quality = 'full', refineTimer = 0;
+  let fps = 0, lastT = performance.now(), frames = 0, lastFpsT = performance.now();
+  let probe = null, probeInfo = null;
+
+  /* ---------------------------------------------------------- 音效 (WebAudio) */
+  const Sound = (function () {
+    let ac = null;
+    const ensure = () => { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } } return ac; };
+    function blip(freq, dur, type, gain, sweep) {
+      if (!S.sound) return;
+      const a = ensure(); if (!a) return;
+      if (a.state === 'suspended') a.resume();
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = type || 'triangle';
+      o.frequency.setValueAtTime(freq, a.currentTime);
+      if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq * sweep), a.currentTime + dur);
+      g.gain.setValueAtTime(0, a.currentTime);
+      g.gain.linearRampToValueAtTime(gain === undefined ? 0.06 : gain, a.currentTime + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+      o.connect(g); g.connect(a.destination);
+      o.start(); o.stop(a.currentTime + dur + 0.02);
+    }
+    let lastTick = 0;
+    return {
+      click: () => blip(760, 0.05, 'triangle', 0.05, 0.7),
+      toggle: (on) => blip(on ? 980 : 520, 0.06, 'square', 0.035, on ? 1.25 : 0.8),
+      tick: () => { const t = performance.now(); if (t - lastTick < 45) return; lastTick = t; blip(1500 + Math.random() * 120, 0.02, 'sine', 0.018); },
+      load: () => { blip(420, 0.14, 'sine', 0.05, 2.2); setTimeout(() => blip(880, 0.16, 'sine', 0.04, 1.5), 90); },
+      focus: () => { blip(620, 0.1, 'sine', 0.05, 1.6); setTimeout(() => blip(1240, 0.18, 'triangle', 0.04, 1.1), 70); },
+      err: () => blip(180, 0.2, 'sawtooth', 0.05, 0.6),
+      resume: () => { const a = ensure(); if (a && a.state === 'suspended') a.resume(); }
+    };
+  })();
+
+  /* ------------------------------------------------------------ 画布管理 */
+  const canvases = {};
+  function setupCanvas(id) {
+    const c = $(id);
+    const ctx = c.getContext('2d');
+    canvases[id] = { c: c, ctx: ctx, w: 0, h: 0 };
+    return canvases[id];
+  }
+  function fitCanvas(o) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const r = o.c.getBoundingClientRect();
+    const w = Math.max(50, Math.floor(r.width)), h = Math.max(40, Math.floor(r.height));
+    if (o.w !== w || o.h !== h || o.dpr !== dpr) {
+      o.c.width = Math.floor(w * dpr); o.c.height = Math.floor(h * dpr);
+      o.w = w; o.h = h; o.dpr = dpr;
+    }
+    o.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    o.ctx.clearRect(0, 0, w, h);
+    return o;
+  }
+
+  /* ------------------------------------------------------------- 配置构建 */
+  function activeWaves() {
+    const on = S.waves.filter((w) => w.on);
+    const list = (on.length ? on : [S.waves[0]]).map((w) => ({ nm: w.nm, weight: w.weight, primary: !!w.primary }));
+    if (!list.some((w) => w.primary)) list[Math.floor(list.length / 2)].primary = true;
+    return list;
+  }
+  function buildCfg() {
+    const px = OPT.paraxial(sys, OPT.refWave({ waves: activeWaves() }).nm);
+    const ep = OPT.entrancePupil(sys, OPT.refWave({ waves: activeWaves() }).nm);
+    let epd = S.epd;
+    if (S.apertureMode === 'stop' && ep.semi) epd = 2 * ep.semi;
+    else if (S.apertureMode === 'fno' && isFinite(px.efl)) epd = Math.abs(px.efl) / Math.max(0.5, S.fno);
+    epd = Math.max(0.01, epd);
+    const cfg = {
+      epd: epd, epZ: ep.z || 0, fieldMode: S.fieldMode, fields: S.fields.slice(),
+      waves: activeWaves(), source: Object.assign({}, S.source), seed: S.seed | 0,
+      scatter: S.scatter, eflRef: isFinite(px.efl) ? Math.abs(px.efl) : 100
+    };
+    cfgCache = cfg;
+    analysis.paraxial = px; analysis.ep = ep; analysis.epdUsed = epd;
+    return cfg;
+  }
+
+  /* -------------------------------------------------------------- 追迹 */
+  function traceAll(q) {
+    const cfg = buildCfg();
+    const nRay = q === 'drag' ? Math.min(S.rayCount, 120) : S.rayCount;
+    if (S.tracing === 'ns') {
+      const nsN = q === 'drag' ? Math.min(S.nsRays, 260) : S.nsRays;
+      const samples = OPT.pupilSamples('grid', nsN, S.seed);
+      const rays = OPT.makeRays(sys, cfg, samples);
+      let out = [];
+      for (const r of rays) {
+        out = out.concat(OPT.traceNonSequential(sys, r, {
+          maxDepth: S.nsMaxDepth, minEnergy: 0.008, ghosts: S.nsGhosts,
+          far: 260, roughSeed: S.seed, medium: 'AIR'
+        }));
+      }
+      nsPaths = out; paths = out;
+    } else {
+      const samples = OPT.pupilSamples(S.pupilPattern, nRay, S.seed);
+      const rays = OPT.makeRays(sys, cfg, samples);
+      paths = rays.map((r) => OPT.traceSequential(sys, r, { roughSeed: S.seed }));
+      nsPaths = [];
+    }
+    gaussSegs = (S.layers.gauss && S.source.type === 'gaussian') ? OPT.gaussianEnvelope(sys, cfg, Math.max(0.05, S.source.w0)) : null;
+  }
+
+  /* ----------------------------------------------------------- 分析计算 */
+  function analyze(q) {
+    const cfg = cfgCache;
+    const A = analysis;
+    A.fields = [];
+    A.nArrive = paths.filter((p) => p.ok).length;
+    A.nTotal = paths.length;
+    if (S.tracing === 'ns') { analyzeNS(); return; }
+    const primary = OPT.refWave(cfg);
+    // 每视场统计
+    for (let fi = 0; fi < cfg.fields.length; fi++) {
+      const list = paths.filter((p) => p.ok && p.fieldIdx === fi);
+      const st = OPT.spotStats(list, 0, sys);
+      A.fields.push({ field: cfg.fields[fi], rms: st.rms, geo: st.geo, cx: st.cx, cy: st.cy, pts: st.pts, n: st.n });
+    }
+    A.na = OPT.imageNA(sys, paths);
+    A.airyUm = OPT.airyRadiusUm(primary.nm, A.na);
+    A.fno = isFinite(A.paraxial.efl) ? Math.abs(A.paraxial.efl) / A.epdUsed : Infinity;
+    // 扇形图 (子午 Py / 弧矢 Px)
+    const fanN = q === 'drag' ? 15 : 31;
+    A.fan = []; A.opd = [];
+    for (let fi = 0; fi < cfg.fields.length; fi++) {
+      for (let wi = 0; wi < cfg.waves.length; wi++) {
+        for (const dir of ['ty', 'tx']) {
+          const sub = Object.assign({}, cfg, { fields: [cfg.fields[fi]], waves: [cfg.waves[wi]] });
+          const smp = OPT.pupilSamples(dir === 'ty' ? 'fanY' : 'fanX', fanN);
+          const rr = OPT.makeRays(sys, sub, smp);
+          const pp = rr.map((r) => OPT.traceSequential(sys, r, { roughSeed: S.seed }));
+          const okp = pp.filter((p) => p.ok);
+          if (!okp.length) continue;
+          // 参考: 该视场主波长质心
+          const refList = wi === 0 ? okp : null;
+          const cRef = A.fields[fi] ? { x: A.fields[fi].cx, y: A.fields[fi].cy } : { x: 0, y: 0 };
+          const ptsA = [], ptsO = [];
+          const R = OPT.refPointFor(sys, okp, 0);
+          const opdRecs = OPT.opdSet(sys, okp, 0, R);
+          for (let k = 0; k < pp.length; k++) {
+            const p = pp[k];
+            const pc = dir === 'ty' ? smp[k % smp.length][1] : smp[k % smp.length][0];
+            if (!p.ok) { ptsA.push({ p: pc, v: NaN }); ptsO.push({ p: pc, v: NaN }); continue; }
+            const q2 = OPT.imageIntercept(sys, p, 0);
+            ptsA.push({ p: pc, v: ((dir === 'ty' ? q2.y - cRef.y : q2.x - cRef.x)) * 1000 });
+            const rec = opdRecs.find((z) => z.path === p);
+            ptsO.push({ p: pc, v: rec ? rec.waves : NaN });
+          }
+          A.fan.push({ dir: dir, lambda: cfg.waves[wi].nm, fieldIdx: fi, pts: ptsA });
+          A.opd.push({ dir: dir, lambda: cfg.waves[wi].nm, fieldIdx: fi, pts: ptsO });
+        }
+      }
+    }
+    // PSF / MTF
+    const N = q === 'drag' ? 64 : S.psfN, Np = q === 'drag' ? 16 : S.psfNp;
+    A.psf = null; A.mtf = [];
+    const fidx = Math.min(S.selectedField, cfg.fields.length - 1);
+    try {
+      A.psf = OPT.computePSF(sys, cfg, { N: N, Np: Np, fieldIdx: fidx, dz: 0 });
+      if (A.psf && A.psf.valid) {
+        const m = OPT.computeMTF(A.psf);
+        A.mtf.push({ fieldIdx: fidx, field: cfg.fields[fidx], dir: 'tan', pts: m.tan });
+        A.mtf.push({ fieldIdx: fidx, field: cfg.fields[fidx], dir: 'sag', pts: m.sag });
+        A.cutoff = m.cutoff;
+      }
+      if (q !== 'drag') {
+        for (let fi = 0; fi < cfg.fields.length; fi++) {
+          if (fi === fidx) continue;
+          const ps = OPT.computePSF(sys, cfg, { N: N, Np: Np, fieldIdx: fi, dz: 0 });
+          if (!ps || !ps.valid) continue;
+          const m = OPT.computeMTF(ps);
+          A.mtf.push({ fieldIdx: fi, field: cfg.fields[fi], dir: 'tan', pts: m.tan });
+          A.mtf.push({ fieldIdx: fi, field: cfg.fields[fi], dir: 'sag', pts: m.sag });
+          A.cutoff = A.cutoff || m.cutoff;
+        }
+      }
+    } catch (e) { console.warn('PSF/MTF 计算异常', e); }
+    // 像差报告 (完整质量时才做)
+    if (q !== 'drag') {
+      try { A.report = OPT.aberrationReport(sys, cfg); } catch (e) { A.report = null; }
+    }
+    A.screen = null;
+  }
+
+  function analyzeNS() {
+    const A = analysis, cfg = cfgCache;
+    const img = sys.surf[sys.imageIdx];
+    const arrived = paths.filter((p) => p.ok);
+    A.nsArrived = arrived.length;
+    const half = img.semiDia;
+    A.screen = OPT.coherentScreen(sys, arrived, { N: 192, halfWidth: half });
+    // 对比度与条纹间距
+    if (A.screen.valid) {
+      const N = A.screen.N, row = N >> 1;
+      let mn = 1, mx = 0, mean = 0, cnt = 0;
+      for (let i = 0; i < N; i++) { const v = A.screen.img[row * N + i]; mn = Math.min(mn, v); mx = Math.max(mx, v); mean += v; cnt++; }
+      mean /= cnt;
+      A.contrast = (mx + mn) > 0 ? (mx - mn) / (mx + mn) : 0;
+      let cross = 0, prev = A.screen.img[row * N] - mean;
+      for (let i = 1; i < N; i++) { const v = A.screen.img[row * N + i] - mean; if (v * prev < 0) cross++; prev = v; }
+      A.fringeMM = cross > 1 ? (2 * half) / (cross / 2) : null;
+    }
+    A.fields = [{ field: cfg.fields[0], rms: 0, geo: 0, cx: 0, cy: 0, n: arrived.length, pts: arrived.map((p) => ({ x: p.img.x, y: p.img.y, lambda: p.lambda, w: p.I })) }];
+    if (A.fields[0].pts.length) {
+      let sx = 0, sy = 0, sw = 0;
+      for (const p of A.fields[0].pts) { sx += p.x; sy += p.y; sw++; }
+      A.fields[0].cx = sx / sw; A.fields[0].cy = sy / sw;
+      let s2 = 0, gm = 0;
+      for (const p of A.fields[0].pts) { const r2 = (p.x - A.fields[0].cx) ** 2 + (p.y - A.fields[0].cy) ** 2; s2 += r2; gm = Math.max(gm, r2); }
+      A.fields[0].rms = Math.sqrt(s2 / sw) * 1000; A.fields[0].geo = Math.sqrt(gm) * 1000;
+    }
+    A.psf = null; A.mtf = []; A.fan = []; A.opd = []; A.report = null;
+    A.na = 0; A.airyUm = NaN;
+  }
+
+  /* -------------------------------------------------------------- 绘制 */
+  function draw() {
+    const vp = fitCanvas(canvases.view);
+    const st = {
+      sys: sys, paths: paths, view: S.view2d, cam: S.cam3d, layers: S.layers,
+      selected: S.selected, hoverSurf: S.hoverSurf, showBlocked: S.layers.blocked,
+      probePath: probe, rayAlpha: 1, rayWidth: 1, normalLen: Math.max(3, 24 / S.view2d.scale * 2),
+      gaussSegs: gaussSegs, max3DRays: quality === 'drag' ? 300 : 1200
+    };
+    if (S.mode === '2d') { st.map = RND.drawScene2D(vp.ctx, vp.w, vp.h, st); canvases.view.map = st.map; canvases.view.cam = null; }
+    else { canvases.view.cam = RND.drawScene3D(vp.ctx, vp.w, vp.h, st); canvases.view.map = null; }
+    drawHud();
+  }
+
+  function drawCharts() {
+    const A = analysis, cfg = cfgCache;
+    const unit = S.fieldMode === 'angle' ? '°' : 'mm';
+    // 点阵图
+    const c1 = fitCanvas(canvases.cSpot);
+    let scaleUm = S.spotScaleUm;
+    if (S.spotScaleAuto) {
+      let m = 0;
+      for (const f of A.fields || []) m = Math.max(m, f.geo || 0);
+      if (isFinite(A.airyUm)) m = Math.max(m, A.airyUm * 2.2);
+      scaleUm = Math.max(0.5, m * 1.25);
+      S.spotScaleUm = scaleUm;
+      const inp = $('spotScale'); if (inp && document.activeElement !== inp) inp.value = fmt(scaleUm, 2);
+    }
+    canvases.cSpot.boxes = RND.drawSpot(c1.ctx, c1.w, c1.h, {
+      fields: (A.fields || []).map((f) => ({ field: f.field, rms: f.rms, geo: f.geo, cx: f.cx, cy: f.cy, pts: f.pts || [] })),
+      scaleUm: scaleUm, airyUm: A.airyUm, fieldUnit: unit
+    });
+    // 扇形图 / 波前
+    const c2 = fitCanvas(canvases.cFan);
+    if (S.fanTab === 'wave') {
+      RND.drawWavefront(c2.ctx, c2.w, c2.h, {
+        map: A.psf ? A.psf.opdMap : null, rms: A.psf ? A.psf.rmsWaves : 0, pv: A.psf ? A.psf.pvWaves : 0,
+        fieldLabel: cfg && cfg.fields[S.selectedField] !== undefined ? fmt(cfg.fields[S.selectedField], 2) + unit : '-',
+        lambda: OPT.refWave(cfg || { waves: activeWaves() }).nm
+      });
+    } else {
+      RND.drawFan(c2.ctx, c2.w, c2.h, { series: S.fanTab === 'opd' ? A.opd : A.fan, mode: S.fanTab });
+    }
+    // PSF / 干涉屏
+    const c3 = fitCanvas(canvases.cPsf);
+    if (S.tracing === 'ns') {
+      RND.drawScreen(c3.ctx, c3.w, c3.h, {
+        screen: A.screen, lambda: activeWaves()[0].nm, nRays: A.nsArrived || 0,
+        contrast: A.contrast || 0, fringeMM: A.fringeMM
+      });
+    } else {
+      RND.drawPSF(c3.ctx, c3.w, c3.h, {
+        psf: A.psf, airyUm: A.airyUm, log: S.psfLog, zoomPix: S.psfZoom,
+        fieldLabel: cfg && cfg.fields[S.selectedField] !== undefined ? fmt(cfg.fields[S.selectedField], 2) + unit : '-'
+      });
+    }
+    // MTF
+    const c4 = fitCanvas(canvases.cMtf);
+    const fmax = A.cutoff ? A.cutoff * 1.05 : 200;
+    canvases.cMtf.fr = RND.drawMTF(c4.ctx, c4.w, c4.h, {
+      curves: A.mtf || [], cutoff: A.cutoff || 0, fmax: fmax, fieldUnit: unit, cursorF: S.mtfCursor
+    });
+    updateReadouts();
+  }
+
+  function drawHud() {
+    const hud = $('probeBox');
+    if (!probeInfo) { hud.style.display = 'none'; return; }
+    hud.style.display = 'block';
+    hud.style.left = Math.min(canvases.view.w - 250, probeInfo.sx + 16) + 'px';
+    hud.style.top = Math.min(canvases.view.h - 170, probeInfo.sy + 12) + 'px';
+    hud.innerHTML = probeInfo.html;
+  }
+
+  /* ------------------------------------------------------------ 读数面板 */
+  function updateReadouts() {
+    const A = analysis, cfg = cfgCache;
+    const px = A.paraxial || {};
+    const rows = [
+      ['有效焦距 EFL', isFinite(px.efl) ? fmt(px.efl, 3) + ' mm' : '∞ (无焦系统)'],
+      ['后焦距 BFL', isFinite(px.bfl) ? fmt(px.bfl, 3) + ' mm' : '—'],
+      ['入瞳直径 EPD', fmt(A.epdUsed, 3) + ' mm'],
+      ['入瞳位置', A.ep ? fmt(A.ep.z, 2) + ' mm (相对 S1)' : '—'],
+      ['F 数 F/#', isFinite(A.fno) ? 'F/' + fmt(A.fno, 2) : '—'],
+      ['像方 NA', A.na ? fmt(A.na, 4) : '—'],
+      ['艾里斑半径', isFinite(A.airyUm) ? fmt(A.airyUm, 3) + ' µm' : '—'],
+      ['到达像面光线', `${A.nArrive} / ${A.nTotal}`],
+      ['Strehl 比', A.psf && A.psf.valid ? fmt(A.psf.strehl, 4) : '—'],
+      ['波前 RMS', A.psf && A.psf.valid ? fmt(A.psf.rmsWaves, 4) + ' λ' : '—'],
+      ['MTF50', mtf50() ]
+    ];
+    const box = $('readout');
+    box.innerHTML = '';
+    for (const r of rows) {
+      const d = mk('div', 'kv');
+      d.appendChild(mk('span', 'k', r[0]));
+      d.appendChild(mk('span', 'v', String(r[1])));
+      box.appendChild(d);
+    }
+    // 视场表
+    const ft = $('fieldTable');
+    ft.innerHTML = '';
+    const head = mk('div', 'ftrow head');
+    ['视场', 'RMS(µm)', 'GEO(µm)', '像高(mm)', '畸变(%)'].forEach((t) => head.appendChild(mk('span', '', t)));
+    ft.appendChild(head);
+    (A.fields || []).forEach((f, i) => {
+      const rep = A.report && A.report.fields ? A.report.fields[i] : null;
+      const r = mk('div', 'ftrow' + (i === S.selectedField ? ' sel' : ''));
+      r.appendChild(mk('span', '', fmt(f.field, 2) + (S.fieldMode === 'angle' ? '°' : 'mm')));
+      r.appendChild(mk('span', '', fmt(f.rms, 2)));
+      r.appendChild(mk('span', '', fmt(f.geo, 2)));
+      r.appendChild(mk('span', '', fmt(f.cy, 3)));
+      r.appendChild(mk('span', '', rep && isFinite(rep.distortion) ? fmt(rep.distortion, 3) : '—'));
+      r.onclick = () => { S.selectedField = i; Sound.click(); recompute('full'); };
+      ft.appendChild(r);
+    });
+    // 像差报告
+    const ab = $('abReport');
+    ab.innerHTML = '';
+    const R = A.report;
+    const arows = R ? [
+      ['球差 LSA (边缘−近轴焦点)', isFinite(R.lsa) ? fmt(R.lsa, 4) + ' mm' : '—'],
+      ['轴向色差 LCA (F−C 焦点)', isFinite(R.lca) ? fmt(R.lca, 4) + ' mm' : '—'],
+      ['倍率色差 (最大视场)', isFinite(R.latColor) ? fmt(R.latColor, 3) + ' µm' : '—'],
+      ['彗差 (上下缘−主光线)', isFinite(R.coma) ? fmt(R.coma, 3) + ' µm' : '—'],
+      ['像散 (子午−弧矢焦点)', isFinite(R.astig) ? fmt(R.astig, 4) + ' mm' : '—'],
+      ['场曲 (各视场最佳焦面)', R.fields.map((f) => fmt(f.fieldFocus, 3)).join(' / ') + ' mm']
+    ] : [['像差报告', '非顺序模式不适用 / 计算中…']];
+    for (const r of arows) {
+      const d = mk('div', 'kv');
+      d.appendChild(mk('span', 'k', r[0]));
+      d.appendChild(mk('span', 'v', String(r[1])));
+      ab.appendChild(d);
+    }
+    $('fpsBox').textContent = `${fps.toFixed(0)} fps · ${A.nTotal} 条光线 · ${quality === 'drag' ? '拖拽(降采样)' : '全精度'}`;
+  }
+  function mtf50() {
+    const A = analysis;
+    if (!A.mtf || !A.mtf.length) return '—';
+    const c = A.mtf.find((x) => x.dir === 'tan' && x.fieldIdx === S.selectedField) || A.mtf[0];
+    for (let i = 1; i < c.pts.length; i++) {
+      if (c.pts[i].m <= 0.5) {
+        const t = (0.5 - c.pts[i - 1].m) / (c.pts[i].m - c.pts[i - 1].m);
+        return fmt(c.pts[i - 1].f + t * (c.pts[i].f - c.pts[i - 1].f), 1) + ' lp/mm';
+      }
+    }
+    return '> ' + fmt(c.pts[c.pts.length - 1].f, 1) + ' lp/mm';
+  }
+
+  /* --------------------------------------------------------- 主重算入口 */
+  function recompute(q) {
+    quality = q || 'full';
+    try {
+      sys = OPT.buildSystem({ surfaces: S.surfaces });
+      traceAll(quality);
+      analyze(quality);
+    } catch (e) {
+      console.error(e);
+      $('errBox').textContent = '计算异常: ' + e.message;
+      $('errBox').style.display = 'block';
+      return;
+    }
+    $('errBox').style.display = 'none';
+    dirty.view = true; dirty.charts = true;
+    if (quality === 'drag') {
+      clearTimeout(refineTimer);
+      refineTimer = setTimeout(() => recompute('full'), 170);
+    }
+  }
+
+  /* ------------------------------------------------------------ 透镜表 */
+  const KINDS = [['refract', '折射面'], ['mirror', '反射镜'], ['stop', '光阑'], ['splitter', '分束器'], ['dummy', '虚面'], ['image', '像面']];
+  function buildTable() {
+    const t = $('lensTable');
+    t.innerHTML = '';
+    const head = mk('div', 'lrow head');
+    ['#', '类型', '半径 R', '厚度 T', '材料', '半口径', ''].forEach((h) => head.appendChild(mk('span', '', h)));
+    t.appendChild(head);
+    S.surfaces.forEach((s, i) => {
+      const row = mk('div', 'lrow' + (S.selected === i ? ' sel' : ''));
+      const idx = mk('span', 'idx', String(i + 1));
+      idx.onclick = () => { S.selected = S.selected === i ? -1 : i; buildTable(); dirty.view = true; Sound.click(); };
+      row.appendChild(idx);
+      // 类型
+      const kd = mk('select', 'mini');
+      KINDS.forEach(([k, n]) => { const o = mk('option', '', n); o.value = k; if (s.kind === k) o.selected = true; kd.appendChild(o); });
+      kd.onchange = () => { s.kind = kd.value; if (s.kind === 'mirror') s.material = 'MIRROR'; Sound.click(); buildTable(); recompute('full'); };
+      row.appendChild(kd);
+      // 半径
+      row.appendChild(numInput(s, 'R', { step: 1, inf: true, drag: 0.5 }));
+      // 厚度
+      row.appendChild(numInput(s, 'thickness', { step: 0.5, drag: 0.2, min: -1e6 }));
+      // 材料
+      const mi = mk('input', 'mini mat');
+      mi.setAttribute('list', 'matlist');
+      mi.value = s.material === undefined ? 'AIR' : s.material;
+      mi.disabled = (s.kind === 'mirror');
+      mi.onchange = () => { s.material = mi.value.trim() || 'AIR'; recompute('full'); buildTable(); };
+      row.appendChild(mi);
+      // 半口径
+      row.appendChild(numInput(s, 'semiDia', { step: 0.5, min: 0.01, drag: 0.2 }));
+      // 展开
+      const ex = mk('span', 'exp', '⋯');
+      ex.title = '展开: 圆锥常数 / 非球面系数 / 倾斜 / 粗糙度 / 分束比 / 反射率 / 遮拦';
+      ex.onclick = () => { s._open = !s._open; buildTable(); Sound.click(); };
+      row.appendChild(ex);
+      t.appendChild(row);
+      if (s._open) t.appendChild(detailRow(s, i));
+    });
+    // 底部信息
+    const info = mk('div', 'tinfo');
+    info.innerHTML = `共 ${S.surfaces.length} 面 · 玻璃厚度用正值, 反射后厚度仍取<b>沿传播方向的正距离</b>(参考轴自动折转)`;
+    t.appendChild(info);
+  }
+  function detailRow(s, i) {
+    const d = mk('div', 'lrow detail');
+    const wrap = mk('div', 'dgrid');
+    const add = (label, key, opt) => {
+      const c = mk('div', 'dcell');
+      c.appendChild(mk('label', '', label));
+      c.appendChild(numInput(s, key, opt || { step: 0.1 }));
+      wrap.appendChild(c);
+    };
+    add('圆锥常数 k', 'conic', { step: 0.05, drag: 0.02 });
+    add('a₄', 'asph0', { step: 1e-8, drag: 2e-9, exp: true });
+    add('a₆', 'asph1', { step: 1e-12, drag: 2e-13, exp: true });
+    add('a₈', 'asph2', { step: 1e-16, drag: 2e-17, exp: true });
+    add('倾斜 (°)', 'tilt', { step: 1, drag: 0.25 });
+    add('中心遮拦半径', 'innerDia', { step: 0.5, min: 0, drag: 0.2 });
+    add('粗糙度 σ(mrad)', 'roughness', { step: 0.2, min: 0, drag: 0.1 });
+    add('分束透射比 T', 'splitT', { step: 0.05, min: 0, max: 1, drag: 0.02 });
+    add('反射率', 'reflectivity', { step: 0.02, min: 0, max: 1, drag: 0.01 });
+    const lc = mk('div', 'dcell wide');
+    lc.appendChild(mk('label', '', '标签'));
+    const li = mk('input', 'mini');
+    li.value = s.label || '';
+    li.oninput = () => { s.label = li.value; dirty.view = true; };
+    lc.appendChild(li);
+    wrap.appendChild(lc);
+    // 绝对定位
+    const ac = mk('div', 'dcell wide');
+    const cb = mk('input'); cb.type = 'checkbox'; cb.checked = !!s.abs;
+    cb.onchange = () => { s.abs = cb.checked; recompute('full'); buildTable(); };
+    const lab = mk('label', 'inline', ' 绝对坐标定位 (y,z)');
+    lab.prepend(cb);
+    ac.appendChild(lab);
+    const y = numInput(s, 'absY', { step: 1, drag: 0.5 }), z = numInput(s, 'absZ', { step: 1, drag: 0.5 });
+    ac.appendChild(y); ac.appendChild(z);
+    wrap.appendChild(ac);
+    // 操作
+    const ops = mk('div', 'dcell wide ops');
+    const bAdd = mk('button', 'sm', '＋在后插入'), bDup = mk('button', 'sm', '复制'), bDel = mk('button', 'sm danger', '删除');
+    const bUp = mk('button', 'sm', '↑'), bDn = mk('button', 'sm', '↓');
+    bAdd.onclick = () => { S.surfaces.splice(i + 1, 0, Object.assign({}, OPT.SURF_DEFAULT, { kind: 'refract', R: Infinity, thickness: 5, material: 'AIR', semiDia: s.semiDia, asph: [0, 0, 0, 0] })); Sound.click(); buildTable(); recompute('full'); };
+    bDup.onclick = () => { S.surfaces.splice(i + 1, 0, JSON.parse(JSON.stringify(Object.assign({}, s, { _open: false })))); Sound.click(); buildTable(); recompute('full'); };
+    bDel.onclick = () => { if (S.surfaces.length > 2) { S.surfaces.splice(i, 1); Sound.click(); buildTable(); recompute('full'); } else Sound.err(); };
+    bUp.onclick = () => { if (i > 0) { const t = S.surfaces[i - 1]; S.surfaces[i - 1] = S.surfaces[i]; S.surfaces[i] = t; buildTable(); recompute('full'); } };
+    bDn.onclick = () => { if (i < S.surfaces.length - 1) { const t = S.surfaces[i + 1]; S.surfaces[i + 1] = S.surfaces[i]; S.surfaces[i] = t; buildTable(); recompute('full'); } };
+    [bAdd, bDup, bUp, bDn, bDel].forEach((b) => ops.appendChild(b));
+    wrap.appendChild(ops);
+    d.appendChild(wrap);
+    return d;
+  }
+  /** 数字输入 (支持拖拽微调 + ∞) */
+  function numInput(obj, key, o) {
+    o = o || {};
+    const inp = mk('input', 'mini num');
+    const isAsph = key.indexOf('asph') === 0;
+    const get = () => isAsph ? (obj.asph ? obj.asph[+key.slice(4)] || 0 : 0) : obj[key];
+    const set = (v) => { if (isAsph) { if (!obj.asph) obj.asph = [0, 0, 0, 0]; obj.asph[+key.slice(4)] = v; } else obj[key] = v; };
+    const show = () => {
+      const v = get();
+      if (o.inf && (v === Infinity || v === undefined || !isFinite(v))) return '∞';
+      if (v === undefined || v === null) return '0';
+      if (o.exp && v !== 0) return v.toExponential(3);
+      return String(Math.abs(v) < 1e-9 ? 0 : +(+v).toFixed(6));
+    };
+    inp.value = show();
+    const commit = (v) => {
+      if (o.min !== undefined) v = Math.max(o.min, v);
+      if (o.max !== undefined) v = Math.min(o.max, v);
+      set(v); inp.value = show();
+      recompute(dragging ? 'drag' : 'full');
+    };
+    inp.onchange = () => {
+      const t = inp.value.trim();
+      if (o.inf && (t === '∞' || t === 'inf' || t === '' || t === 'Infinity')) { set(Infinity); inp.value = '∞'; recompute('full'); return; }
+      const v = Number(t);
+      if (!isFinite(v)) { inp.value = show(); Sound.err(); return; }
+      commit(v);
+    };
+    // 拖拽微调
+    inp.onpointerdown = (e) => {
+      if (e.button !== 0 || o.drag === undefined) return;
+      let last = e.clientX, moved = false;
+      const v0 = (o.inf && !isFinite(get())) ? 0 : (get() || 0);
+      let acc = 0;
+      inp.setPointerCapture(e.pointerId);
+      const mv = (ev) => {
+        acc += (ev.clientX - last); last = ev.clientX;
+        if (Math.abs(acc) < 2) return;
+        moved = true; dragging = 'num';
+        const nv = v0 + acc * o.drag;
+        commit(nv); Sound.tick();
+      };
+      const up = () => {
+        inp.removeEventListener('pointermove', mv); inp.removeEventListener('pointerup', up);
+        if (moved) { dragging = null; recompute('full'); }
+      };
+      inp.addEventListener('pointermove', mv); inp.addEventListener('pointerup', up);
+    };
+    return inp;
+  }
+
+  /* ------------------------------------------------------------- 侧栏 UI */
+  function buildSidebar() {
+    // 预设
+    const ps = $('presetSel');
+    ps.innerHTML = '';
+    Object.keys(OPT.PRESETS).forEach((k) => { const o = mk('option', '', OPT.PRESETS[k].name); o.value = k; ps.appendChild(o); });
+    ps.value = S.presetKey;
+    ps.onchange = () => loadPreset(ps.value);
+    // 材料 datalist
+    const dl = $('matlist');
+    dl.innerHTML = '';
+    Object.keys(OPT.MATERIALS).forEach((k) => {
+      if (k === 'MIRROR') return;
+      const o = mk('option'); o.value = k; o.label = OPT.MATERIALS[k].label + (OPT.MATERIALS[k].nd ? ` (n_d=${OPT.MATERIALS[k].nd.toFixed(4)})` : '');
+      dl.appendChild(o);
+    });
+    // 波长
+    const wl = $('waveList');
+    wl.innerHTML = '';
+    S.waves.forEach((w, i) => {
+      const r = mk('div', 'wrow');
+      const cb = mk('input'); cb.type = 'checkbox'; cb.checked = w.on;
+      cb.onchange = () => { w.on = cb.checked; Sound.toggle(cb.checked); recompute('full'); };
+      const rd = mk('input'); rd.type = 'radio'; rd.name = 'primaryW'; rd.checked = !!w.primary;
+      rd.onchange = () => { S.waves.forEach((x) => x.primary = false); w.primary = true; w.on = true; buildSidebar(); recompute('full'); };
+      const sw = mk('span', 'swatch'); sw.style.background = OPT.rgbCss(w.nm);
+      const nm = mk('input', 'mini num w'); nm.value = w.nm;
+      nm.onchange = () => { const v = Number(nm.value); if (v > 100 && v < 3000) { w.nm = v; recompute('full'); buildSidebar(); } else { nm.value = w.nm; Sound.err(); } };
+      const wt = mk('input', 'mini num w2'); wt.value = w.weight; wt.title = '权重';
+      wt.onchange = () => { w.weight = Math.max(0, Number(wt.value) || 1); recompute('full'); };
+      const del = mk('span', 'x', '×');
+      del.onclick = () => { if (S.waves.length > 1) { S.waves.splice(i, 1); buildSidebar(); recompute('full'); } };
+      r.appendChild(cb); r.appendChild(sw); r.appendChild(nm);
+      r.appendChild(mk('span', 'unit', 'nm')); r.appendChild(wt); r.appendChild(rd); r.appendChild(del);
+      wl.appendChild(r);
+    });
+    const addw = mk('div', 'wrow add');
+    const sel = mk('select', 'mini');
+    sel.appendChild(mk('option', '', '＋ 添加谱线…'));
+    LINES.forEach((L) => { const o = mk('option', '', `${L.nm} nm — ${L.name}`); o.value = L.nm; sel.appendChild(o); });
+    sel.onchange = () => {
+      const v = Number(sel.value);
+      if (v) { S.waves.push({ nm: v, weight: 1, on: true, primary: false }); buildSidebar(); recompute('full'); Sound.click(); }
+      sel.selectedIndex = 0;
+    };
+    addw.appendChild(sel);
+    wl.appendChild(addw);
+    // 图层开关
+    const lay = $('layerBox');
+    lay.innerHTML = '';
+    const LNAMES = { rays: '光线', normals: '表面法线', labels: '元件标注', detail: '标注细节', grid: '网格', axis: '光轴', gauss: '高斯光束包络', blocked: '被拦截光线' };
+    Object.keys(LNAMES).forEach((k) => {
+      const b = mk('button', 'chip' + (S.layers[k] ? ' on' : ''), LNAMES[k]);
+      b.onclick = () => { S.layers[k] = !S.layers[k]; Sound.toggle(S.layers[k]); if (k === 'gauss') recompute('full'); else { dirty.view = true; } buildSidebar(); };
+      lay.appendChild(b);
+    });
+    // 材料库说明
+    const mi = $('matInfo');
+    mi.innerHTML = '';
+    Object.keys(OPT.MATERIALS).forEach((k) => {
+      const m = OPT.MATERIALS[k];
+      if (k === 'MIRROR') return;
+      const n = OPT.indexAt(k, 587.5618);
+      const d = mk('div', 'kv');
+      d.appendChild(mk('span', 'k', k));
+      d.appendChild(mk('span', 'v', 'n_d=' + fmt(n, 5) + (isFinite(m.vd) ? '  V=' + fmt(m.vd, 1) : '')));
+      mi.appendChild(d);
+    });
+    // 视场输入
+    $('fieldInput').value = S.fields.join(', ');
+    $('fieldModeSel').value = S.fieldMode;
+    // 光源
+    $('srcType').value = S.source.type;
+    $('epdMode').value = S.apertureMode;
+    $('epdVal').value = S.epd;
+    $('fnoVal').value = S.fno;
+    $('launchDist').value = S.source.launchDist;
+    $('objDist').value = S.source.objDist;
+    $('coneHalf').value = S.source.coneHalfAngle;
+    $('gaussFill').value = S.source.gaussFill;
+    $('gaussW0').value = S.source.w0;
+    $('rayCount').value = S.rayCount;
+    $('pupilPattern').value = S.pupilPattern;
+    $('seedVal').value = S.seed;
+    $('scatterVal').value = S.scatter;
+    $('nsDepth').value = S.nsMaxDepth;
+    $('nsRays').value = S.nsRays;
+    $('nsGhost').checked = S.nsGhosts;
+    $('psfNsel').value = S.psfN;
+    $('psfNpsel').value = S.psfNp;
+    $('psfZoom').value = S.psfZoom;
+    $('psfLog').checked = S.psfLog;
+    document.querySelectorAll('[data-srcdep]').forEach((e) => {
+      e.style.display = e.dataset.srcdep.split(',').indexOf(S.source.type) >= 0 ? '' : 'none';
+    });
+    $('epdVal').parentElement.style.display = S.apertureMode === 'epd' ? '' : 'none';
+    $('fnoVal').parentElement.style.display = S.apertureMode === 'fno' ? '' : 'none';
+    $('nsBox').style.display = S.tracing === 'ns' ? '' : 'none';
+    $('seqBox').style.display = S.tracing === 'seq' ? '' : 'none';
+  }
+
+  /* ---------------------------------------------------------- 预设装载 */
+  function loadPreset(key) {
+    const p = OPT.PRESETS[key];
+    if (!p) return;
+    S.presetKey = key;
+    S.surfaces = JSON.parse(JSON.stringify(p.surfaces)).map((s) => Object.assign({}, OPT.SURF_DEFAULT, s, { asph: (s.asph || [0, 0, 0, 0]).slice() }));
+    S.fields = p.cfg.fields.slice();
+    S.fieldMode = p.cfg.fieldMode || 'angle';
+    S.waves = p.cfg.waves.map((nm, i) => ({ nm: nm, weight: 1, on: true, primary: i === Math.floor(p.cfg.waves.length / 2) }));
+    S.source = Object.assign({ type: 'collimated', launchDist: 25, objDist: 300, gaussFill: 0.62, w0: 3, coneHalfAngle: 8 }, p.cfg.source);
+    S.epd = p.cfg.epd; S.apertureMode = OPT.buildSystem({ surfaces: S.surfaces }).stopIdx >= 0 ? 'stop' : 'epd';
+    if (S.apertureMode === 'epd') S.epd = p.cfg.epd;
+    S.tracing = p.ns ? 'ns' : 'seq';
+    S.nsRays = p.cfg.nsRays || 900;
+    S.selectedField = 0; S.selected = -1;
+    S.spotScaleAuto = true;
+    $('presetDesc').innerHTML = `<b>${p.name}</b><br>${p.desc}`;
+    document.querySelectorAll('[data-trace]').forEach((b) => b.classList.toggle('on', b.dataset.trace === S.tracing));
+    buildSidebar(); buildTable();
+    recompute('full');
+    fitView();
+    Sound.load();
+  }
+
+  /* ------------------------------------------------------------ 视图适配 */
+  function fitView() {
+    let z0 = 1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const s of sys.surf) {
+      for (const sgn of [1, -1]) {
+        const p = { z: s.vertex.z + s.v.z * sgn * s.semiDia, y: s.vertex.y + s.v.y * sgn * s.semiDia };
+        z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+      }
+    }
+    const start = -(S.source.launchDist || 20);
+    z0 = Math.min(z0, start);
+    const vp = canvases.view;
+    const w = Math.max(1e-3, z1 - z0), h = Math.max(1e-3, y1 - y0);
+    S.view2d.scale = Math.min((vp.w - 90) / w, (vp.h - 70) / Math.max(h, w * 0.25));
+    S.view2d.cz = (z0 + z1) / 2; S.view2d.cy = (y0 + y1) / 2;
+    S.cam3d.target = { x: 0, y: (y0 + y1) / 2, z: (z0 + z1) / 2 };
+    S.cam3d.dist = Math.max(w, h) * 1.7 + 30;
+    dirty.view = true;
+  }
+
+  /* ------------------------------------------------------- 视口交互 */
+  function initViewport() {
+    const c = canvases.view.c;
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      Sound.resume();
+      if (S.mode === '2d') {
+        const r = c.getBoundingClientRect();
+        const mx = e.clientX - r.left, my = e.clientY - r.top;
+        const m = RND.makeMap2D(S.view2d, canvases.view.w, canvases.view.h);
+        const before = m.inv(mx, my);
+        const k = Math.exp(-e.deltaY * 0.0016);
+        S.view2d.scale = Math.max(0.02, Math.min(4000, S.view2d.scale * k));
+        const m2 = RND.makeMap2D(S.view2d, canvases.view.w, canvases.view.h);
+        const after = m2.inv(mx, my);
+        S.view2d.cz += before.z - after.z; S.view2d.cy += before.y - after.y;
+      } else {
+        S.cam3d.dist = Math.max(8, Math.min(6000, S.cam3d.dist * Math.exp(e.deltaY * 0.0012)));
+      }
+      dirty.view = true;
+    }, { passive: false });
+
+    c.addEventListener('pointerdown', (e) => {
+      Sound.resume();
+      c.setPointerCapture(e.pointerId);
+      const r = c.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      if (S.mode === '2d') {
+        const hit = pickSurface(mx, my);
+        if (hit >= 0 && !e.shiftKey) {
+          S.selected = hit;
+          dragging = { type: 'surf', idx: hit, x: mx, y: my, t0: S.surfaces.map((s) => s.thickness) };
+          buildTable(); Sound.click();
+        } else {
+          dragging = { type: 'pan', x: mx, y: my, cz: S.view2d.cz, cy: S.view2d.cy };
+        }
+      } else {
+        dragging = (e.shiftKey || e.button === 1)
+          ? { type: 'pan3', x: mx, y: my, tg: Object.assign({}, S.cam3d.target) }
+          : { type: 'orbit', x: mx, y: my, az: S.cam3d.az, el: S.cam3d.el };
+      }
+    });
+    c.addEventListener('pointermove', (e) => {
+      const r = c.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      if (dragging) {
+        const dx = mx - dragging.x, dy = my - dragging.y;
+        if (dragging.type === 'pan') {
+          S.view2d.cz = dragging.cz - dx / S.view2d.scale;
+          S.view2d.cy = dragging.cy + dy / S.view2d.scale;
+          dirty.view = true;
+        } else if (dragging.type === 'orbit') {
+          S.cam3d.az = dragging.az - dx * 0.008;
+          S.cam3d.el = Math.max(-1.5, Math.min(1.5, dragging.el + dy * 0.006));
+          dirty.view = true;
+        } else if (dragging.type === 'pan3') {
+          const cam = RND.makeCam(S.cam3d, canvases.view.w, canvases.view.h);
+          const k = S.cam3d.dist / cam.f;
+          S.cam3d.target = V.madd(V.madd(dragging.tg, cam.right, -dx * k), cam.up, dy * k);
+          dirty.view = true;
+        } else if (dragging.type === 'surf') {
+          moveSurface(dragging.idx, dx / S.view2d.scale, dragging.t0);
+          Sound.tick();
+        }
+        return;
+      }
+      // 悬停探针
+      if (S.mode === '2d') {
+        S.hoverSurf = pickSurface(mx, my);
+        pickRay(mx, my);
+        c.style.cursor = S.hoverSurf >= 0 ? 'ew-resize' : (probe ? 'crosshair' : 'grab');
+        dirty.view = true;
+      }
+    });
+    const endDrag = () => {
+      if (dragging && dragging.type === 'surf') { dragging = null; recompute('full'); }
+      dragging = null;
+    };
+    c.addEventListener('pointerup', endDrag);
+    c.addEventListener('pointercancel', endDrag);
+    c.addEventListener('pointerleave', () => { probe = null; probeInfo = null; S.hoverSurf = -1; dirty.view = true; });
+    c.addEventListener('dblclick', () => { fitView(); Sound.click(); });
+  }
+
+  /** 命中检测: 距某面剖面 < 8px */
+  function pickSurface(mx, my) {
+    const m = RND.makeMap2D(S.view2d, canvases.view.w, canvases.view.h);
+    let best = -1, bd = 9;
+    for (let i = 0; i < sys.surf.length; i++) {
+      const prof = RND.surfProfile(sys.surf[i], 24).filter(Boolean);
+      for (let k = 0; k < prof.length - 1; k++) {
+        const d = segDist(mx, my, m.X(prof[k].z), m.Y(prof[k].y), m.X(prof[k + 1].z), m.Y(prof[k + 1].y));
+        if (d < bd) { bd = d; best = i; }
+      }
+    }
+    return best;
+  }
+  function pickRay(mx, my) {
+    const m = RND.makeMap2D(S.view2d, canvases.view.w, canvases.view.h);
+    let best = null, bd = 7;
+    for (const p of paths) {
+      if (p.blocked && !S.layers.blocked) continue;
+      for (let k = 0; k < p.pts.length - 1; k++) {
+        const d = segDist(mx, my, m.X(p.pts[k].z), m.Y(p.pts[k].y), m.X(p.pts[k + 1].z), m.Y(p.pts[k + 1].y));
+        if (d < bd) { bd = d; best = { p: p, seg: k }; }
+      }
+    }
+    probe = best ? best.p : null;
+    if (!best) { probeInfo = null; return; }
+    const p = best.p;
+    const segIdx = best.seg;
+    const hit = p.hits && p.hits[Math.min(segIdx, p.hits.length - 1)];
+    const oplHere = hit ? hit.opl : p.opl;
+    const rows = [
+      ['波长 λ', `${fmt(p.lambda, 2)} nm`],
+      ['光瞳坐标', `(${fmt(p.px, 3)}, ${fmt(p.py, 3)})`],
+      ['视场序号', `F${(p.fieldIdx | 0) + 1}`],
+      ['当前光程 OPL', `${fmt(oplHere, 4)} mm`],
+      ['总光程', `${fmt(p.opl, 4)} mm`],
+      ['残余能量', `${(p.I * 100).toFixed(2)} %  (s ${(p.Is * 100).toFixed(1)}% / p ${(p.Ip * 100).toFixed(1)}%)`],
+      ['本段所在介质 n', hit ? fmt(hit.n1, 5) : '—'],
+      ['与法线夹角 AOI', hit ? `${fmt(hit.aoi, 3)}°` : '—'],
+      ['该面菲涅尔 R', hit ? `s ${(hit.Rs * 100).toFixed(2)}% / p ${(hit.Rp * 100).toFixed(2)}%` : '—'],
+      ['命中面 / 高度', hit ? `S${hit.si + 1} @ r=${fmt(hit.r, 3)} mm` : '—'],
+      ['状态', p.blocked ? `被拦截 (${p.blocked} @S${(p.blockIdx | 0) + 1})` : (p.tir ? '发生全反射' : '正常透过')]
+    ];
+    probeInfo = {
+      sx: mx, sy: my,
+      html: `<div class="ptitle" style="color:${OPT.rgbCss(p.lambda)}">光线探针 · Ray Probe</div>` +
+        rows.map((r) => `<div class="prow"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')
+    };
+  }
+  function segDist(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const L2 = dx * dx + dy * dy;
+    let t = L2 > 0 ? ((px - x1) * dx + (py - y1) * dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const qx = x1 + t * dx, qy = y1 + t * dy;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  /** 沿轴拖动某面(或整个玻璃体) */
+  function moveSurface(i, dzWorld, t0) {
+    const s = S.surfaces[i];
+    if (s.abs) { s.absZ = (Number(s.absZ) || 0) + dzWorld; recompute('drag'); return; }
+    const groups = RND.glassGroups(sys);
+    const grp = groups.find((g) => g.i === i || g.j === i);
+    const first = grp ? grp.i : i, last = grp ? grp.j : i;
+    if (first === 0) {   // 首面: 整体不可前移, 改为调整其后间距
+      const nxt = last;
+      if (nxt < S.surfaces.length - 1) S.surfaces[nxt].thickness = Math.max(0.01, t0[nxt] - dzWorld);
+    } else {
+      S.surfaces[first - 1].thickness = Math.max(0.01, t0[first - 1] + dzWorld);
+      if (last < S.surfaces.length - 1 && S.surfaces[last].kind !== 'image') {
+        const nv = t0[last] - dzWorld;
+        if (nv > 0.01) S.surfaces[last].thickness = nv;
+      }
+    }
+    recompute('drag');
+  }
+
+  /* --------------------------------------------------------- 顶栏与工具 */
+  function initTopbar() {
+    document.querySelectorAll('[data-mode]').forEach((b) => {
+      b.onclick = () => {
+        S.mode = b.dataset.mode;
+        document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x.dataset.mode === S.mode));
+        Sound.click(); dirty.view = true;
+        $('hint2d').style.display = S.mode === '2d' ? '' : 'none';
+        $('hint3d').style.display = S.mode === '3d' ? '' : 'none';
+      };
+    });
+    document.querySelectorAll('[data-trace]').forEach((b) => {
+      b.onclick = () => {
+        S.tracing = b.dataset.trace;
+        document.querySelectorAll('[data-trace]').forEach((x) => x.classList.toggle('on', x.dataset.trace === S.tracing));
+        Sound.click(); buildSidebar(); recompute('full');
+      };
+    });
+    $('btnFocus').onclick = () => {
+      const list = paths.filter((p) => p.ok && p.fieldIdx === 0);
+      if (list.length < 4) { Sound.err(); return; }
+      const dz = OPT.bestFocus(sys, list, Math.max(2, Math.abs(analysis.paraxial.efl || 50) * 0.15));
+      const k = sys.imageIdx - 1;
+      if (k >= 0) {
+        S.surfaces[k].thickness = Math.max(0.01, S.surfaces[k].thickness + dz);
+        buildTable(); recompute('full'); Sound.focus();
+        toast(`自动对焦: 像面移动 ${fmt(dz, 4)} mm → RMS ${fmt(analysis.fields[0].rms, 3)} µm`);
+      }
+    };
+    $('btnFit').onclick = () => { fitView(); Sound.click(); };
+    $('btnReset').onclick = () => { loadPreset(S.presetKey); };
+    $('btnSound').onclick = () => {
+      S.sound = !S.sound;
+      $('btnSound').classList.toggle('on', S.sound);
+      $('btnSound').textContent = S.sound ? '🔊 音效' : '🔇 静音';
+      if (S.sound) Sound.toggle(true);
+    };
+    $('btnPng').onclick = () => {
+      const c = canvases.view.c;
+      const a = document.createElement('a');
+      a.download = `optibench-${S.presetKey}-${S.mode}.png`;
+      a.href = c.toDataURL('image/png');
+      a.click(); Sound.click();
+    };
+    $('btnJson').onclick = () => {
+      const data = {
+        preset: S.presetKey, surfaces: S.surfaces, fields: S.fields, fieldMode: S.fieldMode,
+        waves: S.waves, source: S.source, apertureMode: S.apertureMode, epd: S.epd, fno: S.fno,
+        rayCount: S.rayCount, pupilPattern: S.pupilPattern, seed: S.seed, scatter: S.scatter
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.download = `optibench-${S.presetKey}.json`;
+      a.href = URL.createObjectURL(blob); a.click(); Sound.click();
+      toast('已导出系统 JSON');
+    };
+    $('btnImport').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const d = JSON.parse(rd.result);
+          if (d.surfaces) {
+            S.surfaces = d.surfaces.map((s) => Object.assign({}, OPT.SURF_DEFAULT, s));
+            if (d.fields) S.fields = d.fields;
+            if (d.waves) S.waves = d.waves;
+            if (d.source) S.source = d.source;
+            if (d.apertureMode) S.apertureMode = d.apertureMode;
+            if (d.epd) S.epd = d.epd;
+            buildSidebar(); buildTable(); recompute('full'); fitView(); Sound.load();
+            toast('已导入系统');
+          }
+        } catch (err) { Sound.err(); toast('JSON 解析失败: ' + err.message, true); }
+      };
+      rd.readAsText(f);
+      e.target.value = '';
+    };
+    $('btnHelp').onclick = () => {
+      const p = $('helpPanel');
+      p.classList.toggle('show');
+      Sound.click();
+    };
+    $('helpClose').onclick = () => { $('helpPanel').classList.remove('show'); Sound.click(); };
+  }
+
+  function toast(msg, err) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.className = 'toast'; }, 2600);
+  }
+
+  /* --------------------------------------------------------- 控件绑定 */
+  function initControls() {
+    $('fieldInput').onchange = (e) => {
+      const v = e.target.value.split(/[,，\s]+/).map(Number).filter((x) => isFinite(x));
+      if (v.length) { S.fields = v.slice(0, 4); S.selectedField = Math.min(S.selectedField, S.fields.length - 1); recompute('full'); }
+      buildSidebar();
+    };
+    $('fieldModeSel').onchange = (e) => { S.fieldMode = e.target.value; recompute('full'); };
+    $('srcType').onchange = (e) => { S.source.type = e.target.value; buildSidebar(); recompute('full'); Sound.click(); };
+    $('epdMode').onchange = (e) => { S.apertureMode = e.target.value; buildSidebar(); recompute('full'); };
+    const bindNum = (id, path, opt) => {
+      const el = $(id);
+      if (!el) return;
+      el.onchange = () => {
+        let v = Number(el.value);
+        if (!isFinite(v)) { Sound.err(); buildSidebar(); return; }
+        if (opt && opt.min !== undefined) v = Math.max(opt.min, v);
+        if (opt && opt.max !== undefined) v = Math.min(opt.max, v);
+        if (opt && opt.int) v = Math.round(v);
+        const parts = path.split('.');
+        let o = S;
+        for (let i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+        o[parts[parts.length - 1]] = v;
+        el.value = v;
+        recompute('full');
+      };
+      el.oninput = () => { if (opt && opt.live) { el.onchange(); } };
+    };
+    bindNum('epdVal', 'epd', { min: 0.01 });
+    bindNum('fnoVal', 'fno', { min: 0.5 });
+    bindNum('launchDist', 'source.launchDist', { min: 0 });
+    bindNum('objDist', 'source.objDist', { min: 1 });
+    bindNum('coneHalf', 'source.coneHalfAngle', { min: 0, max: 89 });
+    bindNum('gaussFill', 'source.gaussFill', { min: 0.05, max: 4 });
+    bindNum('gaussW0', 'source.w0', { min: 0.01 });
+    bindNum('rayCount', 'rayCount', { min: 3, max: 6000, int: true });
+    bindNum('seedVal', 'seed', { min: 1, int: true });
+    bindNum('scatterVal', 'scatter', { min: 0 });
+    bindNum('nsDepth', 'nsMaxDepth', { min: 1, max: 14, int: true });
+    bindNum('nsRays', 'nsRays', { min: 20, max: 4000, int: true });
+    $('pupilPattern').onchange = (e) => { S.pupilPattern = e.target.value; recompute('full'); Sound.click(); };
+    $('nsGhost').onchange = (e) => { S.nsGhosts = e.target.checked; Sound.toggle(e.target.checked); recompute('full'); };
+    $('psfNsel').onchange = (e) => { S.psfN = +e.target.value; recompute('full'); };
+    $('psfNpsel').onchange = (e) => { S.psfNp = +e.target.value; recompute('full'); };
+    $('psfZoom').onchange = (e) => { S.psfZoom = +e.target.value; dirty.charts = true; };
+    $('psfLog').onchange = (e) => { S.psfLog = e.target.checked; dirty.charts = true; Sound.toggle(e.target.checked); };
+    $('spotScale').onchange = (e) => {
+      const v = Number(e.target.value);
+      if (v > 0) { S.spotScaleUm = v; S.spotScaleAuto = false; dirty.charts = true; }
+    };
+    $('spotAuto').onclick = () => { S.spotScaleAuto = !S.spotScaleAuto; $('spotAuto').classList.toggle('on', S.spotScaleAuto); dirty.charts = true; Sound.toggle(S.spotScaleAuto); };
+    document.querySelectorAll('[data-fantab]').forEach((b) => {
+      b.onclick = () => {
+        S.fanTab = b.dataset.fantab;
+        document.querySelectorAll('[data-fantab]').forEach((x) => x.classList.toggle('on', x === b));
+        dirty.charts = true; Sound.click();
+      };
+    });
+    // MTF 游标
+    const mc = canvases.cMtf.c;
+    mc.addEventListener('mousemove', (e) => {
+      const fr = canvases.cMtf.fr;
+      if (!fr) return;
+      const r = mc.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const b = fr.box;
+      if (x < b.x || x > b.x + b.w) { S.mtfCursor = null; dirty.charts = true; return; }
+      const fmax = analysis.cutoff ? analysis.cutoff * 1.05 : 200;
+      S.mtfCursor = (x - b.x) / b.w * fmax;
+      dirty.charts = true;
+    });
+    mc.addEventListener('mouseleave', () => { S.mtfCursor = null; dirty.charts = true; });
+    // 点阵图点击选视场
+    canvases.cSpot.c.addEventListener('click', (e) => {
+      const boxes = canvases.cSpot.boxes || [];
+      const r = canvases.cSpot.c.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      boxes.forEach((b, i) => {
+        if (x >= b.box.x && x <= b.box.x + b.box.w && y >= b.box.y && y <= b.box.y + b.box.h) {
+          S.selectedField = i; Sound.click(); recompute('full');
+        }
+      });
+    });
+    // 面板最大化
+    document.querySelectorAll('.panel .ph').forEach((h) => {
+      h.addEventListener('dblclick', () => {
+        h.parentElement.classList.toggle('zoom');
+        Sound.click();
+        setTimeout(() => { dirty.charts = true; dirty.view = true; }, 60);
+      });
+    });
+    // 键盘
+    window.addEventListener('keydown', (e) => {
+      if (/input|select|textarea/i.test(e.target.tagName)) return;
+      const K = e.key.toLowerCase();
+      if (K === '1') $('btnMode2d').click();
+      else if (K === '2') $('btnMode3d').click();
+      else if (K === 'f') $('btnFocus').click();
+      else if (K === 'r') $('btnFit').click();
+      else if (K === 'l') { S.layers.rays = !S.layers.rays; buildSidebar(); dirty.view = true; Sound.toggle(S.layers.rays); }
+      else if (K === 'n') { S.layers.normals = !S.layers.normals; buildSidebar(); dirty.view = true; Sound.toggle(S.layers.normals); }
+      else if (K === 'g') { S.layers.grid = !S.layers.grid; buildSidebar(); dirty.view = true; Sound.toggle(S.layers.grid); }
+      else if (K === 'h') { S.layers.labels = !S.layers.labels; buildSidebar(); dirty.view = true; Sound.toggle(S.layers.labels); }
+      else if (K === '?' || K === '/') $('btnHelp').click();
+      else if (K === '+' || K === '=') { S.rayCount = Math.min(6000, Math.round(S.rayCount * 1.5)); buildSidebar(); recompute('full'); }
+      else if (K === '-') { S.rayCount = Math.max(7, Math.round(S.rayCount / 1.5)); buildSidebar(); recompute('full'); }
+    });
+    window.addEventListener('resize', () => { dirty.view = true; dirty.charts = true; });
+  }
+
+  /* ------------------------------------------------------------ 主循环 */
+  function loop() {
+    const t = performance.now();
+    frames++;
+    if (t - lastFpsT > 400) { fps = frames * 1000 / (t - lastFpsT); frames = 0; lastFpsT = t; }
+    if (dirty.view) { dirty.view = false; draw(); }
+    if (dirty.charts) { dirty.charts = false; drawCharts(); }
+    requestAnimationFrame(loop);
+  }
+
+  /* -------------------------------------------------------------- 启动 */
+  function boot() {
+    ['view', 'cSpot', 'cFan', 'cPsf', 'cMtf'].forEach(setupCanvas);
+    ['view', 'cSpot', 'cFan', 'cPsf', 'cMtf'].forEach((k) => fitCanvas(canvases[k]));
+    initTopbar(); initControls(); initViewport();
+    loadPreset('cooke');
+    loop();
+    setTimeout(() => toast('提示: 鼠标悬停光线可读取光程/能量/入射角; 拖动透镜或像面即时重算; 双击视口自适应'), 900);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+
+</script>
+</body>
+</html>
