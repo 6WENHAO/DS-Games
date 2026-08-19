@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>MineWeb — 网页版我的世界</title>
+<link rel="stylesheet" href="./assets/css/style.css">
+<link rel="stylesheet" href="./assets/css/ui.css">
+</head>
+<body>
+<!-- ============ 渲染画布 ============ -->
+<canvas id="glcanvas"></canvas>
+
+<!-- ============ 屏幕特效层（水下 / 受伤 / 传送门） ============ -->
+<div id="fx-underwater" class="fx-layer"></div>
+<div id="fx-damage" class="fx-layer"></div>
+<div id="fx-vignette" class="fx-layer"></div>
+
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="crosshair"></div>
+
+  <div id="hud-bottom">
+    <div id="stat-bars">
+      <div id="health-bar" class="stat-row"></div>
+      <div id="armor-bar" class="stat-row"></div>
+      <div id="food-bar" class="stat-row right"></div>
+      <div id="air-bar" class="stat-row right"></div>
+    </div>
+    <div id="xp-bar"><div id="xp-fill"></div><span id="xp-level"></span></div>
+    <div id="hotbar"></div>
+  </div>
+
+  <div id="hotbar-tooltip"></div>
+  <div id="debug-overlay" class="hidden"></div>
+  <div id="toast-area"></div>
+
+  <div id="chat-log"></div>
+  <div id="chat-input-wrap" class="hidden">
+    <span id="chat-prefix">&gt;</span><input id="chat-input" type="text" maxlength="240" autocomplete="off" spellcheck="false">
+    <div id="chat-suggest"></div>
+  </div>
+</div>
+
+<!-- ============ 主菜单 ============ -->
+<div id="screen-title" class="screen">
+  <div class="title-bg"></div>
+  <div class="title-content">
+    <h1 class="mc-logo">MINEWEB</h1>
+    <p class="splash" id="splash">用 WebGL2 从零手写的我的世界！</p>
+    <div class="menu-col">
+      <button class="mc-btn wide" data-action="play">进入世界</button>
+      <button class="mc-btn wide" data-action="new-world">创建新世界…</button>
+      <div class="btn-row">
+        <button class="mc-btn" data-action="options">选项…</button>
+        <button class="mc-btn" data-action="help">帮助</button>
+      </div>
+    </div>
+    <div class="version-line">MineWeb 1.0 · 纯前端 · 无依赖</div>
+    <div class="copyright-line">非官方作品 · 仅用于技术演示</div>
+  </div>
+</div>
+
+<!-- ============ 创建世界 ============ -->
+<div id="screen-newworld" class="screen hidden">
+  <div class="dialog">
+    <h2>创建新世界</h2>
+    <label>世界名称 <input id="nw-name" type="text" value="新的世界" maxlength="32"></label>
+    <label>种子（留空则随机） <input id="nw-seed" type="text" placeholder="例如 1405 或 hello" maxlength="32"></label>
+    <label>世界类型
+      <select id="nw-type">
+        <option value="default">默认（生物群系 / 洞穴 / 矿脉）</option>
+        <option value="amplified">放大化（极端地形）</option>
+        <option value="flat">超平坦</option>
+        <option value="islands">浮空岛</option>
+        <option value="water">无尽之海</option>
+      </select>
+    </label>
+    <label>游戏模式
+      <select id="nw-mode">
+        <option value="survival">生存模式</option>
+        <option value="creative" selected>创造模式</option>
+      </select>
+    </label>
+    <label class="check"><input id="nw-structures" type="checkbox" checked> 生成建筑（村庄小屋 / 遗迹 / 矿洞）</label>
+    <div class="dialog-actions">
+      <button class="mc-btn" data-action="create-world">创建世界</button>
+      <button class="mc-btn" data-action="back-title">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 选项 ============ -->
+<div id="screen-options" class="screen hidden">
+  <div class="dialog wide-dialog">
+    <h2>选项</h2>
+    <div class="opt-grid" id="options-grid"></div>
+    <div class="dialog-actions">
+      <button class="mc-btn" data-action="close-options">完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 帮助 ============ -->
+<div id="screen-help" class="screen hidden">
+  <div class="dialog wide-dialog">
+    <h2>操作说明</h2>
+    <div class="help-grid">
+      <div><b>W A S D</b><span>移动</span></div>
+      <div><b>空格</b><span>跳跃 / 上浮（双击起飞）</span></div>
+      <div><b>Shift</b><span>潜行 / 下降</span></div>
+      <div><b>Ctrl</b><span>疾跑</span></div>
+      <div><b>鼠标左键</b><span>挖掘方块 / 攻击</span></div>
+      <div><b>鼠标右键</b><span>放置方块 / 使用</span></div>
+      <div><b>鼠标中键</b><span>取色（复制方块）</span></div>
+      <div><b>滚轮 / 1-9</b><span>切换快捷栏</span></div>
+      <div><b>E</b><span>物品栏 / 合成</span></div>
+      <div><b>Q</b><span>丢弃物品</span></div>
+      <div><b>F</b><span>切换视角（第一 / 第三人称）</span></div>
+      <div><b>F3</b><span>调试信息</span></div>
+      <div><b>F5</b><span>过肩视角</span></div>
+      <div><b>F11</b><span>全屏</span></div>
+      <div><b>T / /</b><span>聊天 / 命令</span></div>
+      <div><b>ESC</b><span>暂停菜单</span></div>
+    </div>
+    <h3>可用命令</h3>
+    <pre class="cmd-help">/help  /time set day|night|<数字>  /gamemode creative|survival
+/tp <x> <y> <z>   /give <方块名> [数量]   /seed   /weather clear|rain|thunder
+/fill <方块名> <半径>   /killall   /spawn <生物> [数量]   /clear   /save   /tick <倍率></pre>
+    <div class="dialog-actions"><button class="mc-btn" data-action="back-title">返回</button></div>
+  </div>
+</div>
+
+<!-- ============ 暂停 ============ -->
+<div id="screen-pause" class="screen hidden">
+  <div class="dialog">
+    <h2>游戏已暂停</h2>
+    <div class="menu-col">
+      <button class="mc-btn wide" data-action="resume">回到游戏</button>
+      <button class="mc-btn wide" data-action="options">选项…</button>
+      <button class="mc-btn wide" data-action="save-quit">保存并退出到标题画面</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 死亡 ============ -->
+<div id="screen-death" class="screen hidden">
+  <div class="dialog death">
+    <h2>你死了！</h2>
+    <p id="death-msg">得分：0</p>
+    <div class="menu-col">
+      <button class="mc-btn wide" data-action="respawn">重生</button>
+      <button class="mc-btn wide" data-action="save-quit">返回标题画面</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 物品栏 / 合成 ============ -->
+<div id="screen-inventory" class="screen hidden inv-screen">
+  <div class="inv-window">
+    <div class="inv-tabs" id="inv-tabs"></div>
+    <div class="inv-body">
+      <div class="inv-left">
+        <div class="inv-title" id="inv-title">创造模式物品栏</div>
+        <div class="inv-grid" id="inv-catalog"></div>
+      </div>
+      <div class="inv-right">
+        <div class="craft-area">
+          <div class="inv-title">合成</div>
+          <div class="craft-rows">
+            <div class="craft-grid" id="craft-grid"></div>
+            <div class="craft-arrow">➜</div>
+            <div class="craft-out" id="craft-out"></div>
+          </div>
+          <div class="craft-hint" id="craft-hint">把材料放进网格，或点击右侧配方一键合成</div>
+        </div>
+        <div class="recipe-area">
+          <div class="inv-title">配方书</div>
+          <div class="recipe-list" id="recipe-list"></div>
+        </div>
+      </div>
+    </div>
+    <div class="inv-player">
+      <div class="inv-title">背包</div>
+      <div class="inv-grid main" id="inv-main"></div>
+      <div class="inv-grid hot" id="inv-hot"></div>
+    </div>
+  </div>
+  <div id="drag-ghost"></div>
+  <div id="item-tooltip"></div>
+</div>
+
+<!-- ============ 加载 ============ -->
+<div id="screen-loading" class="screen hidden">
+  <div class="loading-box">
+    <div class="loading-title" id="loading-title">正在生成世界…</div>
+    <div class="progress"><div class="progress-fill" id="loading-fill"></div></div>
+    <div class="loading-sub" id="loading-sub">构建地形</div>
+    <div class="loading-tip" id="loading-tip"></div>
+  </div>
+</div>
+
+<noscript><div class="screen"><div class="dialog"><h2>需要启用 JavaScript</h2></div></div></noscript>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
