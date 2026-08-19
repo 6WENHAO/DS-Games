@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アパート四〇二号室 — Apartment 402</title>
+<style>
+  :root {
+    --paper: #d8d2bc;
+    --ink: #1a1c1e;
+    --red: #a02323;
+    --cyan: #9fdcc8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body {
+    font-family: "Noto Serif JP", "Songti SC", "SimSun", Georgia, serif;
+    color: #cfd6d2;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #gameCanvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---------- 通用覆盖层 ---------- */
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column;
+    background: rgba(2, 3, 6, 0.88);
+    z-index: 50;
+    transition: opacity 0.4s ease;
+    pointer-events: none; opacity: 0;
+  }
+  .overlay.show { pointer-events: auto; opacity: 1; }
+  #fade { z-index: 40; background: #000; opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+
+  /* ---------- 标题画面 ---------- */
+  #titleScreen {
+    background:
+      radial-gradient(ellipse at 50% 30%, #10141c 0%, #05060a 60%, #010102 100%);
+    text-align: center;
+  }
+  #titleScreen .jp { font-size: clamp(30px, 6vw, 58px); letter-spacing: 0.35em; color: #d9e0da; text-shadow: 0 0 22px rgba(159,220,200,0.28); }
+  #titleScreen .en { margin-top: 12px; font-size: clamp(12px, 1.6vw, 16px); letter-spacing: 0.5em; color: #6f7f7a; }
+  #titleScreen .sub { margin-top: 34px; font-size: 13px; letter-spacing: 0.12em; color: #4d5a56; line-height: 1.9; }
+  #titleScreen .sub b { color: #a8b6ae; font-weight: normal; }
+  #startBtn {
+    margin-top: 44px;
+    padding: 14px 52px;
+    background: transparent;
+    border: 1px solid #3d4a46;
+    color: #cfd6d2;
+    font-family: inherit;
+    font-size: 17px;
+    letter-spacing: 0.45em;
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+  #startBtn:hover { border-color: var(--cyan); color: #e8f2ee; text-shadow: 0 0 12px rgba(159,220,200,0.8); box-shadow: inset 0 0 22px rgba(159,220,200,0.12); }
+  #titleScreen .warn { margin-top: 22px; font-size: 11px; letter-spacing: 0.1em; color: #6b4a4a; }
+  #titleScreen .foot { position: absolute; bottom: 22px; font-size: 11px; letter-spacing: 0.2em; color: #3c4743; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+    background: rgba(220, 232, 226, 0.75);
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+  #prompt {
+    position: absolute; left: 50%; top: 61%;
+    transform: translateX(-50%);
+    padding: 6px 18px;
+    background: rgba(4, 6, 8, 0.55);
+    border: 1px solid rgba(159, 220, 200, 0.35);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: #d7e4de;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  #prompt.show { opacity: 1; }
+  #subtitle {
+    position: absolute; left: 50%; bottom: 15%;
+    transform: translateX(-50%);
+    max-width: 70%;
+    text-align: center;
+    font-size: 16px; letter-spacing: 0.22em; line-height: 1.7;
+    color: #c2ccc7; text-shadow: 0 0 8px #000, 0 0 18px rgba(0,0,0,0.9);
+    opacity: 0; transition: opacity 0.5s;
+  }
+  #subtitle.show { opacity: 0.92; }
+  #toast {
+    position: absolute; left: 50%; top: 18%;
+    transform: translateX(-50%);
+    padding: 5px 16px;
+    background: rgba(4, 6, 8, 0.6);
+    font-size: 13px; letter-spacing: 0.14em;
+    color: #9fc8ba;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #toast.show { opacity: 0.9; }
+  #battery {
+    position: absolute; left: 26px; bottom: 26px; width: 150px; height: 8px;
+    background: rgba(10, 14, 12, 0.6);
+    border: 1px solid rgba(159, 220, 200, 0.4);
+  }
+  #batteryFill { height: 100%; width: 100%; background: #9fdcc8; transition: width 0.3s; }
+  #batteryLabel {
+    position: absolute; left: 26px; bottom: 38px;
+    font-size: 10px; letter-spacing: 0.25em; color: #5d6f68;
+  }
+  #hint {
+    position: absolute; right: 26px; bottom: 24px;
+    text-align: right; font-size: 10px; letter-spacing: 0.12em; line-height: 2;
+    color: #45534d; opacity: 0.85;
+  }
+  #fps { position: absolute; left: 26px; top: 24px; font-size: 11px; letter-spacing: 0.15em; color: #6a7f76; display: none; }
+  #fps.show { display: block; }
+
+  /* ---------- 笔记 ---------- */
+  #noteBox {
+    z-index: 60;
+    background: rgba(0, 0, 0, 0.72);
+  }
+  .note-paper {
+    width: min(560px, 86vw);
+    max-height: 78vh;
+    padding: 38px 42px 32px;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 26px, rgba(120,110,80,0.13) 26px 27px),
+      linear-gradient(160deg, #ded8c2 0%, #cbc39f 100%);
+    color: #2a2a26;
+    box-shadow: 0 0 70px rgba(0,0,0,0.9), 0 18px 40px rgba(0,0,0,0.6);
+    transform: rotate(-0.6deg);
+    position: relative;
+    overflow: auto;
+  }
+  .note-paper::before {
+    content: ""; position: absolute; inset: 6px;
+    border: 1px solid rgba(90, 80, 60, 0.35);
+    pointer-events: none;
+  }
+  .note-title {
+    font-size: 19px; letter-spacing: 0.3em; margin-bottom: 20px;
+    border-bottom: 1px solid rgba(90,80,60,0.4); padding-bottom: 12px;
+  }
+  .note-body { font-size: 15px; line-height: 1.9; letter-spacing: 0.08em; white-space: normal; }
+  .note-close { margin-top: 26px; font-size: 12px; letter-spacing: 0.3em; color: #6a6450; }
+
+  /* ---------- 惊吓脸 ---------- */
+  #scareFace {
+    z-index: 70;
+    background:
+      radial-gradient(circle at 40% 38%, rgba(190,190,170,0.85) 0%, rgba(140,140,130,0.7) 30%, rgba(20,20,24,0.95) 75%, #000 100%);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.05s;
+  }
+  #scareFace.show { opacity: 1; }
+  #scareFace .eyes {
+    position: absolute; left: 50%; top: 40%;
+    width: 340px; height: 90px;
+    transform: translate(-50%, -50%);
+    display: flex; justify-content: space-around; align-items: center;
+    filter: blur(2px);
+  }
+  #scareFace .eye {
+    width: 64px; height: 84px; border-radius: 48%;
+    background: radial-gradient(circle at 45% 55%, #000 60%, #14120f 100%);
+    box-shadow: inset 0 0 18px #000;
+  }
+  #scareFace .mouth {
+    position: absolute; left: 50%; top: 62%;
+    width: 130px; height: 46px;
+    transform: translate(-50%, -50%) rotate(-4deg);
+    background: radial-gradient(ellipse at 50% 40%, #000 55%, #0c0a08 100%);
+    filter: blur(1.5px);
+  }
+
+  /* ---------- 暂停菜单 ---------- */
+  #pauseMenu { z-index: 55; background: rgba(2, 3, 5, 0.9); }
+  #pauseMenu h2 { font-size: 26px; letter-spacing: 0.5em; color: #c8d2cd; margin-bottom: 30px; font-weight: normal; }
+  .menu-btn {
+    display: block; width: 300px; margin: 9px auto; padding: 11px 0;
+    background: transparent; border: 1px solid #39443f;
+    color: #c2cac6; font-family: inherit; font-size: 14px; letter-spacing: 0.3em;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .menu-btn:hover { border-color: var(--cyan); color: #eef5f2; }
+  .settings {
+    width: min(420px, 88vw);
+    margin-top: 20px; padding: 18px 22px;
+    background: rgba(10, 14, 13, 0.7);
+    border: 1px solid #2a3530;
+    text-align: left;
+  }
+  .settings label { display: block; margin: 11px 0 4px; font-size: 12px; letter-spacing: 0.2em; color: #8fa09a; }
+  .settings input[type=range] { width: 100%; accent-color: #9fdcc8; }
+  .settings .val { float: right; color: #c2cac6; }
+  .settings .row2 { display: flex; gap: 22px; }
+  .settings .row2 > div { flex: 1; }
+  .settings .chk { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 12px; letter-spacing: 0.15em; color: #8fa09a; cursor: pointer; }
+  .settings .chk input { accent-color: #9fdcc8; }
+  #pauseMenu .hint { margin-top: 22px; font-size: 11px; letter-spacing: 0.15em; color: #4c5954; line-height: 2; }
+
+  /* ---------- 崩溃面板 ---------- */
+  #crash { display: none; position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.92); }
+  .crash-box { max-width: 640px; margin: 10vh auto; padding: 30px; border: 1px solid #5a2a2a; background: #0c0a0a; }
+  .crash-box h2 { color: #d8b0b0; font-size: 18px; letter-spacing: 0.3em; margin-bottom: 14px; }
+  .crash-title { color: #e8d0d0; margin-bottom: 10px; }
+  .crash-detail { white-space: pre-wrap; color: #9a7a7a; font-size: 11px; max-height: 30vh; overflow: auto; margin-bottom: 14px; }
+  .crash-hint { font-size: 12px; line-height: 1.9; color: #8a9a94; }
+  .crash-hint code { background: #1a1a1a; padding: 1px 6px; color: #b8d8cc; }
+
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .blink { animation: blink 2.2s infinite; }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<!-- 黑场过渡 -->
+<div id="fade" class="overlay"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="prompt"></div>
+  <div id="subtitle"></div>
+  <div id="toast"></div>
+  <div id="fps">60 FPS</div>
+  <div id="batteryLabel">手电筒</div>
+  <div id="battery"><div id="batteryFill"></div></div>
+  <div id="hint">WASD 移动 · SHIFT 跑 · C 蹲<br>鼠标 视角 · F 手电 · E 互动</div>
+</div>
+
+<!-- 标题画面 -->
+<div id="titleScreen" class="overlay show">
+  <div class="jp">アパート四〇二号室</div>
+  <div class="en">APARTMENT 402</div>
+  <div class="sub">
+    <b>废弃公寓探索 · 第一人称心理恐怖</b><br>
+    这是一条走廊。<br>
+    走廊的尽头，还是一扇门。
+  </div>
+  <button id="startBtn" class="blink">進 む</button>
+  <div class="warn">⚠ 建议佩戴耳机 · 含闪烁灯光 · 无血腥内容</div>
+  <div class="foot">PS1 / PS2 复古低多边形 · Three.js · 由程序实时生成</div>
+</div>
+
+<!-- 笔记 -->
+<div id="noteBox" class="overlay">
+  <div class="note-paper">
+    <div class="note-title" id="noteTitle">笔记</div>
+    <div class="note-body" id="noteBody"></div>
+    <div class="note-close">[E] / [ESC] 合上</div>
+  </div>
+</div>
+
+<!-- 惊吓脸 -->
+<div id="scareFace">
+  <div class="eyes"><div class="eye"></div><div class="eye"></div></div>
+  <div class="mouth"></div>
+</div>
+
+<!-- 暂停菜单 -->
+<div id="pauseMenu" class="overlay">
+  <h2>一時停止</h2>
+  <button class="menu-btn" id="resumeBtn">继续</button>
+  <button class="menu-btn" id="restartBtn">重新开始</button>
+  <div class="settings">
+    <div class="row2">
+      <div>
+        <label>视野 FOV <span class="val" id="vFov">72</span></label>
+        <input type="range" id="sFov" min="55" max="95" step="1" value="72">
+        <label>鼠标灵敏度 <span class="val" id="vSens">1.0</span></label>
+        <input type="range" id="sSens" min="20" max="200" step="5" value="100">
+      </div>
+      <div>
+        <label>渲染分辨率 <span class="val" id="vScale">50%</span></label>
+        <input type="range" id="sScale" min="20" max="100" step="5" value="50">
+        <label>音量 <span class="val" id="vVol">70%</span></label>
+        <input type="range" id="sVol" min="0" max="100" step="5" value="70">
+      </div>
+    </div>
+    <label>Bloom 泛光 <span class="val" id="vBloom">85%</span></label>
+    <input type="range" id="sBloom" min="0" max="100" step="5" value="85">
+    <label>VHS 噪点 <span class="val" id="vGrain">55%</span></label>
+    <input type="range" id="sGrain" min="0" max="100" step="5" value="55">
+    <label>扫描线 <span class="val" id="vScan">45%</span></label>
+    <input type="range" id="sScan" min="0" max="100" step="5" value="45">
+    <label>环境遮蔽 AO <span class="val" id="vAO">80%</span></label>
+    <input type="range" id="sAO" min="0" max="100" step="5" value="80">
+    <label class="chk"><input type="checkbox" id="cSnap" checked> PS1 顶点抖动</label>
+    <label class="chk"><input type="checkbox" id="cAffine" checked> PS1 仿射贴图失真</label>
+    <label class="chk"><input type="checkbox" id="cInvert"> 反转 Y 轴</label>
+  </div>
+  <div class="hint">ESC 暂停 · F2 帧率 · F3 顶点抖动开关 · F4 仿射UV开关 · F5 刷新重开</div>
+</div>
+
+<!-- 崩溃面板 -->
+<div id="crash"></div>
+
+<!-- 脚本：本地优先，断网回退 CDN（?cdn=1 强制 CDN） -->
+<script>
+  function loadThree(cb) {
+    var useCdn = (new URLSearchParams(location.search)).get('cdn') === '1';
+    var localOk = false;
+    function localDone() { localOk = true; cb(); }
+    function localFail() {
+      if (useCdn || !localOk) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js';
+        s.onload = cb;
+        s.onerror = function () {
+          window.HZ && window.HZ.fatal('无法加载 three.js',
+            '本地 vendor/three.min.js 不存在，且 CDN 不可达。\n请联网重试，或手动把 three.min.js 放入 vendor/ 目录。');
+        };
+        document.head.appendChild(s);
+      }
+    }
+    if (!useCdn) {
+      var s = document.createElement('script');
+      s.src = 'vendor/three.min.js';
+      s.onload = localDone;
+      s.onerror = localFail;
+      document.head.appendChild(s);
+    } else {
+      localFail();
+    }
+  }
+
+  loadThree(function () {
+    var files = ['src/core.js', 'src/textures.js', 'src/ps1fx.js',
+                 'src/world.js', 'src/entity.js', 'src/audio.js', 'src/game.js'];
+    var i = 0;
+    function next() {
+      if (i >= files.length) { boot(); return; }
+      var s = document.createElement('script');
+      s.src = files[i++];
+      s.onload = next;
+      s.onerror = function () {
+        window.HZ && window.HZ.fatal('脚本加载失败', s.src);
+      };
+      document.head.appendChild(s);
+    }
+    next();
+  });
+
+  var GAME = null;
+
+  function boot() {
+    try {
+      window.HZ.installErrorHandlers();
+      var canvas = document.getElementById('gameCanvas');
+      var renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, powerPreference: 'high-performance' });
+      } catch (e) {
+        HZ.fatal('WebGL 初始化失败', String(e));
+        return;
+      }
+      // GPU 上下文丢失 → 阻止默认销毁，并在恢复时继续渲染
+      canvas.addEventListener('webglcontextlost', function (ev) {
+        ev.preventDefault();
+        var el = document.getElementById('toast');
+        if (el) { el.textContent = '显卡上下文丢失，正在恢复……'; el.classList.add('show'); }
+      });
+      canvas.addEventListener('webglcontextrestored', function () {
+        if (GAME && GAME.postfx) GAME.postfx.resize();
+        if (GAME) { GAME.onResize(); GAME.toast('已恢复渲染'); }
+      });
+      var postfx = null;
+      if (!HZ.flag('raw', false)) {
+        try {
+          postfx = new HZ.PS1.PostFX(renderer);
+        } catch (e) {
+          console.warn('后处理初始化失败，直出渲染', e);
+          postfx = null;
+        }
+      }
+      GAME = new HZ.Game(renderer, postfx);
+      window.__GAME = GAME;
+
+      // ---- UI 绑定 ----
+      var startBtn = document.getElementById('startBtn');
+      startBtn.addEventListener('click', function () {
+        document.getElementById('titleScreen').classList.remove('show');
+        GAME.start();
+        setTimeout(function () { GAME._acquireLock(); }, 120);
+      });
+
+      var noteBox = document.getElementById('noteBox');
+      noteBox.addEventListener('click', function () { GAME.closeNote(); });
+
+      var pauseMenu = document.getElementById('pauseMenu');
+      document.getElementById('resumeBtn').addEventListener('click', function () { GAME.resume(); });
+      document.getElementById('restartBtn').addEventListener('click', function () { location.reload(); });
+
+      // 设置滑块
+      var S = HZ.settings;
+      function bindSlider(id, key, fmt, valId) {
+        var el = document.getElementById(id);
+        var out = valId ? document.getElementById(valId) : null;
+        el.addEventListener('input', function () {
+          var v = parseFloat(el.value);
+          var updates = {};
+          updates[key] = fmt ? v / fmt : v;
+          GAME.applySettings(updates);
+          if (out) out.textContent = (fmt ? Math.round(v) : v) + (fmt === 100 ? '%' : '');
+          el.title = key;
+        });
+      }
+      bindSlider('sFov', 'fov', 1, 'vFov');
+      bindSlider('sSens', 'sensitivity', 1000, 'vSens');
+      bindSlider('sScale', 'renderScale', 100, 'vScale');
+      bindSlider('sVol', 'volume', 100, 'vVol');
+      bindSlider('sBloom', 'bloom', 100, 'vBloom');
+      bindSlider('sGrain', 'grain', 100, 'vGrain');
+      bindSlider('sScan', 'scanlines', 100, 'vScan');
+      bindSlider('sAO', 'ao', 100, 'vAO');
+      document.getElementById('cSnap').addEventListener('change', function (e) {
+        GAME.applySettings({ vertexSnap: e.target.checked ? 1 : 0 });
+      });
+      document.getElementById('cAffine').addEventListener('change', function (e) {
+        GAME.applySettings({ affineUV: e.target.checked });
+      });
+      document.getElementById('cInvert').addEventListener('change', function (e) {
+        GAME.applySettings({ invertY: e.target.checked });
+      });
+
+      // FPS 显示
+      var _frames = 0, _fpsT = performance.now();
+      (function fpsLoop(ts) {
+        _frames++;
+        if (ts - _fpsT > 500) {
+          var el = document.getElementById('fps');
+          if (el && HZ.settings.showFps) {
+            el.classList.add('show');
+            el.textContent = Math.round(_frames * 1000 / (ts - _fpsT)) + ' FPS';
+          } else if (el) el.classList.remove('show');
+          _frames = 0; _fpsT = ts;
+        }
+        requestAnimationFrame(fpsLoop);
+      })(performance.now());
+
+      // 测试模式：?autostart=1
+      if (HZ.flag('autostart', false)) GAME.autostart();
+
+      console.log('[HZ] アパート四〇二号室 booted. three r' + THREE.REVISION);
+    } catch (e) {
+      HZ.fatal('启动失败', e && e.stack ? e.stack : String(e));
+    }
+  }
+</script>
+</body>
+</html>
