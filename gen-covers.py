@@ -86,7 +86,7 @@ def capture_once(url, out_tmp, out_final):
 def main():
     os.makedirs(COVER_DIR, exist_ok=True)
     html = open(HOMEPAGE, encoding="utf-8").read()
-    entries = re.findall(r'\{ title: "([^"]*)", tag: "([^"]*)", gameUrl: "([^"]*)" \}', html)
+    entries = re.findall(r'\{ title: "([^"]*)", tag: "([^"]*)", gameUrl: "([^"]*)"(?:, thumb: "[^"]*")? \}', html)
     if not entries:
         print("!! 未找到 games 条目"); sys.exit(1)
 
