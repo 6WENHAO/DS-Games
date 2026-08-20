@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>LOS SANTOS · 程序化城市规划</title>
+<style>
+  :root{
+    --ink:#f2efe8; --dim:#9a958c; --line:rgba(255,255,255,.10);
+    --glass:rgba(10,12,15,.62); --hi:#ffd24a;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#0a0c10;overflow:hidden}
+  body{
+    font:400 13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);-webkit-font-smoothing:antialiased;user-select:none;touch-action:none
+  }
+  canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  /* ---------------- HUD ---------------- */
+  #hud{position:fixed;inset:0;pointer-events:none;transition:opacity .3s}
+  #hud.off{opacity:0}
+  .card{
+    background:var(--glass);border:1px solid var(--line);border-radius:12px;
+    backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
+    box-shadow:0 18px 44px -22px #000
+  }
+  /* 左上：区名 / 街道 */
+  #where{position:absolute;left:20px;top:16px}
+  #where .dist{font-size:11px;letter-spacing:.30em;color:#b9b2a6;text-transform:uppercase}
+  #where .st{font:600 22px/1.15 inherit;letter-spacing:.02em;color:#fff;text-shadow:0 2px 12px #000}
+  #where .zone{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:4px;font-size:10.5px;letter-spacing:.16em;
+    color:#0d0f12;background:var(--hi);font-weight:700}
+  /* 右上：规划指标 */
+  #plan{position:absolute;right:16px;top:16px;width:212px;padding:12px 13px}
+  #plan h3{margin:0 0 9px;font-size:10px;letter-spacing:.24em;color:#a49d92;text-transform:uppercase;font-weight:600}
+  #plan .kv{display:flex;justify-content:space-between;font-size:11.5px;line-height:1.85;color:#c8c2b7}
+  #plan .kv b{font:500 11.5px ui-monospace,Menlo,Consolas,monospace;color:#fff}
+  #plan .seed{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);display:flex;gap:6px;pointer-events:auto}
+  #plan button{
+    flex:1;font:600 11px inherit;color:#0d0f12;background:linear-gradient(180deg,#ffe08a,#ffc23c);
+    border:0;border-radius:6px;padding:6px 0;cursor:pointer
+  }
+  #plan button.gh{background:rgba(255,255,255,.08);color:#d6d0c5;border:1px solid var(--line)}
+  /* 左下：小地图 */
+  #mmWrap{position:absolute;left:20px;bottom:20px;width:206px}
+  #mm{display:block;width:206px;height:206px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
+    box-shadow:0 16px 40px -18px #000, inset 0 0 0 1px rgba(0,0,0,.5);background:#141a20}
+  #mmScale{margin-top:6px;font:400 10px ui-monospace,Menlo,monospace;color:#8d887f;text-align:center;letter-spacing:.1em}
+  /* 右下：控制 */
+  #keys{position:absolute;right:16px;bottom:16px;width:212px;padding:11px 13px;font-size:11px;color:#a9a39a;line-height:1.9}
+  #keys b{color:#e6e0d5;font-weight:500}
+  #keys kbd{font:400 10px ui-monospace,Menlo,Consolas,monospace;color:#0e1013;background:#cfc9bd;border-radius:3px;padding:1px 4.5px}
+  /* 中下：速度表 */
+  #spd{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);text-align:center;opacity:0;transition:opacity .25s}
+  #spd.on{opacity:1}
+  #spd .n{font:600 34px/1 ui-monospace,Menlo,Consolas,monospace;color:#fff;text-shadow:0 2px 14px #000}
+  #spd .u{font-size:10px;letter-spacing:.3em;color:#b6b0a5}
+
+  /* ---------------- 大地图 ---------------- */
+  #mapv{position:fixed;inset:0;background:rgba(6,8,11,.94);display:none;place-items:center;z-index:20}
+  #mapv.on{display:grid}
+  #mapBox{position:relative;width:min(94vh,94vw);height:min(94vh,94vw)}
+  #map{width:100%;height:100%;display:block;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 40px 90px -30px #000;background:#0f1419;cursor:crosshair}
+  #mapTop{position:absolute;left:0;top:-34px;right:0;display:flex;align-items:flex-end;justify-content:space-between}
+  #mapTop h2{margin:0;font-size:13px;letter-spacing:.34em;color:#efe9dd;text-transform:uppercase;font-weight:600}
+  #mapTop .tabs{display:flex;gap:6px}
+  .tab{font:600 11px inherit;color:#a29c92;background:rgba(255,255,255,.06);border:1px solid var(--line);
+    border-radius:6px;padding:5px 11px;cursor:pointer}
+  .tab.on{color:#0d0f12;background:var(--hi);border-color:transparent}
+  #legend{position:absolute;left:0;right:0;bottom:-40px;display:flex;flex-wrap:wrap;gap:7px 14px;
+    font-size:10.5px;color:#b3ada3;justify-content:center}
+  #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+  /* ---------------- 载入 ---------------- */
+  #load{position:fixed;inset:0;background:#0a0c10;display:grid;place-items:center;z-index:40}
+  #load div{text-align:center}
+  #load h1{margin:0;font-size:15px;letter-spacing:.5em;color:#efe9dd;text-transform:uppercase}
+  #load p{margin:10px 0 0;font-size:11.5px;color:#8b867e;letter-spacing:.16em}
+  #err{position:fixed;left:0;right:0;top:44%;text-align:center;color:#ff9c7c;font-size:13px;padding:24px;z-index:50;white-space:pre-wrap}
+  @media (max-width:700px){
+    #plan,#keys{display:none} #mmWrap{width:150px} #mm{width:150px;height:150px}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="where">
+    <div class="dist" id="wDist">—</div>
+    <div class="st" id="wSt">—</div>
+    <span class="zone" id="wZone">—</span>
+  </div>
+
+  <div id="plan" class="card">
+    <h3>规划指标 · Plan Metrics</h3>
+    <div class="kv"><span>用地面积</span><b id="mArea">—</b></div>
+    <div class="kv"><span>路网总长</span><b id="mRoad">—</b></div>
+    <div class="kv"><span>街区 / 宗地</span><b id="mBlock">—</b></div>
+    <div class="kv"><span>建筑栋数</span><b id="mBld">—</b></div>
+    <div class="kv"><span>总建筑面积</span><b id="mFar">—</b></div>
+    <div class="kv"><span>平均容积率</span><b id="mFarR">—</b></div>
+    <div class="kv"><span>最高建筑</span><b id="mTall">—</b></div>
+    <div class="kv"><span>推算人口</span><b id="mPop">—</b></div>
+    <div class="seed">
+      <button id="bRe">重新规划</button>
+      <button id="bMap" class="gh">地图</button>
+    </div>
+  </div>
+
+  <div id="mmWrap">
+    <canvas id="mm" width="412" height="412"></canvas>
+    <div id="mmScale">SEED —</div>
+  </div>
+
+  <div id="keys" class="card">
+    <b>W A S D</b> 移动 · <b>Q E</b> 升降<br>
+    <kbd>Shift</kbd> 加速 · <kbd>G</kbd> 驾车/飞行<br>
+    <kbd>M</kbd> 大地图 · <kbd>Z</kbd> 分区图<br>
+    <kbd>[</kbd> <kbd>]</kbd> 时间 · <kbd>T</kbd> 昼夜<br>
+    <kbd>R</kbd> 随机传送 · <kbd>H</kbd> 界面<br>
+    <span style="color:#7d786f">点击锁定鼠标视角；驾车时鼠标绕车环视，<kbd>空格</kbd> 刹车</span>
+  </div>
+
+  <div id="spd"><div class="n" id="spdN">0</div><div class="u">km/h</div></div>
+</div>
+
+<div id="mapv">
+  <div id="mapBox">
+    <div id="mapTop">
+      <h2 id="mapTitle">Los Santos · 街道图</h2>
+      <div class="tabs">
+        <button class="tab on" data-m="street">街道</button>
+        <button class="tab" data-m="zoning">用地分区</button>
+      </div>
+    </div>
+    <canvas id="map" width="1500" height="1500"></canvas>
+    <div id="legend"></div>
+  </div>
+</div>
+
+<div id="load"><div><h1>Los Santos</h1><p id="loadTxt">正在编制城市总体规划…</p></div></div>
+<div id="err" hidden></div>
+
+<!-- =============== 天空 =============== -->
+<script id="vsSky" type="x-shader/x-vertex">
+attribute vec2 aPos; varying vec2 vUv;
+void main(){ vUv=aPos; gl_Position=vec4(aPos,0.999,1.0); }
+</script>
+<script id="fsSky" type="x-shader/x-fragment">
+precision highp float;
+varying vec2 vUv;
+uniform mat3 uBasis; uniform float uFocal, uAsp, uTime, uNight;
+uniform vec3 uSun, uSunCol, uSkyTop, uSkyBot, uFog;
+float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float n2(vec2 x){ vec2 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+float fbm(vec2 x){ float s=0.0,a=0.5; mat2 m=mat2(1.6,1.2,-1.2,1.6);
+  for(int i=0;i<5;i++){ s+=a*n2(x); x=m*x; a*=0.5; } return s; }
+void main(){
+  vec3 d = normalize(uBasis*vec3(vUv.x*uAsp, vUv.y, uFocal));
+  float h = d.y;
+  vec3 col = mix(uSkyBot, uSkyTop, pow(clamp(h,0.0,1.0), 0.62));
+  float sd = max(dot(d, uSun), 0.0);
+  col += uSunCol*pow(sd, 1400.0)*6.0;              // 日面
+  col += uSunCol*pow(sd, 5.0)*0.30;                // 天空散射
+  // 星空（仅夜间）：格子尺度必须够大，否则星点是亚像素的、根本看不见
+  if (uNight > 0.02 && h > -0.02){
+    vec3 sp = d*68.0;
+    vec3 id = floor(sp), fp = fract(sp)-0.5;
+    float pk = h21(id.xy + id.z*41.7);
+    if (pk > 0.80){
+      vec2 o = vec2(h21(id.xy+2.3), h21(id.yz+7.1))-0.5;
+      float dd = length(fp.xy - o*0.55) + abs(fp.z)*0.55;
+      float mag = pow(h21(id.zx+13.9), 5.0);
+      col += vec3(0.86,0.92,1.0)*smoothstep(0.24,0.02,dd)*(0.5+9.0*mag)*uNight*smoothstep(-0.02,0.10,h);
+    }
+  }
+  if (h > 0.02){                                    // 云层
+    vec2 q = d.xz/max(h,0.05)*0.16 + vec2(uTime*0.0035, uTime*0.0012);
+    float c = fbm(q*1.0);
+    float c2 = fbm(q*2.7 + 4.0);
+    float m = smoothstep(0.52, 0.86, c*0.75+c2*0.35)*smoothstep(0.02,0.22,h);
+    vec3 cc = mix(uFog*1.05, vec3(1.0,0.98,0.95), 0.55);
+    col = mix(col, cc*(0.55+0.6*uSunCol), m*0.9);
+  }
+  col = mix(uFog, col, smoothstep(-0.06, 0.13, h));  // 地平线霾
+  col = col/(col+0.85);                              // 与主 pass 相同的 tonemap + gamma
+  gl_FragColor = vec4(pow(max(col,0.0), vec3(1.0/2.2)), 1.0);
+}
+</script>
+
+<!-- =============== 主渲染 =============== -->
+<script id="vsMain" type="x-shader/x-vertex">
+attribute vec3 aPos, aNrm, aCol;
+attribute vec2 aUv;
+attribute vec4 aParm;              // kind, seed, cellW, cellH
+uniform mat4 uVP;
+varying vec3 vPos, vNrm, vCol; varying vec2 vUv; varying vec4 vParm;
+void main(){ vPos=aPos; vNrm=aNrm; vCol=aCol; vUv=aUv; vParm=aParm; gl_Position=uVP*vec4(aPos,1.0); }
+</script>
+<script id="fsMain" type="x-shader/x-fragment">
+precision highp float;
+varying vec3 vPos, vNrm, vCol; varying vec2 vUv; varying vec4 vParm;
+uniform sampler2D uPlan, uLamp;
+uniform vec3 uSun, uSunCol, uSkyTop, uSkyBot, uFog, uCam;
+uniform vec3 uHead, uHeadDir;                 // 玩家车头灯：位置 / 朝向
+uniform float uNight, uTime, uHeadOn;
+
+float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+
+void main(){
+  vec3 N = normalize(vNrm);
+  vec3 base = vCol;
+  float emis = 0.0, spec = 0.0, rough = 1.0;
+  vec3 emisCol = vec3(1.0,0.83,0.55);
+  float kind = vParm.x, seed = vParm.y;
+
+  if (kind < 0.5){
+    // 素色：路缘、标线、构筑物
+  } else if (kind < 1.5){
+    // ---- 立面：程序化窗格 ----
+    bool gf = vUv.y < 4.4;                             // 首层店面
+    vec2 cell = gf ? vec2(vParm.z*1.6, 4.4) : vParm.zw;
+    vec2 g = vec2(vUv.x, vUv.y - (gf?0.0:4.4))/cell;
+    vec2 id = floor(g), f = fract(g);
+    float win = smoothstep(.10,.19,f.x)*(1.0-smoothstep(.81,.90,f.x))
+              * smoothstep(.15,.26,f.y)*(1.0-smoothstep(.76,.87,f.y));
+    float pier = step(0.55, h21(vec2(seed,3.3))) * step(0.86, fract(g.x*0.5));  // 竖向壁柱
+    win *= (1.0 - pier);
+    float band = 1.0 - 0.30*smoothstep(0.90,1.0,f.y);  // 楼板线
+    float hh = h21(id + seed*13.0);
+    vec3 sky = mix(uSkyBot, uSkyTop, 0.55);
+    vec3 glass = mix(vec3(0.045,0.062,0.085), sky*0.65, 0.30 + 0.34*hh);
+    base = mix(base*band, glass, win*0.94);
+    emis = win*step(0.58, hh)*uNight*(0.5+0.5*h21(id+seed*7.7));
+    spec = win*0.55; rough = mix(1.0, 0.12, win);
+    base *= mix(0.72, 1.0, clamp(vUv.y/26.0, 0.0, 1.0));   // 近地遮蔽
+  } else if (kind < 2.5){
+    // ---- 屋面 ----
+    float n = h21(floor(vUv*0.45) + seed);
+    base *= 0.88 + 0.24*n;
+  } else if (kind < 3.5){
+    // ---- 平面图贴图（地面 / 街区台地）----
+    base = texture2D(uPlan, vUv).rgb;
+  } else if (kind < 4.5){
+    // ---- 水 ----
+    float w = sin(vPos.x*0.09 + uTime*1.1) + sin(vPos.z*0.13 - uTime*0.8) + sin((vPos.x+vPos.z)*0.05 + uTime*0.5);
+    N = normalize(vec3(w*0.07, 1.0, cos(vPos.z*0.11 + uTime*0.9)*0.07));
+    base = mix(vec3(0.035,0.10,0.145), vec3(0.06,0.18,0.22), 0.5+0.5*w*0.4);
+    spec = 1.0; rough = 0.05;
+  } else if (kind < 5.5){
+    // ---- 玻璃幕墙 ----
+    float fl = fract(vUv.y/4.05);
+    base = mix(base, base*0.45, smoothstep(0.86,1.0,fl));
+    float hh = h21(floor(vec2(vUv.x/2.2, vUv.y/4.05)) + seed*11.0);
+    emis = uNight*step(0.62,hh)*0.75*smoothstep(0.9,0.6,fl);
+    spec = 0.9; rough = 0.10;
+  } else {
+    // ---- 自发光：灯头 / 车灯 / 招牌（vParm.z = 白天强度）----
+    emisCol = vCol;
+    emis = mix(vParm.z, 1.0, uNight);
+    spec = 0.2; rough = 0.3;
+  }
+
+  vec3 V = normalize(uCam - vPos);
+  float ndl = max(dot(N, uSun), 0.0);
+  vec3 amb = mix(uSkyBot, uSkyTop, clamp(N.y*0.5+0.5,0.0,1.0));
+  vec3 col = base*(amb*0.52 + uSunCol*ndl*1.05);
+  if (spec > 0.001){
+    vec3 H = normalize(uSun + V);
+    float sh = pow(max(dot(N,H),0.0), mix(12.0, 900.0, 1.0-rough));
+    col += uSunCol*sh*spec*1.6;
+    col += amb*pow(1.0-max(dot(N,V),0.0), 4.0)*spec*0.5;    // 菲涅尔
+  }
+
+  // ---- 夜间路灯辐照：按世界坐标采样烘焙光池，随高度衰减 ----
+  if (uNight > 0.004){
+    vec2 lu = (vPos.xz + 1200.0)/2400.0;
+    float fall = exp(-max(vPos.y-0.4, 0.0)*0.115);
+    vec3 lamp = texture2D(uLamp, lu).rgb*uNight*fall;
+    col += base*lamp*vec3(2.30,1.68,0.92)*(0.35+0.65*max(N.y,0.0));
+  }
+  // ---- 玩家车头灯：真实聚光（近处亮、随距离平方衰减）----
+  if (uHeadOn > 0.01){
+    vec3 hv = vPos - uHead;
+    float hd = length(hv);
+    vec3 hdir = hv/max(hd,0.001);
+    float cd = dot(hdir, uHeadDir);
+    float cone = smoothstep(0.60,0.93,cd)*(0.28+0.72*smoothstep(0.88,0.995,cd));
+    float att = 1.0/(1.0 + hd*hd*0.0030);
+    float lam = max(dot(N,-hdir),0.0)*0.70 + 0.30;
+    col += base*cone*att*lam*uHeadOn*vec3(3.6,3.35,2.90);
+  }
+  // 自发光取平方以对抗 tonemap 的去饱和（否则红尾灯会发粉）
+  col += emisCol*emisCol*emis*2.0;
+
+  float d = length(vPos - uCam);
+  float fg = 1.0 - exp(-pow(d*0.00052, 1.75));
+  col = mix(col, uFog, clamp(fg, 0.0, 1.0));
+  col = col/(col+0.85);                                      // 简易 tonemap
+  gl_FragColor = vec4(pow(max(col,0.0), vec3(1.0/2.2)), 1.0);
+}
+</script>
+
+<script>
+(function(){
+'use strict';
+var errBox = document.getElementById('err');
+function fail(m){ errBox.hidden=false; errBox.textContent=m; var l=document.getElementById('load'); if(l) l.style.display='none'; }
+
+/* =========================================================
+   0. 数学 / 随机
+   ========================================================= */
+var R = null;
+function rng(seed){ var s=seed>>>0; return function(){ s=(s+0x6D2B79F5)>>>0; var t=s;
+  t=Math.imul(t^(t>>>15), t|1); t^=t+Math.imul(t^(t>>>7), t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
+function rf(a,b){ return a+(b-a)*R(); }
+function ri(a,b){ return Math.floor(rf(a,b+1)); }
+function pick(a){ return a[Math.floor(R()*a.length)]; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function pot2(n){ var p=1; while(p*2<=n) p*=2; return Math.max(1,p); }   // 向下取 2 的幂
+
+function m4mul(a,b){ var o=new Float32Array(16);
+  for(var i=0;i<4;i++)for(var j=0;j<4;j++){ var s=0; for(var k=0;k<4;k++) s+=a[k*4+j]*b[i*4+k]; o[i*4+j]=s; } return o; }
+function m4persp(f,asp,n,fa){ var t=1/Math.tan(f/2), o=new Float32Array(16);
+  o[0]=t/asp; o[5]=t; o[10]=(fa+n)/(n-fa); o[11]=-1; o[14]=2*fa*n/(n-fa); return o; }
+function m4look(e,c,u){
+  var zx=e[0]-c[0], zy=e[1]-c[1], zz=e[2]-c[2], zl=Math.hypot(zx,zy,zz)||1; zx/=zl; zy/=zl; zz/=zl;
+  var xx=u[1]*zz-u[2]*zy, xy=u[2]*zx-u[0]*zz, xz=u[0]*zy-u[1]*zx, xl=Math.hypot(xx,xy,xz)||1; xx/=xl; xy/=xl; xz/=xl;
+  var yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+  return new Float32Array([xx,yx,zx,0, xy,yy,zy,0, xz,yz,zz,0,
+    -(xx*e[0]+xy*e[1]+xz*e[2]), -(yx*e[0]+yy*e[1]+yz*e[2]), -(zx*e[0]+zy*e[1]+zz*e[2]), 1]);
+}
+
+/* =========================================================
+   1. 城市规划参数：分区表 / 类型学
+   ========================================================= */
+var WORLD=2400, HW=1200;              // 世界 2.4km × 2.4km
+var BLVD=26, AVE=18, ST=12, ALY=7;    // 道路等级宽度
+var SIDEWALK=5.0, CURB=0.17;          // 人行道宽 / 路缘高
+var SEA_Z=900, SAND_Z=816;            // 海岸线
+
+// 建筑类型学（每种用地的街区尺度、宗地尺度、退界、地面铺装）
+var TYPO = {
+  core  :{blk:[105,155], lotW:[44,82], dep:46, front:1.2, side:0.8, gnd:'conc', zone:'CORE'},
+  high  :{blk:[112,168], lotW:[36,68], dep:42, front:2.4, side:1.4, gnd:'conc', zone:'COM' },
+  mid   :{blk:[95,150],  lotW:[24,46], dep:34, front:1.8, side:1.1, gnd:'conc', zone:'COM' },
+  house :{blk:[84,132],  lotW:[15,23], dep:30, front:7.0, side:2.3, gnd:'lawn', zone:'RES' },
+  villa :{blk:[130,215], lotW:[30,48], dep:42, front:10,  side:5.0, gnd:'lawn', zone:'RES' },
+  retail:{blk:[135,215], lotW:[54,108],dep:64, front:27,  side:4.0, gnd:'lot',  zone:'COM' },
+  ind   :{blk:[190,300], lotW:[68,130],dep:92, front:17,  side:6.0, gnd:'conc', zone:'IND' },
+  beach :{blk:[70,120],  lotW:[17,29], dep:28, front:4.5, side:1.6, gnd:'sand2',zone:'BCH' },
+  park  :{blk:[150,270], zone:'PARK'},
+  air   :{zone:'AIR'}
+};
+var ZONE_COL = {
+  CORE:'#c0392b', COM:'#2f6fb0', RES:'#c8a02a', IND:'#6b6f76',
+  PARK:'#3f7d3a', BCH:'#c9a86a', AIR:'#7a5fa8'
+};
+var ZONE_NAME = {CORE:'中心商务区',COM:'商业办公',RES:'居住',IND:'工业物流',PARK:'公园绿地',BCH:'滨海休闲',AIR:'机场枢纽'};
+
+// 分区平面（轴向矩形铺满用地，共用边界 = 主干道；rot = 该区内部路网旋转角）
+var DISTRICTS = [
+  {n:'Vinewood Hills', k:'villa', r:[-1120,-1120,-380,-620], rot: 0.19},
+  {n:'Mirror Park',    k:'park',  r:[ -380,-1120,  20,-800], rot: 0.00},
+  {n:'North Vinewood', k:'house', r:[ -380, -800,  20,-620], rot:-0.07},
+  {n:'Grapeseed Rise', k:'house', r:[   20,-1120, 520,-620], rot:-0.11},
+  {n:'Sandy Works',    k:'ind',   r:[  520,-1120,1120,-620], rot: 0.05},
+
+  {n:'Little Seoul',   k:'mid',   r:[-1120, -620,-380,-180], rot: 0.06},
+  {n:'Textile City',   k:'high',  r:[ -380, -620,  20,-180], rot:-0.07},
+  {n:'Pillbox North',  k:'high',  r:[   20, -620, 520,-180], rot:-0.07},
+  {n:'Cypress Flats',  k:'ind',   r:[  520, -620,1120,-180], rot: 0.00},
+
+  {n:'Rockford Hills', k:'mid',   r:[-1120, -180,-380, 300], rot: 0.13},
+  {n:'Downtown Core',  k:'core',  r:[ -380, -180,  20, 300], rot:-0.07},
+  {n:'Pillbox Hill',   k:'core',  r:[   20, -180, 520, 300], rot:-0.07},
+  {n:'Port of LS',     k:'ind',   r:[  520, -180,1120, 300], rot: 0.00},
+
+  {n:'Del Perro',      k:'house', r:[-1120,  300,-380, 660], rot: 0.09},
+  {n:'Strawberry',     k:'house', r:[ -380,  300,  20, 660], rot: 0.02},
+  {n:'La Mesa Retail', k:'retail',r:[   20,  300, 520, 660], rot: 0.00},
+  {n:'LS Airport',     k:'air',   r:[  520,  300,1120, 780], rot: 0.00},
+
+  {n:'Vespucci Beach', k:'beach', r:[-1120,  660,  20, 816], rot: 0.00},
+  {n:'Chumash Strip',  k:'beach', r:[   20,  660, 520, 816], rot: 0.00}
+];
+var CORE_C = [70, 60];   // 天际线峰值中心
+
+var NAMES = {
+  villa :['Mulholland','Whispymound','Cascabel','Marlowe','Nikola','Baytree'],
+  house :['Grove','Carcer','Bay City','Innocence','Jamestown','Sandcastle','Magellan','Amarillo'],
+  mid   :['Palomino','Hawick','Portola','Cavalry','Eclipse','Rockford'],
+  high  :['Ginger','Alta','Swiss','Integrity','Sinner','Occupation'],
+  core  :['Power','Vespucci','Elgin','San Andreas','Strawberry','Alta'],
+  retail :['Greenwich','Boulevard Del Perro','Prosperity','Sustancia'],
+  ind   :['Dutch London','Popular','Roy Lowenstein','Kimble','El Rancho'],
+  beach :['Bay City','Magellan','Palomino','Cortes','Goma'],
+  park  :['Mirror Park','Nikola'],
+  air   :['Airport']
+};
+var SUF = {BLVD:['Blvd','Ave','Pkwy'], AVE:['Ave','St','Dr'], ST:['St','Dr','Way','Ln'], ALY:['Aly']};
+var ORD = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th','11th','12th','13th','14th','15th','16th'];
+
+/* =========================================================
+   2. 几何工具
+   ========================================================= */
+function polyArea(p){ var a=0; for(var i=0,j=p.length-1;i<p.length;j=i++) a += p[j][0]*p[i][1]-p[i][0]*p[j][1]; return Math.abs(a)/2; }
+function clipHalf(poly, nx, nz, d){       // 保留 n·p <= d
+  var out=[], n=poly.length;
+  for(var i=0;i<n;i++){
+    var A=poly[i], B=poly[(i+1)%n];
+    var da=nx*A[0]+nz*A[1]-d, db=nx*B[0]+nz*B[1]-d;
+    if (da<=0) out.push(A);
+    if ((da<0&&db>0)||(da>0&&db<0)){ var t=da/(da-db); out.push([A[0]+(B[0]-A[0])*t, A[1]+(B[1]-A[1])*t]); }
+  }
+  return out;
+}
+function clipRect(poly, r){               // r=[x0,z0,x1,z1]
+  poly = clipHalf(poly, -1,0, -r[0]); if(poly.length<3) return poly;
+  poly = clipHalf(poly,  1,0,  r[2]); if(poly.length<3) return poly;
+  poly = clipHalf(poly, 0,-1, -r[1]); if(poly.length<3) return poly;
+  return clipHalf(poly, 0, 1,  r[3]);
+}
+function inPoly(p, poly){                 // 凸多边形内测（含边）
+  var s=0;
+  for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+    var cr=(poly[i][0]-poly[j][0])*(p[1]-poly[j][1])-(poly[i][1]-poly[j][1])*(p[0]-poly[j][0]);
+    if (Math.abs(cr)<1e-9) continue;
+    var sg = cr>0?1:-1; if (s===0) s=sg; else if (s!==sg) return false;
+  }
+  return true;
+}
+function clipSeg(x0,z0,x1,z1,r){          // Liang-Barsky
+  var t0=0,t1=1,dx=x1-x0,dz=z1-z0;
+  var p=[-dx,dx,-dz,dz], q=[x0-r[0], r[2]-x0, z0-r[1], r[3]-z0];
+  for(var i=0;i<4;i++){
+    if (Math.abs(p[i])<1e-9){ if (q[i]<0) return null; continue; }
+    var t=q[i]/p[i];
+    if (p[i]<0){ if(t>t1) return null; if(t>t0) t0=t; } else { if(t<t0) return null; if(t<t1) t1=t; }
+  }
+  return [x0+dx*t0, z0+dz*t0, x0+dx*t1, z0+dz*t1];
+}
+function segDist(px,pz, x0,z0,x1,z1){
+  var dx=x1-x0, dz=z1-z0, L=dx*dx+dz*dz;
+  var t = L>0 ? clamp(((px-x0)*dx+(pz-z0)*dz)/L, 0, 1) : 0;
+  return Math.hypot(px-(x0+dx*t), pz-(z0+dz*t));
+}
+
+/* =========================================================
+   3. 城市生成
+   ========================================================= */
+var CITY = null;
+function buildCity(seed){
+  R = rng(seed);
+  var C = { seed:seed, roads:[], blocks:[], lots:[], bld:[], props:[], cars:[], loops:[], districts:DISTRICTS,
+            stats:{}, nameSeq:{} };
+
+  /* ---- 3.1 主干道：分区边界（去重） ---- */
+  var seen = {};
+  function addRoad(x0,z0,x1,z1,cls,w,name){
+    var k = [Math.round(x0),Math.round(z0),Math.round(x1),Math.round(z1)].join(',');
+    var k2= [Math.round(x1),Math.round(z1),Math.round(x0),Math.round(z0)].join(',');
+    if (seen[k]||seen[k2]) return null;
+    seen[k]=1;
+    var rd = {x0:x0,z0:z0,x1:x1,z1:z1,cls:cls,w:w,name:name||'',len:Math.hypot(x1-x0,z1-z0)};
+    C.roads.push(rd); return rd;
+  }
+  var avN=0, stN=0;
+  DISTRICTS.forEach(function(d){
+    var r=d.r;
+    addRoad(r[0],r[1],r[2],r[1],'BLVD',BLVD);
+    addRoad(r[0],r[3],r[2],r[3],'BLVD',BLVD);
+    addRoad(r[0],r[1],r[0],r[3],'BLVD',BLVD);
+    addRoad(r[2],r[1],r[2],r[3],'BLVD',BLVD);
+  });
+  // 主干道命名：东西向 = 序数街，南北向 = 大道
+  C.roads.forEach(function(rd){
+    if (Math.abs(rd.z1-rd.z0) < 1) rd.name = ORD[Math.min(ORD.length-1, avN++)] + ' St';
+    else rd.name = pick(NAMES.core) + ' ' + pick(SUF.BLVD);
+  });
+
+  /* ---- 3.2 每个分区：BSP 递归切分 → 街区 ---- */
+  DISTRICTS.forEach(function(d){
+    var T = TYPO[d.k];
+    d.zone = T.zone; d.T = T;
+    var cx=(d.r[0]+d.r[2])/2, cz=(d.r[1]+d.r[3])/2;
+    d.cx=cx; d.cz=cz;
+    var inner = [d.r[0]+BLVD/2, d.r[1]+BLVD/2, d.r[2]-BLVD/2, d.r[3]-BLVD/2];
+    d.inner = inner;
+    d.poly = [[inner[0],inner[1]],[inner[2],inner[1]],[inner[2],inner[3]],[inner[0],inner[3]]];
+    if (d.k === 'air'){ genAirport(C,d); return; }
+
+    var co=Math.cos(d.rot), si=Math.sin(d.rot);
+    d.co=co; d.si=si;
+    var W=inner[2]-inner[0], H=inner[3]-inner[1];
+    // 局部矩形放大以覆盖旋转后的整个分区
+    var LW = W*Math.abs(co)+H*Math.abs(si)+50, LH = W*Math.abs(si)+H*Math.abs(co)+50;
+    var L2W = function(u,v){ return [cx+u*co-v*si, cz+u*si+v*co]; };
+    d.L2W = L2W;
+    var pool = NAMES[d.k]||NAMES.house;
+
+    var localRoads=[], localBlocks=[];
+    (function bsp(u0,v0,u1,v1,depth){
+      var w=u1-u0, h=v1-v0;
+      if (w<24||h<24) return;
+      var tgt = rf(T.blk[0], T.blk[1]);
+      if ((Math.max(w,h) <= tgt && depth>=1) || depth>7){ localBlocks.push([u0,v0,u1,v1]); return; }
+      var rw = depth<=0?AVE:(depth<=2?AVE:(depth<=4?ST:ALY));
+      if (depth>=3 && R()<0.10) rw = ALY;
+      var alongX = w>=h;
+      var f = rf(0.36,0.64);
+      if (alongX){
+        var cu = u0 + w*f;
+        localRoads.push({u0:cu,v0:v0,u1:cu,v1:v1,w:rw,depth:depth});
+        bsp(u0,v0,cu-rw/2,v1,depth+1); bsp(cu+rw/2,v0,u1,v1,depth+1);
+      } else {
+        var cv = v0 + h*f;
+        localRoads.push({u0:u0,v0:cv,u1:u1,v1:cv,w:rw,depth:depth});
+        bsp(u0,v0,u1,cv-rw/2,depth+1); bsp(u0,cv+rw/2,u1,v1,depth+1);
+      }
+    })(-LW/2,-LH/2, LW/2, LH/2, 0);
+
+    // 局部道路 → 世界坐标 + 裁剪到分区
+    localRoads.forEach(function(lr){
+      var a=L2W(lr.u0,lr.v0), b=L2W(lr.u1,lr.v1);
+      var s = clipSeg(a[0],a[1],b[0],b[1], inner);
+      if (!s) return;
+      if (Math.hypot(s[2]-s[0], s[3]-s[1]) < 26) return;
+      var cls = lr.w>=AVE?'AVE':(lr.w>=ST?'ST':'ALY');
+      var nm = cls==='ALY' ? 'Alley' : (pick(pool)+' '+pick(SUF[cls]));
+      C.roads.push({x0:s[0],z0:s[1],x1:s[2],z1:s[3],cls:cls,w:lr.w,name:nm,
+                    len:Math.hypot(s[2]-s[0],s[3]-s[1]), dist:d});
+    });
+
+    // 局部街区 → 世界多边形（裁剪）→ 宗地 → 建筑
+    localBlocks.forEach(function(b){
+      var quad=[L2W(b[0],b[1]),L2W(b[2],b[1]),L2W(b[2],b[3]),L2W(b[0],b[3])];
+      var cp = clipRect(quad, inner);
+      if (cp.length<3) return;
+      var ar = polyArea(cp);
+      if (ar < 260) return;
+      var blk = {poly:cp, d:d, area:ar, full:(ar > polyArea(quad)*0.985), local:b};
+      C.blocks.push(blk);
+      if (d.k === 'park'){ genPark(C, blk); return; }
+      genLots(C, blk, d, T);
+    });
+  });
+
+  /* ---- 3.3 高速环线（高架）---- */
+  genFreeway(C);
+
+  /* ---- 3.4 街道设施 / 停放车辆 / 交通环线 ---- */
+  genStreetscape(C);
+  genTraffic(C);
+
+  /* ---- 3.5 指标 ---- */
+  var roadLen=0; C.roads.forEach(function(r){ roadLen += r.len*(r.cls==='BLVD'?1:1); });
+  var far=0, tall=0, pop=0;
+  C.bld.forEach(function(b){
+    far += b.foot*b.floors;
+    if (b.H>tall) tall=b.H;
+    if (b.use==='RES') pop += b.foot*b.floors/42;
+    else if (b.use==='COM'||b.use==='CORE') pop += b.foot*b.floors/240;
+  });
+  C.stats = {
+    area: (WORLD*WORLD/1e6),
+    road: roadLen/1000,
+    blocks: C.blocks.length, lots: C.lots.length, bld: C.bld.length,
+    far: far, farRatio: far/(WORLD*WORLD*0.62), tall: tall, pop: Math.round(pop*1.9)
+  };
+  return C;
+}
+
+/* ---------- 宗地细分：沿街双排 + 退界 ---------- */
+function genLots(C, blk, d, T){
+  var b = blk.local, co=d.co, si=d.si, L2W=d.L2W;
+  var u0=b[0]+SIDEWALK, v0=b[1]+SIDEWALK, u1=b[2]-SIDEWALK, v1=b[3]-SIDEWALK;
+  var W=u1-u0, H=v1-v0;
+  if (W<10||H<10) return;
+  var rows=[];
+  // 双排（背靠背）还是单排：取决于半个街区进深能否容纳该类型的退界
+  var two = (Math.min(W,H)/2 >= T.front + 11);
+  if (W>=H){
+    if (two){ rows.push([u0,v0,u1,(v0+v1)/2,-1]); rows.push([u0,(v0+v1)/2,u1,v1,1]); }
+    else rows.push([u0,v0,u1,v1, R()<0.5?-1:1]);
+  } else {
+    if (two){ rows.push([u0,v0,(u0+u1)/2,v1,-2]); rows.push([(u0+u1)/2,v0,u1,v1,2]); }
+    else rows.push([u0,v0,u1,v1, R()<0.5?-2:2]);
+  }
+  rows.forEach(function(row){
+    var horiz = Math.abs(row[4])===1;
+    var a0 = horiz?row[0]:row[1], a1 = horiz?row[2]:row[3];
+    var span = a1-a0;
+    if (span < T.lotW[0]) return;
+    var n = Math.max(1, Math.round(span/rf(T.lotW[0],T.lotW[1])));
+    var wid = span/n;
+    for(var i=0;i<n;i++){
+      var la0=a0+i*wid, la1=la0+wid;
+      var lot = horiz ? {u0:la0,v0:row[1],u1:la1,v1:row[3]} : {u0:row[0],v0:la0,u1:row[2],v1:la1};
+      lot.front = row[4]; lot.d=d; lot.blk=blk;
+      // 角点是否都落在裁剪后的街区内
+      var c=[L2W(lot.u0,lot.v0),L2W(lot.u1,lot.v0),L2W(lot.u1,lot.v1),L2W(lot.u0,lot.v1)];
+      lot.world=c;
+      var ok = c.every(function(p){ return inPoly(p, blk.poly); });
+      lot.ok = ok;
+      C.lots.push(lot);
+      if (!ok){ lot.use='vacant'; return; }
+      if (R() < (d.k==='core'?0.05:(d.k==='ind'?0.10:0.055))){ lot.use='parking'; return; }
+      genBuilding(C, lot, d, T);
+    }
+  });
+}
+
+/* ---------- 建筑类型学 ---------- */
+var PAL = {
+  core : [[0.30,0.35,0.40],[0.24,0.28,0.33],[0.38,0.40,0.42],[0.20,0.26,0.30],[0.44,0.42,0.40]],
+  high : [[0.45,0.42,0.38],[0.34,0.36,0.39],[0.50,0.47,0.42],[0.28,0.31,0.35]],
+  mid  : [[0.55,0.48,0.40],[0.48,0.44,0.42],[0.60,0.55,0.47],[0.42,0.40,0.39],[0.52,0.36,0.30]],
+  house: [[0.72,0.66,0.55],[0.62,0.60,0.55],[0.78,0.72,0.62],[0.55,0.58,0.54],[0.70,0.58,0.48],[0.80,0.78,0.72]],
+  villa: [[0.82,0.78,0.70],[0.74,0.70,0.64],[0.86,0.82,0.74]],
+  retail:[[0.62,0.58,0.52],[0.70,0.66,0.58],[0.55,0.52,0.50]],
+  ind  : [[0.52,0.54,0.56],[0.60,0.60,0.58],[0.46,0.48,0.50]],
+  beach: [[0.86,0.80,0.68],[0.78,0.84,0.82],[0.90,0.84,0.76],[0.82,0.72,0.66]]
+};
+function genBuilding(C, lot, d, T){
+  var fs=T.front, ss=T.side;
+  var uw = lot.u1-lot.u0, vh = lot.v1-lot.v0;
+  var fu0=lot.u0, fv0=lot.v0, fu1=lot.u1, fv1=lot.v1;
+  // 沿街退界（front: ±1 = v 方向临街, ±2 = u 方向临街）
+  if (lot.front===-1){ fv0+=fs; fv1-=Math.max(2,vh*0.10); } else if (lot.front===1){ fv1-=fs; fv0+=Math.max(2,vh*0.10); }
+  else if (lot.front===-2){ fu0+=fs; fu1-=Math.max(2,uw*0.10); } else { fu1-=fs; fu0+=Math.max(2,uw*0.10); }
+  if (Math.abs(lot.front)===1){ fu0+=ss; fu1-=ss; } else { fv0+=ss; fv1-=ss; }
+  var w=fu1-fu0, h=fv1-fv0;
+  if (w<5||h<5) return;
+
+  // 住宅/别墅：控制进深，留后院
+  var k = d.k;
+  if (k==='house'||k==='villa'||k==='beach'){
+    var dmax = (k==='villa'?20:(k==='beach'?16:14));
+    if (Math.abs(lot.front)===1){ if (h>dmax){ if(lot.front<0) fv1=fv0+dmax; else fv0=fv1-dmax; } }
+    else { if (w>dmax){ if(lot.front<0) fu1=fu0+dmax; else fu0=fu1-dmax; } }
+    w=fu1-fu0; h=fv1-fv0;
+  }
+  var cu=(fu0+fu1)/2, cv=(fv0+fv1)/2, foot=w*h;
+  var seed = R()*97;
+  var col = pick(PAL[k]||PAL.mid).slice();
+  var jit = rf(0.92,1.08); col=[clamp(col[0]*jit,0,1),clamp(col[1]*jit,0,1),clamp(col[2]*jit,0,1)];
+
+  var wp = d.L2W(cu,cv);
+  var dc = Math.hypot(wp[0]-CORE_C[0], wp[1]-CORE_C[1]);
+  var floors, fh=3.7, style='box', cell=[2.6,3.6];
+
+  if (k==='core'){
+    var fall = clamp(1 - dc/900, 0, 1);
+    floors = Math.round(rf(5, 12) + Math.pow(fall,1.5)*rf(14, 48)*(foot>1400?1.25:0.8));
+    fh = 4.0; style = (R()<0.5?'tower':'setback'); cell=[2.15,4.0];
+    if (R()<0.22) style='glass';
+  } else if (k==='high'){
+    floors = Math.round(rf(5,9) + clamp(1-dc/1200,0,1)*rf(3,16)); fh=3.9; cell=[2.4,3.9];
+    style = R()<0.3?'setback':'box'; if (R()<0.15) style='glass';
+  } else if (k==='mid'){
+    floors = ri(3,8); cell=[2.7,3.6];
+    style = R()<0.18?'setback':'box';
+  } else if (k==='retail'){
+    floors = R()<0.2?2:1; fh=5.4; cell=[3.4,5.0]; style='retail';
+  } else if (k==='ind'){
+    floors = 1; fh = rf(9,15); cell=[6.0,5.0]; style='shed';
+  } else if (k==='beach'){
+    floors = ri(2,5); fh=3.3; cell=[2.4,3.3]; style=R()<0.35?'balcony':'box';
+  } else if (k==='villa'){
+    floors = ri(1,2); fh=3.5; cell=[3.0,3.0]; style=R()<0.4?'flatroof':'house';
+  } else {
+    floors = ri(1,2); fh=3.2; cell=[3.1,3.0]; style='house';
+  }
+  floors = Math.max(1, floors);
+  var H = floors*fh;
+
+  var b = {d:d, lot:lot, cu:cu, cv:cv, w:w, h:h, H:H, floors:floors, fh:fh,
+           style:style, col:col, cell:cell, seed:seed, foot:foot, use:T.zone, wp:wp};
+  if (k==='house'||k==='villa'){          // 车库位置在生成期定下，车道才能对上
+    var gw=Math.min(6,w*0.42), gd=Math.min(6,h*0.5), sgn=(R()<0.5?1:-1);
+    b.gar = { u: cu + (Math.abs(lot.front)===2 ? 0 : (w/2-gw/2)*sgn),
+              v: cv + (Math.abs(lot.front)===2 ? (h/2-gd/2)*sgn : 0), w:gw, d:gd };
+  }
+  C.bld.push(b);
+  lot.use='built'; lot.b=b;
+}
+
+/* ---------- 公园 ---------- */
+function genPark(C, blk){
+  var n = Math.floor(blk.area/380);
+  for(var i=0;i<n;i++){
+    var p = randInPoly(blk.poly);
+    if (p) C.props.push({t:'tree', x:p[0], z:p[1], s:rf(0.8,1.5)});
+  }
+  blk.park = true;
+}
+function randInPoly(poly){
+  var minx=1e9,minz=1e9,maxx=-1e9,maxz=-1e9;
+  poly.forEach(function(p){ minx=Math.min(minx,p[0]); maxx=Math.max(maxx,p[0]); minz=Math.min(minz,p[1]); maxz=Math.max(maxz,p[1]); });
+  for(var t=0;t<12;t++){ var q=[rf(minx,maxx), rf(minz,maxz)]; if (inPoly(q,poly)) return q; }
+  return null;
+}
+
+/* ---------- 机场 ---------- */
+function genAirport(C, d){
+  var r=d.inner;
+  var z = (r[1]+r[3])/2;
+  d.runway = {x0:r[0]+40, x1:r[2]-40, z:z+70, w:52};
+  d.taxi   = {x0:r[0]+60, x1:r[2]-60, z:z-10, w:22};
+  C.roads.push({x0:r[0]+30,z0:r[1]+26,x1:r[2]-30,z1:r[1]+26,cls:'AVE',w:AVE,name:'Terminal Loop',len:r[2]-r[0]-60,dist:d});
+  // 航站楼 + 机库
+  var term = {d:d, cu:0, cv:0, w:r[2]-r[0]-260, h:46, H:17, floors:4, fh:4.2, style:'box',
+              col:[0.62,0.64,0.66], cell:[3.0,4.2], seed:R()*97, use:'AIR'};
+  term.foot = term.w*term.h;
+  d.co=1; d.si=0; d.L2W=function(u,v){ return [ (r[0]+r[2])/2+u, (r[1]+r[3])/2+v ]; };
+  term.cu=0; term.cv=-108; term.h=46; term.H=17;
+  C.bld.push(term);
+  for(var i=0;i<4;i++){
+    var hg = {d:d, cu:-260+i*175, cv:-40, w:120, h:62, H:19, floors:1, fh:19, style:'shed',
+              col:[0.55,0.57,0.60], cell:[7,6], seed:R()*97, use:'AIR'};
+    hg.foot=hg.w*hg.h; C.bld.push(hg);
+  }
+}
+
+/* ---------- 高架高速环线 ---------- */
+function genFreeway(C){
+  var x0=-380, x1=520, z0=-620, z1=660, rr=110, Y=9.4;
+  var pts=[];
+  function arc(cx,cz,a0,a1){ for(var i=0;i<=8;i++){ var a=a0+(a1-a0)*i/8; pts.push([cx+Math.cos(a)*rr, cz+Math.sin(a)*rr]); } }
+  pts.push([x0, z1-rr]);
+  arc(x0+rr, z1-rr, Math.PI, Math.PI*0.5);
+  pts.push([x1-rr, z1]);
+  arc(x1-rr, z1-rr, Math.PI*0.5, 0);
+  pts.push([x1, z0+rr]);
+  arc(x1-rr, z0+rr, 0, -Math.PI*0.5);
+  pts.push([x0+rr, z0]);
+  arc(x0+rr, z0+rr, -Math.PI*0.5, -Math.PI);
+  C.freeway = {pts:pts, y:Y, w:34};
+  var L=0; for(var i=0;i<pts.length;i++){ var j=(i+1)%pts.length; L+=Math.hypot(pts[j][0]-pts[i][0], pts[j][1]-pts[i][1]); }
+  C.roads.push({x0:x0,z0:z0,x1:x0,z1:z1,cls:'FWY',w:34,name:'Del Perro Fwy',len:z1-z0,elev:1});
+  C.roads.push({x0:x1,z0:z0,x1:x1,z1:z1,cls:'FWY',w:34,name:'Olympic Fwy',len:z1-z0,elev:1});
+  C.roads.push({x0:x0,z0:z0,x1:x1,z1:z0,cls:'FWY',w:34,name:'North Loop',len:x1-x0,elev:1});
+  C.roads.push({x0:x0,z0:z1,x1:x1,z1:z1,cls:'FWY',w:34,name:'South Loop',len:x1-x0,elev:1});
+  C.loops.push({pts:pts, y:Y, lanes:2, speed:[22,30]});
+}
+
+/* ---------- 街道设施：路灯 / 行道树 / 棕榈 / 路边停车 ----------
+   注意：一律按「里程等距 + 概率」发放，不能用全局计数上限按道路顺序发，
+   否则先生成的分区会把配额吃光，后面的分区（含市中心）一盏灯都没有。 */
+function genStreetscape(C){
+  var lamps=0, trees=0, cars=0;
+  C.roads.forEach(function(rd){
+    if (rd.elev) return;
+    var L=rd.len, dx=(rd.x1-rd.x0)/L, dz=(rd.z1-rd.z0)/L;
+    var nx=-dz, nz=dx;
+    var off = rd.w/2 + 2.2;
+    // 路灯：主干道/次干道等距布设（支路少灯，符合实际）
+    var ls = rd.cls==='BLVD'?40:(rd.cls==='AVE'?54:0);
+    if (ls>0) for(var t=ls*0.5; t<L-6; t+=ls){
+      var side = (Math.floor(t/ls)%2)?1:-1;
+      var x=rd.x0+dx*t+nx*off*side, z=rd.z0+dz*t+nz*off*side;
+      if (z>SAND_Z-8) continue;
+      if (lamps<1600){ C.props.push({t:'lamp',x:x,z:z,a:Math.atan2(nz*side,nx*side)}); lamps++; }
+    }
+    // 行道树
+    if (rd.cls!=='ALY'){
+      var ts = rd.cls==='BLVD'?26:(rd.cls==='AVE'?30:38);
+      for(var t2=ts*0.6; t2<L-5; t2+=ts){
+        if (R()<0.42 && trees<1700){
+          var sd2=(R()<0.5?1:-1);
+          var tx=rd.x0+dx*t2+nx*off*sd2, tz=rd.z0+dz*t2+nz*off*sd2;
+          if (tz>SAND_Z-8) continue;
+          C.props.push({t:'tree',x:tx,z:tz,s:rf(0.75,1.25)}); trees++;
+        }
+      }
+    }
+    // 路边停车
+    if (rd.cls==='ST'||rd.cls==='AVE'){
+      for(var s=8;s<L-12;s+=16){
+        if (R()<0.22 && cars<1250){
+          var sd = R()<0.5?1:-1;
+          var o = rd.w/2 - 1.8;
+          C.cars.push({x:rd.x0+dx*s+nx*o*sd, z:rd.z0+dz*s+nz*o*sd, a:Math.atan2(dz,dx)+(sd<0?Math.PI:0),
+                       col:carCol(), park:1});
+          cars++;
+        }
+      }
+    }
+  });
+  // 海滨棕榈
+  for(var i=0;i<220;i++){
+    C.props.push({t:'palm', x:rf(-1160, 520), z:rf(SAND_Z-56, SEA_Z-30), s:rf(0.85,1.35)});
+  }
+}
+function carCol(){
+  var p=[[0.72,0.72,0.74],[0.10,0.11,0.13],[0.55,0.10,0.10],[0.13,0.28,0.52],[0.85,0.85,0.86],
+         [0.20,0.42,0.30],[0.80,0.62,0.15],[0.40,0.42,0.46]];
+  return pick(p);
+}
+/* ---------- 车流环线 ---------- */
+function genTraffic(C){
+  // 主干道构成的闭合矩形环线
+  function rectLoop(x0,z0,x1,z1,y){ return {pts:[[x0,z0],[x1,z0],[x1,z1],[x0,z1]], y:y, lanes:2, speed:[12,19]}; }
+  C.loops.push(rectLoop(-380,-620,520,660, 0.06));
+  C.loops.push(rectLoop(-1120,-180,-380,300, 0.06));
+  C.loops.push(rectLoop(20,-620,1120,-180, 0.06));
+  C.loops.push(rectLoop(-380,300,520,660, 0.06));
+  C.loops.forEach(function(lp){
+    lp.cum=[0]; var L=0;
+    for(var i=0;i<lp.pts.length;i++){ var j=(i+1)%lp.pts.length;
+      L+=Math.hypot(lp.pts[j][0]-lp.pts[i][0], lp.pts[j][1]-lp.pts[i][1]); lp.cum.push(L); }
+    lp.L=L;
+  });
+  C.traffic=[];
+  C.loops.forEach(function(lp,li){
+    var n = li===0? 26 : 12;
+    for(var i=0;i<n;i++){
+      C.traffic.push({loop:li, t:R()*lp.L, v:rf(lp.speed[0],lp.speed[1]), lane:(R()<0.5?0:1),
+                      dir:(R()<0.5?1:-1), col:carCol(), len:rf(4.2,5.6), wid:rf(1.8,2.1)});
+    }
+  });
+}
+
+/* =========================================================
+   4. 平面图绘制（3D 地面贴图 + 地图）
+   ========================================================= */
+var PLAN_PX = 4096;
+function planPaint(ctx, PS, mode){
+  var s = PS/WORLD, ox = HW, oz = HW;
+  function X(x){ return (x+ox)*s; } function Z(z){ return (z+oz)*s; }
+  var map = (mode!=='ground');
+  var COL = map ? {
+    bg:'#111820', land:'#1a232c', road:'#39434e', blvd:'#4a5561', fwy:'#c9a13b',
+    sw:'#243040', blk:'#202a34', bldg:'#2c3844', water:'#0d1b28', sand:'#39352a',
+    grass:'#1d2c22', lot:'#232d38', yard:'#1e2833'
+  } : {
+    bg:'#6a6152', land:'#6f664f', road:'#2f3136', blvd:'#33353b', fwy:'#3a3c42',
+    sw:'#8e8d87', blk:'#8e8d87', bldg:'#54524e', water:'#12324a', sand:'#cdb888',
+    grass:'#4d6b3c', lot:'#3a3b40', yard:'#605f59'
+  };
+  function tint(hex, t){                      // 逐宗地明度抖动，避免大片死板同色
+    if (map) return hex;
+    var n=parseInt(hex.slice(1),16), k=0.86+0.28*t;
+    var r=Math.min(255,Math.round((n>>16)*k)), g=Math.min(255,Math.round(((n>>8)&255)*k)), b=Math.min(255,Math.round((n&255)*k));
+    return 'rgb('+r+','+g+','+b+')';
+  }
+  ctx.fillStyle = COL.bg; ctx.fillRect(0,0,PS,PS);
+
+  // --- 底：野地 / 沙滩 / 海 ---
+  ctx.fillStyle = COL.land; ctx.fillRect(0,0,PS,Z(SAND_Z));
+  ctx.fillStyle = COL.sand; ctx.fillRect(0,Z(SAND_Z),PS,Z(SEA_Z)-Z(SAND_Z));
+  ctx.fillStyle = COL.water; ctx.fillRect(0,Z(SEA_Z),PS,PS-Z(SEA_Z));
+  if (!map){ // 地面噪点（用种子 RNG，保证同种子可复现）
+    for(var i=0;i<14000;i++){
+      var px=R()*PS, pz=R()*Z(SAND_Z);
+      ctx.fillStyle='rgba(0,0,0,'+(R()*0.06)+')';
+      ctx.fillRect(px,pz,R()*7+2,R()*7+2);
+    }
+  }
+
+  // --- 分区底色（分区图模式）---
+  if (mode==='zoning'){
+    CITY.districts.forEach(function(d){
+      ctx.fillStyle = ZONE_COL[d.zone]||'#555';
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(X(d.r[0]),Z(d.r[1]),X(d.r[2])-X(d.r[0]),Z(d.r[3])-Z(d.r[1]));
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=Math.max(1,s*3);
+      ctx.strokeRect(X(d.r[0]),Z(d.r[1]),X(d.r[2])-X(d.r[0]),Z(d.r[3])-Z(d.r[1]));
+    });
+  }
+
+  // --- 道路 ---
+  function roadQuad(rd, wmul, col){
+    var L=rd.len||Math.hypot(rd.x1-rd.x0,rd.z1-rd.z0); if(L<1) return;
+    var dx=(rd.x1-rd.x0)/L, dz=(rd.z1-rd.z0)/L, nx=-dz*rd.w*wmul/2, nz=dx*rd.w*wmul/2;
+    ctx.fillStyle=col;
+    ctx.beginPath();
+    ctx.moveTo(X(rd.x0+nx),Z(rd.z0+nz)); ctx.lineTo(X(rd.x1+nx),Z(rd.z1+nz));
+    ctx.lineTo(X(rd.x1-nx),Z(rd.z1-nz)); ctx.lineTo(X(rd.x0-nx),Z(rd.z0-nz));
+    ctx.closePath(); ctx.fill();
+  }
+  // 路面外沿（略深，形成路肩）
+  CITY.roads.forEach(function(rd){ if(!rd.elev) roadQuad(rd, 1.16, map?COL.land:'#1f2126'); });
+  CITY.roads.forEach(function(rd){
+    if (rd.elev) return;
+    roadQuad(rd, 1.0, rd.cls==='BLVD'?COL.blvd:COL.road);
+  });
+
+  // --- 街区台地：人行道 + 宗地地面 ---
+  CITY.blocks.forEach(function(blk){
+    ctx.beginPath();
+    blk.poly.forEach(function(p,i){ i?ctx.lineTo(X(p[0]),Z(p[1])):ctx.moveTo(X(p[0]),Z(p[1])); });
+    ctx.closePath();
+    ctx.fillStyle = blk.park ? COL.grass : COL.sw; ctx.fill();
+    if (map){ ctx.strokeStyle='rgba(0,0,0,.35)'; ctx.lineWidth=Math.max(1,s*1.2); ctx.stroke(); }
+  });
+
+  // 宗地地面（草坪 / 停车场 / 混凝土）
+  function lotPath(lot){
+    var c=lot.world; ctx.beginPath();
+    ctx.moveTo(X(c[0][0]),Z(c[0][1]));
+    for(var i=1;i<4;i++) ctx.lineTo(X(c[i][0]),Z(c[i][1]));
+    ctx.closePath();
+  }
+  var lotIdx=0;
+  CITY.lots.forEach(function(lot){
+    var g = lot.d.T.gnd;
+    lotIdx++;
+    var jt = ((lotIdx*2654435761) % 1013) / 1013;   // 注意：勿与下方划线循环的 t 同名（var 提升）
+    var col;
+    if (lot.use==='parking') col = COL.lot;
+    else if (lot.use==='vacant') col = map?COL.land:(g==='lawn'?'#6d7048':'#61594a');
+    else if (g==='lawn') col = COL.grass;
+    else if (g==='lot') col = COL.lot;
+    else if (g==='sand2') col = map?COL.sand:'#c3b48e';
+    else col = COL.yard;                       // 'conc' 场地：比人行道深一档
+    lotPath(lot); ctx.fillStyle=tint(col,jt); ctx.fill();
+    // 停车场划线
+    if (!map && (lot.use==='parking' || g==='lot')){
+      var c=lot.world;
+      ctx.save(); lotPath(lot); ctx.clip();
+      ctx.strokeStyle='rgba(230,230,220,.42)'; ctx.lineWidth=Math.max(1,s*0.35);
+      var ax=(c[1][0]-c[0][0]), az=(c[1][1]-c[0][1]), aL=Math.hypot(ax,az); ax/=aL; az/=aL;
+      var bx=(c[3][0]-c[0][0]), bz=(c[3][1]-c[0][1]), bL=Math.hypot(bx,bz); bx/=bL; bz/=bL;
+      for(var t=2.7;t<aL;t+=2.7){
+        ctx.beginPath();
+        ctx.moveTo(X(c[0][0]+ax*t), Z(c[0][1]+az*t));
+        ctx.lineTo(X(c[0][0]+ax*t+bx*Math.min(5.2,bL)), Z(c[0][1]+az*t+bz*Math.min(5.2,bL)));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(X(c[3][0]+ax*t), Z(c[3][1]+az*t));
+        ctx.lineTo(X(c[3][0]+ax*t-bx*Math.min(5.2,bL)), Z(c[3][1]+az*t-bz*Math.min(5.2,bL)));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  });
+
+  // 住宅车道（从临街边直达车库门口）
+  if (!map){
+    CITY.bld.forEach(function(b){
+      var d=b.d; if (!d.L2W) return;
+      if (!(d.k==='house'||d.k==='villa')) return;
+      var lot=b.lot; if(!lot||!b.gar) return;
+      var fr=lot.front, w=2.9;
+      var gu=b.gar.u, gv=b.gar.v, pts;
+      if (fr===-1)      pts=[[gu-w,lot.v0-SIDEWALK],[gu+w,lot.v0-SIDEWALK],[gu+w,gv],[gu-w,gv]];
+      else if (fr===1)  pts=[[gu-w,lot.v1+SIDEWALK],[gu+w,lot.v1+SIDEWALK],[gu+w,gv],[gu-w,gv]];
+      else if (fr===-2) pts=[[lot.u0-SIDEWALK,gv-w],[lot.u0-SIDEWALK,gv+w],[gu,gv+w],[gu,gv-w]];
+      else              pts=[[lot.u1+SIDEWALK,gv-w],[lot.u1+SIDEWALK,gv+w],[gu,gv+w],[gu,gv-w]];
+      ctx.beginPath();
+      pts.forEach(function(p,i){ var q=d.L2W(p[0],p[1]); i?ctx.lineTo(X(q[0]),Z(q[1])):ctx.moveTo(X(q[0]),Z(q[1])); });
+      ctx.closePath(); ctx.fillStyle='#4b4a48'; ctx.fill();
+    });
+  }
+
+  // --- 机场道面 ---
+  CITY.districts.forEach(function(d){
+    if (d.k!=='air'||!d.runway) return;
+    var rw=d.runway, tx=d.taxi;
+    ctx.fillStyle = map?'#2a333d':'#33353a';
+    ctx.fillRect(X(rw.x0),Z(rw.z-rw.w/2),X(rw.x1)-X(rw.x0),rw.w*s);
+    ctx.fillRect(X(tx.x0),Z(tx.z-tx.w/2),X(tx.x1)-X(tx.x0),tx.w*s);
+    ctx.fillStyle = map?'#232c35':'#3d3f45';
+    ctx.fillRect(X(d.inner[0]+40),Z(tx.z+18),X(d.inner[2]-40)-X(d.inner[0]+40),52*s);
+    if (!map){
+      // 跑道中线 + 端头
+      ctx.strokeStyle='rgba(240,240,230,.85)'; ctx.lineWidth=Math.max(1,s*0.9);
+      ctx.setLineDash([26*s,20*s]);
+      ctx.beginPath(); ctx.moveTo(X(rw.x0+40),Z(rw.z)); ctx.lineTo(X(rw.x1-40),Z(rw.z)); ctx.stroke();
+      ctx.setLineDash([]);
+      for(var e=0;e<2;e++){
+        var bx = e? rw.x1-46 : rw.x0+16;
+        for(var i2=0;i2<8;i2++){
+          ctx.fillStyle='rgba(240,240,230,.8)';
+          ctx.fillRect(X(bx),Z(rw.z-rw.w/2+3+i2*6),30*s,2.4*s);
+        }
+      }
+    }
+  });
+
+  // --- 建筑：先一次性烘焙全城落影（单路径 nonzero 填充，不会互相加深）---
+  var sunx=0.62, sunz=-0.42;   // 阴影投向：与 3D 太阳方位（-0.62,+0.42）相反
+  function footCorners(b){
+    var d=b.d, hw=b.w/2, hh=b.h/2;
+    return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(function(p){ return d.L2W(b.cu+p[0], b.cv+p[1]); });
+  }
+  if (!map){
+    ctx.beginPath();
+    CITY.bld.forEach(function(b){
+      if (!b.d.L2W) return;
+      var c=footCorners(b), sl=clamp(b.H*0.62, 4, 150);
+      var o=c.map(function(p){ return [p[0]+sunx*sl, p[1]+sunz*sl]; });
+      ctx.moveTo(X(o[0][0]),Z(o[0][1]));
+      for(var i=1;i<4;i++) ctx.lineTo(X(o[i][0]),Z(o[i][1]));
+      ctx.closePath();
+      for(var i2=0;i2<4;i2++){                       // 各边扫掠四边形 → 影子与建筑相连
+        var a=c[i2], b2=c[(i2+1)%4], a2=o[i2], b3=o[(i2+1)%4];
+        ctx.moveTo(X(a[0]),Z(a[1])); ctx.lineTo(X(b2[0]),Z(b2[1]));
+        ctx.lineTo(X(b3[0]),Z(b3[1])); ctx.lineTo(X(a2[0]),Z(a2[1])); ctx.closePath();
+      }
+    });
+    ctx.fillStyle='rgba(10,12,16,0.34)'; ctx.fill('nonzero');
+  }
+  // --- 建筑底面 ---
+  CITY.bld.forEach(function(b){
+    if (!b.d.L2W) return;
+    var corners=footCorners(b);
+    ctx.beginPath();
+    corners.forEach(function(p,i){ i?ctx.lineTo(X(p[0]),Z(p[1])):ctx.moveTo(X(p[0]),Z(p[1])); });
+    ctx.closePath();
+    if (map){
+      ctx.fillStyle = mode==='zoning' ? 'rgba(10,14,18,.55)' :
+        (b.H>60?'#4a596a':(b.H>24?'#3a4653':COL.bldg));
+      ctx.fill();
+    } else { ctx.fillStyle='#3f3d3a'; ctx.fill(); }
+  });
+
+  // --- 地图模式：道路描边 + 高速 ---
+  if (map){
+    CITY.roads.forEach(function(rd){
+      if (!rd.elev) return;
+      ctx.strokeStyle=COL.fwy; ctx.lineWidth=Math.max(2,s*rd.w*0.55); ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(X(rd.x0),Z(rd.z0)); ctx.lineTo(X(rd.x1),Z(rd.z1)); ctx.stroke();
+    });
+    if (CITY.freeway){
+      var f=CITY.freeway;
+      ctx.strokeStyle=COL.fwy; ctx.lineWidth=Math.max(2,s*16); ctx.lineJoin='round';
+      ctx.beginPath();
+      f.pts.forEach(function(p,i){ i?ctx.lineTo(X(p[0]),Z(p[1])):ctx.moveTo(X(p[0]),Z(p[1])); });
+      ctx.closePath(); ctx.stroke();
+    }
+  } else {
+    // 地面模式：人行道内侧压深一点，强化路缘
+    CITY.blocks.forEach(function(blk){
+      ctx.strokeStyle='rgba(0,0,0,.30)'; ctx.lineWidth=Math.max(1,s*0.9);
+      ctx.beginPath();
+      blk.poly.forEach(function(p,i){ i?ctx.lineTo(X(p[0]),Z(p[1])):ctx.moveTo(X(p[0]),Z(p[1])); });
+      ctx.closePath(); ctx.stroke();
+    });
+  }
+}
+
+/* ---------- 夜间灯光烘焙层：路灯光池 + 招牌溢光（世界坐标采样）---------- */
+var LAMP_PX = 2048;
+function paintLamps(ctx, PS){
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,PS,PS);
+  var s=PS/WORLD;
+  ctx.globalCompositeOperation='lighter';
+  CITY.props.forEach(function(p){
+    if (p.t!=='lamp') return;
+    var lx=p.x+Math.cos(p.a)*1.5, lz=p.z+Math.sin(p.a)*1.5;
+    var px=(lx+HW)*s, pz=(lz+HW)*s, r=17*s;
+    var g=ctx.createRadialGradient(px,pz,0, px,pz,r);
+    g.addColorStop(0.00,'rgba(255,208,142,0.98)');
+    g.addColorStop(0.32,'rgba(255,188,114,0.44)');
+    g.addColorStop(1.00,'rgba(255,170,90,0)');
+    ctx.fillStyle=g; ctx.fillRect(px-r,pz-r,r*2,r*2);
+  });
+  CITY.bld.forEach(function(b){
+    if (b.style!=='retail' || !b.d.L2W) return;         // 商业招牌在前场停车场上的溢光
+    var w=b.d.L2W(b.cu,b.cv), px=(w[0]+HW)*s, pz=(w[1]+HW)*s, r=26*s;
+    var g=ctx.createRadialGradient(px,pz,0, px,pz,r);
+    g.addColorStop(0.00,'rgba(255,186,126,0.40)');
+    g.addColorStop(1.00,'rgba(255,164,104,0)');
+    ctx.fillStyle=g; ctx.fillRect(px-r,pz-r,r*2,r*2);
+  });
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* =========================================================
+   5. 网格化占位（碰撞 / 路面判定）
+   ========================================================= */
+var GN=768, GRID=null, G_ROAD=1, G_SOLID=2;
+function buildGrid(C){
+  GRID = new Uint8Array(GN*GN);
+  var s = GN/WORLD;
+  function stampQuad(pts, flag){
+    var minx=1e9,minz=1e9,maxx=-1e9,maxz=-1e9;
+    pts.forEach(function(p){ minx=Math.min(minx,p[0]);maxx=Math.max(maxx,p[0]);minz=Math.min(minz,p[1]);maxz=Math.max(maxz,p[1]); });
+    var i0=Math.max(0,Math.floor((minx+HW)*s)), i1=Math.min(GN-1,Math.ceil((maxx+HW)*s));
+    var j0=Math.max(0,Math.floor((minz+HW)*s)), j1=Math.min(GN-1,Math.ceil((maxz+HW)*s));
+    for(var j=j0;j<=j1;j++) for(var i=i0;i<=i1;i++){
+      var x=i/s-HW+WORLD/GN/2, z=j/s-HW+WORLD/GN/2;
+      if (inPoly([x,z],pts)) GRID[j*GN+i] |= flag;
+    }
+  }
+  C.roads.forEach(function(rd){
+    if (rd.elev) return;
+    var L=rd.len||1, dx=(rd.x1-rd.x0)/L, dz=(rd.z1-rd.z0)/L, nx=-dz*rd.w/2, nz=dx*rd.w/2;
+    stampQuad([[rd.x0+nx,rd.z0+nz],[rd.x1+nx,rd.z1+nz],[rd.x1-nx,rd.z1-nz],[rd.x0-nx,rd.z0-nz]], G_ROAD);
+  });
+  C.bld.forEach(function(b){
+    var d=b.d; if(!d.L2W) return;
+    var hw=b.w/2, hh=b.h/2;
+    stampQuad([[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(function(p){ return d.L2W(b.cu+p[0], b.cv+p[1]); }), G_SOLID);
+  });
+}
+function gridAt(x,z){
+  var i=Math.floor((x+HW)/WORLD*GN), j=Math.floor((z+HW)/WORLD*GN);
+  if (i<0||j<0||i>=GN||j>=GN) return 0;
+  return GRID[j*GN+i];
+}
+
+/* =========================================================
+   6. 网格构建（Mesh）
+   ========================================================= */
+function MB(cap){ this.buf=new Float32Array(cap||(1<<22)); this.n=0; }
+MB.prototype.reset = function(){ this.n=0; };
+MB.prototype._need = function(k){
+  if (this.n+k <= this.buf.length) return;
+  var nb=new Float32Array(Math.max(this.buf.length*2, this.n+k));
+  nb.set(this.buf.subarray(0,this.n)); this.buf=nb;
+};
+MB.prototype.v = function(x,y,z,nx,ny,nz,r,g,b,u,vv,k,sd,cw,ch){
+  this._need(15); var b2=this.buf, i=this.n;
+  b2[i]=x; b2[i+1]=y; b2[i+2]=z; b2[i+3]=nx; b2[i+4]=ny; b2[i+5]=nz;
+  b2[i+6]=r; b2[i+7]=g; b2[i+8]=b; b2[i+9]=u; b2[i+10]=vv;
+  b2[i+11]=k; b2[i+12]=sd; b2[i+13]=cw; b2[i+14]=ch;
+  this.n = i+15;
+};
+MB.prototype.data = function(){ return this.buf.subarray(0, this.n); };
+MB.prototype.tri = function(p0,p1,p2,n,c,uv0,uv1,uv2,parm){
+  this.v(p0[0],p0[1],p0[2],n[0],n[1],n[2],c[0],c[1],c[2],uv0[0],uv0[1],parm[0],parm[1],parm[2],parm[3]);
+  this.v(p1[0],p1[1],p1[2],n[0],n[1],n[2],c[0],c[1],c[2],uv1[0],uv1[1],parm[0],parm[1],parm[2],parm[3]);
+  this.v(p2[0],p2[1],p2[2],n[0],n[1],n[2],c[0],c[1],c[2],uv2[0],uv2[1],parm[0],parm[1],parm[2],parm[3]);
+};
+MB.prototype.quad = function(p0,p1,p2,p3,c,uv,parm){
+  // 法线 = B × A（A=p1-p0, B=p3-p0），保证 CCW 顺序的面朝外/朝上
+  var ax=p1[0]-p0[0], ay=p1[1]-p0[1], az=p1[2]-p0[2];
+  var bx=p3[0]-p0[0], by=p3[1]-p0[1], bz=p3[2]-p0[2];
+  var n=[by*az-bz*ay, bz*ax-bx*az, bx*ay-by*ax];
+  var l=Math.hypot(n[0],n[1],n[2])||1; n=[n[0]/l,n[1]/l,n[2]/l];
+  this.tri(p0,p1,p2,n,c,uv[0],uv[1],uv[2],parm);
+  this.tri(p0,p2,p3,n,c,uv[0],uv[2],uv[3],parm);
+};
+MB.prototype.count = function(){ return this.n/15; };
+
+var PLANUV = function(x,z){ return [(x+HW)/WORLD, (z+HW)/WORLD]; };
+var K_PLAIN=0, K_FACADE=1, K_ROOF=2, K_PLAN=3, K_WATER=4, K_GLASS=5, K_EMIT=6;
+
+/* --- 盒体（四面立面 + 顶面）--- */
+function pushBox(mb, cx,cz, w,d, y0,y1, co,si, col, kind, seed, cell, roofCol){
+  var hw=w/2, hd=d/2;
+  var P=function(u,v,y){ return [cx+u*co-v*si, y, cz+u*si+v*co]; };
+  var c=[[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]];
+  var H=y1-y0;
+  for(var i=0;i<4;i++){
+    var a=c[i], b=c[(i+1)%4];
+    var L=Math.hypot(b[0]-a[0], b[1]-a[1]);
+    mb.quad(P(a[0],a[1],y0), P(b[0],b[1],y0), P(b[0],b[1],y1), P(a[0],a[1],y1), col,
+      [[0,0],[L,0],[L,H],[0,H]], [kind,seed,cell[0],cell[1]]);
+  }
+  var rc = roofCol||[col[0]*0.62,col[1]*0.63,col[2]*0.64];
+  mb.quad(P(c[0][0],c[0][1],y1), P(c[1][0],c[1][1],y1), P(c[2][0],c[2][1],y1), P(c[3][0],c[3][1],y1),
+    rc, [[0,0],[w,0],[w,d],[0,d]], [K_ROOF,seed,1,1]);
+}
+/* --- 人字屋顶 --- */
+function pushGable(mb, cx,cz, w,d, y0,hgt, co,si, col){
+  var hw=w/2, hd=d/2;
+  var P=function(u,v,y){ return [cx+u*co-v*si, y, cz+u*si+v*co]; };
+  var ridgeAlongU = w>=d;
+  var top=y0+hgt;
+  if (ridgeAlongU){
+    mb.quad(P(-hw,-hd,y0),P(hw,-hd,y0),P(hw,0,top),P(-hw,0,top),col,[[0,0],[w,0],[w,hd],[0,hd]],[K_ROOF,7,1,1]);
+    mb.quad(P(hw,hd,y0),P(-hw,hd,y0),P(-hw,0,top),P(hw,0,top),col,[[0,0],[w,0],[w,hd],[0,hd]],[K_ROOF,7,1,1]);
+    mb.tri(P(-hw,-hd,y0),P(-hw,0,top),P(-hw,hd,y0),[-co,0,-si],col,[0,0],[0,1],[1,0],[K_PLAIN,7,1,1]);
+    mb.tri(P(hw,hd,y0),P(hw,0,top),P(hw,-hd,y0),[co,0,si],col,[0,0],[0,1],[1,0],[K_PLAIN,7,1,1]);
+  } else {
+    mb.quad(P(-hw,-hd,y0),P(-hw,hd,y0),P(0,hd,top),P(0,-hd,top),col,[[0,0],[d,0],[d,hw],[0,hw]],[K_ROOF,7,1,1]);
+    mb.quad(P(hw,hd,y0),P(hw,-hd,y0),P(0,-hd,top),P(0,hd,top),col,[[0,0],[d,0],[d,hw],[0,hw]],[K_ROOF,7,1,1]);
+    mb.tri(P(-hw,-hd,y0),P(0,-hd,top),P(hw,-hd,y0),[-si,0,co],col,[0,0],[0,1],[1,0],[K_PLAIN,7,1,1]);
+    mb.tri(P(hw,hd,y0),P(0,hd,top),P(-hw,hd,y0),[si,0,-co],col,[0,0],[0,1],[1,0],[K_PLAIN,7,1,1]);
+  }
+}
+
+function buildMesh(C){
+  var mb = new MB();
+
+  /* --- 地面大平面（分块以便贴图正确插值）--- */
+  var N=6, cell=WORLD/N;
+  for(var i=0;i<N;i++) for(var j=0;j<N;j++){
+    var x0=-HW+i*cell, z0=-HW+j*cell, x1=x0+cell, z1=z0+cell;
+    mb.quad([x0,0,z0],[x1,0,z0],[x1,0,z1],[x0,0,z1],[1,1,1],
+      [PLANUV(x0,z0),PLANUV(x1,z0),PLANUV(x1,z1),PLANUV(x0,z1)],[K_PLAN,0,1,1]);
+  }
+  /* --- 海面（浮于烘焙水色之上，带镜面波动）--- */
+  mb.quad([-HW-900,0.6,SEA_Z],[HW+900,0.6,SEA_Z],[HW+900,0.6,HW+900],[-HW-900,0.6,HW+900],
+    [0.05,0.16,0.2],[[0,0],[1,0],[1,1],[0,1]],[K_WATER,0,1,1]);
+
+  /* --- 街区台地 + 路缘 --- */
+  C.blocks.forEach(function(blk){
+    var p=blk.poly, n=p.length;
+    var cxz=[0,0]; p.forEach(function(q){ cxz[0]+=q[0]/n; cxz[1]+=q[1]/n; });
+    for(var i=1;i<n-1;i++){
+      var A=p[0],B=p[i],Cc=p[i+1];
+      mb.tri([A[0],CURB,A[1]],[B[0],CURB,B[1]],[Cc[0],CURB,Cc[1]],[0,1,0],[1,1,1],
+        PLANUV(A[0],A[1]),PLANUV(B[0],B[1]),PLANUV(Cc[0],Cc[1]),[K_PLAN,0,1,1]);
+    }
+    for(var i2=0;i2<n;i2++){
+      var a=p[i2], b=p[(i2+1)%n];
+      mb.quad([a[0],0,a[1]],[b[0],0,b[1]],[b[0],CURB,b[1]],[a[0],CURB,a[1]],
+        [0.63,0.62,0.60],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+    }
+  });
+
+  /* --- 建筑 --- */
+  C.bld.forEach(function(b){
+    var d=b.d; if(!d.L2W) return;
+    var co=d.co, si=d.si;
+    var wp = d.L2W(b.cu, b.cv);
+    var cx=wp[0], cz=wp[1];
+    var y0=CURB, col=b.col, seed=b.seed, cell=b.cell;
+    var kind = (b.style==='glass')?K_GLASS:K_FACADE;
+
+    if (b.style==='setback' || b.style==='tower'){
+      var segs = b.style==='tower'?ri(2,3):ri(2,4);
+      var w=b.w, h=b.h, yy=y0, left=b.H;
+      for(var s2=0;s2<segs;s2++){
+        var frac = (s2===segs-1)?1:rf(0.30,0.55);
+        var hh = left*frac; left-=hh;
+        pushBox(mb, cx,cz, w,h, yy, yy+hh, co,si, col, kind, seed, cell);
+        yy+=hh; w*=rf(0.70,0.88); h*=rf(0.70,0.88);
+        if (w<7||h<7) break;
+      }
+      // 屋顶设备 + 天线
+      pushBox(mb, cx,cz, Math.max(3,w*0.4), Math.max(3,h*0.4), yy, yy+rf(2.5,5), co,si,
+        [0.45,0.45,0.47], K_PLAIN, seed, [1,1]);
+      if (b.H>110){
+        pushBox(mb, cx,cz, 1.1,1.1, yy, yy+rf(14,34), co,si, [0.55,0.25,0.2], K_PLAIN, seed,[1,1]);
+      }
+    } else if (b.style==='house' ){
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, kind, seed, cell);
+      pushGable(mb, cx,cz, b.w*1.06,b.h*1.06, y0+b.H, rf(2.2,3.6), co,si,
+        [0.30+R()*0.12,0.24+R()*0.08,0.22+R()*0.07]);
+    } else if (b.style==='flatroof'){
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, kind, seed, cell);
+      pushBox(mb, cx,cz, b.w*1.04,b.h*1.04, y0+b.H, y0+b.H+0.5, co,si,
+        [col[0]*0.8,col[1]*0.8,col[2]*0.8], K_PLAIN, seed,[1,1]);
+    } else if (b.style==='retail'){
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, kind, seed, cell);
+      // 女儿墙 + 招牌带
+      pushBox(mb, cx,cz, b.w*1.03,b.h*1.03, y0+b.H, y0+b.H+1.5, co,si,
+        [col[0]*0.75,col[1]*0.75,col[2]*0.78], K_PLAIN, seed,[1,1]);
+      var sc=[[0.85,0.25,0.2],[0.2,0.45,0.75],[0.9,0.7,0.15],[0.25,0.6,0.35]][ri(0,3)];
+      var fu=b.cu, fv=b.cv, sh=1.2;
+      var fp=d.L2W(fu,fv);
+      // 招牌带：夜间自发光（白天 0.12 微亮）
+      pushBox(mb, fp[0],fp[1], b.w*0.35, b.h*1.06, y0+b.H+1.5, y0+b.H+1.5+sh, co,si, sc, K_EMIT, seed,[0.12,1]);
+    } else if (b.style==='shed'){
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, K_FACADE, seed, cell);
+      // 屋面通风机组
+      for(var v2=0;v2<4;v2++){
+        var pu=b.cu+rf(-b.w*0.35,b.w*0.35), pv=b.cv+rf(-b.h*0.35,b.h*0.35);
+        var pq=d.L2W(pu,pv);
+        pushBox(mb, pq[0],pq[1], rf(3,7),rf(3,7), y0+b.H, y0+b.H+rf(1,2.4), co,si,
+          [0.5,0.51,0.52], K_PLAIN, seed,[1,1]);
+      }
+    } else if (b.style==='balcony'){
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, kind, seed, cell);
+      for(var f2=1;f2<b.floors;f2++){
+        pushBox(mb, cx,cz, b.w*1.10,b.h*1.10, y0+f2*b.fh-0.16, y0+f2*b.fh, co,si,
+          [col[0]*0.86,col[1]*0.86,col[2]*0.86], K_PLAIN, seed,[1,1]);
+      }
+    } else {
+      pushBox(mb, cx,cz, b.w,b.h, y0, y0+b.H, co,si, col, kind, seed, cell);
+      if (b.H>14) pushBox(mb, cx,cz, b.w*1.03,b.h*1.03, y0+b.H, y0+b.H+0.9, co,si,
+        [col[0]*0.78,col[1]*0.78,col[2]*0.80], K_PLAIN, seed,[1,1]);
+    }
+    // 车库（住宅/别墅，位置来自生成期，与车道对齐）
+    if (b.gar){
+      var gp=d.L2W(b.gar.u, b.gar.v);
+      pushBox(mb, gp[0],gp[1], b.gar.w,b.gar.d, y0, y0+2.7, co,si,
+        [col[0]*0.95,col[1]*0.95,col[2]*0.95], K_PLAIN, seed,[1,1]);
+    }
+  });
+
+  /* --- 道路标线 --- */
+  var MY=[0.86,0.72,0.18], MW=[0.86,0.86,0.84];
+  function stripe(x0,z0,x1,z1,w,col,y){
+    var L=Math.hypot(x1-x0,z1-z0); if(L<0.2) return;
+    var dx=(x1-x0)/L, dz=(z1-z0)/L, nx=-dz*w/2, nz=dx*w/2;
+    mb.quad([x0-nx,y,z0-nz],[x1-nx,y,z1-nz],[x1+nx,y,z1+nz],[x0+nx,y,z0+nz],col,
+      [[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+  }
+  C.roads.forEach(function(rd){
+    if (rd.elev || rd.cls==='ALY') return;
+    var L=rd.len, dx=(rd.x1-rd.x0)/L, dz=(rd.z1-rd.z0)/L, nx=-dz, nz=dx;
+    var y=0.05;
+    if (rd.cls==='BLVD'){
+      stripe(rd.x0+nx*0.55, rd.z0+nz*0.55, rd.x1+nx*0.55, rd.z1+nz*0.55, 0.30, MY, y);
+      stripe(rd.x0-nx*0.55, rd.z0-nz*0.55, rd.x1-nx*0.55, rd.z1-nz*0.55, 0.30, MY, y);
+      [-1,1].forEach(function(sd){
+        var o=rd.w*0.25*sd;
+        for(var t=0;t<L-5;t+=15) stripe(rd.x0+dx*t+nx*o, rd.z0+dz*t+nz*o,
+          rd.x0+dx*(t+6)+nx*o, rd.z0+dz*(t+6)+nz*o, 0.22, MW, y);
+        var e=rd.w*0.46*sd;
+        stripe(rd.x0+nx*e, rd.z0+nz*e, rd.x1+nx*e, rd.z1+nz*e, 0.24, MW, y);
+      });
+    } else if (rd.cls==='AVE'){
+      for(var t2=0;t2<L-5;t2+=15) stripe(rd.x0+dx*t2, rd.z0+dz*t2, rd.x0+dx*(t2+6.5), rd.z0+dz*(t2+6.5), 0.26, MY, y);
+      [-1,1].forEach(function(sd){
+        var e=rd.w*0.44*sd;
+        stripe(rd.x0+nx*e, rd.z0+nz*e, rd.x1+nx*e, rd.z1+nz*e, 0.22, MW, y);
+      });
+    } else {
+      [-1,1].forEach(function(sd){
+        var e=rd.w*0.42*sd;
+        stripe(rd.x0+nx*e, rd.z0+nz*e, rd.x1+nx*e, rd.z1+nz*e, 0.18, MW, y);
+      });
+    }
+  });
+  /* 主干道交叉口：斑马线 + 停止线 */
+  var majors = C.roads.filter(function(r){ return !r.elev && (r.cls==='BLVD'||r.cls==='AVE'); });
+  for(var i3=0;i3<majors.length;i3++) for(var j3=i3+1;j3<majors.length;j3++){
+    var A=majors[i3], B=majors[j3];
+    var p = segInter(A,B);
+    if (!p) continue;
+    [A,B].forEach(function(rd){
+      var L=rd.len, dx=(rd.x1-rd.x0)/L, dz=(rd.z1-rd.z0)/L, nx=-dz, nz=dx;
+      var other = (rd===A?B:A);
+      var off = other.w/2 + 2.2;
+      [-1,1].forEach(function(sd){
+        var bx=p[0]+dx*off*sd, bz=p[1]+dz*off*sd;
+        for(var k3=-3;k3<=3;k3++){
+          var o=k3*(rd.w/8.4);
+          stripe(bx+nx*o - dx*2.0, bz+nz*o - dz*2.0, bx+nx*o + dx*2.0, bz+nz*o + dz*2.0, rd.w/16, [0.9,0.9,0.88], 0.06);
+        }
+        stripe(p[0]+dx*(off+3.4)*sd + nx*rd.w*0.02, p[1]+dz*(off+3.4)*sd + nz*rd.w*0.02,
+               p[0]+dx*(off+3.4)*sd + nx*rd.w*0.46, p[1]+dz*(off+3.4)*sd + nz*rd.w*0.46, 0.5, [0.9,0.9,0.88], 0.06);
+        stripe(p[0]+dx*(off+3.4)*sd - nx*rd.w*0.02, p[1]+dz*(off+3.4)*sd - nz*rd.w*0.02,
+               p[0]+dx*(off+3.4)*sd - nx*rd.w*0.46, p[1]+dz*(off+3.4)*sd - nz*rd.w*0.46, 0.5, [0.9,0.9,0.88], 0.06);
+      });
+    });
+  }
+
+  /* --- 高架高速：桥面 + 护栏 + 桥墩 --- */
+  if (C.freeway){
+    var f=C.freeway, pts=f.pts, Y=f.y, W=f.w;
+    for(var i4=0;i4<pts.length;i4++){
+      var a=pts[i4], b=pts[(i4+1)%pts.length];
+      var L=Math.hypot(b[0]-a[0], b[1]-a[1]); if(L<0.5) continue;
+      var dx=(b[0]-a[0])/L, dz=(b[1]-a[1])/L, nx=-dz*W/2, nz=dx*W/2;
+      mb.quad([a[0]-nx,Y,a[1]-nz],[b[0]-nx,Y,b[1]-nz],[b[0]+nx,Y,b[1]+nz],[a[0]+nx,Y,a[1]+nz],
+        [0.26,0.26,0.28],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+      // 桥底
+      mb.quad([a[0]+nx,Y-1.5,a[1]+nz],[b[0]+nx,Y-1.5,b[1]+nz],[b[0]-nx,Y-1.5,b[1]-nz],[a[0]-nx,Y-1.5,a[1]-nz],
+        [0.30,0.29,0.28],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+      // 中央黄线 + 边线
+      stripe(a[0],a[1],b[0],b[1],0.5,MY,Y+0.02);
+      stripe(a[0]+nx*0.92,a[1]+nz*0.92,b[0]+nx*0.92,b[1]+nz*0.92,0.3,MW,Y+0.02);
+      stripe(a[0]-nx*0.92,a[1]-nz*0.92,b[0]-nx*0.92,b[1]-nz*0.92,0.3,MW,Y+0.02);
+      // 护栏（两侧各自保证法线朝外）
+      [1,-1].forEach(function(sd){
+        var ox=nx*sd*1.0, oz=nz*sd*1.0;
+        if (sd>0)
+          mb.quad([b[0]+ox,Y,b[1]+oz],[a[0]+ox,Y,a[1]+oz],[a[0]+ox,Y+0.95,a[1]+oz],[b[0]+ox,Y+0.95,b[1]+oz],
+            [0.62,0.62,0.60],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+        else
+          mb.quad([a[0]+ox,Y,a[1]+oz],[b[0]+ox,Y,b[1]+oz],[b[0]+ox,Y+0.95,b[1]+oz],[a[0]+ox,Y+0.95,a[1]+oz],
+            [0.62,0.62,0.60],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,0,1,1]);
+      });
+      // 桥墩
+      if (i4%2===0){
+        var mx=(a[0]+b[0])/2, mz=(a[1]+b[1])/2;
+        pushBox(mb, mx,mz, 4.5,4.5, 0, Y-1.5, 1,0, [0.42,0.42,0.43], K_PLAIN, 3,[1,1]);
+      }
+    }
+  }
+
+  /* --- 设施：路灯 / 树 / 棕榈 --- */
+  C.props.forEach(function(p){
+    if (p.t==='lamp'){
+      pushBox(mb, p.x,p.z, 0.28,0.28, CURB, 8.2, 1,0, [0.30,0.31,0.33], K_PLAIN, 1,[1,1]);
+      var ax=Math.cos(p.a)*1.5, az=Math.sin(p.a)*1.5;
+      // 灯头：自发光（白天强度 0 → 只在夜里亮）
+      pushBox(mb, p.x+ax, p.z+az, 1.5,0.55, 7.7, 8.1, Math.cos(p.a),Math.sin(p.a),
+        [1.00,0.86,0.60], K_EMIT, 1,[0.0,1]);
+    } else if (p.t==='tree'){
+      var s=p.s, tr=[0.26,0.20,0.15], cr=[0.16+R()*0.10, 0.30+R()*0.16, 0.14+R()*0.08];
+      pushBox(mb, p.x,p.z, 0.5*s,0.5*s, CURB, CURB+2.6*s, 1,0, tr, K_PLAIN, 1,[1,1]);
+      var y=CURB+2.4*s, r=1.9*s, top=y+4.0*s;
+      var oct=[[r,0],[0,r],[-r,0],[0,-r]];
+      for(var i5=0;i5<4;i5++){
+        var a2=oct[i5], b2=oct[(i5+1)%4];
+        mb.tri([p.x+a2[0],y+1.2*s,p.z+a2[1]],[p.x+b2[0],y+1.2*s,p.z+b2[1]],[p.x,top,p.z],
+          [a2[0],1,a2[1]],cr,[0,0],[1,0],[0.5,1],[K_PLAIN,1,1,1]);
+        mb.tri([p.x+b2[0],y+1.2*s,p.z+b2[1]],[p.x+a2[0],y+1.2*s,p.z+a2[1]],[p.x,y-0.6*s,p.z],
+          [a2[0],-1,a2[1]],[cr[0]*0.7,cr[1]*0.7,cr[2]*0.7],[0,0],[1,0],[0.5,1],[K_PLAIN,1,1,1]);
+      }
+    } else {
+      // 棕榈
+      var s2=p.s, hgt=7*s2;
+      pushBox(mb, p.x,p.z, 0.42*s2,0.42*s2, 0, hgt, 1,0, [0.38,0.33,0.24], K_PLAIN, 1,[1,1]);
+      for(var f3=0;f3<6;f3++){
+        var an=f3/6*Math.PI*2+R(), ln=3.2*s2;
+        mb.quad([p.x,hgt,p.z],
+                [p.x+Math.cos(an)*ln*0.5, hgt+0.9*s2, p.z+Math.sin(an)*ln*0.5],
+                [p.x+Math.cos(an)*ln, hgt-0.8*s2, p.z+Math.sin(an)*ln],
+                [p.x+Math.cos(an+0.4)*ln*0.55, hgt+0.2*s2, p.z+Math.sin(an+0.4)*ln*0.55],
+                [0.20,0.36,0.18],[[0,0],[1,0],[1,1],[0,1]],[K_PLAIN,1,1,1]);
+      }
+    }
+  });
+
+  /* --- 路边停放车辆 --- */
+  C.cars.forEach(function(c){
+    pushCar(mb, c.x, c.z, c.a, c.col, 4.6, 1.95, 0, false);
+  });
+
+  /* --- 远山剪影 --- */
+  for(var a3=0;a3<64;a3++){
+    var an1=a3/64*Math.PI*2, an2=(a3+1)/64*Math.PI*2;
+    var rr=1620, hgt2 = 120+Math.sin(a3*1.7)*70+Math.cos(a3*0.7)*60 + (an1>2.2&&an1<4.0? -60:0);
+    if (Math.sin(an1)>0.55) hgt2*=0.25;   // 南侧海面压低
+    var x1=Math.cos(an1)*rr, z1=Math.sin(an1)*rr, x2=Math.cos(an2)*rr, z2=Math.sin(an2)*rr;
+    var col2=[0.30,0.31,0.30];
+    mb.tri([x1,-4,z1],[x2,-4,z2],[(x1+x2)/2*1.02, hgt2, (z1+z2)/2*1.02],[0,0.4,0],col2,
+      [0,0],[1,0],[0.5,1],[K_PLAIN,0,1,1]);
+  }
+  return mb;
+}
+function pushCar(mb, x,z, a, col, len, wid, y0, wheels, lights, brake){
+  y0 = y0||0;
+  var co=Math.cos(a), si=Math.sin(a);
+  var P=function(u,v){ return [x+co*u-si*v, z+si*u+co*v]; };
+  pushBox(mb, x,z, len,wid, y0+0.30, y0+1.02, co,si, col, K_PLAIN, 1,[1,1]);
+  var cp=P(-0.15,0);
+  pushBox(mb, cp[0],cp[1], len*0.52,wid*0.88, y0+1.02, y0+1.52, co,si,
+    [col[0]*0.35+0.05,col[1]*0.36+0.06,col[2]*0.38+0.08], K_PLAIN, 1,[1,1]);
+  if (wheels){
+    for(var i=0;i<4;i++){
+      var sx=(i<2?1:-1)*len*0.32, sz=(i%2?1:-1)*wid*0.46, wp=P(sx,sz);
+      pushBox(mb, wp[0],wp[1], 0.66,0.34, y0+0.06, y0+0.62, co,si, [0.07,0.07,0.08], K_PLAIN,1,[1,1]);
+    }
+  } else {
+    // 停放车用底盘暗裙代替 4 个轮子：省 3/4 顶点，且不再悬空
+    pushBox(mb, x,z, len*0.86,wid*0.94, y0+0.09, y0+0.32, co,si, [0.06,0.06,0.07], K_PLAIN,1,[1,1]);
+  }
+  if (lights){
+    var hc=[1.00,0.96,0.84], tc=brake?[1.00,0.06,0.03]:[0.66,0.03,0.02];
+    var hs=0.30, ts=brake?0.95:0.20;          // vParm.z = 白天自发光强度
+    for(var s=-1;s<=1;s+=2){
+      var fp=P(len*0.5-0.06, s*wid*0.30);
+      pushBox(mb, fp[0],fp[1], 0.22,0.46, y0+0.56, y0+0.84, co,si, hc, K_EMIT, 1,[hs,1]);
+      var rp=P(-len*0.5+0.06, s*wid*0.30);
+      pushBox(mb, rp[0],rp[1], 0.18,0.42, y0+0.60, y0+0.88, co,si, tc, K_EMIT, 1,[ts,1]);
+    }
+  }
+}
+function segInter(A,B){
+  var x1=A.x0,y1=A.z0,x2=A.x1,y2=A.z1, x3=B.x0,y3=B.z0,x4=B.x1,y4=B.z1;
+  var d=(x2-x1)*(y4-y3)-(y2-y1)*(x4-x3);
+  if (Math.abs(d)<1e-6) return null;
+  var t=((x3-x1)*(y4-y3)-(y3-y1)*(x4-x3))/d, u=((x3-x1)*(y2-y1)-(y3-y1)*(x2-x1))/d;
+  if (t<0.001||t>0.999||u<0.001||u>0.999) return null;
+  return [x1+(x2-x1)*t, y1+(y2-y1)*t];
+}
+
+/* =========================================================
+   7. WebGL
+   ========================================================= */
+var canvas=document.getElementById('c'), gl=null;
+try{ gl = canvas.getContext('webgl', {antialias:true, alpha:false, powerPreference:'high-performance'})
+       || canvas.getContext('experimental-webgl', {antialias:true, alpha:false}); }catch(e){}
+if (!gl){ fail('当前浏览器不支持 WebGL。'); return; }
+
+function shader(t, src, nm){
+  var s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ fail('着色器编译失败 ['+nm+']\n'+gl.getShaderInfoLog(s)); throw 0; }
+  return s;
+}
+function program(vs,fs,nm){
+  var p=gl.createProgram();
+  gl.attachShader(p, shader(gl.VERTEX_SHADER, document.getElementById(vs).textContent, vs));
+  gl.attachShader(p, shader(gl.FRAGMENT_SHADER, document.getElementById(fs).textContent, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){ fail('链接失败 ['+nm+']\n'+gl.getProgramInfoLog(p)); throw 0; }
+  p._u={}; return p;
+}
+function U(p,n){ if(!(n in p._u)) p._u[n]=gl.getUniformLocation(p,n); return p._u[n]; }
+var prgMain, prgSky;
+try{ prgMain=program('vsMain','fsMain','main'); prgSky=program('vsSky','fsSky','sky'); }catch(e){ return; }
+
+var A = {pos:gl.getAttribLocation(prgMain,'aPos'), nrm:gl.getAttribLocation(prgMain,'aNrm'),
+         col:gl.getAttribLocation(prgMain,'aCol'), uv:gl.getAttribLocation(prgMain,'aUv'),
+         parm:gl.getAttribLocation(prgMain,'aParm')};
+var skyA = gl.getAttribLocation(prgSky,'aPos');
+var STRIDE = 15*4;
+var vboStatic=gl.createBuffer(), vboDyn=gl.createBuffer(), vboSky=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vboSky);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+
+var planTex = gl.createTexture(), lampTex = gl.createTexture();
+var nStatic=0, nDyn=0, DYN=new MB(1<<17);
+
+function bindAttribs(){
+  gl.enableVertexAttribArray(A.pos);  gl.vertexAttribPointer(A.pos, 3, gl.FLOAT,false,STRIDE,0);
+  gl.enableVertexAttribArray(A.nrm);  gl.vertexAttribPointer(A.nrm, 3, gl.FLOAT,false,STRIDE,12);
+  gl.enableVertexAttribArray(A.col);  gl.vertexAttribPointer(A.col, 3, gl.FLOAT,false,STRIDE,24);
+  gl.enableVertexAttribArray(A.uv);   gl.vertexAttribPointer(A.uv,  2, gl.FLOAT,false,STRIDE,36);
+  gl.enableVertexAttribArray(A.parm); gl.vertexAttribPointer(A.parm,4, gl.FLOAT,false,STRIDE,44);
+}
+function uploadPlan(cv){ uploadTex(planTex, cv); }
+function uploadLamp(cv){ uploadTex(lampTex, cv); }
+function uploadTex(tex, cv){
+  gl.activeTexture(gl.TEXTURE0);        // 必须复位：帧循环里最后停在 TEXTURE1，否则会把贴图绑错单元
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cv);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  var ax = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
+  if (ax) gl.texParameterf(gl.TEXTURE_2D, ax.TEXTURE_MAX_ANISOTROPY_EXT,
+      Math.min(8, gl.getParameter(ax.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+}
+
+/* =========================================================
+   8. 相机 / 输入
+   ========================================================= */
+var CAM = {x:-620, y:225, z:760, yaw:0, pitch:-0.16, dYaw:0, mode:'fly'};
+(function(){ var dx=CORE_C[0]-CAM.x, dz=CORE_C[1]-CAM.z; CAM.yaw=Math.atan2(dz,dx); })();
+var CAR = {x:0, z:430, a:-Math.PI/2, v:0, steer:0, col:[0.56,0.10,0.11]};
+var keys={}, TOD=15.2, autoTOD=false, hudOn=true, mapOn=false, mapMode='street';
+window.addEventListener('keydown',function(e){
+  var k=e.key.toLowerCase();
+  keys[k]=1;
+  if(k==='g'){ toggleMode(); }
+  else if(k==='m'){ setMap(!mapOn); }
+  else if(k==='z'){ if(mapOn) setMapMode(mapMode==='street'?'zoning':'street'); }
+  else if(k==='h'){ hudOn=!hudOn; document.getElementById('hud').classList.toggle('off',!hudOn); }
+  else if(k==='t'){ autoTOD=!autoTOD; }
+  else if(k==='['){ TOD=(TOD+23.5)%24; }
+  else if(k===']'){ TOD=(TOD+0.5)%24; }
+  else if(k==='r'){ teleport(); }
+  if(['w','a','s','d','q','e',' '].indexOf(k)>=0) e.preventDefault();
+});
+window.addEventListener('keyup',function(e){ keys[e.key.toLowerCase()]=0; });
+canvas.addEventListener('click',function(){ if(!mapOn && canvas.requestPointerLock) canvas.requestPointerLock(); });
+document.addEventListener('mousemove',function(e){
+  if (document.pointerLockElement!==canvas) return;
+  if (CAM.mode==='drive'){                       // 驾车：鼠标绕车环视 + 俯仰
+    CAM.dYaw = clamp(CAM.dYaw + e.movementX*0.0030, -2.7, 2.7);
+    CAM.pitch = clamp(CAM.pitch - e.movementY*0.0022, -0.95, 0.55);
+  } else {
+    CAM.yaw += e.movementX*0.0026;
+    CAM.pitch = clamp(CAM.pitch - e.movementY*0.0024, -1.45, 1.45);
+  }
+});
+function toggleMode(){
+  if (CAM.mode==='fly'){
+    // 就近落到路面
+    var best=null, bd=1e9;
+    CITY.roads.forEach(function(rd){
+      if (rd.elev) return;
+      var d=segDist(CAM.x,CAM.z, rd.x0,rd.z0,rd.x1,rd.z1);
+      if (d<bd){ bd=d; best=rd; }
+    });
+    if (!best) return;                           // 找不到道路则保持飞行
+    var L=best.len, t=clamp(((CAM.x-best.x0)*(best.x1-best.x0)+(CAM.z-best.z0)*(best.z1-best.z0))/(L*L),0.1,0.9);
+    CAR.x=best.x0+(best.x1-best.x0)*t; CAR.z=best.z0+(best.z1-best.z0)*t;
+    CAR.a=Math.atan2(best.z1-best.z0, best.x1-best.x0); CAR.v=0;
+    CAM.mode='drive'; CAM.dYaw=0; CAM.pitch=-0.13;
+  } else {
+    CAM.mode='fly'; CAM.yaw=CAR.a; CAM.pitch=-0.06;
+    CAM.x=CAR.x-Math.cos(CAR.a)*12; CAM.z=CAR.z-Math.sin(CAR.a)*12; CAM.y=6.5;
+  }
+  document.getElementById('spd').classList.toggle('on', CAM.mode==='drive');
+}
+function teleport(){
+  var d = CITY.districts[Math.floor(Math.random()*CITY.districts.length)];
+  var x=d.cx, z=d.cz;
+  for(var i=0;i<40;i++){                         // 找一个非建筑占位的落点
+    var tx=d.cx+(Math.random()-0.5)*(d.r[2]-d.r[0])*0.72;
+    var tz=d.cz+(Math.random()-0.5)*(d.r[3]-d.r[1])*0.72;
+    if (!(gridAt(tx,tz)&G_SOLID)){ x=tx; z=tz; break; }
+  }
+  CAM.x=x; CAM.z=z; CAM.y=(d.k==='core'?165:95);
+  CAM.mode='fly'; CAM.pitch=-0.20; CAM.dYaw=0;
+  document.getElementById('spd').classList.remove('on');
+}
+
+/* =========================================================
+   9. HUD / 地图
+   ========================================================= */
+var mapCv=document.createElement('canvas'), zonCv=document.createElement('canvas'), mmCv=document.createElement('canvas');
+var MS=1500, MMS=760;
+function paintMaps(){
+  mapCv.width=mapCv.height=MS; zonCv.width=zonCv.height=MS; mmCv.width=mmCv.height=MMS;
+  planPaint(mapCv.getContext('2d'), MS, 'map');
+  planPaint(zonCv.getContext('2d'), MS, 'zoning');
+  planPaint(mmCv.getContext('2d'), MMS, 'map');
+}
+var mmc=document.getElementById('mm').getContext('2d');
+var mapc=document.getElementById('map').getContext('2d');
+function W2M(v){ return (v+HW)/WORLD*MS; }
+function W2MM(v){ return (v+HW)/WORLD*MMS; }
+
+function drawMini(px,pz,ang){
+  var S=412, k=2.6;                           // 显示半径 ≈ 250m
+  mmc.save();
+  mmc.beginPath(); mmc.arc(S/2,S/2,S/2-2,0,7); mmc.clip();
+  mmc.fillStyle='#0c1116'; mmc.fillRect(0,0,S,S);
+  mmc.translate(S/2,S/2); mmc.rotate(-ang-Math.PI/2); mmc.scale(k,k);
+  mmc.drawImage(mmCv, -W2MM(px), -W2MM(pz));
+  mmc.restore();
+  // 车辆/相机指针
+  mmc.save(); mmc.translate(S/2,S/2);
+  mmc.fillStyle='#ffd24a'; mmc.strokeStyle='#12161c'; mmc.lineWidth=3;
+  mmc.beginPath(); mmc.moveTo(0,-15); mmc.lineTo(11,13); mmc.lineTo(0,7); mmc.lineTo(-11,13);
+  mmc.closePath(); mmc.fill(); mmc.stroke(); mmc.restore();
+  mmc.strokeStyle='rgba(255,255,255,.14)'; mmc.lineWidth=2;
+  mmc.beginPath(); mmc.arc(S/2,S/2,S/2-3,0,7); mmc.stroke();
+}
+function drawBigMap(){
+  var W=1500;
+  mapc.clearRect(0,0,W,W);
+  mapc.drawImage(mapMode==='street'?mapCv:zonCv, 0,0);
+  // 区名
+  mapc.textAlign='center'; mapc.textBaseline='middle';
+  CITY.districts.forEach(function(d){
+    var x=W2M(d.cx), z=W2M(d.cz);
+    mapc.font='600 17px ui-sans-serif,system-ui,sans-serif';
+    mapc.fillStyle='rgba(0,0,0,.65)'; mapc.fillText(d.n.toUpperCase(), x+1, z+1);
+    mapc.fillStyle= mapMode==='zoning'? '#fff' : '#e8e2d6';
+    mapc.fillText(d.n.toUpperCase(), x, z);
+    mapc.font='400 12px ui-monospace,Menlo,monospace';
+    mapc.fillStyle='rgba(255,255,255,.55)';
+    mapc.fillText(ZONE_NAME[d.zone]||'', x, z+19);
+  });
+  // 玩家
+  var p = CAM.mode==='drive'?[CAR.x,CAR.z]:[CAM.x,CAM.z];
+  mapc.save(); mapc.translate(W2M(p[0]), W2M(p[1]));
+  mapc.rotate((CAM.mode==='drive'?CAR.a:CAM.yaw)+Math.PI/2);
+  mapc.fillStyle='#ffd24a'; mapc.strokeStyle='#0c1013'; mapc.lineWidth=3;
+  mapc.beginPath(); mapc.moveTo(0,-16); mapc.lineTo(12,14); mapc.lineTo(0,8); mapc.lineTo(-12,14);
+  mapc.closePath(); mapc.fill(); mapc.stroke(); mapc.restore();
+  // 比例尺
+  mapc.fillStyle='rgba(255,255,255,.8)'; mapc.textAlign='left';
+  var px500 = 500/WORLD*MS;
+  mapc.fillRect(30, W-42, px500, 4);
+  mapc.font='400 12px ui-monospace,Menlo,monospace';
+  mapc.fillText('500 m', 30, W-54);
+}
+function setMap(on){
+  mapOn=on;
+  document.getElementById('mapv').classList.toggle('on',on);
+  if(on){ drawBigMap(); if(document.pointerLockElement) document.exitPointerLock(); }
+}
+function setMapMode(m){
+  mapMode=m;
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){ t.classList.toggle('on', t.dataset.m===m); });
+  document.getElementById('mapTitle').textContent = 'Los Santos · '+(m==='street'?'街道图':'用地分区图');
+  document.getElementById('legend').innerHTML = m==='zoning'
+    ? Object.keys(ZONE_COL).map(function(z){ return '<span><i style="background:'+ZONE_COL[z]+'"></i>'+ZONE_NAME[z]+'</span>'; }).join('')
+    : '<span><i style="background:#c9a13b"></i>高架高速</span><span><i style="background:#4a5561"></i>主干道</span>'
+      +'<span><i style="background:#39434e"></i>次干道 / 支路</span><span><i style="background:#2c3844"></i>建筑</span>'
+      +'<span><i style="background:#3f7d3a"></i>绿地</span><span><i style="background:#0d1b28"></i>水域</span>';
+  drawBigMap();
+}
+document.getElementById('bMap').onclick=function(){ setMap(!mapOn); };
+document.getElementById('mapv').onclick=function(e){ if(e.target.id==='mapv') setMap(false); };
+Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){
+  t.onclick=function(){ setMapMode(t.dataset.m); };
+});
+document.getElementById('bRe').onclick=function(){ regen((Math.random()*1e9)|0); };
+
+function fmt(n,d){ return n.toLocaleString('en-US',{maximumFractionDigits:d===undefined?0:d}); }
+function updMetrics(){
+  var s=CITY.stats;
+  document.getElementById('mArea').textContent = fmt(s.area,2)+' km²';
+  document.getElementById('mRoad').textContent = fmt(s.road,1)+' km';
+  document.getElementById('mBlock').textContent = fmt(s.blocks)+' / '+fmt(s.lots);
+  document.getElementById('mBld').textContent = fmt(s.bld);
+  document.getElementById('mFar').textContent = fmt(s.far/1e4,1)+' 万 m²';
+  document.getElementById('mFarR').textContent = fmt(s.farRatio,2);
+  document.getElementById('mTall').textContent = fmt(s.tall)+' m';
+  document.getElementById('mPop').textContent = fmt(s.pop);
+  document.getElementById('mmScale').textContent = 'SEED '+CITY.seed;
+}
+var wDist=document.getElementById('wDist'), wSt=document.getElementById('wSt'), wZone=document.getElementById('wZone');
+function updWhere(px,pz){
+  var d=null;
+  for(var i=0;i<CITY.districts.length;i++){
+    var r=CITY.districts[i].r;
+    if (px>=r[0]&&px<=r[2]&&pz>=r[1]&&pz<=r[3]){ d=CITY.districts[i]; break; }
+  }
+  var best=null, bd=1e9;
+  for(var j=0;j<CITY.roads.length;j++){
+    var rd=CITY.roads[j];
+    if (rd.elev) continue;                       // 高架不参与「所在街道」判定
+    var dd=segDist(px,pz, rd.x0,rd.z0,rd.x1,rd.z1);
+    if (dd<bd){ bd=dd; best=rd; }
+  }
+  wDist.textContent = d? d.n : (pz>SEA_Z? 'Pacific Ocean':'Los Santos County');
+  wSt.textContent = best && bd<90 ? best.name : (d?d.n:'—');
+  var z = d?d.zone:(pz>SEA_Z?'BCH':'PARK');
+  wZone.textContent = (ZONE_NAME[z]||'—') + ' · ' + z;
+  wZone.style.background = ZONE_COL[z]||'#888';
+  wZone.style.color = '#fff';
+}
+
+/* =========================================================
+   10. 主循环
+   ========================================================= */
+var last=performance.now(), tAcc=0, fpsT=0, fpsN=0, mapT=0, mmT=0;
+function resize(){
+  var dpr=Math.min(window.devicePixelRatio||1, 1.75);
+  canvas.width=Math.round(innerWidth*dpr); canvas.height=Math.round(innerHeight*dpr);
+}
+window.addEventListener('resize',resize);
+
+function sunState(){
+  var t=(TOD-6)/12*Math.PI;                       // 6:00 日出 → 18:00 日落
+  var el=Math.sin(t), az=-0.62, azz=0.42;
+  var dir=[az*0.9, Math.max(el,-0.35), azz*0.9];
+  var L=Math.hypot(dir[0],dir[1],dir[2]); dir=[dir[0]/L,dir[1]/L,dir[2]/L];
+  var day=clamp(el*2.2,0,1), dusk=clamp(1-Math.abs(el)*3.2,0,1);
+  var night=clamp(-el*3.0,0,1);
+  // 夜间常数项 = 月光 + 城市天空辉光（数值按「tonemap+gamma 之后」的观感标定）
+  var sunCol=[ 1.05*day+1.00*dusk+0.010, 0.98*day+0.55*dusk+0.012, 0.86*day+0.30*dusk+0.020 ];
+  var skyTop=[0.24*day+0.10*dusk+0.0045, 0.44*day+0.16*dusk+0.0055, 0.86*day+0.30*dusk+0.0110];
+  var skyBot=[0.62*day+0.75*dusk+0.0175, 0.74*day+0.44*dusk+0.0150, 0.92*day+0.32*dusk+0.0145];
+  var fog=[0.66*day+0.62*dusk+0.0170, 0.74*day+0.44*dusk+0.0145, 0.86*day+0.36*dusk+0.0150];
+  return {dir:dir, sunCol:sunCol, skyTop:skyTop, skyBot:skyBot, fog:fog, night:clamp(night+dusk*0.35,0,1)};
+}
+
+function frame(now){
+  var dt=Math.min((now-last)/1000, 0.06); last=now; tAcc+=dt;
+  if (autoTOD) TOD=(TOD+dt*0.35)%24;
+
+  /* --- 运动 --- */
+  var eye, look, ang;
+  if (CAM.mode==='fly'){
+    var sp=(keys['shift']?260:70)*dt;
+    var cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw), cp=Math.cos(CAM.pitch), sp2=Math.sin(CAM.pitch);
+    var fx=cy*cp, fy=sp2, fz=sy*cp;
+    var rx=-sy, rz=cy;
+    if(keys['w']){ CAM.x+=fx*sp; CAM.y+=fy*sp; CAM.z+=fz*sp; }
+    if(keys['s']){ CAM.x-=fx*sp; CAM.y-=fy*sp; CAM.z-=fz*sp; }
+    if(keys['a']){ CAM.x-=rx*sp; CAM.z-=rz*sp; }
+    if(keys['d']){ CAM.x+=rx*sp; CAM.z+=rz*sp; }
+    if(keys['e']||keys[' ']) CAM.y+=sp;
+    if(keys['q']) CAM.y-=sp;
+    CAM.y=clamp(CAM.y, 2.2, 900);
+    CAM.x=clamp(CAM.x,-HW-200,HW+200); CAM.z=clamp(CAM.z,-HW-200,HW+200);
+    eye=[CAM.x,CAM.y,CAM.z]; look=[CAM.x+fx,CAM.y+fy,CAM.z+fz]; ang=CAM.yaw;
+  } else {
+    var acc=(keys['w']?46:0)-(keys['s']?36:0);
+    var onRoad = (gridAt(CAR.x,CAR.z)&G_ROAD)!==0;
+    CAR.v += acc*dt;
+    CAR.v *= (1 - (onRoad?0.55:2.4)*dt);
+    if (keys[' ']) CAR.v *= (1-3.2*dt);
+    CAR.v = clamp(CAR.v, -14, onRoad?58:22);
+    var st=(keys['a']?1:0)-(keys['d']?1:0);
+    CAR.a -= st*dt*Math.min(2.0, Math.abs(CAR.v)*0.10)*(CAR.v<0?-1:1);
+    var nx2=CAR.x+Math.cos(CAR.a)*CAR.v*dt, nz2=CAR.z+Math.sin(CAR.a)*CAR.v*dt;
+    if (gridAt(nx2,nz2)&G_SOLID){ CAR.v*=-0.18; } else { CAR.x=nx2; CAR.z=nz2; }
+    CAR.x=clamp(CAR.x,-HW,HW); CAR.z=clamp(CAR.z,-HW,SEA_Z-14);
+    if (!keys['a']&&!keys['d']) CAM.yaw += (CAR.a-CAM.yaw)*Math.min(1,dt*3.4);
+    else CAM.yaw += (CAR.a-CAM.yaw)*Math.min(1,dt*6.0);
+    CAM.dYaw *= (1 - Math.min(1, dt*0.9));                 // 鼠标偏置缓慢回中
+    var camYaw = CAR.a + CAM.dYaw;
+    var bd=8.4+Math.abs(CAR.v)*0.09, cpd=Math.cos(CAM.pitch);
+    eye=[CAR.x - Math.cos(camYaw)*bd*cpd,
+         Math.max(0.9, 3.3 - Math.sin(CAM.pitch)*bd + Math.abs(CAR.v)*0.012),
+         CAR.z - Math.sin(camYaw)*bd*cpd];
+    look=[CAR.x+Math.cos(CAR.a)*6.0, 1.75, CAR.z+Math.sin(CAR.a)*6.0];
+    ang=CAR.a;
+    document.getElementById('spdN').textContent = Math.round(Math.abs(CAR.v)*3.6);
+  }
+
+  /* --- 车流 --- */
+  DYN.reset();
+  CITY.traffic.forEach(function(c){
+    var lp=CITY.loops[c.loop];
+    c.t=(c.t + c.v*dt*c.dir + lp.L)%lp.L;
+    var i=0; while(i<lp.cum.length-1 && lp.cum[i+1]<c.t) i++;
+    var a=lp.pts[i%lp.pts.length], b=lp.pts[(i+1)%lp.pts.length];
+    var seg=lp.cum[i+1]-lp.cum[i]; var f=seg>0?(c.t-lp.cum[i])/seg:0;
+    var dx=(b[0]-a[0]), dz=(b[1]-a[1]), L=Math.hypot(dx,dz)||1; dx/=L; dz/=L;
+    var nx=-dz, nz=dx;
+    var off=(c.dir>0?1:-1)*(3.6+c.lane*3.4);
+    var x=a[0]+dx*(f*seg)+nx*off, z=a[1]+dz*(f*seg)+nz*off;
+    var ah=Math.atan2(dz*c.dir, dx*c.dir);
+    pushCar(DYN, x, z, ah, c.col, c.len, c.wid, lp.y, true, true, false);
+  });
+  nDyn = DYN.count();
+  if (CAM.mode==='drive'){                      // 玩家载具（含前照灯/尾灯，刹车变亮）
+    var braking = !!(keys[' ']||keys['s']);
+    pushCar(DYN, CAR.x, CAR.z, CAR.a, CAR.col, 4.75, 2.02, 0, true, true, braking);
+    nDyn = DYN.count();
+  }
+  if (nDyn){
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboDyn);
+    gl.bufferData(gl.ARRAY_BUFFER, DYN.data(), gl.DYNAMIC_DRAW);
+  }
+
+  /* --- 绘制 --- */
+  var S=sunState();
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+  gl.clearColor(S.fog[0],S.fog[1],S.fog[2],1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  var asp=canvas.width/canvas.height;
+  var proj=m4persp(58*Math.PI/180, asp, 1.0, 6200);
+  var view=m4look(eye, look, [0,1,0]);
+  var VP=m4mul(proj, view);
+
+  // 天空
+  var fx2=look[0]-eye[0], fy2=look[1]-eye[1], fz2=look[2]-eye[2];
+  var fl2=Math.hypot(fx2,fy2,fz2)||1; fx2/=fl2; fy2/=fl2; fz2/=fl2;
+  var rx2=-fz2, ry2=0, rz2=fx2; var rl2=Math.hypot(rx2,rz2)||1; rx2/=rl2; rz2/=rl2;
+  var ux2=ry2*fz2-rz2*fy2, uy2=rz2*fx2-rx2*fz2, uz2=rx2*fy2-ry2*fx2;
+  gl.depthMask(false); gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(prgSky);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vboSky);
+  gl.enableVertexAttribArray(skyA); gl.vertexAttribPointer(skyA,2,gl.FLOAT,false,0,0);
+  gl.uniformMatrix3fv(U(prgSky,'uBasis'),false,[rx2,ry2,rz2, ux2,uy2,uz2, fx2,fy2,fz2]);
+  gl.uniform1f(U(prgSky,'uFocal'), 1/Math.tan(58*Math.PI/180/2));
+  gl.uniform1f(U(prgSky,'uAsp'), asp);
+  gl.uniform1f(U(prgSky,'uTime'), tAcc);
+  gl.uniform3fv(U(prgSky,'uSun'), S.dir);
+  gl.uniform3fv(U(prgSky,'uSunCol'), S.sunCol);
+  gl.uniform3fv(U(prgSky,'uSkyTop'), S.skyTop);
+  gl.uniform3fv(U(prgSky,'uSkyBot'), S.skyBot);
+  gl.uniform3fv(U(prgSky,'uFog'), S.fog);
+  gl.uniform1f(U(prgSky,'uNight'), S.night);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.depthMask(true); gl.enable(gl.DEPTH_TEST);
+
+  // 城市
+  gl.useProgram(prgMain);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, planTex);
+  gl.uniform1i(U(prgMain,'uPlan'),0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lampTex);
+  gl.uniform1i(U(prgMain,'uLamp'),1);
+  gl.uniformMatrix4fv(U(prgMain,'uVP'),false,VP);
+  gl.uniform3fv(U(prgMain,'uSun'),S.dir);
+  gl.uniform3fv(U(prgMain,'uSunCol'),S.sunCol);
+  gl.uniform3fv(U(prgMain,'uSkyTop'),S.skyTop);
+  gl.uniform3fv(U(prgMain,'uSkyBot'),S.skyBot);
+  gl.uniform3fv(U(prgMain,'uFog'),S.fog);
+  gl.uniform3fv(U(prgMain,'uCam'),eye);
+  gl.uniform1f(U(prgMain,'uNight'),S.night);
+  gl.uniform1f(U(prgMain,'uTime'),tAcc);
+  // 玩家车头灯（夜间才真正照亮世界）
+  if (CAM.mode==='drive'){
+    var hdx=Math.cos(CAR.a), hdz=Math.sin(CAR.a), hdy=-0.17;
+    var hl=Math.hypot(hdx,hdy,hdz);
+    gl.uniform3f(U(prgMain,'uHead'), CAR.x+hdx*2.3, 0.78, CAR.z+hdz*2.3);
+    gl.uniform3f(U(prgMain,'uHeadDir'), hdx/hl, hdy/hl, hdz/hl);
+    gl.uniform1f(U(prgMain,'uHeadOn'), S.night);
+  } else {
+    gl.uniform1f(U(prgMain,'uHeadOn'), 0.0);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vboStatic); bindAttribs();
+  gl.drawArrays(gl.TRIANGLES, 0, nStatic);
+  if (nDyn){ gl.bindBuffer(gl.ARRAY_BUFFER, vboDyn); bindAttribs(); gl.drawArrays(gl.TRIANGLES,0,nDyn); }
+  gl.activeTexture(gl.TEXTURE0);        // 复位纹理单元，避免后续 bindTexture 落到 unit 1
+
+  /* --- HUD --- */
+  var pp = CAM.mode==='drive'?[CAR.x,CAR.z]:[CAM.x,CAM.z];
+  if (hudOn && !mapOn){
+    if (now-mmT > 55){ drawMini(pp[0],pp[1],ang); mmT=now; }   // 小地图节流到 ~18Hz
+    fpsT+=dt;
+    if (fpsT>0.4){ updWhere(pp[0],pp[1]); fpsT=0; }
+  }
+  if (mapOn && (now-mapT)>140){ drawBigMap(); mapT=now; }
+  requestAnimationFrame(frame);
+}
+
+/* =========================================================
+   11. 启动 / 重新规划
+   ========================================================= */
+function regen(seed){
+  var t0=performance.now();
+  CITY = buildCity(seed);
+  buildGrid(CITY);
+  var mesh = buildMesh(CITY);
+  nStatic = mesh.count();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vboStatic);
+  gl.bufferData(gl.ARRAY_BUFFER, mesh.data(), gl.STATIC_DRAW);
+  mesh = null;
+  // 平面图贴图（尺寸必须向下取到 2 的幂：NPOT + generateMipmap 会让贴图不完整 → 采样全黑）
+  var maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  var PS = pot2(Math.min(PLAN_PX, maxTex));
+  var pc = document.createElement('canvas'); pc.width=pc.height=PS;
+  planPaint(pc.getContext('2d'), PS, 'ground');
+  uploadPlan(pc);
+  pc.width=pc.height=1;
+  // 夜间灯光烘焙层
+  var LS = pot2(Math.min(LAMP_PX, maxTex));
+  var lc = document.createElement('canvas'); lc.width=lc.height=LS;
+  paintLamps(lc.getContext('2d'), LS);
+  uploadLamp(lc);
+  lc.width=lc.height=1;
+  paintMaps();
+  setMapMode(mapMode);
+  updMetrics();
+  // 重规划后把玩家放回安全位置，避免卡在新建筑里
+  CAM.mode='fly'; CAM.dYaw=0; CAM.pitch=-0.16;
+  CAM.x=-620; CAM.y=225; CAM.z=760;
+  CAM.yaw=Math.atan2(CORE_C[1]-CAM.z, CORE_C[0]-CAM.x);
+  document.getElementById('spd').classList.remove('on');
+  CITY.genMs = performance.now()-t0;
+  document.getElementById('mmScale').textContent = 'SEED '+CITY.seed+' · 生成 '+Math.round(CITY.genMs)+'ms';
+}
+
+resize();
+try{
+  regen(20260820);
+}catch(e){ fail('城市生成失败：\n'+(e&&e.stack||e)); return; }
+document.getElementById('load').style.display='none';
+document.getElementById('spd').classList.remove('on');
+requestAnimationFrame(function(t){ last=t; frame(t); });
+})();
+</script>
+</body>
+</html>
