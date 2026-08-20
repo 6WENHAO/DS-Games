@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>花语 · Petal Drift</title>
+<link rel="icon" href="data:," />
+<style>
+  :root { --ink: #f6f1e6; --dim: rgba(246,241,230,.62); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1014; }
+  body { font-family: "Optima", "Songti SC", "Noto Serif SC", "Georgia", serif; color: var(--ink);
+         -webkit-font-smoothing: antialiased; user-select: none; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* cinematic letterbox */
+  #bars { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .8s ease; }
+  #bars.on { opacity: 1; }
+  #bars::before, #bars::after { content: ""; position: absolute; left: 0; right: 0; height: 7.5vh; background: #05070a; }
+  #bars::before { top: 0; } #bars::after { bottom: 0; }
+
+  /* vignette-ish frame + hud */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+  #title { position: absolute; left: 50%; top: 38%; transform: translate(-50%,-50%); text-align: center;
+           letter-spacing: .5em; text-indent: .5em; transition: opacity 2.2s ease; }
+  #title h1 { margin: 0; font-size: clamp(30px, 5.2vw, 74px); font-weight: 400;
+              text-shadow: 0 4px 40px rgba(0,0,0,.55); }
+  #title p { margin: .9em 0 0; font-size: clamp(11px, 1.25vw, 15px); letter-spacing: .34em; color: var(--dim); }
+  #hint { position: absolute; left: 50%; bottom: 8.5%; transform: translateX(-50%); text-align: center;
+          font-size: 12.5px; letter-spacing: .18em; color: var(--dim); transition: opacity 1.4s ease;
+          text-shadow: 0 2px 18px rgba(0,0,0,.6); line-height: 1.9; }
+  #hint b { font-weight: 600; color: var(--ink); }
+  #weather { position: absolute; left: 3.2vw; top: 4.2vh; font-size: 12px; letter-spacing: .3em;
+             color: var(--dim); text-shadow: 0 2px 14px rgba(0,0,0,.65); transition: opacity 1s ease; }
+  #weather .w-name { display:block; font-size: 17px; letter-spacing: .22em; color: var(--ink); margin-bottom: .35em; }
+  #bloomct { position: absolute; right: 3.2vw; top: 4.2vh; font-size: 12px; letter-spacing: .22em;
+             color: var(--dim); text-align: right; text-shadow: 0 2px 14px rgba(0,0,0,.65); }
+  #bloomct b { color: var(--ink); font-size: 17px; letter-spacing: .1em; }
+  .fade0 { opacity: 0 !important; }
+
+  /* settings panel */
+  #panel { position: fixed; right: 0; top: 0; bottom: 0; width: 306px; z-index: 8; padding: 22px 20px 26px;
+           background: linear-gradient(180deg, rgba(9,13,17,.90), rgba(9,13,17,.82)); backdrop-filter: blur(14px);
+           border-left: 1px solid rgba(246,241,230,.10); overflow-y: auto; transform: translateX(100%);
+           transition: transform .42s cubic-bezier(.22,.8,.2,1); font-family: ui-sans-serif, -apple-system, "PingFang SC", sans-serif; }
+  #panel.on { transform: none; }
+  #panel h2 { margin: 0 0 4px; font-size: 13px; letter-spacing: .26em; font-weight: 500; text-transform: uppercase; }
+  #panel .sub { font-size: 11px; color: var(--dim); margin-bottom: 18px; letter-spacing: .06em; }
+  .grp { margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid rgba(246,241,230,.09); }
+  .grp:last-child { border: 0; }
+  .grp > label { display: block; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+                 color: var(--dim); margin-bottom: 9px; }
+  .row { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; font-size: 12px; }
+  .row span.k { flex: 0 0 88px; color: var(--dim); }
+  .row input[type=range] { flex: 1; accent-color: #ffd9a0; height: 16px; }
+  .row .v { flex: 0 0 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); font-size: 11px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 11.5px; padding: 5.5px 10px; border-radius: 999px; cursor: pointer; color: var(--dim);
+          border: 1px solid rgba(246,241,230,.18); background: rgba(246,241,230,.03); transition: all .18s; }
+  .chip:hover { color: var(--ink); border-color: rgba(246,241,230,.4); }
+  .chip.on { background: #ffd9a0; border-color: #ffd9a0; color: #14100a; font-weight: 600; }
+  .tog { display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 8px; cursor: pointer; }
+  .tog i { width: 34px; height: 18px; border-radius: 999px; background: rgba(246,241,230,.16); position: relative; transition: background .2s; }
+  .tog i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+                  background: var(--ink); transition: transform .2s; }
+  .tog.on i { background: #ffd9a0; } .tog.on i::after { transform: translateX(16px); background: #14100a; }
+  #stats { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; line-height: 1.7; }
+  #cog { position: fixed; right: 14px; top: 14px; z-index: 9; width: 34px; height: 34px; border-radius: 50%;
+         background: rgba(9,13,17,.55); border: 1px solid rgba(246,241,230,.18); color: var(--ink); cursor: pointer;
+         display: grid; place-items: center; font-size: 15px; backdrop-filter: blur(8px); }
+  #cog:hover { background: rgba(9,13,17,.8); }
+
+  /* loading + error */
+  #boot { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #0b1014;
+          transition: opacity 1.6s ease; }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  #boot .b { text-align: center; }
+  #boot .ring { width: 46px; height: 46px; margin: 0 auto 20px; border-radius: 50%;
+                border: 1px solid rgba(246,241,230,.18); border-top-color: #ffd9a0; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #boot p { margin: 0; font-size: 12px; letter-spacing: .32em; color: var(--dim); }
+  #err { position: fixed; inset: auto 0 0 0; z-index: 30; display: none; padding: 14px 18px; max-height: 46vh; overflow: auto;
+         background: rgba(58,10,14,.94); color: #ffdede; font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="bars"></div>
+
+<div id="hud">
+  <div id="title"><h1>花 语</h1><p>PETAL &nbsp;DRIFT</p></div>
+  <div id="weather"><span class="w-name">—</span><span class="w-sub">—</span></div>
+  <div id="bloomct"><b>0</b> 朵</div>
+  <div id="hint">
+    <b>W A S D</b> / 方向键 &nbsp;随风而行 &nbsp;·&nbsp; <b>拖动鼠标</b> 环视 &nbsp;·&nbsp; <b>滚轮</b> 推拉<br>
+    <b>Shift</b> 疾风 &nbsp;·&nbsp; <b>空格</b> 升起 &nbsp;·&nbsp; <b>1…7</b> 天气 &nbsp;·&nbsp; <b>C</b> 电影感 &nbsp;·&nbsp; <b>H</b> 设置
+  </div>
+</div>
+
+<button id="cog" title="设置 (H)">☰</button>
+
+<aside id="panel">
+  <h2>Petal Drift</h2>
+  <div class="sub">风格化草原 · 体积云 · 花开满地</div>
+
+  <div class="grp">
+    <label>天气 Weather</label>
+    <div class="chips" id="wchips"></div>
+    <div class="tog" id="tog-auto"><span>自动流转天气</span><i></i></div>
+  </div>
+
+  <div class="grp">
+    <label>画质 Quality</label>
+    <div class="chips" id="qchips"></div>
+    <div class="tog" id="tog-adapt"><span>自适应性能</span><i></i></div>
+    <div class="row"><span class="k">分辨率</span><input id="s-res" type="range" min="0.5" max="1.6" step="0.05"><span class="v" id="v-res"></span></div>
+    <div class="row"><span class="k">草密度</span><input id="s-grass" type="range" min="0.15" max="1.5" step="0.05"><span class="v" id="v-grass"></span></div>
+    <div class="row"><span class="k">云步进</span><input id="s-cloud" type="range" min="16" max="96" step="4"><span class="v" id="v-cloud"></span></div>
+  </div>
+
+  <div class="grp">
+    <label>影像 Cinematics</label>
+    <div class="row"><span class="k">景深</span><input id="s-dof" type="range" min="0" max="2.5" step="0.05"><span class="v" id="v-dof"></span></div>
+    <div class="row"><span class="k">泛光</span><input id="s-bloom" type="range" min="0" max="2.5" step="0.05"><span class="v" id="v-bloom"></span></div>
+    <div class="row"><span class="k">雾气</span><input id="s-fog" type="range" min="0" max="2.5" step="0.05"><span class="v" id="v-fog"></span></div>
+    <div class="row"><span class="k">曝光</span><input id="s-exp" type="range" min="0.4" max="2.2" step="0.05"><span class="v" id="v-exp"></span></div>
+    <div class="row"><span class="k">浓郁度</span><input id="s-sat" type="range" min="0.5" max="1.8" step="0.05"><span class="v" id="v-sat"></span></div>
+    <div class="row"><span class="k">颗粒</span><input id="s-grain" type="range" min="0" max="2" step="0.05"><span class="v" id="v-grain"></span></div>
+    <div class="tog" id="tog-bars"><span>电影黑边</span><i></i></div>
+    <div class="tog" id="tog-shaft"><span>云隙光</span><i></i></div>
+  </div>
+
+  <div class="grp">
+    <label>世界 World</label>
+    <div class="row"><span class="k">风力</span><input id="s-wind" type="range" min="0" max="2.2" step="0.05"><span class="v" id="v-wind"></span></div>
+    <div class="row"><span class="k">花瓣数</span><input id="s-petals" type="range" min="24" max="320" step="8"><span class="v" id="v-petals"></span></div>
+    <div class="row"><span class="k">开花半径</span><input id="s-spread" type="range" min="1" max="10" step="0.5"><span class="v" id="v-spread"></span></div>
+    <div class="tog" id="tog-free"><span>自由视角 (F)</span><i></i></div>
+    <div class="row" style="margin-top:10px"><span class="k">重置花田</span><button class="chip" id="btn-clear">清空</button></div>
+  </div>
+
+  <div class="grp"><label>状态</label><div id="stats">—</div></div>
+</aside>
+
+<div id="boot"><div class="b"><div class="ring"></div><p>正在孕育风与花……</p></div></div>
+<div id="err"></div>
+
+<script>
+  window.__diag = { errors: [], shaderErrors: [], ok: false, frames: 0, notes: [] };
+  function showErr(msg) {
+    var e = document.getElementById('err');
+    e.style.display = 'block';
+    e.textContent += (e.textContent ? '\n' : '') + msg;
+    window.__diag.errors.push(String(msg));
+    document.title = 'ERROR: ' + String(msg).slice(0, 120);
+  }
+  window.addEventListener('error', function (ev) {
+    showErr('[error] ' + (ev.message || '') + (ev.filename ? ' @ ' + ev.filename + ':' + ev.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    showErr('[promise] ' + (ev.reason && ev.reason.stack ? ev.reason.stack : ev.reason));
+  });
+  window.__showErr = showErr;
+</script>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module">
+  import { boot } from './src/main.js';
+  boot().catch(function (e) { window.__showErr('[boot] ' + (e && e.stack ? e.stack : e)); });
+</script>
+</body>
+</html>
