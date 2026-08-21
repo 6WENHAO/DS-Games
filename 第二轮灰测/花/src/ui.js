@@ -16,6 +16,9 @@ const SLIDERS = [
   ['s-sat', 'saturation', (v) => v.toFixed(2)],
   ['s-grain', 'grain', (v) => v.toFixed(2)],
   ['s-wind', 'wind', (v) => v.toFixed(2)],
+  ['s-volume', 'volume', (v) => v.toFixed(2)],
+  ['s-music', 'music', (v) => v.toFixed(2)],
+  ['s-amb', 'ambience', (v) => v.toFixed(2)],
   ['s-petals', 'petals', (v) => String(Math.round(v))],
   ['s-spread', 'spread', (v) => v.toFixed(1)],
 ];
@@ -26,6 +29,7 @@ const TOGGLES = [
   ['tog-bars', 'cinematicBars'],
   ['tog-shaft', 'godrays'],
   ['tog-free', 'freeCam'],
+  ['tog-mute', 'muted'],
 ];
 
 export class UI {
@@ -46,6 +50,7 @@ export class UI {
       wchips: document.getElementById('wchips'),
       qchips: document.getElementById('qchips'),
       clear: document.getElementById('btn-clear'),
+      snd: document.getElementById('snd'),
     };
 
     this.buildChips();
@@ -181,6 +186,10 @@ export class UI {
 
   setStats(html) {
     this.el.stats.innerHTML = html;
+  }
+
+  soundStarted() {
+    if (this.el.snd) this.el.snd.classList.add('gone');
   }
 
   bootDone() {

@@ -102,6 +102,10 @@ export const DEFAULTS = {
   saturation: 1.0,
   grain: 0.6,
   wind: 1.0,
+  volume: 0.75,
+  music: 0.7,
+  ambience: 0.8,
+  muted: false,
   petals: 168,
   spread: 4.5,
 };

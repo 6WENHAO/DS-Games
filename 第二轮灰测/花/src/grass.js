@@ -77,7 +77,8 @@ const VERT = /* glsl */ `
     vec3 mid = vec3(offXZ.x, t * hf + droop, offXZ.y);
 
     float dtt = 1.55 * pow(max(t, 1e-3), 0.55);
-    vec3 tangent = normalize(vec3(sweep.x * dtt * hf, hf, sweep.y * dtt * hf));
+    float hfSafe = max(hf, 1e-3);
+    vec3 tangent = normalize(vec3(sweep.x * dtt * hfSafe, hfSafe, sweep.y * dtt * hfSafe));
 
     vec3 side = vec3(cos(yaw), 0.0, sin(yaw));
     float taper = 1.0 - pow(t, 1.75);

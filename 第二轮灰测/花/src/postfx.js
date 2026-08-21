@@ -12,6 +12,16 @@ import { GLSL_NOISE } from './noise.js';
 import { U, pick } from './uniforms.js';
 import { blit, fsMaterial, makeRT } from './fsq.js';
 
+// Any single non-finite pixel in the HDR chain gets smeared into a big rectangle by the
+// bloom mip chain and then clamps to black, so every stage sanitises what it reads.
+const SANITISE = /* glsl */ `
+  vec3 finite3(vec3 c, float lim){
+    bool ok = (c == c);                 // false if any component is NaN
+    c = ok ? c : vec3(0.0);
+    return clamp(c, vec3(0.0), vec3(lim));
+  }
+`;
+
 const DEPTH_HELPERS = /* glsl */ `
   uniform float uNear;
   uniform float uFar;
@@ -56,6 +66,7 @@ const COMPOSITE_FRAG = /* glsl */ `
 
   ${GLSL_NOISE}
   ${DEPTH_HELPERS}
+  ${SANITISE}
 
   #ifndef GODRAY_STEPS
   #define GODRAY_STEPS 10
@@ -64,11 +75,11 @@ const COMPOSITE_FRAG = /* glsl */ `
   void main(){
     float d = texture2D(uDepth, vUv).x;
     bool isSky = d >= 0.9999995;
-    vec3 col = isSky ? texture2D(uSky, vUv).rgb : texture2D(uScene, vUv).rgb;
+    vec3 col = finite3(isSky ? texture2D(uSky, vUv).rgb : texture2D(uScene, vUv).rgb, 4096.0);
 
     vec3 wp = worldFromDepth(vUv, min(d, 0.9999));
     vec3 rd = normalize(wp - uCamPos);
-    float dist = isSky ? 9000.0 : length(wp - uCamPos);
+    float dist = isSky ? 9000.0 : min(length(wp - uCamPos), 30000.0);
 
     // ---------- aerial perspective: exponential height fog, integrated along the ray
     float H = max(uFogHeight, 2.0);
@@ -76,9 +87,9 @@ const COMPOSITE_FRAG = /* glsl */ `
     float ry = rd.y;
     float camRel = min(exp(-uCamPos.y / H), 3.0);
     float fogAmt;
-    if (abs(ry) < 1e-3) fogAmt = dens * camRel * dist;
-    else fogAmt = dens * (H / ry) * camRel * (1.0 - exp(-ry * dist / H));
-    fogAmt = max(fogAmt, 0.0);
+    if (abs(ry) < 1e-2) fogAmt = dens * camRel * dist;
+    else fogAmt = dens * (H / ry) * camRel * (1.0 - exp(clamp(-ry * dist / H, -40.0, 40.0)));
+    fogAmt = clamp(fogAmt, 0.0, 60.0);
 
     // ---------- ground mist: a low, wispy layer that pools in the hollows.
     // Same analytic integral as above but with a short scale height, and the density term
@@ -87,14 +98,14 @@ const COMPOSITE_FRAG = /* glsl */ `
     float mistRef = clamp(exp(-(uCamPos.y - 6.0) / Hm), 0.0, 2.6);
     float mdens = uFogGround * uFogScale * 0.0016;
     float mistAmt;
-    if (abs(ry) < 1e-3) mistAmt = mdens * mistRef * dist;
-    else mistAmt = mdens * (Hm / ry) * mistRef * (1.0 - exp(-ry * dist / Hm));
-    mistAmt = max(mistAmt, 0.0);
+    if (abs(ry) < 1e-2) mistAmt = mdens * mistRef * dist;
+    else mistAmt = mdens * (Hm / ry) * mistRef * (1.0 - exp(clamp(-ry * dist / Hm, -40.0, 40.0)));
+    mistAmt = clamp(mistAmt, 0.0, 60.0);
     vec3 mp = uCamPos + rd * min(dist, 240.0) * 0.5;
     float wisp = fbm2(mp.xz * 0.0075 + uCloudWind * 3.0 + vec2(uTime * 0.011, -uTime * 0.008));
     mistAmt *= 0.35 + 1.45 * wisp;
 
-    float total = fogAmt + mistAmt;
+    float total = clamp(fogAmt + mistAmt, 0.0, 60.0);
     float f = 1.0 - exp(-total);
 
     float mu = clamp(dot(rd, uSunDir), 0.0, 1.0);
@@ -125,7 +136,7 @@ const COMPOSITE_FRAG = /* glsl */ `
         acc += open;
       }
       acc /= float(GODRAY_STEPS);
-      float shaft = acc * exp(-len * 1.55) * uGodray;
+      float shaft = clamp(acc * exp(-len * 1.55) * uGodray, 0.0, 4.0);
       col += uSunColor * uSunIntensity * shaft * (0.30 + 0.85 * f);
     }
     #endif
@@ -158,6 +169,7 @@ const DOF_FRAG = /* glsl */ `
   uniform float uMaxCoC;
 
   ${DEPTH_HELPERS}
+  ${SANITISE}
 
   #ifndef TAPS
   #define TAPS 24
@@ -173,7 +185,7 @@ const DOF_FRAG = /* glsl */ `
     float z = linDepth(texture2D(uDepth, vUv).x);
     float c = cocOf(z);
     float ac = abs(c);
-    vec3 centre = texture2D(uColor, vUv).rgb;
+    vec3 centre = finite3(texture2D(uColor, vUv).rgb, 4096.0);
 
     if (ac < 0.75) {
       gl_FragColor = vec4(centre, 1.0);
@@ -185,7 +197,7 @@ const DOF_FRAG = /* glsl */ `
     for (int i = 0; i < TAPS; i++){
       vec2 off = uDisc[i] * ac * uTexel;
       vec2 uv = clamp(vUv + off, vec2(0.0), vec2(1.0));
-      vec3 s = texture2D(uColor, uv).rgb;
+      vec3 s = finite3(texture2D(uColor, uv).rgb, 4096.0);
       float zs = linDepth(texture2D(uDepth, uv).x);
       float cs = abs(cocOf(zs));
       // a sample only spills onto us if its own blur circle reaches this pixel
@@ -206,12 +218,12 @@ const BRIGHT_FRAG = /* glsl */ `
   uniform sampler2D uColor;
   uniform float uThreshold;
   uniform float uSoft;
+  ${SANITISE}
   void main(){
-    vec3 c = texture2D(uColor, vUv).rgb;
+    vec3 c = finite3(texture2D(uColor, vUv).rgb, 512.0);
     float l = max(max(c.r, c.g), c.b);
-    float k = max(l - uThreshold, 0.0) / max(l, 1e-4);
-    k = pow(k, uSoft);
-    gl_FragColor = vec4(c * k, 1.0);
+    float k = pow(max(l - uThreshold, 0.0) / max(l, 1e-3), uSoft);
+    gl_FragColor = vec4(clamp(c * k, vec3(0.0), vec3(512.0)), 1.0);
   }
 `;
 
@@ -273,6 +285,8 @@ const FINAL_FRAG = /* glsl */ `
   uniform vec3 uGain;
   uniform float uFlash;
 
+  ${SANITISE}
+
   vec3 aces(vec3 x){
     const mat3 IN = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
     const mat3 OUT = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
@@ -302,7 +316,8 @@ const FINAL_FRAG = /* glsl */ `
     col.g = texture2D(uColor, uv).g;
     col.b = texture2D(uColor, uv - fromC * ca).b;
 
-    vec3 bloom = texture2D(uBloom, uv).rgb;
+    col = finite3(col, 512.0);
+    vec3 bloom = finite3(texture2D(uBloom, uv).rgb, 512.0);
     col += bloom * uBloomStrength;
 
     col *= uExposure * (1.0 + uFlash * 0.55);

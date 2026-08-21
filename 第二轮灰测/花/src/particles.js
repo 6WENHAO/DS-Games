@@ -32,8 +32,10 @@ const RAIN_VERT = /* glsl */ `
     c += slant * fall * 0.35;
     vec3 world = uCamPos + c;
 
-    vec3 toCam = normalize(uCamPos - world);
-    vec3 side = normalize(cross(slant, toCam));
+    vec3 toCam = uCamPos - world;
+    toCam = normalize(toCam + vec3(0.0, 1e-4, 0.0));
+    vec3 side = cross(slant, toCam);
+    side = normalize(side + vec3(1e-5, 0.0, 0.0));
     float len = 1.3 + aSeed.z * 3.0;
     float wid = 0.022 + aSeed.w * 0.038;
 

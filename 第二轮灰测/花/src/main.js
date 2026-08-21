@@ -17,6 +17,7 @@ import { PostFX } from './postfx.js';
 import { FollowCam } from './camera.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
+import { SoundScape } from './audio.js';
 import { blit, fsMaterial } from './fsq.js';
 
 const diag = window.__diag || (window.__diag = { errors: [], shaderErrors: [], notes: [] });
@@ -117,6 +118,12 @@ export async function boot() {
   const postfx = new PostFX(renderer, q0);
   const cam = new FollowCam(window.innerWidth / Math.max(1, window.innerHeight));
   const input = new Input(renderer.domElement);
+  const sound = new SoundScape({
+    volume: settings.volume,
+    music: settings.music,
+    ambience: settings.ambience,
+    muted: settings.muted,
+  });
 
   petals.setCount(settings.petals);
   weather.auto = !!settings.autoWeather;
@@ -135,6 +142,10 @@ export async function boot() {
       if (key === 'autoWeather') weather.auto = !!v;
       if (key === 'wind') weather.windScale = v;
       if (key === 'freeCam') cam.free = !!v;
+      if (key === 'volume') sound.setVolume(v);
+      if (key === 'music') sound.setMusic(v);
+      if (key === 'ambience') sound.setAmbience(v);
+      if (key === 'muted') sound.setMuted(v);
       if (key === 'resScale') resize(true);
     },
   });
@@ -191,10 +202,25 @@ export async function boot() {
     if (k === 'c') { settings.cinematicBars = !settings.cinematicBars; ui.applyBars(); ui.syncToggles(); ui.save(); }
     if (k === 'f') { settings.freeCam = !settings.freeCam; cam.free = settings.freeCam; ui.syncToggles(); ui.save(); }
     if (k === 'r') { flowers.clear(); lifeMap.clear(renderer); }
+    if (k === 'm') {
+      settings.muted = !settings.muted;
+      sound.setMuted(settings.muted);
+      ui.syncToggles();
+      ui.save();
+    }
     if (k === 'n') { weather.next(); ui.setWeatherActive(weather.to.key); }
     if (k === 'p') paused = !paused;
   };
   renderer.domElement.addEventListener('pointerdown', () => { interacted = true; });
+
+  // the browser only lets audio start from a gesture
+  function wakeAudio() {
+    if (sound.start()) ui.soundStarted();
+  }
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+    window.addEventListener(ev, wakeAudio, { passive: true });
+  }
+  document.getElementById('snd')?.addEventListener('click', wakeAudio);
 
   // ------------------------------------------------------------- frame state
   const windVec = new THREE.Vector2();
@@ -211,7 +237,10 @@ export async function boot() {
   let fpsTimer = 0, fpsCount = 0, fps = 60;
   let last = performance.now();
 
-  document.addEventListener('visibilitychange', () => { last = performance.now(); });
+  document.addEventListener('visibilitychange', () => {
+    last = performance.now();
+    if (document.hidden) sound.suspend(); else sound.resume();
+  });
 
   function plantTrail(dt) {
     const g = petals.guide;
@@ -270,7 +299,8 @@ export async function boot() {
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-5) camFwd.set(0, 0, -1);
     camFwd.normalize();
-    camRight.set(camFwd.z, 0, -camFwd.x);
+    // world right = forward x up; for forward (fx, 0, fz) that is (-fz, 0, fx)
+    camRight.set(-camFwd.z, 0, camFwd.x);
     moveDir.set(0, 0, 0)
       .addScaledVector(camFwd, ax.y)
       .addScaledVector(camRight, ax.x);
@@ -293,6 +323,19 @@ export async function boot() {
     lifeMap.update(renderer, petals.guide.x, petals.guide.z);
     rain.update();
     motes.update(renderer.getPixelRatio(), weather.num.motes * (1 - 0.6 * weather.num.rain));
+
+    // the soundscape follows the same state the shaders do
+    sound.update(dt, {
+      weather: weather.blend < 0.5 ? weather.from.key : weather.to.key,
+      wind: U.uWindStrength.value / 0.42,
+      gust: 0.5 + 0.5 * Math.sin(time * 0.23) * Math.cos(time * 0.11),
+      rain: weather.num.rain,
+      flash: weather.flash,
+      speed: petals.speed,
+      idle: petals.idle,
+      flowers: flowers.total,
+      night: weather.num.stars,
+    });
 
     const skyTex = sky.render(renderer, camera);
 
@@ -367,7 +410,7 @@ export async function boot() {
 
   // expose for debugging / headless checks
   window.__game = {
-    renderer, scene, cam, petals, grass, flowers, weather, sky, postfx, lifeMap, cloudShadow, terrain, rain, motes, input, ui, settings,
+    renderer, scene, cam, petals, grass, flowers, weather, sky, postfx, lifeMap, cloudShadow, terrain, rain, motes, input, ui, sound, settings,
     THREE, U, terrainHeight,
     snapshot() {
       return {
@@ -395,6 +438,29 @@ export async function boot() {
       debugCopy.uniforms.uScale.value = scale;
       blit(renderer, debugCopy, null, true);
       return renderer.domElement.toDataURL('image/png');
+    },
+    // count near-black pixels on the canvas (catches NaN/Inf smeared into blocks by bloom)
+    debugScanBlack(threshold = 4) {
+      const gl = renderer.getContext();
+      const cv = renderer.domElement;
+      const W = cv.width, H = cv.height;
+      if (!this._scanBuf || this._scanBuf.length !== W * H * 4) this._scanBuf = new Uint8Array(W * H * 4);
+      const buf = this._scanBuf;
+      renderer.setRenderTarget(null);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y += 2) {
+        for (let x = 0; x < W; x += 2) {
+          const i = (y * W + x) * 4;
+          const l = 0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2];
+          if (l < threshold) {
+            n++;
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+      }
+      return { pixels: n, box: n ? [x0, y0, x1, y1] : null, sampled: (W >> 1) * (H >> 1) };
     },
     debugInfo() {
       return {

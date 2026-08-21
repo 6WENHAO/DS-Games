@@ -38,7 +38,8 @@ export class FollowCam {
 
   update(dt, input, petals, windVec) {
     const o = input.takeOrbit();
-    this.yaw -= o.x * 0.0042;
+    // drag right -> the view swings right (camera orbits the other way round the swarm)
+    this.yaw += o.x * 0.0042;
     this.pitch = THREE.MathUtils.clamp(this.pitch + o.y * 0.0032, -0.42, 1.02);
     const z = input.takeZoom();
     if (z) this.zoomBias = THREE.MathUtils.clamp(this.zoomBias * (1 + z * 0.12), 0.32, 3.4);
