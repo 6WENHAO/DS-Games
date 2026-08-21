@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Musica Sine Tempore · AI 古典音乐演示</title>
+<style>
+:root{
+  --bg:#14110c; --panel:#1d1811; --panel2:#241d13; --line:#3a3120;
+  --ink:#f2e9d4; --ink2:#b9ac8d; --ink3:#857a5e; --gold:#c9a15c; --gold2:#e0bd7f;
+  --paper:#f7f2e4; --note:#2a2620; --red:#8e3f2f; --serif:Georgia,'Times New Roman','Songti SC',serif;
+  --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:
+  radial-gradient(1200px 500px at 50% -10%, rgba(201,161,92,.07), transparent 60%),
+  var(--bg); color:var(--ink); font-family:var(--serif);
+  display:flex; flex-direction:column; overflow:hidden}
+button{font-family:inherit}
+/* ---------- 页头 ---------- */
+header{display:flex; align-items:baseline; gap:18px; padding:14px 22px 10px; flex-wrap:wrap}
+header h1{font-size:26px; font-weight:600; letter-spacing:.06em}
+header h1 em{font-style:italic; color:var(--gold2)}
+header .sub{font-size:12.5px; color:var(--ink3); letter-spacing:.12em}
+/* ---------- 曲目选择 ---------- */
+#tracks{display:flex; gap:8px; padding:0 22px 10px; flex-wrap:wrap}
+.track{flex:1 1 168px; max-width:240px; min-width:150px; text-align:left; cursor:pointer;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:10px 12px; color:var(--ink2); transition:all .15s ease}
+.track:hover{border-color:var(--gold); color:var(--ink)}
+.track.on{background:linear-gradient(180deg,#2b2114,#221a10); border-color:var(--gold); color:var(--ink);
+  box-shadow:0 0 0 1px rgba(201,161,92,.25), 0 6px 18px -8px rgba(0,0,0,.8)}
+.track .t1{font-size:14px; letter-spacing:.02em}
+.track .t2{display:block; margin-top:4px; font-size:11px; color:var(--gold); letter-spacing:.08em}
+.track .t3{display:block; margin-top:2px; font-size:10.5px; color:var(--ink3)}
+/* ---------- 控制条 ---------- */
+#bar{display:flex; align-items:center; gap:12px; padding:8px 22px 12px; flex-wrap:wrap;
+  border-top:1px solid var(--line)}
+#bar .btn{min-width:64px; height:34px; border-radius:6px; cursor:pointer; font-size:13px; letter-spacing:.08em;
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink)}
+#bar .btn:hover{border-color:var(--gold); color:var(--gold2)}
+#bar .btn:disabled{opacity:.4; cursor:default}
+#btnPlay{min-width:96px; background:linear-gradient(180deg,#3a2c17,#2a2011); border-color:var(--gold)}
+#btnPlay.on{background:linear-gradient(180deg,#4a3a1e,#33270f); color:var(--gold2)}
+#bar label{font-size:12px; color:var(--ink3); letter-spacing:.06em}
+#tempo{width:150px; accent-color:var(--gold)}
+#time{font-family:var(--mono); font-size:12.5px; color:var(--ink2); min-width:108px}
+#btnMidi{margin-left:auto}
+#btnInfo{min-width:40px}
+.sep{width:1px; height:22px; background:var(--line)}
+/* ---------- 说明条 ---------- */
+#about{display:flex; gap:14px; align-items:flex-start; padding:8px 22px 12px; border-top:1px solid var(--line)}
+#about .erabox{flex:0 0 auto; font-size:10.5px; letter-spacing:.14em; color:#14110c; background:var(--gold);
+  padding:3px 8px; border-radius:3px; margin-top:2px}
+#about p{font-size:13px; line-height:1.7; color:var(--ink2); max-width:900px}
+#about p b{color:var(--ink); font-weight:600}
+/* ---------- 乐谱视口 ---------- */
+#viewport{flex:1; min-height:0; margin:0 22px 18px; border:1px solid var(--line); border-radius:8px;
+  position:relative; overflow-y:auto; overflow-x:hidden; background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 28px),
+    #2a241a; box-shadow:inset 0 2px 14px rgba(0,0,0,.55)}
+#scoreCanvas{display:block; margin:0 auto; cursor:pointer;
+  box-shadow:0 0 0 1px rgba(0,0,0,.35), 0 10px 40px -10px rgba(0,0,0,.7)}
+#loading{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:13px; letter-spacing:.3em; color:var(--ink3)}
+/* ---------- 页脚 / 错误 ---------- */
+footer{padding:0 22px 12px; font-size:11px; color:var(--ink3); letter-spacing:.06em}
+#err{display:none; margin:0 22px 12px; padding:10px 14px; border:1px solid var(--red); border-radius:6px;
+  font-family:var(--mono); font-size:12px; color:#e6b8a8; background:rgba(142,63,47,.12); white-space:pre-wrap}
+@media (max-width:720px){
+  header h1{font-size:20px}
+  #viewport{margin:0 10px 12px}
+  #bar{padding:8px 10px 12px}
+  #tracks{padding:0 10px 10px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Musica <em>Sine</em> Tempore</h1>
+  <div class="sub">AI 作曲 · 古典音乐演示 &nbsp;—&nbsp; 谱面 / 合成播放 / MIDI 导出</div>
+</header>
+
+<div id="tracks"></div>
+
+<div id="bar">
+  <button id="btnPlay" class="btn">▶ 播放</button>
+  <button id="btnStop" class="btn">停止</button>
+  <span class="sep"></span>
+  <label for="tempo">速度</label>
+  <input id="tempo" type="range" min="0.5" max="2" step="0.05" value="1" />
+  <span id="tempoRead" style="font-family:var(--mono);font-size:12px;color:var(--ink2);min-width:76px">100%</span>
+  <span id="time">0:00 / 0:00</span>
+  <button id="btnMidi" class="btn">↓ 导出 MIDI</button>
+  <button id="btnInfo" class="btn">ℹ 说明</button>
+</div>
+
+<div id="about"><span class="erabox" id="eraTag"></span><p id="aboutText"></p></div>
+
+<div id="viewport">
+  <canvas id="scoreCanvas"></canvas>
+  <div id="loading">正在排版乐谱…</div>
+</div>
+
+<footer>完全离线 · 无任何外部资源 · 五线谱排版、钢琴合成与 MIDI 编码均为本文件内实现　｜　空格 播放/暂停 · ←/→ 快退/快进 · M 导出 MIDI</footer>
+<div id="err"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Musica Sine Tempore — 单文件离线古典音乐演示
+   -------------------------------------------------------------
+   分层结构：
+     1) 乐理工具（音名→音高 / 调号 / 拍号）
+     2) 乐曲数据（唯一数据源：五线谱 + 播放 + MIDI 三用）
+     3) Web Audio 钢琴合成（Karplus-Strong 弦 + 槌击瞬态 + 弦列）
+     4) 播放器（前瞻调度 / 跟谱 / 变速）
+     5) 五线谱排版渲染（自绘谱号、符头、符干、符尾、连符尾、装饰音…）
+     6) 标准 MIDI 导出
+     7) UI 与自检
+   ===================================================================== */
+(function () {
+
+/* ======================= 0. 小工具 ======================= */
+const $  = (id) => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const errBox = $('err');
+function fail(msg) {
+  errBox.style.display = 'block';
+  errBox.textContent += msg + '\n';
+  try { console.error(msg); } catch (e) {}
+}
+const U = {
+  DIATONIC: [0, 2, 4, 5, 7, 9, 11],
+  /** 音级(0=C..6=B)+八度(4=中央C) → MIDI 音高；acc 可堆叠 */
+  pitch(n) { return n.oct * 12 + U.DIATONIC[n.step] + 12 + (n.acc | 0); },
+  /** 应用调号临时记号：key 如 {s:[], f:[1]} 表示 B♭ */
+  withKey(n, key) {
+    const a = (n.acc | 0) + ((key.s || []).indexOf(n.step) >= 0 ? 1 : 0) - ((key.f || []).indexOf(n.step) >= 0 ? 1 : 0);
+    return n.oct * 12 + U.DIATONIC[n.step] + 12 + a;
+  },
+  stepName(s, oct) { return 'CDEFGAB'[s] + (oct != null ? oct : ''); },
+  /** n 是有效音符（非休止） */
+  isNote(n) { return n != null && !n.r; },
+  fmt(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  },
+  download(name, mime, data) {
+    const blob = new Blob([data], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  },
+};
+
+/* ======================= 1. 乐曲数据（唯一数据源） =======================
+   work = {
+     id, title, subtitle, period, composer, era('巴洛克'...), color,
+     tempoName, tempoBPM, ts:[num,den], key:{s:[],f:[]},   // s/f = 被升/降的音级(0=C..6=B)
+     style: '……',     // 说明文案
+     staffs: [ { treble:[...measures], bass:[...measures] } ]   // 每套谱表一节
+   }
+   measure = { directives:[['pp'|'p'|'mp'|'mf'|'f'|'ff'|'rit.'|'a tempo'|'ped'|'*'],
+                           ['hairpin','<'|'>']|['tr','置放于某音符前']],
+               top:[note...], bottom:[note...] }
+   note = { p:'C5', d:1, dots:0, acc:-1..2, t:0/1(延音线), s:0/1(连奏弧), tr:0/1(颤音),
+            g:[note](装饰音), ar:'staccato' }
+   时长 d：1=四分, 0.5=八分, 0.25=十六分, 2=二分, 4=全音符, 1.5=附点四分…
+   ------------------------------------------------------------------ */
+function parseP(p, extra) {
+  const m = /^([A-Ga-g])(#|b|##|bb)?(-?\d)$/.exec(p);
+  if (!m) throw new Error('bad pitch: ' + p);
+  return Object.assign({
+    step: 'CDEFGAB'.indexOf(m[1].toUpperCase()),
+    oct: +m[3],
+    acc: m[2] === '#' ? 1 : m[2] === 'b' ? -1 : m[2] === '##' ? 2 : m[2] === 'bb' ? -2 : 0,
+  }, extra || {});
+}
+/** 乐句构造器：返回 {bar, n, r, d}，大幅压缩记谱代码 */
+function makePieceBuilder() {
+  let last = null;
+  function at(acc) {
+    last.acc = acc;
+    return last;
+  }
+  const b = {
+    sharp() { return at(1); }, flat() { return at(-1); }, nat() { return at(0); },
+    doubleSharp() { return at(2); },
+    dot(k)  { last.dots = (last.dots | 0) + (k || 1); return last; },
+    tie()   { last.t = 1; return last; },
+    slur()  { last.s = 1; return last; },
+    trill() { last.tr = 1; return last; },
+    staccato() { last.ar = 'staccato'; return last; },
+    grace(p, d) { (last.g = last.g || []).push(Object.assign(parseP(p), { d: d || 0.25 })); return last; },
+    n(p, d, acc) {
+      last = Object.assign(parseP(p), { d: d == null ? 1 : d });
+      if (acc != null) last.acc = acc;
+      return b;
+    },
+    r(d, dots) { last = { r: 1, d: d == null ? 1 : d, dots: dots | 0 }; return b; },
+    n2(p1, d1, p2, d2) { last = Object.assign(parseP(p1), { d: d1 }); return b; },
+    /** 收束一个小节，附加指令 */
+    bar(...directives) {
+      const out = { top: [], bottom: [], directives };
+      let seen = false;
+      const walk = (o) => {
+        if (o && o.isPair) { out.top.push(o.a); if (o.b) out.bottom.push(o.b); seen = true; }
+      };
+      if (b._m) walk(b._m);
+      b._m = null; b._top = []; b._bot = []; b._cur = null;
+      return out;
+    },
+  };
+  // 手写数据不使用内部缓存：直接用 literal measure，下面提供 bar() 便捷
+  return b;
+}
+
+/* 简化的小节字面量构造（data 直接写成数组更可控） */
+function bar(top, bottom, directives) {
+  return { top: top || [], bottom: bottom || [], directives: directives || [] };
+}
+function P(p, d, extra) { const n = parseP(p, extra); if (d != null) n.d = d; return n; }
+function R(d, dots) { return { r: 1, d: d, dots: dots | 0 }; }
+
+/* ======================= 2. 五首乐曲 ======================= */
+
+const WORKS = [];
+
+/* ---------- ① 巴洛克 · 巴赫风格 二部创意曲 ---------- */
+WORKS.push({
+  id: 'baroque', title: 'D 小调二部创意曲', subtitle: 'Invention in D minor',
+  period: '巴洛克时期（约 1680–1750）', composer: '仿 J. S. 巴赫',
+  era: '巴洛克', color: '#b98a4a',
+  tempoName: 'Allegro moderato', tempoBPM: 96, ts: [3, 8], key: { f: [6] },
+  style: '两声部严格模仿对位：主题先由右手陈述，左手低八度应答，随后以模进、倒影与属七和弦连续转位展开。'
+       + '附点节奏与装饰音（波音、颤音）体现巴赫键盘语汇；和声沿 d–F–g–A 的巴洛克调性骨架，终止式落在弗里吉亚半终止与完全终止上。',
+  staffs: [{
+    treble: [
+      bar([P('D5',1), P('E5',0.5), P('F5',1), P('E5',0.5)],
+          [P('D3',1), R(1,0), R(0.5), R(0.5)], [['mf'],['tr','M1-N0']]),
+      bar([P('C#5',1), P('D5',0.5), P('E5',0.5), P('A4',1)],
+          [P('A3',1), P('A2',0.5), P('C#3',1), P('E3',0.5)], []),
+      bar([P('F5',1), P('G5',0.5), P('A5',1), P('G5',0.5)],
+          [P('D4',1), P('E4',0.5), P('F4',1), P('E4',0.5)], []),
+      bar([P('Bb5',1), P('A5',0.5), P('G5',1), P('F5',0.5)],
+          [P('G3',1), P('C#4',0.5), P('D4',1), P('A3',0.5)], [['f']]),
+      bar([P('E5',1), P('F5',0.5), P('G5',1), P('F5',0.5)],
+          [P('A3',1), P('C#4',0.5), P('E4',0.5), P('A4',1)], []),
+      bar([P('E5',1), P('F5',0.5), P('D5',0.5), P('C#5',1)],
+          [P('G3',1), P('Bb3',0.5), P('A3',1), P('E3',0.5)], []),
+      bar([P('D5',1), P('Bb4',0.5), P('A4',1), P('G4',0.5)],
+          [P('F3',1), P('E3',0.5), P('D3',1), P('E3',0.5)], [['p']]),
+      bar([P('F4',1), P('E4',0.5), P('D4',1), P('C#4',0.5)],
+          [P('D3',1), P('G2',0.5), P('A2',1), P('A2',0.5)], []),
+      bar([P('D4',1), P('C#4',0.5), P('D4',1), P('E4',0.5)],
+          [P('F3',1), P('G3',0.5), P('A3',1), P('G3',0.5)], [['f']]),
+      bar([P('F4',1), P('A4',0.5), P('G4',1), P('F4',0.5)],
+          [P('D4',1), P('E4',0.5), P('F4',1), P('D4',0.5)], []),
+      bar([P('E4',1), P('F4',0.5), P('G4',1), P('E4',0.5)],
+          [P('C#4',1), P('A3',0.5), P('A4',1), P('G4',0.5)], []),
+      bar([Object.assign(P('D5',1.5), { tr: 1 }), P('D4',1.5)],
+          [P('D3',1.5), P('D2',1.5)], [['mp'],['rit.']]),
+    ],
+    bass: [
+      bar([R(1,0), R(0.5), R(0.5)], [P('D3',1), P('E3',0.5), P('F3',1), P('E3',0.5)], []),
+      bar([R(1,0), R(0.5), R(0.5)], [P('C#3',1.5), P('D3',0.5), P('E3',1), P('A2',0.5)], []),
+      bar([P('D4',1), P('E4',0.5), P('F4',1), P('E4',0.5)],
+          [P('F2',1), P('G2',0.5), P('A2',1), P('G2',0.5)], []),
+      bar([P('Bb4',1), P('A4',0.5), P('G4',1), P('F4',0.5)],
+          [P('G2',1), P('C#3',0.5), P('D3',1), P('A2',0.5)], []),
+      bar([P('E4',1), P('F4',0.5), P('G4',1), P('F4',0.5)],
+          [P('A2',1), R(1,0), P('C#3',1), P('E3',0.5)], []),
+      bar([P('E4',1.5), P('F4',0.5), P('D4',1), P('C#4',0.5)],
+          [P('G2',1), P('Bb2',0.5), P('A2',1), P('E2',0.5)], []),
+      bar([P('D4',1), P('Bb3',0.5), P('A3',1), P('G3',0.5)],
+          [P('F2',1), P('E2',0.5), P('D2',1), P('E2',0.5)], []),
+      bar([P('F3',1), P('E3',0.5), P('D3',1), P('C#3',0.5)],
+          [P('D2',1), P('G1',0.5), P('A1',1), P('A1',0.5)], []),
+      bar([P('D3',1), P('C#3',0.5), P('D3',1), P('E3',0.5)],
+          [P('F2',1), P('G2',0.5), P('A2',1), P('G2',0.5)], []),
+      bar([P('F3',1), P('A3',0.5), P('G3',1), P('F3',0.5)],
+          [P('D3',1), P('E3',0.5), P('F3',1), P('D3',0.5)], []),
+      bar([P('E3',1), P('F3',0.5), P('G3',1), P('E3',0.5)],
+          [P('C#3',1), P('A2',0.5), P('A3',1), P('G3',0.5)], []),
+      bar([Object.assign(P('D4',1.5), { tr: 1 }), P('D3',1.5)],
+          [P('D2',1.5), P('D1',1.5)], []),
+    ],
+  }],
+});
+/* 3/8 记谱以八分音符为书写单位（d=1 表示八分音符），此处统一换算为四分音符单位（×0.5） */
+(function normalizeBaroque() {
+  for (const m of WORKS[WORKS.length - 1].staffs[0].treble) {
+    for (const n of m.top.concat(m.bottom)) {
+      n.d /= 2;
+      if (n.g) for (const g of n.g) g.d /= 2;
+    }
+  }
+})();
+
+/* ---------- ② 古典 · 海顿/莫扎特风格 小奏鸣曲回旋曲 ---------- */
+WORKS.push({
+  id: 'classical', title: 'G 大调小奏鸣曲 · 回旋曲', subtitle: 'Sonatina in G major, Rondo',
+  period: '古典时期（约 1750–1820）', composer: '仿 W. A. 莫扎特 / J. 海顿',
+  era: '古典', color: '#8a9a4a',
+  tempoName: 'Allegretto', tempoBPM: 108, ts: [4, 4], key: { s: [3] },
+  style: '典型的古典回旋曲式：A–B–A′。主题为规整的 2+2 乐句，属音上句逗后终止在主音；'
+       + '左手阿尔贝蒂低音铺陈主、属功能，第二段转向 e 小调并途经平行 G 大调作转调，'
+       + '再现句之后以重属和声与终止四六和弦收束。句法清晰、强弱对比（p/f）与连断奏安排对称。',
+  staffs: [{
+    treble: [
+      bar([P('G4',0.5),P('B4',0.5),P('D5',0.5),P('B4',0.5),P('C5',1),P('A4',1)],
+          [R(2,0), P('G2',1), P('D3',1)], [['p']]),
+      bar([P('B4',0.5),P('G4',0.5),P('A4',1),P('D5',1),P('G4',1)],
+          [P('G2',1),P('B2',1),P('D3',1),P('G2',1)], []),
+      bar([P('A4',0.5),P('C5',0.5),P('B4',0.5),P('A4',0.5),P('B4',1),P('G4',1)],
+          [P('D3',1),P('F#3',1),P('A3',1),P('D3',1)], []),
+      bar([P('A4',1),P('D5',1),P('C#5',1),P('D5',1)],
+          [P('A2',1),P('C#3',1),P('E3',1),P('A2',1)], [['f']]),
+      bar([P('E5',0.5),P('C5',0.5),P('A4',0.5),P('C5',0.5),P('B4',1),P('G4',1)],
+          [P('C3',1),P('E3',1),P('G3',1),P('C3',1)], []),
+      bar([P('A4',0.5),P('F#4',0.5),P('G4',1),P('E4',1),P('A4',1)],
+          [P('D3',1),P('F#3',1),P('A3',1),P('D3',1)], []),
+      bar([P('A4',0.5),P('G4',0.5),P('F#4',1),P('E4',1),P('F#4',1)],
+          [P('D3',1),P('C3',1),P('B2',1),P('A2',1)], []),
+      bar([P('G4',0.5),P('F#4',0.5),P('E4',1),P('D4',1),P('G4',1)],
+          [P('G2',1),P('B2',1),P('D3',1),P('G2',1)], [['p']]),
+      bar([P('B4',0.5),P('D5',0.5),P('G5',0.5),P('D5',0.5),P('E5',1),P('C5',1)],
+          [P('C3',1),P('E3',1),P('G3',1),P('C3',1)], [['f']]),
+      bar([P('D5',0.5),P('B4',0.5),P('C5',1),P('F#5',1),P('G5',1)],
+          [P('D3',1),P('F#3',1),P('A3',1),P('D3',1)], []),
+      bar([P('A5',0.5),P('G5',0.5),P('F#5',0.5),P('E5',0.5),P('D5',0.5),P('C#5',0.5),P('D5',1)],
+          [P('D3',1),P('C#3',1),P('B2',1),P('A2',1)], [['mf']]),
+      bar([Object.assign(P('G4',2),{ar:'fermata'}), R(2)],
+          [P('G2',1),P('B2',1),P('D3',1),P('G2',1)], [['p'],['rit.']]),
+    ],
+    bass: [
+      bar([R(2,0)], [P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5),P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5)], []),
+      bar([R(2,0)], [P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5),P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5)], []),
+      bar([R(2,0)], [P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5),P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5)], []),
+      bar([R(2,0)], [P('A2',0.5),P('C#3',0.5),P('E3',0.5),P('C#3',0.5),P('A2',0.5),P('C#3',0.5),P('E3',0.5),P('C#3',0.5)], []),
+      bar([R(2,0)], [P('C3',0.5),P('E3',0.5),P('G3',0.5),P('E3',0.5),P('C3',0.5),P('E3',0.5),P('G3',0.5),P('E3',0.5)], []),
+      bar([R(2,0)], [P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5),P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5)], []),
+      bar([R(2,0)], [P('D3',0.5),P('C3',0.5),P('B2',0.5),P('A2',0.5),P('G2',0.5),P('A2',0.5),P('B2',0.5),P('C3',0.5)], []),
+      bar([R(2,0)], [P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5),P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5)], []),
+      bar([R(2,0)], [P('C3',0.5),P('E3',0.5),P('G3',0.5),P('E3',0.5),P('C3',0.5),P('E3',0.5),P('G3',0.5),P('E3',0.5)], []),
+      bar([R(2,0)], [P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5),P('D3',0.5),P('F#3',0.5),P('A3',0.5),P('F#3',0.5)], []),
+      bar([R(2,0)], [P('D3',0.5),P('C#3',0.5),P('B2',0.5),P('A2',0.5),P('G2',0.5),P('A2',0.5),P('B2',0.5),P('C#3',0.5)], []),
+      bar([R(2,0)], [P('G2',0.5),P('B2',0.5),P('D3',0.5),P('B2',0.5),P('G2',0.5),P('B2',0.5),P('D3',0.5),P('G2',0.5)], []),
+    ],
+  }],
+});
+
+/* ---------- ③ 浪漫 · 肖邦风格 夜曲 ---------- */
+WORKS.push({
+  id: 'romantic', title: '降 B 大调夜曲', subtitle: 'Nocturne in B♭ major',
+  period: '浪漫时期（约 1820–1900）', composer: '仿 F. 肖邦',
+  era: '浪漫', color: '#a04a5a',
+  tempoName: 'Lento espressivo', tempoBPM: 60, ts: [4, 4], key: { f: [6, 2] },
+  style: '夜曲体例：歌唱性旋律漂浮在连绵的分解和弦之上，伴奏左手跨越两个八度，形成肖邦式的宽阔音域。'
+       + '旋律大量使用附点、切分与回音式装饰，和声以 ii7–V7 的拿波里与增六等色彩性和弦润饰；'
+       + '中段转向 g 小调作一次同主音对比，再经属七导回主调。rubato 与踏板提示贯穿全曲。',
+  staffs: [{
+    treble: [
+      bar([P('Bb4',0.5),P('F5',0.5),P('F5',0.5),P('G5',0.5),P('F5',1),P('D5',1)],
+          [P('Bb2',0.5),P('F3',0.5),P('Bb3',0.5),P('D4',0.5),P('F4',0.5),P('D4',0.5),P('Bb3',0.5),P('F3',0.5)],
+          [['p'],['ped'],['rubato']]),
+      bar([P('Eb5',0.5),P('D5',0.5),P('C5',1),P('Bb4',1),P('A4',1)],
+          [P('A2',0.5),P('F3',0.5),P('C4',0.5),P('F4',0.5),P('C4',0.5),P('F3',0.5),P('C4',0.5),P('F3',0.5)], [['*']]),
+      bar([P('G5',0.5),P('A5',0.5),P('Bb5',1),P('A5',1),P('G5',1)],
+          [P('Eb3',0.5),P('Bb3',0.5),P('G4',0.5),P('Bb4',0.5),P('G4',0.5),P('Bb3',0.5),P('G4',0.5),P('Bb3',0.5)],
+          [['ped'],['hairpin','<']]),
+      bar([P('F5',0.5),P('E5',0.5),P('F5',1),P('D5',1),P('Bb4',1)],
+          [P('D3',0.5),P('F3',0.5),P('Bb3',0.5),P('F4',0.5),P('Bb3',0.5),P('F3',0.5),P('Bb3',0.5),P('F3',0.5)], [['*']]),
+      bar([P('C5',0.5),P('D5',0.5),P('Eb5',1),P('D5',1),P('C5',1)],
+          [P('C3',0.5),P('F3',0.5),P('A3',0.5),P('F4',0.5),P('A3',0.5),P('F3',0.5),P('A3',0.5),P('F3',0.5)],
+          [['ped'],['hairpin','>']]),
+      bar([P('D5',0.5),P('Eb5',0.5),P('D5',1),P('C5',1),P('Bb4',1)],
+          [P('Bb2',0.5),P('F3',0.5),P('Bb3',0.5),P('D4',0.5),P('F4',0.5),P('D4',0.5),P('Bb3',0.5),P('F3',0.5)], [['*']]),
+      bar([P('A4',0.5),P('Bb4',0.5),P('A4',1),P('G4',1),P('F4',1)],
+          [P('A2',0.5),P('Eb3',0.5),P('F3',0.5),P('C4',0.5),P('F4',0.5),P('C4',0.5),P('F3',0.5),P('Eb3',0.5)],
+          [['ped'],['f']]),
+      bar([P('G4',0.5),P('A4',0.5),P('Bb4',1),P('C5',1),P('D5',1)],
+          [P('G2',0.5),P('D3',0.5),P('G3',0.5),P('Bb3',0.5),P('D4',0.5),P('Bb3',0.5),P('G3',0.5),P('D3',0.5)],
+          [['*'],['hairpin','<']]),
+      bar([P('Eb5',0.5),P('D5',0.5),P('C5',1),P('Bb4',1),P('A4',1)],
+          [P('F3',0.5),P('C4',0.5),P('F4',0.5),P('A4',0.5),P('F4',0.5),P('C4',0.5),P('F4',0.5),P('A4',0.5)],
+          [['ped'],['mf']]),
+      bar([P('Bb4',0.5),P('C5',0.5),P('D5',1),P('Eb5',1),P('D5',1)],
+          [P('Bb2',0.5),P('F3',0.5),P('Bb3',0.5),P('D4',0.5),P('F4',0.5),P('D4',0.5),P('Bb3',0.5),P('F3',0.5)],
+          [['*'],['hairpin','>']]),
+      bar([P('C5',0.5),P('Bb4',0.5),P('A4',1),P('Bb4',1),P('C5',1)],
+          [P('A2',0.5),P('F3',0.5),P('C4',0.5),P('F4',0.5),P('C4',0.5),P('F3',0.5),P('C4',0.5),P('F3',0.5)], [['ped']]),
+      bar([P('D5',0.5),P('Eb5',0.5),P('F5',1),P('D5',1),P('Bb4',1)],
+          [P('D3',0.5),P('F3',0.5),P('Bb3',0.5),P('F4',0.5),P('Bb3',0.5),P('F3',0.5),P('Bb3',0.5),P('F3',0.5)],
+          [['*'],['p']]),
+      bar([P('C5',1),P('D5',0.5),P('C5',0.5),P('Bb4',1),P('A4',1)],
+          [P('C3',0.5),P('F3',0.5),P('A3',0.5),P('F4',0.5),P('A3',0.5),P('F3',0.5),P('A3',0.5),P('F3',0.5)], []),
+      bar([Object.assign(P('Bb4',2),{ar:'fermata'}), R(2)],
+          [P('Bb2',0.5),P('F3',0.5),P('Bb3',0.5),P('D4',0.5),P('F4',0.5),P('D4',0.5),P('Bb3',0.5),P('F3',0.5)],
+          [['pp'],['rit.']]),
+    ],
+    bass: [
+      bar([], [], []),
+    ],
+  }],
+});
+
+/* ---------- ④ 印象派 · 德彪西风格 前奏曲 ---------- */
+WORKS.push({
+  id: 'impressionist', title: '平静的夜 · 前奏曲', subtitle: 'Prélude — une nuit calme',
+  period: '印象派 / 世纪之交（约 1890–1920）', composer: '仿 C. 德彪西',
+  era: '印象派', color: '#5a6a9a',
+  tempoName: 'Très calme et doucement expressif', tempoBPM: 66, ts: [4, 4], key: { s: [], f: [] },
+  style: '平行五度与全音阶片段营造夜色与水面：属七、九和弦连续平行滑动取代功能进行，'
+       + '低声部持续五度音程如钟声。琶音式的伴奏音型包裹着自由节奏的旋律，力度始终控制在弱奏区间，'
+       + '终止处利用附加六度（C–E–G–A）作悬浮式收束，是德彪西前奏曲典型的“色彩终止”。',
+  staffs: [{
+    treble: [
+      bar([P('E5',1),P('D5',1),P('C5',2)],
+          [P('C3',1),P('G3',1),P('C4',1),P('G3',1)], [['pp'],['ped']]),
+      bar([P('A4',1),P('C5',1),P('E5',1),P('D5',1)],
+          [P('A2',1),P('E3',1),P('A3',1),P('E3',1)], [['*']]),
+      bar([P('G4',1),P('A4',1),P('C5',1),P('B4',1)],
+          [P('G2',1),P('D3',1),P('G3',1),P('D3',1)], [['ped'],['p']]),
+      bar([P('A4',1),P('B4',1),P('D5',1),P('C5',1)],
+          [P('D3',1),P('A3',1),P('D4',1),P('A3',1)], [['*']]),
+      bar([P('E5',1),P('F5',1),P('G5',1),P('F5',1)],
+          [P('C3',1),P('G3',1),P('C4',1),P('G3',1)], [['ped'],['mp']]),
+      bar([P('E5',1),P('D5',1),P('B4',1),P('C5',1)],
+          [P('A2',1),P('E3',1),P('A3',1),P('E3',1)], [['*']]),
+      bar([P('D5',2),P('E5',1),P('C5',1)],
+          [P('G2',1),P('D3',1),P('G3',1),P('D3',1)], [['ped'],['hairpin','<']]),
+      bar([P('D5',1),P('C5',1),P('A4',1),P('B4',1)],
+          [P('D3',1),P('A3',1),P('D4',1),P('A3',1)], [['*']]),
+      bar([P('C5',1),P('D5',1),P('Eb5',1),P('D5',1)],
+          [P('E3',1),P('B3',1),P('E4',1),P('B3',1)], [['ped'],['p']]),
+      bar([P('C5',1),P('Bb4',1),P('G4',1),P('A4',1)],
+          [P('F3',1),P('C4',1),P('F4',1),P('C4',1)], [['*']]),
+      bar([P('G4',2),P('A4',1),P('B4',1)],
+          [P('G3',1),P('D4',1),P('G4',1),P('D4',1)], [['ped'],['mf']]),
+      bar([P('A4',1),P('G4',1),P('E4',1),P('F4',1)],
+          [P('F3',1),P('C4',1),P('F4',1),P('C4',1)], [['*']]),
+      bar([P('E4',2),P('D4',2)],
+          [P('C3',1),P('G3',1),P('C4',1),P('G3',1)], [['ped'],['hairpin','>']]),
+      bar([Object.assign(P('C5',4),{ar:'fermata'})],
+          [P('C3',1),P('G3',1),P('C4',1),P('E4',1)], [['pp'],['*'],['rit.']]),
+    ],
+    bass: [
+      bar([P('G4',0.5),P('C5',0.5),P('E5',0.5),P('C5',0.5),P('E5',0.5),P('C5',0.5),P('G4',0.5),P('C5',0.5)],
+          [], []),
+      bar([P('A4',0.5),P('E5',0.5),P('C6',0.5),P('E5',0.5),P('C6',0.5),P('E5',0.5),P('A4',0.5),P('E5',0.5)],
+          [], []),
+      bar([P('G4',0.5),P('D5',0.5),P('B5',0.5),P('D5',0.5),P('B5',0.5),P('D5',0.5),P('G4',0.5),P('D5',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('D5',0.5),P('A5',0.5),P('D5',0.5),P('A5',0.5),P('D5',0.5),P('F#4',0.5),P('D5',0.5)],
+          [], []),
+      bar([P('G4',0.5),P('C5',0.5),P('E5',0.5),P('C5',0.5),P('E5',0.5),P('C5',0.5),P('G4',0.5),P('C5',0.5)],
+          [], []),
+      bar([P('A4',0.5),P('E5',0.5),P('C6',0.5),P('E5',0.5),P('C6',0.5),P('E5',0.5),P('A4',0.5),P('E5',0.5)],
+          [], []),
+      bar([P('G4',0.5),P('B4',0.5),P('D5',0.5),P('B4',0.5),P('D5',0.5),P('B4',0.5),P('G4',0.5),P('B4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('A4',0.5),P('D5',0.5),P('A4',0.5),P('D5',0.5),P('A4',0.5),P('F#4',0.5),P('A4',0.5)],
+          [], []),
+      bar([P('E4',0.5),P('B4',0.5),P('E5',0.5),P('B4',0.5),P('E5',0.5),P('B4',0.5),P('E4',0.5),P('B4',0.5)],
+          [], []),
+      bar([P('F4',0.5),P('C5',0.5),P('F5',0.5),P('C5',0.5),P('F5',0.5),P('C5',0.5),P('F4',0.5),P('C5',0.5)],
+          [], []),
+      bar([P('G4',0.5),P('D5',0.5),P('G5',0.5),P('D5',0.5),P('G5',0.5),P('D5',0.5),P('G4',0.5),P('D5',0.5)],
+          [], []),
+      bar([P('F4',0.5),P('C5',0.5),P('F5',0.5),P('C5',0.5),P('F5',0.5),P('C5',0.5),P('F4',0.5),P('C5',0.5)],
+          [], []),
+      bar([P('E4',0.5),P('G4',0.5),P('C5',0.5),P('G4',0.5),P('C5',0.5),P('G4',0.5),P('E4',0.5),P('G4',0.5)],
+          [], []),
+      bar([P('C4',0.5),P('G4',0.5),P('C5',0.5),P('E5',0.5),P('G5',0.5),P('E5',0.5),P('C5',0.5),P('G4',0.5)],
+          [], []),
+    ],
+  }],
+});
+
+/* ---------- ⑤ 近现代 · 巴托克风格 保加利亚舞曲 ---------- */
+WORKS.push({
+  id: 'modern', title: '保加利亚舞曲', subtitle: 'Danse bulgare (5/8)',
+  period: '近现代 · 民族乐派（约 1920–1945）', composer: '仿 B. 巴托克',
+  era: '近现代', color: '#7a5a9a',
+  tempoName: 'Vivo, ritmico', tempoBPM: 152, ts: [5, 8], key: { s: [3, 0] },
+  style: '5/8 拍按 3+2 / 2+3 两种分组交替，是巴尔干民间舞曲的典型复合节拍；旋律使用带升四度音的色彩性小调音阶，'
+       + '低音部以持续五度与切分重音营造粗粝的乡村乐队效果。中段引入利底亚色彩与八声音阶片段，'
+       + '再现段在主音上以五度叠置和弦作敲击式收束——皆取自巴托克钢琴小品的惯用手法。',
+  staffs: [{
+    treble: [
+      bar([P('B4',0.5),P('C#5',0.5),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('F#5',0.5)],
+          [P('B2',1),P('F#2',0.5),P('B2',1)], [['f'],['hairpin','>']]),
+      bar([P('E5',1),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('C#5',0.5)],
+          [P('E3',1),P('B2',0.5),P('E3',1)], [['*']]),
+      bar([P('D#5',0.5),P('B4',0.5),P('C#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('A4',0.5)],
+          [P('C#3',1),P('G#2',0.5),P('C#3',1)], [['mf']]),
+      bar([P('G#4',0.5),P('F#4',0.5),P('E4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('G#4',0.5)],
+          [P('G#2',1),P('D#3',0.5),P('G#2',1)], [['*']]),
+      bar([P('E4',0.5),P('F#4',0.5),P('G#4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('B4',0.5)],
+          [P('B2',1),P('F#2',0.5),P('B2',1)], [['f']]),
+      bar([P('F#4',0.5),P('E4',0.5),P('D#4',0.5),Object.assign(P('C#4',0.5),{beam:0}),P('D#4',0.5)],
+          [P('D#3',1),P('B2',0.5),P('D#3',1)], [['*']]),
+      bar([P('B3',0.5),P('C#4',0.5),P('D#4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('D#4',0.5)],
+          [P('E3',1),P('B2',0.5),P('E3',1)], [['p'],['hairpin','<']]),
+      bar([P('B3',0.5),P('C#4',0.5),Object.assign(P('D#4',0.5),{beam:0}),P('C#4',0.5),P('B3',0.5)],
+          [P('F#2',1),P('C#3',0.5),P('F#2',1)], [['*']]),
+      bar([P('C5',0.5),P('B4',0.5),P('G4',0.5),Object.assign(P('E4',0.5),{beam:0}),P('G4',0.5)],
+          [P('C3',1),P('G2',0.5),P('C3',1)], [['f'],['hairpin','>']]),
+      bar([P('A4',0.5),P('B4',0.5),P('C5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('A4',0.5)],
+          [P('D3',1),P('A2',0.5),P('D3',1)], [['*']]),
+      bar([P('G4',0.5),P('F#4',0.5),P('E4',0.5),Object.assign(P('D4',0.5),{beam:0}),P('C4',0.5)],
+          [P('G3',1),P('D3',0.5),P('G3',1)], [['mf']]),
+      bar([P('C4',0.5),P('D4',0.5),P('E4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('G4',0.5)],
+          [P('D3',1),P('A2',0.5),P('D3',1)], [['*']]),
+      bar([P('B4',0.5),P('C#5',0.5),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('F#5',0.5)],
+          [P('B2',1),P('F#2',0.5),P('B2',1)], [['ff']]),
+      bar([Object.assign(P('B4',1.5),{ar:'fermata'}), R(1)],
+          [P('B2',0.5),P('F#2',0.5),P('B2',0.5),P('F#2',0.5),P('B2',0.5)], [['ff']]),
+    ],
+    bass: [
+      bar([P('F#4',0.5),P('B4',0.5),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+      bar([P('G#4',0.5),P('B4',0.5),P('E5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('G#4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('A4',0.5),P('C#5',0.5),Object.assign(P('A4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+      bar([P('E4',0.5),P('G#4',0.5),P('B4',0.5),Object.assign(P('G#4',0.5),{beam:0}),P('E4',0.5)],
+          [], []),
+      bar([P('D#4',0.5),P('F#4',0.5),P('B4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('D#4',0.5)],
+          [], []),
+      bar([P('D#4',0.5),P('F#4',0.5),P('A4',0.5),Object.assign(P('F#4',0.5),{beam:0}),P('D#4',0.5)],
+          [], []),
+      bar([P('E4',0.5),P('G4',0.5),P('B4',0.5),Object.assign(P('G4',0.5),{beam:0}),P('E4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('A#4',0.5),Object.assign(P('C#5',0.5),{beam:0}),P('A#4',0.5),P('F#4',0.5)],
+          [], []),
+      bar([P('E4',0.5),P('G4',0.5),P('C5',0.5),Object.assign(P('G4',0.5),{beam:0}),P('E4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('A4',0.5),P('D5',0.5),Object.assign(P('A4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+      bar([P('G4',0.5),P('B4',0.5),P('E5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('G4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('A4',0.5),P('D5',0.5),Object.assign(P('A4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('B4',0.5),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+      bar([P('F#4',0.5),P('B4',0.5),P('D#5',0.5),Object.assign(P('B4',0.5),{beam:0}),P('F#4',0.5)],
+          [], []),
+    ],
+  }],
+});
+
+/* ======================= 3. 播放事件展开（音符数据 → 时间线） ======================= */
+
+function durInBeats(n) {
+  let d = n.d * (n.dots ? 1 + (1 - Math.pow(0.5, n.dots)) : 1);
+  return d;
+}
+/** 谱面 → 播放事件列表（含装饰音与颤音展开） */
+function buildTimeline(work) {
+  const ev = [];
+  let beat = 0;
+  const staff = work.staffs[0];
+  const measures = staff.treble; // 低音谱表已并入同一 measure 的 bottom
+  for (let mi = 0; mi < measures.length; mi++) {
+    const m = measures[mi];
+    const voices = [
+      { arr: m.top, v: 1, bass: false },
+      { arr: m.bottom, v: 0, bass: true },
+    ];
+    for (const V of voices) {
+      let t = 0;
+      for (let i = 0; i < V.arr.length; i++) {
+        const n = V.arr[i];
+        const start = beat + t;
+        const d = durInBeats(n);          // 休止符也占用时值
+        if (n.g) {
+          for (let k = 0; k < n.g.length; k++) {
+            ev.push({ t: start + k * 0.05 - n.g.length * 0.05, d: 0.04, m: mi, v: V.v, g: 1, vi: i,
+                      n: n.g[k], base: n, pitch: U.withKey(n.g[k], work.key) });
+          }
+        }
+        if (U.isNote(n)) {
+          if (n.tr) {
+            // 颤音展开：先奏上方二度，再与主音交替
+            const total = d, seg = total / 6;
+            let upper = true;
+            for (let s = 0; s < 6; s++) {
+              const pn = upper ? Object.assign({}, n, { step: n.step + 1 }) : n;
+              ev.push({ t: start + s * seg, d: seg * 0.96, m: mi, v: V.v, tr: s === 0 ? n : 0, vi: i,
+                        n: n, pitch: U.withKey(pn, work.key) });
+              upper = !upper;
+            }
+          } else {
+            ev.push({ t: start, d: d * 0.96, m: mi, v: V.v, n: n, vi: i, pitch: U.withKey(n, work.key) });
+          }
+        }
+        t += d;
+      }
+    }
+    beat += (work.ts[0] / work.ts[1]) * 4;
+  }
+  ev.sort((a, b) => a.t - b.t);
+  work.events = ev;
+  work.totalBeats = beat;
+  return ev;
+}
+function beatsToSec(beats, work) { return beats * 60 / work.tempoBPM; }
+
+/* ======================= 4. Web Audio 钢琴合成 ======================= */
+
+const Synth = {
+  ctx: null, master: null, noiseBuf: null,
+  ensure() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { fail('当前浏览器不支持 Web Audio，无法播放。'); return; }
+    const ctx = this.ctx = new AC();
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.9;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 14; comp.ratio.value = 2.5;
+    this.master.connect(comp); comp.connect(ctx.destination);
+    // 预生成 2 秒白噪声（槌击瞬态共用）
+    const len = Math.floor(ctx.sampleRate * 2);
+    const buf = this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  },
+  /** midi 音高 → 频率（钢琴拉伸调律近似） */
+  freq(m) { return 440 * Math.pow(2, (m - 69) / 12); },
+  /**
+   * 三层合成：
+   *  a) Karplus-Strong 拨弦（模拟琴弦的谐波衰减，经带通滤去金属毛刺）
+   *  b) 两个轻微失谐的三角波（琴体共鸣）
+   *  c) 白噪瞬态（槌击）
+   */
+  noteOn(midi, vel, when) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = when || ctx.currentTime + 0.001;
+    const f = this.freq(midi);
+    const v = clamp(vel, 0.02, 1);
+    const out = this.master;
+    const dampG = ctx.createGain();
+    dampG.gain.setValueAtTime(v * 0.24, t);
+    dampG.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+    dampG.connect(out);
+
+    // --- KS 弦 ---
+    const n = Math.max(2, Math.round(ctx.sampleRate / f));
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const dl = ctx.createDelay(0.012); dl.delayTime.value = n / ctx.sampleRate;
+    const fb = ctx.createGain(); fb.gain.value = 0.992;
+    const f0 = ctx.createBiquadFilter(); f0.type = 'lowpass';
+    f0.frequency.value = clamp(f * 6, 400, 9000);
+    const f1 = ctx.createBiquadFilter(); f1.type = 'highpass'; f1.frequency.value = 60;
+    src.connect(f0); f0.connect(dl); dl.connect(fb); fb.connect(dl);
+    dl.connect(f1); f1.connect(dampG);
+    src.start(t); src.stop(t + 0.15);
+
+    // --- 共鸣体 ---
+    [[1, 0.34], [2, 0.14], [3.01, 0.05]].forEach(([mul, amp]) => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f * mul;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(v * amp, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (mul === 1 ? 2.4 : 0.9));
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 2.6);
+    });
+
+    // --- 槌击瞬态 ---
+    const ns = ctx.createBufferSource(); ns.buffer = this.noiseBuf;
+    ns.playbackRate.value = 0.7 + Math.random() * 0.5;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = clamp(f * 3, 500, 5000); bp.Q.value = 0.8;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(v * 0.16, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+    ns.connect(bp); bp.connect(ng); ng.connect(out);
+    ns.start(t, Math.random() * 0.9, 0.05); ns.stop(t + 0.05);
+  },
+};
+
+/* ======================= 5. 播放器（前瞻调度） ======================= */
+
+const Player = {
+  work: null, events: null, playing: false,
+  startCtxT: 0, startBeat: 0, idx: 0,
+  tempoMul: 1, curBeat: 0,
+  timer: null, lastSched: -1, nextEv: -1, totalSec: 0,
+
+  setWork(work) {
+    this.work = work;
+    this.events = buildTimeline(work);
+    this.totalSec = beatsToSec(work.totalBeats, work);
+    this.stop();
+  },
+  play() {
+    if (!this.work || this.playing) return;
+    Synth.ensure();
+    if (!Synth.ctx) return;
+    if (this.curBeat >= this.work.totalBeats - 0.001) this.curBeat = 0;
+    this.startBeat = this.curBeat;
+    this.startCtxT = Synth.ctx.currentTime + 0.06;
+    this.idx = 0;
+    while (this.idx < this.events.length && this.events[this.idx].t < this.curBeat) this.idx++;
+    this.playing = true;
+    this.nextEv = -1; this.lastSched = -1;
+    this.timer = setInterval(() => this.tick(), 40);
+    UI.setPlaying(true);
+  },
+  pause() {
+    if (!this.playing) return;
+    this.playing = false;
+    clearInterval(this.timer); this.timer = null;
+    UI.setPlaying(false);
+  },
+  stop() {
+    this.playing = false;
+    clearInterval(this.timer); this.timer = null;
+    this.curBeat = 0; this.idx = 0;
+    UI.setPlaying(false);
+  },
+  beatAt(now) {
+    const work = this.work, ev = this.events;
+    if (!this.playing) return this.curBeat;
+    let ctx = Synth.ctx ? Synth.ctx.currentTime : now;
+    return this.startBeat + (ctx - this.startCtxT) * (work.tempoBPM * this.tempoMul / 60);
+  },
+  tick() {
+    if (!this.playing || !Synth.ctx) return;
+    const work = this.work, ev = this.events;
+    const now = Synth.ctx.currentTime;
+    this.curBeat = this.beatAt(now);
+    if (this.curBeat >= work.totalBeats) { this.stop(); this.curBeat = 0; return; }
+    const horizon = now + 0.22;
+    while (this.idx < ev.length) {
+      const e = ev[this.idx];
+      const when = this.startCtxT + (e.t - this.startBeat) * 60 / (work.tempoBPM * this.tempoMul);
+      if (when > horizon) break;
+      const dur = e.d * 60 / (work.tempoBPM * this.tempoMul);
+      Synth.noteOn(e.pitch, e.g ? 0.5 : 0.82, when);
+      this.nextEv = this.idx;
+      this.idx++;
+    }
+  },
+  seek(beat) {
+    this.curBeat = clamp(beat, 0, this.work.totalBeats);
+    if (this.playing) {
+      this.startBeat = this.curBeat;
+      this.startCtxT = Synth.ctx.currentTime + 0.05;
+      this.idx = 0;
+      while (this.idx < this.events.length && this.events[this.idx].t < this.curBeat) this.idx++;
+    } else {
+      this.idx = 0;
+      while (this.idx < this.events.length && this.events[this.idx].t < this.curBeat) this.idx++;
+    }
+  },
+};
+
+/* ======================= 6. 五线谱排版渲染 ======================= */
+
+const Sheet = {
+  // 版面参数（单位 notex = 谱线间距 px；页面以像素计）
+  notex: 0, pageW: 0, totalH: 0, systems: [], measures: [], tiePrev: {},
+  work: null, canvas: null, dpr: 1,
+
+  stf(p) { return p * this.notex; },
+
+  /* ---------- 布局 ---------- */
+  layout(work, pageW) {
+    this.work = work; this.pageW = pageW;
+    this.systems = []; this.measures = []; this.tiePrev = { t: {}, b: {} };
+    const staff0 = work.staffs[0];
+    const n = staff0.treble.length;
+    const beatsPer = (work.ts[0] / work.ts[1]) * 4;   // 每小节拍数
+    const beatW = 3.4;                                // 拍内均宽（notex）
+    // ① 每小节自然宽度（按拍等距 + 首拍符号余量；所有声部对齐同一时间轴）
+    const widths = [];
+    for (let i = 0; i < n; i++) {
+      widths.push(Math.max(beatsPer * beatW + 0.7, beatsPer * 1.6) + 1.4);
+    }
+    // ② 断行（每行首小节额外留出谱号+调号+拍号区；宽度全部换算为像素）
+    const mL = 24, mR = 24, pad = 7.0 * this.notex;
+    let sys = { measures: [], x0: mL, w: 0 };
+    for (let i = 0; i < n; i++) {
+      const need = widths[i] * this.notex + (sys.measures.length === 0 ? pad : 0);
+      if (sys.measures.length && sys.w + need > pageW - mR - 8) {
+        this.systems.push(sys); sys = { measures: [], x0: mL, w: 0 };
+      }
+      sys.measures.push(i); sys.w += need;
+    }
+    if (sys.measures.length) this.systems.push(sys);
+
+    // ③ 系统几何
+    const stTop = 108, stGap = 82, sysGap = 196;
+    let y = stTop;
+    for (const s of this.systems) {
+      s.y = y; s.h = sysGap;
+      let x = s.x0;
+      for (let k = 0; k < s.measures.length; k++) {
+        const mi = s.measures[k];
+        const w = widths[mi] * this.notex;
+        const first = k === 0;
+        this.measures[mi] = { mi, x, y, w, sys: s, first,
+          startX: first ? x + pad : x };
+        this._placeMeasure(mi);
+        x += w + (first ? pad : 0);
+      }
+      s.w = x - s.x0;
+      y += sysGap;
+    }
+    this.totalH = y + 120;
+    this._layoutSlurs();
+    return this.systems.length;
+  },
+
+  /** 音符纵向位置（半线单位）：
+      高音谱表：顶线 F5=5，底线 E4=1，下加一线 C4=0
+      低音谱表：顶线 A3=0，底线 G2=4，上加一线 C4=-1 */
+  _yPos(n, bass) {
+    const d = n.step + 7 * n.oct;
+    return bass ? (26 - d) / 2 : (d - 28) / 2;
+  },
+  /** 由 _yPos 换算屏幕 y（谱表顶线为基准） */
+  _yAt(y0, n, bass) {
+    const pos = this._yPos(n, bass);
+    return y0 + (bass ? pos : (5 - pos)) * this.notex;
+  },
+
+  /** 拍内字形宽度（notex 单位，保留供扩展使用） */
+  _gw(n) {
+    if (n.r) return Math.min(1.4, 0.5 + n.d * 0.22);
+    return 0.85 + n.d * 0.28;
+  },
+
+  /* ---------- 小节内定位（声部共享同一条拍内时间轴） ---------- */
+  _placeMeasure(mi) {
+    const work = this.work, m = work.staffs[0].treble[mi];
+    const M = this.measures[mi];
+    const beatW = 3.4;                    // notex / 拍
+    const sx = 0.7;
+    m._tp = []; m._bp = [];
+    const place = (arr, map, voice, bass) => {
+      let t = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const n0 = arr[i];
+        const x = M.startX + (sx + t * beatW) * this.notex;
+        map.push({ n: n0, x, y: M.y, b: t, vi: i });
+        t += durInBeats(n0);
+      }
+    };
+    place(m.top, m._tp, 1, false);
+    place(m.bottom, m._bp, 0, true);
+  },
+
+  /** 连奏弧分组（s 标记跨小节连续） */
+  _layoutSlurs() {
+    const work = this.work;
+    this.slurGroups = [];
+    const mArr = work.staffs[0].treble;
+    const scan = (bass) => {
+      let grp = null;
+      for (let mi = 0; mi < mArr.length; mi++) {
+        const arr = bass ? mArr[mi].bottom : mArr[mi].top;
+        const map = bass ? mArr[mi]._bp : mArr[mi]._tp;
+        for (let i = 0; i < arr.length; i++) {
+          const n0 = arr[i];
+          if (n0.r) continue;
+          const mp = map[i];
+          if (n0.s) {
+            if (!grp) grp = [];
+            grp.push(mp);
+          } else if (grp) {
+            grp.push(mp);
+            if (grp.length > 1) this.slurGroups.push({ pts: grp, bass });
+            grp = null;
+          }
+        }
+      }
+      if (grp && grp.length > 1) this.slurGroups.push({ pts: grp, bass });
+    };
+    scan(false); scan(true);
+  },
+
+  /* ================== 绘制 ================== */
+  render(canvas, dpr) {
+    this.canvas = canvas;
+    this.dpr = dpr;
+    const W = this.pageW, H = this.totalH;
+    canvas.width = Math.max(2, Math.round(W * dpr));
+    canvas.height = Math.max(2, Math.round(H * dpr));
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const g = canvas.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.g = g;
+    g.fillStyle = '#f7f2e4';
+    g.fillRect(0, 0, W, H);
+
+    this._drawTitle(g);
+    // 清除上一帧的连符尾标记（数据可复用，标记需重建）
+    for (const mm of this.work.staffs[0].treble) {
+      for (const nn of mm.top.concat(mm.bottom)) nn.beamed = false;
+    }
+    for (const s of this.systems) {
+      for (const mi of s.measures) this._drawMeasure(g, mi, false);
+      // 小节线
+      for (const mi of s.measures) this._drawBarline(g, mi, false);
+      // 连符尾（画在小节线之上）
+      for (const mi of s.measures) this._drawBeams(g, mi);
+      // 延音线 / 连奏弧
+      this._drawTiesForSystem(g, s);
+    }
+    for (const grp of this.slurGroups) this._drawSlur(g, grp);
+    // 谱首信息（最底）
+    this._drawFooter(g);
+  },
+
+  _drawTitle(g) {
+    const w = this.work, W = this.pageW;
+    g.textAlign = 'center';
+    g.fillStyle = '#23201a';
+    g.font = '600 30px Georgia, "Times New Roman", serif';
+    g.fillText(w.title, W / 2, 46);
+    g.font = 'italic 15px Georgia, serif';
+    g.fillStyle = '#5c564a';
+    g.fillText(w.subtitle + '　—　' + w.composer, W / 2, 70);
+    g.font = '12px Georgia, serif';
+    g.fillStyle = '#8b8371';
+    g.fillText(w.tempoName + '　♩ = ' + w.tempoBPM + '　·　' + w.period, W / 2, 90);
+  },
+  _drawFooter(g) {
+    g.textAlign = 'center';
+    g.fillStyle = '#a49a80';
+    g.font = '10.5px Georgia, serif';
+    g.fillText('Musica Sine Tempore — AI 作曲演示 · 合成播放与 MIDI 导出均由本页实现', this.pageW / 2, this.totalH - 18);
+  },
+
+  /* ---------- 系统基元 ---------- */
+  _clef(g, x, y0, treble) {
+    const n = this.notex;
+    g.strokeStyle = '#26221d'; g.fillStyle = '#26221d'; g.lineWidth = 0.8;
+    g.lineCap = 'round';
+    if (treble) {
+      // 基线取顶线上方 1.4 线距，螺旋中心大致落在 G4 线附近
+      const B = y0 - 1.4 * n;
+      g.beginPath();
+      g.moveTo(x, B + 7.2 * n);
+      g.bezierCurveTo(x - 0.05 * n, B + 6.3 * n, x + 0.14 * n, B + 5.2 * n, x + 0.18 * n, B + 5.6 * n);
+      g.bezierCurveTo(x + 0.22 * n, B + 6.0 * n, x - 0.02 * n, B + 4.6 * n, x - 0.02 * n, B + 4.4 * n);
+      g.bezierCurveTo(x - 0.02 * n, B + 3.4 * n, x + 0.26 * n, B + 2.2 * n, x + 0.36 * n, B + 3.6 * n);
+      g.bezierCurveTo(x + 0.46 * n, B + 5.0 * n, x + 0.10 * n, B + 6.4 * n, x + 0.26 * n, B + 6.2 * n);
+      g.bezierCurveTo(x + 0.40 * n, B + 6.0 * n, x + 0.48 * n, B + 5.2 * n, x + 0.42 * n, B + 4.6 * n);
+      g.stroke();
+      g.beginPath(); g.arc(x, B + 7.45 * n, n * 0.32, 0, Math.PI * 2); g.fill();
+    } else {
+      // 低音谱号：以 F3 线（自上而下第二条）为圆心
+      const c = y0 + 2 * n;
+      g.beginPath();
+      g.arc(x + n * 0.9, c, n * 1.15, Math.PI * 0.62, Math.PI * 2.12);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(x + n * 1.55, c - 0.85 * n);
+      g.quadraticCurveTo(x + n * 2.2, c - 0.4 * n, x + n * 1.75, c + 0.1 * n);
+      g.stroke();
+      g.beginPath(); g.arc(x + n * 1.15, c - 0.5 * n, n * 0.2, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(x + n * 1.15, c + 0.5 * n, n * 0.2, 0, Math.PI * 2); g.fill();
+    }
+  },
+  _keySig(g, x, y0, treble) {
+    const n = this.notex;
+    g.font = (n * 2.6) + 'px Georgia, serif';
+    g.textAlign = 'left'; g.textBaseline = 'middle';
+    const sharps = this.work.key.s || [], flats = this.work.key.f || [];
+    // 升号序 F C G D A E B；降号序 B E A D G C F（自顶线起的半线位置）
+    const sp = treble ? [0, 1.5, 3, 1, 2.5, 4, 2] : [1, 2.5, 4, 2, 3.5, 1.5, 3];
+    const fp = treble ? [2, 0.5, 2.5, 1, 3, 1.5, 3.5] : [3, 1.5, 3.5, 2, 4, 2.5, 1];
+    let xx = x;
+    for (let i = 0; i < sharps.length; i++) {
+      g.fillStyle = '#26221d';
+      g.fillText('♯', xx, y0 + sp[i] * n);
+      xx += n * 1.05;
+    }
+    for (let i = 0; i < flats.length; i++) {
+      g.fillStyle = '#26221d';
+      g.fillText('♭', xx, y0 + fp[i] * n);
+      xx += n * 0.95;
+    }
+    return xx;
+  },
+  _timeSig(g, x, y) {
+    const w = this.work, n = this.notex;
+    g.font = (n * 2.6) + 'px Georgia, serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#26221d';
+    g.fillText(String(w.ts[0]), x + n * 0.9, y + n * 1.15);
+    g.fillText(String(w.ts[1]), x + n * 0.9, y + n * 3.35);
+  },
+
+  /* ---------- 小节绘制 ---------- */
+  _drawMeasure(g, mi, hl) {
+    const m = this.measures[mi], w = this.work.staffs[0].treble[mi];
+    const x = m.x, y = m.y, n = this.notex;
+    // 五线
+    for (let st = 0; st < 2; st++) {
+      const yy = y + st * 82;
+      for (let l = 0; l < 5; l++) {
+        g.strokeStyle = '#2c2822'; g.lineWidth = 0.8;
+        g.beginPath(); g.moveTo(x, yy + l * n); g.lineTo(x + m.w, yy + l * n); g.stroke();
+      }
+    }
+    // 谱号（仅系统首小节）
+    if (mi === m.sys.measures[0]) {
+      this._clef(g, x + 1.2, y, true);
+      this._clef(g, x + 1.2, y + 82, false);
+      this._keySig(g, x + n * 2.6, y, true);
+      this._keySig(g, x + n * 2.6, y + 82, false);
+      this._timeSig(g, x + n * 5.6, y);
+      this._timeSig(g, x + n * 5.6, y + 82);
+      g.textAlign = 'left'; g.fillStyle = '#9a917c'; g.font = '10px Georgia, serif';
+      g.fillText(String(mi + 1), x + 2, y - n * 1.1);
+    }
+    // 音符
+    this._drawVoice(g, mi, w.top, w._tp || [], 1, false);
+    this._drawVoice(g, mi, w.bottom, w._bp || [], 0, true);
+    // 力度与演奏记号
+    this._drawDirectives(g, mi, m, w);
+  },
+
+  _drawVoice(g, mi, arr, map, dir, bass) {
+    const n = this.notex;
+    for (let i = 0; i < arr.length; i++) {
+      const no = arr[i], mp = map[i];
+      if (!mp) continue;
+      const x = mp.x, y0 = mp.y;
+      if (no.r) { this._drawRest(g, x, y0, no, dir); continue; }
+      const staffTop = y0 + (bass ? 82 : 0);
+      const pos = this._yPos(no, bass);
+      const y = this._yAt(staffTop, no, bass);
+      // 装饰音
+      if (no.g) {
+        for (let k = 0; k < no.g.length; k++) {
+          const gn = no.g[k];
+          const gy = this._yAt(staffTop, gn, bass);
+          this._drawNotehead(g, x - (no.g.length - k) * 2.2 * n, gy, true, 0.78);
+          g.strokeStyle = '#26221d'; g.lineWidth = 0.7;
+          g.beginPath();
+          g.moveTo(x - (no.g.length - k) * 2.2 * n + 0.4 * n, gy - 0.7 * n);
+          g.quadraticCurveTo(x - 1.1 * n, gy - 1.4 * n, x - 0.45 * n, gy - 0.55 * n);
+          g.stroke();
+        }
+      }
+      // 加线画在符头之下
+      this._drawLedger(g, x, y, pos, n, bass);
+      // 符头：全/二分音符为空心，四分及更短为实心
+      this._drawNotehead(g, x, y, no.d >= 2, no.d >= 2 ? 0.95 : 1);
+      if (no.acc) this._drawAccidental(g, x, y, no.acc, n);
+      if (no.ar === 'staccato') { g.beginPath(); g.arc(x + 0.3 * n, y - (dir ? 1.1 : 0) * n - 0.55 * n, n * 0.14, 0, 7); g.fillStyle = '#26221d'; g.fill(); }
+      if (no.tr) {
+        g.font = 'italic ' + (n * 1.7) + 'px Georgia, serif';
+        g.textAlign = 'center'; g.fillStyle = '#4a4436';
+        g.fillText('tr', x, y - 3.0 * n);
+        g.strokeStyle = '#4a4436'; g.lineWidth = 0.7;
+        g.beginPath();
+        for (let s2 = 0; s2 <= 8; s2++) {
+          const xx = x + 0.9 * n + s2 * 0.22 * n;
+          const yy = y - 3.15 * n + (s2 % 2 ? 0.5 : 0) * n;
+          s2 ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
+        }
+        g.stroke();
+      }
+      if (no.ar === 'fermata') {
+        g.beginPath();
+        g.arc(x, y - 2.9 * n, n * 0.34, Math.PI * 1.1, Math.PI * 1.9);
+        g.fillStyle = '#26221d'; g.fill();
+        g.beginPath(); g.arc(x, y - 2.9 * n, n * 0.1, 0, 7); g.fill();
+      }
+      // 符干与符尾
+      if (no.d < 1) this._drawStem(g, x, y, dir, no);
+      // 附点：线音上偏避免与谱线重合
+      if (no.dots) {
+        const onLine = Math.abs(pos % 2) < 0.3;
+        const dy = onLine ? -0.5 : 0;
+        for (let d2 = 0; d2 < no.dots; d2++) {
+          g.beginPath(); g.arc(x + (1.0 + d2 * 0.42) * n, y + dy * n, n * 0.14, 0, 7);
+          g.fillStyle = '#26221d'; g.fill();
+        }
+      }
+    }
+  },
+
+  _drawNotehead(g, x, y, hollow, k) {
+    const n = this.notex, rx = 0.62 * n * k, ry = 0.44 * n * k;
+    g.save(); g.translate(x, y); g.rotate(-0.32);
+    g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 7);
+    g.fillStyle = hollow ? '#f7f2e4' : '#26221d';
+    g.fill();
+    g.strokeStyle = '#26221d'; g.lineWidth = 0.9; g.stroke();
+    g.restore();
+  },
+  _drawLedger(g, x, y, pos, n, bass) {
+    g.strokeStyle = '#26221d'; g.lineWidth = 0.9;
+    const ys = [];
+    if (bass) {
+      // 低音谱表：上方加线 -1,-3,…；下方加线 5,7,…
+      for (let v = -1; v >= pos - 0.25; v -= 2) ys.push(v * n);
+      for (let v = 5; v <= pos + 0.25; v += 2) ys.push(v * n);
+    } else {
+      // 高音谱表：顶线 F5=5；上方加线 6,8,…；下加一线 C4=0 及 -2,-4,…
+      for (let v = 6; v <= pos + 0.25; v += 2) ys.push((5 - v) * n);
+      for (let v = 0; v >= pos - 0.25; v -= 2) ys.push((5 - v) * n);
+    }
+    for (const off of ys) {
+      g.beginPath(); g.moveTo(x - 1.15 * n, y + off); g.lineTo(x + 1.15 * n, y + off); g.stroke();
+    }
+  },
+  _drawAccidental(g, x, y, acc, n) {
+    const px = x - 1.35 * n;
+    g.save(); g.translate(px, y); g.scale(n / 8, n / 8);
+    g.strokeStyle = '#26221d'; g.fillStyle = '#26221d'; g.lineWidth = 1.6; g.lineCap = 'round';
+    if (acc === 1) {           // ♯：两条竖线 + 两条横线
+      g.beginPath(); g.moveTo(-1.4, -5.5); g.lineTo(-1.4, 5.5); g.stroke();
+      g.beginPath(); g.moveTo(1.4, -5.5); g.lineTo(1.4, 5.5); g.stroke();
+      g.beginPath(); g.moveTo(-4.5, -1.7); g.lineTo(4.5, 0.1); g.stroke();
+      g.beginPath(); g.moveTo(-4.5, 2.5); g.lineTo(4.5, 4.3); g.stroke();
+    } else if (acc === -1) {   // ♭：竖线 + 弧
+      g.beginPath(); g.moveTo(0, -5.8); g.lineTo(0, 5.8); g.stroke();
+      g.beginPath(); g.moveTo(0, -1.5); g.bezierCurveTo(4, -3.6, 4, 1.2, 0, 0.8); g.stroke();
+    } else if (acc === 2) {    // 重升 ×
+      g.beginPath(); g.moveTo(-3.4, -3.6); g.lineTo(3.4, 3.6); g.stroke();
+      g.beginPath(); g.moveTo(3.4, -3.6); g.lineTo(-3.4, 3.6); g.stroke();
+    } else {                   // 还原 ♮
+      g.beginPath(); g.moveTo(-0.8, -4.2); g.lineTo(0.8, 4.2); g.stroke();
+      g.beginPath(); g.moveTo(0.8, -4.2); g.lineTo(-0.8, 4.2); g.stroke();
+      g.beginPath(); g.moveTo(-2.8, -2.6); g.lineTo(2.8, -1.2); g.stroke();
+      g.beginPath(); g.moveTo(-2.8, 1.2); g.lineTo(2.8, 2.6); g.stroke();
+    }
+    g.restore();
+  },
+  _drawStem(g, x, y, dir, no) {
+    const n = this.notex;
+    const sy = dir ? -3.5 * n : 3.5 * n;
+    const sx = x + (dir ? 0.52 : -0.52) * n;
+    g.strokeStyle = '#26221d'; g.lineWidth = 0.95;
+    g.beginPath(); g.moveTo(sx, y + (dir ? -0.4 : 0.4) * n); g.lineTo(sx, y + sy); g.stroke();
+    if (no.d <= 0.5 && !no.beamed) this._drawFlag(g, sx, y + sy, dir, no.d);
+  },
+  _drawFlag(g, x, y, dir, d) {
+    const n = this.notex, s = dir ? 1 : -1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + 1.6 * n, y + s * 0.9 * n, x + 0.7 * n, y + s * 2.0 * n);
+    if (d <= 0.25) {
+      g.moveTo(x, y + s * 0.8 * n);
+      g.quadraticCurveTo(x + 1.5 * n, y + s * 1.6 * n, x + 0.6 * n, y + s * 2.6 * n);
+    }
+    g.strokeStyle = '#26221d'; g.lineWidth = 0.85; g.stroke();
+  },
+  _drawRest(g, x, y0, no, dir) {
+    const n = this.notex, bass = dir === 0;
+    const stY = y0 + (bass ? 82 : 0);
+    g.strokeStyle = '#26221d'; g.fillStyle = '#26221d'; g.lineWidth = 0.9; g.lineCap = 'round';
+    const d = no.d;
+    let y;
+    if (d >= 2) y = stY + (bass ? 3 : 2.2) * n;       // 全休止：高音挂第2线、低音挂第4线
+    else if (d >= 0.5) y = stY + 2 * n;               // 二分/四分休止
+    else y = stY + 2 * n;
+    if (d >= 2) {                                      // 全休止：线下方块
+      g.fillRect(x - 0.7 * n, y - n * 0.55, 1.4 * n, n * 0.62);
+    } else if (d >= 0.5) {                             // 四分休止（Z 形）
+      g.save(); g.translate(x, y); g.scale(n / 9, n / 9);
+      g.beginPath();
+      g.moveTo(-3, -3.4); g.lineTo(2.6, -1.2);
+      g.lineTo(-2.6, 1.6); g.lineTo(3, 3.4);
+      g.lineTo(0.2, 1.6); g.lineTo(-3, -1.2); g.closePath();
+      g.fill(); g.restore();
+    } else {                                           // 八分/十六分：斜杆 + 圆点
+      g.beginPath(); g.moveTo(x - 0.4 * n, y - 1.8 * n); g.lineTo(x + 0.6 * n, y + 0.4 * n); g.stroke();
+      g.beginPath(); g.arc(x + 0.75 * n, y + 0.35 * n, n * 0.24, 0, 7); g.fill();
+      if (d <= 0.25) {
+        g.beginPath(); g.moveTo(x - 0.2 * n, y - 2.3 * n); g.lineTo(x + 0.75 * n, y - 0.15 * n); g.stroke();
+      }
+    }
+    if (no.dots) {
+      g.beginPath(); g.arc(x + 1.5 * n, y - 0.3 * n, n * 0.13, 0, 7); g.fill();
+    }
+  },
+
+  _drawBeams(g, mi) {
+    const work = this.work, m = work.staffs[0].treble[mi];
+    const n = this.notex;
+    for (const [arr, map, bass, dir] of [[m.top, m._tp || [], false, 1], [m.bottom, m._bp || [], true, 0]]) {
+      let run = [];
+      for (let i = 0; i < arr.length; i++) {
+        const no = arr[i], mp = map[i];
+        // 连符尾：与前一音相邻（时值连续、无休止、未标记分断）才并入同组
+        const prev = run.length ? run[run.length - 1] : null;
+        const gapOk = !prev || Math.abs(mp.b - (prev.mp.b + durInBeats(prev.no))) < 0.02;
+        const can = !no.r && no.d <= 0.5 && mp && no.beam !== 0 && gapOk;
+        if (can) run.push({ no, mp, i });
+        else { this._beam(g, run, bass, dir); run = can ? [{ no, mp, i }] : []; }
+      }
+      this._beam(g, run, bass, dir);
+    }
+  },
+  _beam(g, run, bass, dir) {
+    if (run.length < 2) return;
+    const n = this.notex;
+    // 每音符的符干端点
+    const pts = run.map((r) => {
+      const no = r.no, mp = r.mp;
+      const y = this._yAt(mp.y + (bass ? 82 : 0), no, bass);
+      const sx = mp.x + (dir ? 0.52 : -0.52) * n;
+      const ey = y + (dir ? -3.5 : 3.5) * n;
+      return { x: sx, y: ey, no };
+    });
+    // 主符尾：连接首尾符干，末端顺势上提少许
+    const y1 = pts[0].y + (pts[pts.length - 1].y - pts[0].y) * 0.22 + (dir ? -0.18 : 0.18) * n;
+    const y2 = pts[pts.length - 1].y + (pts[0].y - pts[pts.length - 1].y) * 0.22 + (dir ? -0.18 : 0.18) * n;
+    g.strokeStyle = '#26221d'; g.lineWidth = n * 0.52; g.lineCap = 'butt';
+    g.beginPath(); g.moveTo(pts[0].x, y1); g.lineTo(pts[pts.length - 1].x, y2); g.stroke();
+    // 次级符尾（十六分：自符干末端向符头方向偏移）
+    if (run.some((r) => r.no.d <= 0.25)) {
+      const off = dir ? n * 0.5 : -n * 0.5;
+      g.lineWidth = n * 0.36;
+      g.beginPath();
+      let pen = false;
+      for (const p of pts) {
+        if (p.no.d <= 0.25) {
+          pen ? g.lineTo(p.x, p.y + off) : g.moveTo(p.x, p.y + off);
+          pen = true;
+        } else pen = false;
+      }
+      g.stroke();
+    }
+    // 标记已连符尾，避免重复画符尾
+    for (const r of run) r.no.beamed = true;
+  },
+
+  _drawTiesForSystem(g, sys) {
+    const work = this.work;
+    for (const mi of sys.measures) {
+      const m = work.staffs[0].treble[mi];
+      this._tiesInMeasure(g, mi, m.top, m._tp || [], false, sys);
+      this._tiesInMeasure(g, mi, m.bottom, m._bp || [], true, sys);
+    }
+  },
+  _tiesInMeasure(g, mi, arr, map, bass, sys) {
+    const n = this.notex, work = this.work;
+    for (let i = 0; i < arr.length; i++) {
+      const no = arr[i], mp = map[i];
+      if (!no.t || no.r || !mp) continue;
+      // 同小节下一音（记录其谱面位置）
+      let tgt = null;
+      for (let j = i + 1; j < arr.length; j++) {
+        if (U.isNote(arr[j]) && U.withKey(arr[j], work.key) === U.withKey(no, work.key)) { tgt = map[j]; break; }
+      }
+      if (!tgt) {
+        // 跨小节：下一小节首音
+        const nm = work.staffs[0].treble[mi + 1];
+        if (nm) {
+          const na = bass ? nm.bottom : nm.top;
+          const nma = bass ? nm._bp : nm._tp;
+          for (let j = 0; j < na.length; j++) {
+            if (U.isNote(na[j]) && U.withKey(na[j], work.key) === U.withKey(no, work.key)) { tgt = nma[j]; break; }
+          }
+        }
+      }
+      if (!tgt) continue;
+      const y1 = this._yAt(mp.y + (bass ? 82 : 0), no, bass);
+      const y2 = this._yAt(tgt.y + (bass ? 82 : 0), tgt.n, bass);
+      const cy = Math.min(y1, y2) - n * 1.2;            // 延音线朝符头外侧弯
+      g.strokeStyle = '#26221d'; g.lineWidth = 0.85;
+      g.beginPath();
+      g.moveTo(mp.x + 0.55 * n, y1);
+      g.quadraticCurveTo((mp.x + tgt.x) / 2, cy - n * 0.4, tgt.x - 0.55 * n, y2);
+      g.stroke();
+    }
+  },
+  _drawSlur(g, grp) {
+    const n = this.notex;
+    if (grp.pts.length < 2) return;
+    const p0 = grp.pts[0], p1 = grp.pts[grp.pts.length - 1];
+    const bass = grp.bass, dir = bass ? -1 : 1;
+    const y0 = this._yAt(p0.y + (bass ? 82 : 0), p0.n, bass);
+    const y1 = this._yAt(p1.y + (bass ? 82 : 0), p1.n, bass);
+    // 弧线弯向符头一侧（上方声部朝上、下方声部朝下）
+    const cy = Math.min(y0, y1) - dir * 2.6 * n;
+    g.strokeStyle = '#26221d'; g.lineWidth = 0.9;
+    g.beginPath();
+    g.moveTo(p0.x + 0.4 * n, y0 - dir * 0.5 * n);
+    g.bezierCurveTo((p0.x + p1.x) / 2, cy, (p0.x + p1.x) / 2, cy, p1.x - 0.4 * n, y1 - dir * 0.5 * n);
+    g.stroke();
+  },
+
+  _drawBarline(g, mi, end) {
+    const m = this.measures[mi], n = this.notex;
+    const x = m.x + m.w - 1.2;
+    const isEnd = mi === this.measures.length - 1;
+    g.strokeStyle = '#26221d';
+    g.lineWidth = isEnd ? 1.4 : 0.9;
+    for (let st = 0; st < 2; st++) {
+      const yy = m.y + st * 82;
+      g.beginPath(); g.moveTo(x, yy); g.lineTo(x, yy + 4 * n); g.stroke();
+      if (isEnd) {
+        g.lineWidth = 0.55;
+        g.beginPath(); g.moveTo(x + 1.6, yy); g.lineTo(x + 1.6, yy + 4 * n); g.stroke();
+        g.lineWidth = 0.9;
+      }
+    }
+  },
+
+  _drawDirectives(g, mi, M, w) {
+    const n = this.notex, dy = M.y + 82 + 6.2 * n;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const d of w.directives || []) {
+      if (d[0] === 'hairpin') {
+        const open = d[1] === '<';
+        const y = dy + 0.4 * n;
+        const x0 = M.x + M.w * 0.24, x1 = M.x + M.w * 0.76;
+        g.strokeStyle = '#26221d'; g.lineWidth = 0.85;
+        g.beginPath();
+        if (open) { g.moveTo(x0, y + 0.9 * n); g.lineTo(x1, y); g.moveTo(x0, y - 0.9 * n); g.lineTo(x1, y); }
+        else { g.moveTo(x0, y); g.lineTo(x1, y + 0.9 * n); g.moveTo(x0, y); g.lineTo(x1, y - 0.9 * n); }
+        g.stroke();
+      } else if (d[0] === 'ped') {
+        g.font = 'italic ' + (n * 1.3) + 'px Georgia, serif';
+        g.fillStyle = '#4a4436';
+        g.fillText('Ped.', M.x + M.w * 0.28, dy + 0.4 * n);
+      } else if (d[0] === '*') {
+        g.font = (n * 1.5) + 'px Georgia, serif';
+        g.fillStyle = '#4a4436';
+        g.fillText('✳', M.x + M.w * 0.72, dy + 0.3 * n);
+      } else if (d[0] === 'tr') continue;
+      else if (d[0] === 'rit.' || d[0] === 'rubato' || d[0] === 'a tempo') {
+        g.font = 'italic ' + (n * 1.35) + 'px Georgia, serif';
+        g.fillStyle = '#5c564a';
+        g.fillText(d[0], M.x + M.w / 2, dy + 0.4 * n);
+      } else if (/^(pp|p|mp|mf|f|ff)$/.test(d[0])) {
+        g.font = 'italic bold ' + (n * 1.8) + 'px Georgia, serif';
+        g.fillStyle = '#26221d';
+        g.fillText(d[0], M.x + M.w * 0.52, dy + 0.4 * n);
+      }
+    }
+  },
+};
+
+/* ======================= 7. MIDI 导出 ======================= */
+
+function midiVLQ(v) {
+  const out = [v & 0x7f]; v >>= 7;
+  while (v > 0) { out.unshift((v & 0x7f) | 0x80); v >>= 7; }
+  return out;
+}
+function exportMidi(work) {
+  const PPQN = 480;
+  const events = buildTimeline(work);
+  const bytes = [];
+  const put = (arr) => { for (const b of arr) bytes.push(b); };
+  const str2 = (s) => { const a = []; for (let i = 0; i < s.length; i++) a.push(s.charCodeAt(i) & 0x7f); return a; };
+  const meta = (type, data) => { put([0xff, type]); put(midiVLQ(data.length)); put(data); };
+  const ev2midi = (e) => ({ t: Math.round(e.t * PPQN), dur: Math.max(1, Math.round(e.d * PPQN)), p: e.pitch, v: Math.round(70 + (e.g ? -18 : 0)) });
+  const list = events.map(ev2midi);
+
+  // 轨道 0：速度 + 拍号 + 标题
+  const trk0 = [];
+  const bpm = Math.round(60000000 / work.tempoBPM);
+  trk0.push(0, 0xff, 0x51, 3, (bpm >> 16) & 0xff, (bpm >> 8) & 0xff, bpm & 0xff);
+  trk0.push(0, 0xff, 0x58, 4, work.ts[0], Math.round(Math.log2(work.ts[1])), 24, 8);
+  trk0.push(0, 0xff, 0x03, work.title.length, ...str2(work.title));
+  trk0.push(0, 0xff, 0x2f, 0);
+
+  // 轨道 1：音符
+  const trk1 = [];
+  trk1.push(0, 0xc0, 0);                    // Program: Acoustic Grand Piano
+  let last = 0;
+  const ons = [], offs = [];
+  for (const e of list) { ons.push({ t: e.t, p: e.p, v: e.v }); offs.push({ t: e.t + e.dur, p: e.p, v: 0 }); }
+  const all = ons.concat(offs).sort((a, b) => a.t - b.t || a.v - b.v);
+  for (const e of all) {
+    const dt = Math.max(0, e.t - last); last = e.t;
+    trk1.push(...midiVLQ(dt));
+    if (e.v > 0) trk1.push(0x90, e.p & 0x7f, e.v & 0x7f);
+    else trk1.push(0x80, e.p & 0x7f, 64);
+  }
+  trk1.push(...midiVLQ(0), 0xff, 0x2f, 0);
+
+  // 文件组装
+  put(str2('MThd'));
+  put([0, 0, 0, 6, 0, 1, 0, 2, (PPQN >> 8) & 0xff, PPQN & 0xff]);
+  for (const t of [trk0, trk1]) {
+    put(str2('MTrk'));
+    const len = t.length;
+    put([(len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+    put(t);
+  }
+  U.download(work.id + '.mid', 'audio/midi', new Uint8Array(bytes));
+  return bytes.length;
+}
+
+/* ======================= 8. UI ======================= */
+
+const UI = {
+  cur: -1, dirty: true, lastDraw: 0, baseCanvas: null,
+  viewport: $('viewport'), canvas: $('scoreCanvas'), ctx: null,
+
+  init() {
+    this.buildTracks();
+    $('btnPlay').onclick = () => this.togglePlay();
+    $('btnStop').onclick = () => { Player.stop(); Player.seek(0); };
+    $('btnMidi').onclick = () => {
+      if (!Player.work) return;
+      const len = exportMidi(Player.work);
+      const b = $('btnMidi');
+      b.textContent = '✓ 已导出 (' + len + ' B)';
+      setTimeout(() => (b.textContent = '↓ 导出 MIDI'), 1600);
+    };
+    $('btnInfo').onclick = () => {
+      const a = $('about');
+      a.style.display = a.style.display === 'none' ? 'flex' : 'none';
+    };
+    $('tempo').oninput = (e) => {
+      Player.tempoMul = parseFloat(e.target.value);
+      $('tempoRead').textContent = Math.round(Player.tempoMul * 100) + '%';
+    };
+    this.canvas.onclick = (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left, sy = e.clientY - rect.top + this.viewport.scrollTop;
+      // 按行高定位小节
+      const scale = (this.canvas.width / this.dpr) / rect.width;
+      const y = sy * scale;
+      let best = -1, bd = 1e9;
+      for (let mi = 0; mi < Sheet.measures.length; mi++) {
+        const m = Sheet.measures[mi];
+        const d = Math.abs(y - (m.y + 40));
+        if (d < bd) { bd = d; best = mi; }
+      }
+      if (best >= 0) {
+        let b = 0;
+        for (let i = 0; i < best; i++) b += Player.work.ts[0] / Player.work.ts[1] * 4;
+        Player.seek(b);
+      }
+    };
+    addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT')) return;
+      if (e.code === 'Space') { e.preventDefault(); this.togglePlay(); }
+      else if (e.code === 'ArrowLeft') Player.seek(Player.curBeat - Player.work.ts[0] / Player.work.ts[1] * 4);
+      else if (e.code === 'ArrowRight') Player.seek(Player.curBeat + Player.work.ts[0] / Player.work.ts[1] * 4);
+      else if (e.code === 'KeyM') $('btnMidi').click();
+    });
+    addEventListener('resize', () => { this.relayout(); this.draw(); });
+    let start = 0;
+    try {
+      const q = new URLSearchParams(location.search).get('p');
+      if (q != null) {
+        const i = parseInt(q, 10);
+        if (i >= 0 && i < WORKS.length) start = i;
+      }
+    } catch (e) { /* file:// 下无 search 时忽略 */ }
+    this.select(start);
+  },
+
+  buildTracks() {
+    const box = $('tracks'); box.innerHTML = '';
+    WORKS.forEach((w, i) => {
+      const el = document.createElement('button');
+      el.className = 'track';
+      el.innerHTML = '<span class="t1">' + w.title + '</span><span class="t2">' + w.era + ' · ' + w.composer +
+                     '</span><span class="t3">' + w.subtitle + '</span>';
+      el.onclick = () => this.select(i);
+      box.appendChild(el);
+      w._el = el;
+    });
+  },
+
+  select(i) {
+    if (this.cur === i) return;
+    this.cur = i;
+    Player.stop();
+    Player.setWork(WORKS[i]);
+    WORKS.forEach((w, k) => w._el.classList.toggle('on', k === i));
+    const w = WORKS[i];
+    $('eraTag').textContent = w.era;
+    $('eraTag').style.background = w.color;
+    $('aboutText').innerHTML = '<b>' + w.title + '</b>（' + w.period + '，' + w.composer + '）— ' + w.style;
+    this.relayout();
+    this.draw();
+    this.viewport.scrollTop = 0;
+  },
+
+  relayout() {
+    if (this.cur < 0) return;
+    const work = WORKS[this.cur];
+    const avail = Math.max(360, this.viewport.clientWidth - 30);
+    const notex = clamp(avail / 58, 7, 10);
+    Sheet.notex = notex;
+    Sheet.layout(work, Math.max(avail, Sheet.notex * 50));
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+  },
+
+  /* 背景乐谱（含高亮基底，播放时逐帧重画高亮层） */
+  draw() {
+    if (this.cur < 0 || !Sheet.measures.length) return;
+    Sheet.render(this.canvas, this.dpr);
+    this.ctx = this.canvas.getContext('2d');
+    this.dirty = true;
+    this._highlight();
+    $('loading').style.display = 'none';
+  },
+
+  setPlaying(on) {
+    $('btnPlay').textContent = on ? '⏸ 暂停' : '▶ 播放';
+    $('btnPlay').classList.toggle('on', on);
+    if (on) Synth.ensure();
+  },
+
+  togglePlay() {
+    if (Player.playing) Player.pause();
+    else {
+      if (!Player.work) return;
+      if (Player.curBeat >= Player.work.totalBeats - 0.001) Player.seek(0);
+      Player.play();
+    }
+  },
+
+  /* 高亮当前音符 + 自动滚动（渲染限频 ~30fps，滚动每帧平滑） */
+  frame(now) {
+    if (!Player.work) return;
+    const beat = Player.playing ? Player.beatAt(now / 1000) : Player.curBeat;
+    const sec = beatsToSec(beat, Player.work);
+    $('time').textContent = U.fmt(sec) + ' / ' + U.fmt(Player.totalSec);
+    // 自动滚动：活动音符所在系统居中
+    if (Player.playing) {
+      let mi = -1;
+      for (let i = 0; i < Player.events.length; i++) {
+        const e = Player.events[i];
+        if (e.t >= beat - 0.001 && e.t <= beat + 0.6) { mi = e.m; break; }
+      }
+      if (mi >= 0) {
+        const m = Sheet.measures[mi];
+        const target = clamp(m.y - this.viewport.clientHeight * 0.42, 0, Sheet.totalH - this.viewport.clientHeight + 60);
+        this.viewport.scrollTop += (target - this.viewport.scrollTop) * 0.12;
+      }
+    }
+    const beatChanged = Math.abs(beat - (this._lastBeat || -1)) > 1e-4;
+    const needRender = this.dirty || (Player.playing && now - (this.lastDraw || 0) > 33) || (!Player.playing && beatChanged);
+    if (!needRender) return;
+    this.lastDraw = now;
+    this._lastBeat = beat;
+    this._highlight();
+  },
+
+  _highlight() {
+    const g = this.ctx;
+    if (!g || !Sheet.measures.length) return;
+    const dpr = this.dpr;
+    // 先整体重绘一次基线（本页谱面轻量，逐帧重绘可保证清晰）
+    Sheet.render(this.canvas, dpr);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const beat = Player.playing ? Player.beatAt(performance.now() / 1000) : Player.curBeat;
+    const work = Player.work, n = Sheet.notex;
+    const active = [];
+    for (const e of work.events) {
+      if (e.t <= beat + 1e-4 && e.t + e.d > beat && !e.g) active.push(e);
+    }
+    for (const e of active) {
+      const m = Sheet.measures[e.m];
+      if (!m) continue;
+      const bass = e.v === 0;
+      const map = bass ? work.staffs[0].treble[e.m]._bp : work.staffs[0].treble[e.m]._tp;
+      const x = (map && map[e.vi]) ? map[e.vi].x : m.startX + 0.7 * n;
+      const y0 = Sheet._yAt(m.y + (bass ? 82 : 0), e.n, bass);
+      g.fillStyle = 'rgba(201,161,92,0.30)';
+      g.strokeStyle = 'rgba(160,120,60,0.9)';
+      g.lineWidth = 1;
+      const rx = 1.05 * n, ry = 0.85 * n;
+      g.beginPath();
+      if (g.roundRect) g.roundRect(x - rx, y0 - ry, rx * 2, ry * 2, 4);
+      else g.rect(x - rx, y0 - ry, rx * 2, ry * 2);
+      g.fill(); g.stroke();
+    }
+    // 播放指针
+    if (Player.playing) {
+      const beatNow = Player.beatAt(performance.now() / 1000);
+      const frac = clamp(beatNow / work.totalBeats, 0, 1);
+      const y = frac * (Sheet.totalH - 130);
+      g.strokeStyle = 'rgba(142,63,47,0.55)';
+      g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(0, y); g.lineTo(Sheet.pageW, y); g.stroke();
+    }
+    this.dirty = false;
+  },
+};
+
+/* ======================= 9. 自检（离线可复现，保证“语法/数据级”正确） ======================= */
+
+function selfTest() {
+  const out = [];
+  const ok = (name, cond) => out.push((cond ? 'PASS' : 'FAIL') + '  ' + name);
+  // 音高换算
+  ok('C4=60', U.pitch(parseP('C4')) === 60);
+  ok('F#5=78（上加一线）', U.pitch(parseP('F#5')) === 78);
+  ok('B♭4=70（调号）', U.withKey(parseP('B4'), { f: [6] }) === 70);
+  ok('G 大调 F#=66', U.withKey(parseP('F4'), { s: [3] }) === 66);
+  // 时长
+  ok('附点四分=1.5拍', Math.abs(durInBeats({ d: 1, dots: 1 }) - 1.5) < 1e-9);
+  // 各曲：数据完整 + 每小节拍数正确 + 音域合理 + 时间线覆盖全曲
+  for (const w of WORKS) {
+    const ev = buildTimeline(w);
+    ok(w.id + ' 事件数 ' + ev.length + '>0', ev.length > 0);
+    const measures = w.staffs[0].treble;
+    let allBeats = 0;
+    for (let mi = 0; mi < measures.length; mi++) {
+      const m = measures[mi];
+      const t = m.top.reduce((s, x) => s + durInBeats(x), 0);
+      const b = m.bottom.reduce((s, x) => s + durInBeats(x), 0);
+      if (Math.abs(t - (w.ts[0] / w.ts[1]) * 4) > 0.02) out.push('FAIL  ' + w.id + ' m' + (mi + 1) + ' 高音谱表拍数 ' + t.toFixed(2));
+      if (Math.abs(b - (w.ts[0] / w.ts[1]) * 4) > 0.02) out.push('FAIL  ' + w.id + ' m' + (mi + 1) + ' 低音谱表拍数 ' + b.toFixed(2));
+      for (const x of m.top.concat(m.bottom)) {
+        if (!x.r) {
+          const p = U.withKey(x, w.key);
+          if (p < 21 || p > 108) out.push('FAIL  ' + w.id + ' m' + (mi + 1) + ' 音高越界 ' + p);
+        }
+      }
+      allBeats += (w.ts[0] / w.ts[1]) * 4;
+    }
+    ok(w.id + ' 全曲 ' + measures.length + ' 小节 / ' + ev.length + ' 事件', true);
+    ok(w.id + ' 时间线终点对齐 (' + ev[ev.length - 1].t.toFixed(2) + ' / ' + allBeats.toFixed(2) + ')',
+      Math.abs(ev[ev.length - 1].t + ev[ev.length - 1].d - allBeats) < 0.3);
+    // MIDI VLQ
+    ok('VLQ 128 → 81 00', midiVLQ(128).join(',') === '129,0');
+  }
+  // 排版冒烟（在真实 DOM canvas 上布局，捕捉运行时错误）
+  try {
+    UI.relayout();
+    UI.draw();
+    ok('排版完成：' + Sheet.systems.length + ' 行 / ' + Sheet.measures.length + ' 小节 / 高 ' + Math.round(Sheet.totalH) + 'px', Sheet.systems.length > 0);
+  } catch (e) {
+    out.push('FAIL  排版异常 ' + e.message);
+  }
+  return out;
+}
+
+/* ======================= 10. 启动 ======================= */
+
+function mainLoop(now) {
+  UI.frame(now);
+  requestAnimationFrame(mainLoop);
+}
+
+window.addEventListener('load', () => {
+  try {
+    UI.init();
+    const results = selfTest();
+    const fails = results.filter((r) => r.indexOf('FAIL') === 0);
+    if (fails.length) fail('自检未通过：\n' + fails.join('\n'));
+    requestAnimationFrame(mainLoop);
+  } catch (e) {
+    fail('启动异常：' + (e && e.stack ? e.stack : e));
+  }
+});
+
+})();
+</script>
+</body>
+</html>

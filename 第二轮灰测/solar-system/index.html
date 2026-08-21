@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>太阳系 · 撞击实验室 | Solar System Impact Lab</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- 屏幕叠加层：标签 / 准星 -->
+<div id="overlay"></div>
+
+<!-- 顶栏 -->
+<header id="topbar" class="glass">
+  <div class="brand">
+    <span class="logo"></span>
+    <div class="brand-txt">
+      <b>太阳系 · 撞击实验室</b>
+      <small id="date-line">—</small>
+    </div>
+  </div>
+
+  <div class="tgroup" id="time-group">
+    <button class="tbtn" data-scale="0" title="暂停">❚❚</button>
+    <button class="tbtn" data-scale="1.1574e-5" title="实时">实时</button>
+    <button class="tbtn" data-scale="6.944e-4" title="1 分钟 / 秒">1分</button>
+    <button class="tbtn" data-scale="0.041666" title="1 小时 / 秒">1时</button>
+    <button class="tbtn active" data-scale="1" title="1 天 / 秒">1天</button>
+    <button class="tbtn" data-scale="30" title="1 月 / 秒">1月</button>
+    <button class="tbtn" data-scale="365.25" title="1 年 / 秒">1年</button>
+  </div>
+
+  <div class="tgroup">
+    <label class="chk"><input type="checkbox" id="opt-orbits" checked><span>轨道</span></label>
+    <label class="chk"><input type="checkbox" id="opt-labels" checked><span>标注</span></label>
+    <label class="chk"><input type="checkbox" id="opt-atmo" checked><span>大气</span></label>
+    <label class="chk"><input type="checkbox" id="opt-stars" checked><span>星空</span></label>
+  </div>
+
+  <div class="tgroup">
+    <span class="mini-label">画质</span>
+    <select id="opt-quality">
+      <option value="low">流畅</option>
+      <option value="mid" selected>标准</option>
+      <option value="high">精细</option>
+      <option value="ultra">极致</option>
+    </select>
+    <button class="tbtn" id="btn-help" title="操作说明">?</button>
+  </div>
+
+  <div class="fps" id="fps">—</div>
+</header>
+
+<!-- 左侧：天体清单 + 档案 -->
+<aside id="left" class="glass panel">
+  <div class="panel-head">
+    <b>天体</b>
+    <button class="collapse" data-target="left">–</button>
+  </div>
+  <div class="panel-body">
+    <div id="body-list"></div>
+    <div class="sep"></div>
+    <div id="body-file"></div>
+  </div>
+</aside>
+
+<!-- 右侧：陨石设计 + 结果 -->
+<aside id="right" class="glass panel">
+  <div class="panel-head">
+    <b>陨石投放</b>
+    <button class="collapse" data-target="right">–</button>
+  </div>
+  <div class="panel-body">
+    <div class="target-row">
+      <div>
+        <div class="mini-label">目标</div>
+        <div id="target-name" class="target-name">地球</div>
+      </div>
+      <div class="aim-box">
+        <div class="mini-label">瞄准点</div>
+        <div id="aim-coord" class="mono">—</div>
+        <div id="aim-terrain" class="mono" style="color:var(--txt-dim);font-size:10px">—</div>
+      </div>
+    </div>
+    <div class="hint" id="aim-hint">在星球表面点击即可选定撞击点（地形由 GPU 探针读回，自动判定海洋 / 陆地）</div>
+
+    <div class="field">
+      <div class="field-head"><span>直径</span><b id="v-diam">100 m</b></div>
+      <input type="range" id="s-diam" min="0" max="1000" value="470">
+      <div class="ticks"><span>1 m</span><span>100 m</span><span>10 km</span><span>1000 km</span></div>
+    </div>
+
+    <div class="field">
+      <div class="field-head"><span>材质</span><b id="v-mat">普通石质</b></div>
+      <div class="mat-row" id="mat-row"></div>
+      <div class="hint" id="mat-desc"></div>
+    </div>
+
+    <div class="field">
+      <div class="field-head"><span>撞击速度</span><b id="v-vel">20.3 km/s</b></div>
+      <input type="range" id="s-vel" min="0" max="1000" value="300">
+      <div class="ticks"><span id="tick-vmin">逃逸速度</span><span>典型</span><span>72 km/s</span></div>
+    </div>
+
+    <div class="field two">
+      <div>
+        <div class="field-head"><span>入射角</span><b id="v-ang">45°</b></div>
+        <input type="range" id="s-ang" min="5" max="90" value="45">
+      </div>
+      <div>
+        <div class="field-head"><span>方位</span><b id="v-az">0°</b></div>
+        <input type="range" id="s-az" min="0" max="359" value="0">
+      </div>
+    </div>
+
+    <label class="chk wide" id="ocean-wrap"><input type="checkbox" id="opt-ocean"><span>命中深海（4 km 水深）</span></label>
+
+    <div id="preview" class="preview"></div>
+
+    <div class="btn-row">
+      <button id="btn-fire" class="primary">投放陨石</button>
+      <button id="btn-reset" class="ghost" title="抹平这颗星球上的所有人为撞击痕迹">复原星球</button>
+    </div>
+
+    <div class="field">
+      <div class="field-head"><span>历史事件预设</span></div>
+      <select id="preset-select"><option value="">— 选择一个真实事件 —</option></select>
+      <div class="hint" id="preset-desc"></div>
+    </div>
+
+    <div class="sep"></div>
+    <div id="result"></div>
+    <div class="sep"></div>
+    <div id="changes"></div>
+    <div class="sep"></div>
+    <div class="field">
+      <div class="field-head"><span>显示增强</span><b class="warnlbl">非物理</b></div>
+      <div class="hint">默认全部为 1 = 真实比例。放大只改变绘制尺寸，不影响任何物理计算。</div>
+      <div class="field-head" style="margin-top:8px"><span>地形起伏夸张</span><b id="v-relief">×1</b></div>
+      <input type="range" id="s-relief" min="1" max="30" value="1">
+      <div class="field-head" style="margin-top:6px"><span>天体尺寸放大</span><b id="v-boost">×1</b></div>
+      <input type="range" id="s-boost" min="1" max="12" value="1">
+    </div>
+  </div>
+</aside>
+
+<!-- 底部提示 -->
+<div id="bottom" class="glass">
+  <span class="kb">拖拽</span> 旋转视角
+  <span class="kb">滚轮</span> 缩放
+  <span class="kb">左键点星球</span> 锁定 / 瞄准
+  <span class="kb">双击</span> 快速锁定
+  <span class="kb">空格</span> 暂停
+  <span class="kb">F</span> 投放
+  <span class="sepdot"></span>
+  <span id="status-line">就绪</span>
+</div>
+
+<div id="toast"></div>
+
+<!-- 帮助 -->
+<div id="help-modal" class="modal">
+  <div class="modal-box glass">
+    <h2>这是什么？</h2>
+    <p>一个按真实数据构建的太阳系：轨道要素、半径、质量、自转、转轴倾角、大气密度与标高
+      都取自 NASA/JPL 的实测值；行星表面、云带、行星环、星空全部由 GPU 程序化生成，
+      没有使用任何贴图。<b>你在屏幕上看到的每一个变化，都是方程解出来的，不是动画。</b></p>
+
+    <h3>撞击是怎么算的？</h3>
+    <ul>
+      <li><b>大气进入</b>：对气动阻力 <i>dv/dt = −C<sub>D</sub>ρAv²/2m + g·sinθ</i> 与烧蔽
+        <i>dm/dt = −(σ/2)C<sub>D</sub>ρAv³</i> 做自适应步长积分，并用
+        <i>ρ<sub>air</sub>v² &gt; 材料强度</i> 判定解体，之后按薄饼模型让碎片云横向膨胀，
+        膨胀到 10 倍直径即判定为彻底崩解（空爆）。
+        标定结果：通古斯 60 m 石质 → 6.3 km 空爆、树木倒伏 22 km（实测 20–30 km）；
+        车里雅宾斯克 19 m → 34 km 解体（实测 29.7 km）；巴林杰 50 m 铁 → 落地成 1.5 km 坑。</li>
+      <li><b>成坑</b>：Collins, Melosh &amp; Marcus (2005) 的 π 标度律，给出瞬时坑 → 最终坑、
+        坑深、坑缘、中央峰、阶地、熔融体积。坑形直接由坑径与重力决定 ——
+        小坑是碗形，超过 3.2 km/(g/g⊕) 就变成带中央峰的复杂坑。</li>
+      <li><b>喷出物</b>：只用一条定律 —— 喷出物毯厚度 <i>t(r) = D<sub>tc</sub>⁴/(112r³)</i>。
+        对它积分得到落点分布 <i>P(range&gt;r) = r<sub>min</sub>/r</i>，45° 弹道给出
+        <i>v = √(g·r)</i>，然后按真实平方反比引力做弹道积分。
+        逃逸比例 <i>r<sub>min</sub>/r<sub>esc</sub></i>（月球约 0.1%，与"月球陨石罕见"相符），
+        速度介于环绕与逃逸之间的碎屑会真的留在轨道上。</li>
+      <li><b>冲击波</b>：Collins 超压公式 + Sachs 定律换算到各行星真实地表气压
+        （地球 1.01 bar、金星 92 bar、火星 8 mbar、泰坦 1.5 bar），
+        真空世界则只有 3.5 km/s 的地壳瑞利波。</li>
+    </ul>
+
+    <h3>撞击之后会看到什么变化？</h3>
+    <ul>
+      <li>撞击坑<b>永久留在星球上</b>：碗形 / 中央峰 / 阶地 / 内环 + 射线状喷出物毯，
+        随机而不重复。最近 4 个坑用解析几何求值，缩到几十公里近景依然锐利。</li>
+      <li>坑底熔体按<b>辐射结壳时标</b> ρcdΔT/(σT⁴) 由白热冷却到暗红：
+        几十米厚的熔层亮几小时，公里级熔池要亮几十天。</li>
+      <li>冲击波以<b>当地声速</b>扩散成环，振幅按超压律衰减；海洋撞击另有 √(gh) 的海啸环。</li>
+      <li>气体巨行星没有地面：只会出现 SL9 那样的深色气溶胶伤痕，被环流剪切拉长后消失。</li>
+      <li>够大的撞击会抬起<b>全球尘幕</b>：光学厚度 τ 由挖掘体积推算，地表日照 = e<sup>−τ</sup>，
+        尘幕按 1.5 年 e 折时标沉降；日照下降 → 一维能量平衡把<b>雪线推向赤道</b>
+        （极端情况全球冰封）；光合作用受限 → 植被褪色；夜面灯光按受灾面积衰减。</li>
+      <li>角动量交换会真实地改变<b>自转周期与转轴</b>（希克苏鲁伯量级约 −1.9 ms）。</li>
+    </ul>
+
+    <h3>关于时间</h3>
+    <p>公转、自转、大气进入、弹道飞行、尘幕沉降、熔体冷却共用<b>同一个物理时钟</b>，
+      顶栏显示当前倍率。投放时会自动把倍率设成"真实飞行时间 ÷ 12 秒"，
+      撞击后再切到适合观察喷出物弹道的倍率——时间被加速了，但没有任何物理量被伪造。
+      想看尘幕沉降与熔体冷却，把倍率调到"1月/秒"或"1年/秒"。</p>
+    <button class="primary" id="help-close">开始</button>
+  </div>
+</div>
+
+<div id="diag" class="glass"><div class="diag-head">诊断</div><div id="diag-log"></div></div>
+
+<div id="loading"><div class="spin"></div><div id="loading-txt">正在生成太阳系…</div></div>
+
+<script src="js/math3d.js"></script>
+<script src="js/glutil.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/data.js"></script>
+<script src="js/impact.js"></script>
+<script src="js/shaders.js"></script>
+<script src="js/shaders2.js"></script>
+<script src="js/world.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

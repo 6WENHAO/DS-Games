@@ -1,0 +1,4227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EUV 光刻原理 3D 演示 · EUV Lithography Principle (Simulation)</title>
+<style>
+  :root{
+    --euv:#8f7bff; --euv2:#5fd8ff; --ir:#ff5a3c; --sn:#cfd8e3; --h2:#6ff0d0;
+    --ink:#eaf1f8; --ink2:#9fb2c4; --dim:#5f7386;
+    --line:rgba(150,190,230,.16);
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:"Inter","Helvetica Neue",-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    --fs:1;               /* frame scale: 1 at 1920 wide, set from JS */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#02040a;color:var(--ink);font-family:var(--sans);overflow:hidden}
+  #stage{position:fixed;inset:0;overflow:hidden;background:#02040a}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+  /* ---------------- film grade overlays ---------------- */
+  .grade{position:absolute;inset:0;pointer-events:none}
+  .vig{background:radial-gradient(125% 95% at 50% 46%,transparent 42%,rgba(0,0,0,.62) 100%)}
+  .grain{opacity:.05;mix-blend-mode:overlay;
+    background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.6) 0 1px,transparent 1px 2px),
+      repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 1px,transparent 1px 3px)}
+  .flash{background:#dfe8ff;opacity:0}
+
+  /* ---------------- graphics layer (captured in renders) ---------------- */
+  #gfx{position:absolute;inset:0;pointer-events:none;font-feature-settings:"tnum"}
+  #gfx.hidden{display:none}
+  .u{position:absolute}
+
+  /* title mark + chapter */
+  #mark{left:calc(46px * var(--fs));top:calc(40px * var(--fs));opacity:0}
+  #mark .t{font:700 calc(15px * var(--fs))/1 var(--sans);letter-spacing:.24em;color:var(--ink)}
+  #mark .s{margin-top:calc(7px * var(--fs));font:600 calc(9.5px * var(--fs))/1 var(--mono);letter-spacing:.26em;color:var(--euv2)}
+
+  #chap{left:calc(46px * var(--fs));top:calc(96px * var(--fs));opacity:0;display:flex;gap:calc(12px * var(--fs));align-items:flex-start}
+  #chap .num{font:700 calc(34px * var(--fs))/0.9 var(--mono);letter-spacing:-.02em;
+    background:linear-gradient(180deg,#fff,var(--euv2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  #chap .num sub{font-size:calc(12px * var(--fs));color:var(--dim);-webkit-text-fill-color:var(--dim);letter-spacing:.1em}
+  #chap .txt .cn{font:600 calc(17px * var(--fs))/1.2 var(--sans);letter-spacing:.02em}
+  #chap .txt .en{margin-top:calc(4px * var(--fs));font:600 calc(9.5px * var(--fs))/1.3 var(--mono);letter-spacing:.22em;color:var(--euv2)}
+  #chap .bar{position:absolute;left:0;bottom:calc(-11px * var(--fs));height:2px;width:0;background:linear-gradient(90deg,var(--euv2),transparent)}
+
+  /* simulation badge */
+  #sim{right:calc(46px * var(--fs));top:calc(40px * var(--fs));display:flex;align-items:center;gap:calc(9px * var(--fs));
+    padding:calc(7px * var(--fs)) calc(13px * var(--fs));border:1px solid rgba(143,123,255,.5);border-radius:calc(4px * var(--fs));
+    background:linear-gradient(180deg,rgba(26,20,48,.72),rgba(16,12,30,.62))}
+  #sim .d{width:calc(6px * var(--fs));height:calc(6px * var(--fs));border-radius:50%;background:var(--euv);box-shadow:0 0 calc(10px * var(--fs)) var(--euv)}
+  #sim .l{font:700 calc(10px * var(--fs))/1 var(--mono);letter-spacing:.26em;color:#d8d2ff}
+  #sim .l i{font-style:normal;color:var(--ink);letter-spacing:.1em;margin-right:calc(8px * var(--fs))}
+
+  /* parameter chips */
+  #chips{left:calc(46px * var(--fs));bottom:calc(150px * var(--fs));display:flex;flex-direction:column;gap:calc(7px * var(--fs))}
+  .chip{display:flex;align-items:baseline;gap:calc(10px * var(--fs));padding:calc(7px * var(--fs)) calc(13px * var(--fs));
+    border-left:2px solid var(--euv2);background:linear-gradient(90deg,rgba(12,20,32,.72),rgba(12,20,32,0));
+    opacity:0;transform:translateX(calc(-10px * var(--fs)));transition:opacity .45s,transform .45s}
+  .chip.on{opacity:1;transform:none}
+  .chip .k{font:600 calc(9.5px * var(--fs))/1.2 var(--mono);letter-spacing:.16em;color:var(--ink2);text-transform:uppercase}
+  .chip .v{font:700 calc(14.5px * var(--fs))/1.1 var(--mono);color:#fff;letter-spacing:.01em}
+  .chip .s{font:600 calc(8px * var(--fs))/1 var(--mono);letter-spacing:.14em;color:var(--euv);border:1px solid rgba(143,123,255,.45);
+    border-radius:calc(3px * var(--fs));padding:calc(2px * var(--fs)) calc(5px * var(--fs))}
+
+  /* captions */
+  #cap{left:0;right:0;bottom:calc(74px * var(--fs));text-align:center;padding:0 calc(120px * var(--fs))}
+  #cap .rule{width:calc(30px * var(--fs));height:2px;margin:0 auto calc(13px * var(--fs));background:var(--euv2);opacity:0;
+    box-shadow:0 0 calc(12px * var(--fs)) var(--euv2)}
+  #cap .cn{font:600 calc(25px * var(--fs))/1.4 var(--sans);letter-spacing:.012em;
+    text-shadow:0 calc(2px * var(--fs)) calc(22px * var(--fs)) rgba(0,0,0,.92);opacity:0}
+  #cap .en{margin-top:calc(9px * var(--fs));font:500 calc(13.5px * var(--fs))/1.45 var(--sans);letter-spacing:.06em;color:var(--ink2);
+    text-shadow:0 calc(2px * var(--fs)) calc(18px * var(--fs)) rgba(0,0,0,.9);opacity:0}
+
+  /* step rail */
+  #rail{left:calc(46px * var(--fs));right:calc(46px * var(--fs));bottom:calc(36px * var(--fs));display:flex;align-items:center;gap:calc(12px * var(--fs));opacity:0}
+  #rail .track{position:relative;flex:1;height:2px;background:rgba(255,255,255,.13)}
+  #rail .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--euv),var(--euv2));box-shadow:0 0 calc(10px * var(--fs)) rgba(95,216,255,.6)}
+  #rail .tick{position:absolute;top:calc(-4px * var(--fs));width:1px;height:calc(10px * var(--fs));background:rgba(255,255,255,.3)}
+  #rail .tick.on{background:var(--euv2);box-shadow:0 0 calc(8px * var(--fs)) var(--euv2)}
+  #rail .tick b{position:absolute;left:50%;transform:translateX(-50%);top:calc(-16px * var(--fs));
+    font:700 calc(8px * var(--fs))/1 var(--mono);color:rgba(255,255,255,.4)}
+  #rail .tick.on b{color:#fff}
+  #rail .tc{font:600 calc(10px * var(--fs))/1 var(--mono);letter-spacing:.14em;color:var(--ink2);min-width:calc(84px * var(--fs))}
+  #rail .lbl{font:700 calc(9px * var(--fs))/1 var(--mono);letter-spacing:.2em;color:var(--dim)}
+
+  /* engineering insets (spectrum, pulse timing, multilayer, uniformity, 4:1) */
+  #inset{right:calc(46px * var(--fs));bottom:calc(150px * var(--fs));width:calc(320px * var(--fs));
+    border:1px solid var(--line);background:linear-gradient(180deg,rgba(9,14,22,.94),rgba(6,10,16,.90));
+    opacity:0;transform:translateY(calc(12px * var(--fs)));transition:opacity .5s,transform .5s}
+  #inset.on{opacity:1;transform:none}
+  #inset .h{display:flex;justify-content:space-between;align-items:center;padding:calc(9px * var(--fs)) calc(12px * var(--fs));
+    border-bottom:1px solid var(--line)}
+  #inset .h .a{font:700 calc(9.5px * var(--fs))/1 var(--mono);letter-spacing:.2em;color:var(--euv2)}
+  #inset .h .b{font:600 calc(8.5px * var(--fs))/1 var(--mono);letter-spacing:.16em;color:var(--dim)}
+  #inset canvas{display:block;width:100%;height:auto}
+  #inset .f{padding:calc(7px * var(--fs)) calc(12px * var(--fs)) calc(10px * var(--fs));
+    font:500 calc(9.5px * var(--fs))/1.5 var(--mono);color:var(--ink2);letter-spacing:.04em}
+
+  /* title / end cards */
+  #card{inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0}
+  #card .brand{font:700 calc(10px * var(--fs))/1 var(--mono);letter-spacing:.34em;color:var(--dim);
+    border:1px dashed rgba(150,190,230,.3);padding:calc(9px * var(--fs)) calc(16px * var(--fs));margin-bottom:calc(26px * var(--fs))}
+  #card h1{margin:0;font:700 calc(78px * var(--fs))/0.98 var(--sans);letter-spacing:.02em;
+    text-shadow:0 0 calc(60px * var(--fs)) rgba(143,123,255,.45)}
+  #card h2{margin:calc(14px * var(--fs)) 0 0;font:600 calc(15px * var(--fs))/1.5 var(--mono);letter-spacing:.28em;color:var(--euv2)}
+  #card .sub{margin-top:calc(18px * var(--fs));font:500 calc(14px * var(--fs))/1.6 var(--sans);color:var(--ink2);letter-spacing:.04em}
+  #card .note{margin-top:calc(30px * var(--fs));font:500 calc(10px * var(--fs))/1.7 var(--mono);color:var(--dim);letter-spacing:.1em;max-width:calc(760px * var(--fs))}
+
+  /* recap grid for the outro */
+  #recap{inset:0;display:flex;align-items:center;justify-content:center;opacity:0}
+  #recap .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:calc(11px * var(--fs));width:calc(1180px * var(--fs))}
+  #recap .it{border:1px solid rgba(150,190,230,.42);padding:calc(12px * var(--fs));background:linear-gradient(180deg,rgba(22,34,50,.92),rgba(13,20,30,.82));opacity:0;transform:translateY(calc(10px * var(--fs)));box-shadow:0 calc(10px * var(--fs)) calc(30px * var(--fs)) rgba(0,0,0,.5)}
+  #recap .it.on{opacity:1;transform:none;transition:opacity .5s,transform .5s}
+  #recap .it .n{font:700 calc(11px * var(--fs))/1 var(--mono);color:var(--euv2);letter-spacing:.16em}
+  #recap .it .c{margin-top:calc(8px * var(--fs));font:600 calc(13.5px * var(--fs))/1.35 var(--sans);color:#f2f7fc}
+  #recap .it .e{margin-top:calc(5px * var(--fs));font:500 calc(8px * var(--fs))/1.35 var(--mono);letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+
+  /* ---------------- player chrome (never captured) ---------------- */
+  #ui{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:14px 18px 16px;
+    background:linear-gradient(0deg,rgba(3,6,12,.94),rgba(3,6,12,.55) 60%,transparent);
+    transition:opacity .35s;font-family:var(--sans)}
+  #ui.hide{opacity:0;pointer-events:none}
+  #ui .row{display:flex;align-items:center;gap:12px}
+  #scrub{position:relative;height:22px;cursor:pointer;flex:1}
+  #scrub .bg{position:absolute;left:0;right:0;top:9px;height:4px;background:rgba(255,255,255,.14);border-radius:3px}
+  #scrub .pl{position:absolute;left:0;top:9px;height:4px;border-radius:3px;background:linear-gradient(90deg,var(--euv),var(--euv2))}
+  #scrub .kn{position:absolute;top:5px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:#fff;box-shadow:0 0 10px var(--euv2)}
+  #scrub .ch{position:absolute;top:7px;width:1px;height:8px;background:rgba(255,255,255,.4)}
+  .pb{border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--ink2);border-radius:6px;
+    padding:7px 11px;font:600 10px/1 var(--mono);letter-spacing:.1em;cursor:pointer;transition:.15s;white-space:nowrap}
+  .pb:hover{color:#fff;background:rgba(143,123,255,.2);border-color:rgba(143,123,255,.5)}
+  .pb.on{color:#fff;background:rgba(95,216,255,.22);border-color:rgba(95,216,255,.55)}
+  #play{width:44px;height:44px;border-radius:50%;font-size:14px;display:flex;align-items:center;justify-content:center}
+  #tcode{font:600 11px/1 var(--mono);color:var(--ink2);letter-spacing:.1em;min-width:118px;text-align:right}
+  #ui .grp{display:flex;gap:5px;align-items:center}
+  #ui .sep{width:1px;height:22px;background:var(--line)}
+  #ui .lab{font:600 9px/1 var(--mono);letter-spacing:.18em;color:var(--dim);margin-right:2px}
+  #chapters{display:flex;gap:4px;flex-wrap:wrap;margin-top:10px}
+  #chapters .cb{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--ink2);border-radius:5px;
+    padding:5px 8px;font:600 9px/1.3 var(--mono);letter-spacing:.06em;cursor:pointer}
+  #chapters .cb:hover{color:#fff;border-color:rgba(95,216,255,.5)}
+  #chapters .cb.on{color:#fff;background:rgba(95,216,255,.18);border-color:rgba(95,216,255,.5)}
+  #chapters .cb b{display:block;font:600 10px/1.3 var(--sans);letter-spacing:.02em}
+
+  #boot{position:fixed;inset:0;z-index:60;background:#02040a;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;transition:opacity .8s}
+  #boot.done{opacity:0;pointer-events:none}
+  #boot .r{width:58px;height:58px;border-radius:50%;border:2px solid rgba(143,123,255,.18);border-top-color:var(--euv);
+    animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #boot .t{font:700 10px/1.8 var(--mono);letter-spacing:.34em;color:var(--euv2);text-transform:uppercase}
+  #boot .m{font:500 10px/1.6 var(--mono);letter-spacing:.12em;color:var(--dim);min-height:15px}
+  #boot .e{max-width:620px;font:500 11px/1.7 var(--mono);color:#ff7a5c;text-align:center;white-space:pre-wrap;padding:0 20px}
+
+  /* 导出模式：冻结过渡与动画（帧一致性） */
+  body.exporting *, body.exporting *::before, body.exporting *::after{
+    transition:none !important; animation:none !important; backdrop-filter:none !important}
+
+  /* vertical (9:16) layout adjustments for social cuts */
+  body.vert #cap{padding:0 calc(56px * var(--fs));bottom:calc(210px * var(--fs))}
+  body.vert #cap .cn{font-size:calc(34px * var(--fs))}
+  body.vert #cap .en{font-size:calc(17px * var(--fs))}
+  body.vert #chips{bottom:calc(360px * var(--fs))}
+  body.vert #inset{right:auto;left:calc(46px * var(--fs));bottom:calc(560px * var(--fs));width:calc(420px * var(--fs))}
+  body.vert #chap{top:calc(150px * var(--fs))}
+  body.vert #rail{bottom:calc(120px * var(--fs))}
+  body.vert #card h1{font-size:calc(64px * var(--fs))}
+  body.vert #recap .grid{grid-template-columns:repeat(2,minmax(0,1fr));width:calc(880px * var(--fs))}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div class="grade vig"></div>
+  <div class="grade grain"></div>
+  <div class="grade flash" id="flash"></div>
+
+  <div id="gfx">
+    <div class="u" id="mark">
+      <div class="t">EUV LITHOGRAPHY</div>
+      <div class="s">PRINCIPLE · LPP SOURCE</div>
+    </div>
+
+    <div class="u" id="chap">
+      <div class="num" id="chapNum">01<sub>/10</sub></div>
+      <div class="txt"><div class="cn" id="chapCn">锡滴发生器</div><div class="en" id="chapEn">TIN DROPLET GENERATOR</div></div>
+      <div class="bar" id="chapBar"></div>
+    </div>
+
+    <div class="u" id="sim">
+      <span class="d"></span>
+      <span class="l"><i>示意</i>SIMULATION</span>
+    </div>
+
+    <div class="u" id="chips"></div>
+
+    <div class="u" id="inset">
+      <div class="h"><span class="a" id="insetA">SPECTRUM</span><span class="b" id="insetB">示意 / SIM</span></div>
+      <canvas id="insetC" width="640" height="330"></canvas>
+      <div class="f" id="insetF"></div>
+    </div>
+
+    <div class="u" id="cap">
+      <div class="rule" id="capRule"></div>
+      <div class="cn" id="capCn"></div>
+      <div class="en" id="capEn"></div>
+    </div>
+
+    <div class="u" id="rail">
+      <span class="lbl">STEP</span>
+      <div class="track"><div class="fill" id="railFill"></div></div>
+      <span class="tc" id="railTc">00:00:00 / 00:00:00</span>
+    </div>
+
+    <div class="u" id="card">
+      <div class="brand" id="cardBrand">BRAND / LOGO PLACEHOLDER</div>
+      <h1 id="cardH1">EUV 光刻</h1>
+      <h2 id="cardH2">EUV LITHOGRAPHY · 13.5 nm</h2>
+      <div class="sub" id="cardSub"></div>
+      <div class="note" id="cardNote"></div>
+    </div>
+
+    <div class="u" id="recap"><div class="grid" id="recapGrid"></div></div>
+  </div>
+</div>
+
+<div id="ui">
+  <div class="row">
+    <button class="pb" id="play">▶</button>
+    <div id="scrub"><div class="bg"></div><div class="pl" id="scrubPl"></div><div class="kn" id="scrubKn"></div></div>
+    <span id="tcode">00:00:00 / 00:03:12</span>
+  </div>
+  <div class="row" style="margin-top:10px;flex-wrap:wrap">
+    <span class="lab">SPEED</span>
+    <div class="grp" id="speedGrp">
+      <button class="pb" data-speed="0.25">0.25×</button>
+      <button class="pb" data-speed="0.5">0.5×</button>
+      <button class="pb on" data-speed="1">1×</button>
+      <button class="pb" data-speed="2">2×</button>
+    </div>
+    <div class="sep"></div>
+    <span class="lab">SUBTITLE</span>
+    <div class="grp" id="subGrp">
+      <button class="pb on" data-sub="both">中英</button>
+      <button class="pb" data-sub="cn">中文</button>
+      <button class="pb" data-sub="en">EN</button>
+      <button class="pb" data-sub="off">关</button>
+    </div>
+    <div class="sep"></div>
+    <span class="lab">CUT</span>
+    <div class="grp" id="cutGrp">
+      <button class="pb on" data-cut="full">母版 3:12</button>
+      <button class="pb" data-cut="social60">60s</button>
+      <button class="pb" data-cut="social30">30s</button>
+    </div>
+    <div class="sep"></div>
+    <span class="lab">FRAME</span>
+    <div class="grp" id="aspGrp">
+      <button class="pb on" data-asp="16:9">16:9</button>
+      <button class="pb" data-asp="9:16">9:16</button>
+      <button class="pb" data-asp="free">自适应</button>
+    </div>
+    <div class="sep"></div>
+    <div class="grp">
+      <button class="pb on" id="gfxBtn">图文层</button>
+      <button class="pb on" id="audioBtn">🔊 音频</button>
+      <button class="pb" id="fsBtn">全屏</button>
+    </div>
+  </div>
+  <div id="chapters"></div>
+</div>
+
+<div id="boot">
+  <div class="r"></div>
+  <div class="t">Loading EUV sequence</div>
+  <div class="m" id="bootMsg">three.js …</div>
+  <div class="e" id="bootErr"></div>
+</div>
+
+<script type="module">
+// ===== src/00-boot.js ======================================================
+/* =============================================================================
+   00 · BOOT  ·  three.js 加载（本地优先 / CDN 回退）、启动界面、URL 参数
+   ========================================================================== */
+
+const bootEl = document.getElementById('boot');
+const bootMsg = document.getElementById('bootMsg');
+const bootErr = document.getElementById('bootErr');
+const boot = (m) => { if (bootMsg) bootMsg.textContent = m; };
+function bootFail(e) {
+  const txt = e && e.stack ? e.stack : String(e);
+  if (bootErr) bootErr.textContent = `初始化失败 / INIT FAILED\n${txt}`;
+  console.error('[euv] fatal', e);
+}
+window.addEventListener('error', (e) => { if (!window.API || !window.API.ready) bootFail(e.error || e.message); });
+window.addEventListener('unhandledrejection', (e) => { if (!window.API || !window.API.ready) bootFail(e.reason); });
+
+/* ---------------------------------------------------------------- options   */
+const QS = new URLSearchParams(location.search);
+const OPT = {
+  export: QS.get('export') === '1',
+  cut: QS.get('cut') || 'full',
+  aspect: QS.get('asp') || '16:9',
+  quality: QS.get('q') || null,
+  start: parseFloat(QS.get('t') || '0') || 0,
+  sub: QS.get('sub') || 'both',
+  gfx: QS.get('gfx') !== '0',
+  audio: QS.get('audio') !== '0',
+  autoplay: QS.get('autoplay') !== '0',
+};
+
+const CDN1 = 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.min.js';
+const CDN2 = 'https://unpkg.com/three@0.161.0/build/three.module.min.js';
+async function loadThree() {
+  const local = new URL('./vendor/three.module.min.js', document.baseURI).href;
+  const order = location.protocol === 'file:' ? [CDN1, CDN2, local] : [local, CDN1, CDN2];
+  let last;
+  for (const url of order) {
+    try {
+      const m = await import(/* @vite-ignore */ url);
+      if (m && m.REVISION) { console.log(`[euv] three r${m.REVISION} (${url === local ? 'local' : 'cdn'})`); return m; }
+    } catch (e) { last = e; }
+  }
+  throw new Error(`three.js 加载失败: ${last && last.message}`);
+}
+
+boot('three.js …');
+const THREE = await loadThree();
+
+// ===== src/10-util.js ======================================================
+/* =============================================================================
+   10 · UTIL  · 数学 / 确定性噪声 / 缓动 / 画质分级 / 几何工具
+   本片所有动画均为时间 t 的纯函数（不做增量积分），因此任意帧可重复渲染，
+   导出的帧序列完全一致——这是"无闪烁、无未渲染帧"的前提。
+   ========================================================================== */
+
+const TAU = Math.PI * 2;
+const D2R = Math.PI / 180;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const clamp01 = (v) => clamp(v, 0, 1);
+const lerp = (a, b, t) => a + (b - a) * t;
+const inv = (a, b, v) => (b - a === 0 ? 0 : clamp01((v - a) / (b - a)));
+const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
+const smoothstep = (e0, e1, x) => smooth(inv(e0, e1, x));
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - clamp01(t), 3);
+const easeIn = (t) => Math.pow(clamp01(t), 3);
+/** 0 → 1 → 0 窗口（用于闪光、脉冲） */
+const pulse = (t, t0, rise, fall) => (t < t0 ? 0 : t < t0 + rise ? easeOut(inv(t0, t0 + rise, t)) : 1 - smoothstep(t0 + rise, t0 + rise + fall, t));
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const rnd = mulberry32(20250413);
+/** 确定性 hash：粒子/碎屑等一律由 index 派生，保证逐帧可复现 */
+const hash1 = (i) => { const x = Math.sin(i * 127.1) * 43758.5453; return x - Math.floor(x); };
+const hash2 = (i) => { const x = Math.sin(i * 269.5 + 11.3) * 21983.13; return x - Math.floor(x); };
+const hash3 = (i) => { const x = Math.sin(i * 419.2 + 71.9) * 13571.71; return x - Math.floor(x); };
+
+function makeSampler(table, keys) {
+  const xs = table.map((r) => r.x);
+  return (x, out = {}) => {
+    let i = 0;
+    if (x <= xs[0]) i = 0;
+    else if (x >= xs[xs.length - 1]) i = xs.length - 2;
+    else while (i < xs.length - 2 && x > xs[i + 1]) i++;
+    const a = table[i], b = table[i + 1];
+    const t = inv(a.x, b.x, x);
+    for (const k of keys) out[k] = lerp(a[k], b[k], t);
+    return out;
+  };
+}
+
+/* ---------------------------------------------------------------- quality   */
+const Q = { tier: 'high', seg: 96, particles: 1, shadow: 2048, bloom: true, msaa: 4, dpr: 2, facets: 10, rays: 96 };
+function applyQuality(t) {
+  Q.tier = t;
+  if (t === 'high') Object.assign(Q, { seg: 96, particles: 1, shadow: 2048, bloom: true, msaa: 4, dpr: 2, facets: 10, rays: 96 });
+  if (t === 'medium') Object.assign(Q, { seg: 64, particles: 0.6, shadow: 1024, bloom: true, msaa: 0, dpr: 1.5, facets: 8, rays: 64 });
+  if (t === 'low') Object.assign(Q, { seg: 40, particles: 0.32, shadow: 0, bloom: false, msaa: 0, dpr: 1, facets: 6, rays: 34 });
+  return Q;
+}
+
+/* ---------------------------------------------------------------- geometry  */
+const _obj = new THREE.Object3D();
+const _v3 = new THREE.Vector3();
+
+function mergeGeoms(list) {
+  const geoms = list.filter(Boolean);
+  if (geoms.length === 1) return geoms[0];
+  let vc = 0, ic = 0;
+  for (const g of geoms) {
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    vc += g.attributes.position.count;
+    ic += g.index ? g.index.count : g.attributes.position.count;
+  }
+  const pos = new Float32Array(vc * 3), nrm = new Float32Array(vc * 3), uv = new Float32Array(vc * 2);
+  const idx = new Uint32Array(ic);
+  let vo = 0, io = 0;
+  for (const g of geoms) {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, vo * 3);
+    nrm.set(g.attributes.normal.array, vo * 3);
+    uv.set(g.attributes.uv.array, vo * 2);
+    if (g.index) { for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.array[i] + vo; io += g.index.count; }
+    else { for (let i = 0; i < n; i++) idx[io + i] = i + vo; io += n; }
+    vo += n;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
+/** 绕 +Y 轴回转（默认）；profile 为 [[r, y], ...] */
+function latheY(profile, seg = 64, aStart = 0, aLen = TAU) {
+  return new THREE.LatheGeometry(profile.map((p) => new THREE.Vector2(Math.max(1e-4, p[0]), p[1])), seg, aStart, aLen);
+}
+/** 绕 +X 轴回转（光轴沿 X 的部件）；profile 为 [[x, r], ...] */
+function latheX(profile, seg = 64, aStart = 0, aLen = TAU) {
+  const g = latheY(profile.map((p) => [p[1], p[0]]), seg, aStart, aLen);
+  g.rotateZ(-Math.PI / 2);
+  return g;
+}
+
+/** 沿 2D 路径法向偏移，得到壁厚闭合截面 */
+function offsetPath2D(line, d) {
+  const out = [];
+  for (let i = 0; i < line.length; i++) {
+    const p = line[i], a = line[Math.max(0, i - 1)], b = line[Math.min(line.length - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const l = Math.hypot(tx, ty) || 1;
+    tx /= l; ty /= l;
+    out.push([p[0] + ty * d, Math.max(0.0002, p[1] - tx * d)]);
+  }
+  return out;
+}
+const wallFromPath = (line, t) => [...offsetPath2D(line, t * 0.5), ...offsetPath2D(line, -t * 0.5).reverse()];
+
+/** 管道（光路、气流、支撑） */
+function tube(points, radius, radial = 8, seg = 64) {
+  const c = new THREE.CatmullRomCurve3(points.map((p) => (p.isVector3 ? p : new THREE.Vector3(p[0], p[1], p[2]))), false, 'catmullrom', 0.25);
+  return new THREE.TubeGeometry(c, seg, radius, radial, false);
+}
+
+function box(w, h, d, r = 0) {
+  return new THREE.BoxGeometry(w, h, d, 1, 1, 1);
+}
+
+/** 曲面镜片（矩形/圆形开孔的抛物或椭球面片），带厚度基板 */
+function mirrorPatch({ w = 1, h = 1, curve = 0.25, thick = 0.09, segs = 28, round = false }) {
+  const top = new THREE.BufferGeometry();
+  const n = segs, m = segs;
+  const pos = [], nor = [], uv = [], idx = [];
+  const zAt = (u, v) => -curve * ((u * u) + (v * v));
+  for (let j = 0; j <= m; j++) {
+    for (let i = 0; i <= n; i++) {
+      const u = (i / n) * 2 - 1, v = (j / m) * 2 - 1;
+      pos.push(u * w * 0.5, v * h * 0.5, zAt(u, v) * Math.max(w, h) * 0.5);
+      const du = -2 * curve * u * Math.max(w, h) * 0.5 / (w * 0.5);
+      const dv = -2 * curve * v * Math.max(w, h) * 0.5 / (h * 0.5);
+      const nv = new THREE.Vector3(-du, -dv, 1).normalize();
+      nor.push(nv.x, nv.y, nv.z);
+      uv.push(i / n, j / m);
+    }
+  }
+  for (let j = 0; j < m; j++) {
+    for (let i = 0; i < n; i++) {
+      const a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  top.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  top.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  top.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  top.setIndex(idx);
+  const back = new THREE.BoxGeometry(w * 0.98, h * 0.98, thick);
+  back.translate(0, 0, -thick * 0.5 - curve * Math.max(w, h) * 0.5 - 0.004);
+  return { top, back };
+}
+
+/* -------------------------------------------------------------- 2D canvas   */
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function canvasTex(c, repeat = [1, 1], srgb = true) {
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeat[0], repeat[1]);
+  t.anisotropy = 4;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* ------------------------------------------------------------------ time    */
+const TC = (s) => {
+  s = Math.max(0, s);
+  const f = Math.floor((s % 1) * SCRIPT.meta.fps);
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
+};
+
+// ===== src/15-script.js ====================================================
+/* =============================================================================
+   15 · SCRIPT  ·  单一事实来源 (single source of truth)
+   影片时间线、镜头、字幕(中/英)、配音文稿、参数芯片、音效提示、社媒剪辑表。
+   浏览器与 Node 工具(字幕/渲染/打包/音频)共用本文件，确保全片前后无矛盾。
+   ========================================================================== */
+
+const SCRIPT = {
+  meta: {
+    id: 'euv-lpp-principle',
+    title: { cn: 'EUV 光刻', en: 'EUV LITHOGRAPHY' },
+    subtitle: { cn: '13.5 纳米之光 · 锡滴 LPP 光源原理', en: 'The 13.5 nm Light · Tin-Droplet LPP Source' },
+    version: 'v2.0',
+    duration: 192,          // 秒
+    fps: 30,
+    brandPlate: { cn: '公司标识占位', en: 'BRAND / LOGO PLACEHOLDER' },
+    disclaimer: { cn: '示意', en: 'SIMULATION' },
+    disclaimerLong: {
+      cn: '本片为原理示意：EUV 光、等离子体与真空内部过程不可直接拍摄，均为艺术化可视化',
+      en: 'Principle simulation — EUV light, plasma and in-vacuum processes are artistic visualisations, not photography',
+    },
+  },
+
+  /* ------------------------------------------------------------------------ */
+  /* 关键参数表：全片 HUD、字幕、文档共用。src=public 为公开数据，sim=示意值      */
+  params: {
+    lambda: { cn: 'EUV 波长', en: 'EUV wavelength', v: '13.5 nm', src: 'public' },
+    dropDia: { cn: '锡滴直径', en: 'Tin droplet Ø', v: '≈ 25–30 µm', src: 'public' },
+    dropRate: { cn: '喷射频率', en: 'Droplet rate', v: '≈ 50,000 滴/秒', vEn: '≈ 50,000 drops/s', src: 'public' },
+    dropSpeed: { cn: '锡滴速度', en: 'Droplet velocity', v: '≈ 70 m/s', src: 'sim' },
+    pulseGap: { cn: '预脉冲—主脉冲延时', en: 'Pre→main pulse delay', v: '≈ 1–2 µs', src: 'sim' },
+    driveLaser: { cn: '驱动激光', en: 'Drive laser', v: 'CO₂ · 10.6 µm', src: 'public' },
+    drivePower: { cn: '激光功率', en: 'Laser power', v: '≈ 20–30 kW', src: 'public' },
+    plasmaT: { cn: '等离子体温度', en: 'Plasma temperature', v: '≈ 220,000 °C', src: 'public' },
+    ce: { cn: '转换效率 CE', en: 'Conversion efficiency', v: '≈ 5–6 %', src: 'sim' },
+    multilayer: { cn: 'Mo/Si 多层膜', en: 'Mo/Si multilayer', v: '≈ 50 对 · 周期 ≈ 6.9 nm', vEn: '≈ 50 pairs · ≈ 6.9 nm period', src: 'public' },
+    reflect: { cn: '单镜反射率', en: 'Per-mirror reflectance', v: '≈ 70 %', src: 'public' },
+    ifPower: { cn: '中间焦点功率', en: 'Power at intermediate focus', v: '≈ 250 W', src: 'public' },
+    vacuum: { cn: '真空环境', en: 'Vacuum environment', v: '低压氢气氛 · 数 Pa', vEn: 'Low-pressure H₂ · a few Pa', src: 'public' },
+    h2: { cn: '氢气流', en: 'Hydrogen flow', v: '碎屑防护 + 光谱纯化', vEn: 'Debris mitigation + spectral purity', src: 'public' },
+    incidence: { cn: '掩模入射角', en: 'Mask incidence angle', v: '≈ 6°', src: 'public' },
+    mirrors: { cn: '投影光学', en: 'Projection optics', v: '6 片非球面反射镜', vEn: '6 aspheric mirrors', src: 'public' },
+    na: { cn: '数值孔径 NA', en: 'Numerical aperture', v: '0.33', src: 'public' },
+    demag: { cn: '缩比', en: 'Reduction ratio', v: '4 : 1', src: 'public' },
+    scanRatio: { cn: '同步扫描速度比', en: 'Synchronised scan ratio', v: '掩模 : 晶圆 = 4 : 1', vEn: 'Reticle : wafer = 4 : 1', src: 'public' },
+    wafer: { cn: '晶圆', en: 'Wafer', v: '300 mm', src: 'public' },
+    resist: { cn: '光刻胶', en: 'Photoresist', v: '化学放大型 CAR', vEn: 'Chemically amplified resist', src: 'public' },
+    halfPitch: { cn: '分辨力', en: 'Resolution', v: '≈ 13 nm 半周期', vEn: '≈ 13 nm half-pitch', src: 'sim' },
+    throughput: { cn: '产能', en: 'Throughput', v: '≈ 170 片/小时', vEn: '≈ 170 wafers/hour', src: 'public' },
+  },
+
+  /* ------------------------------------------------------------------------ */
+  /* 章节：10 个工艺步骤 + 片头 / 整机 / 片尾。step>0 者即验收清单中的工艺步骤     */
+  chapters: [
+    /* ---------------------------------------------------------------- 片头 */
+    {
+      id: 'title', step: 0, t0: 0, t1: 11, expo: 1.55,
+      cn: '片头', en: 'TITLE',
+      cam: [
+        { t: 0.0, pos: [0, 0.35, 10.4], tgt: [0, 0, 0], fov: 34 },
+        { t: 6.0, pos: [1.9, 0.75, 8.0], tgt: [0, 0, 0], fov: 32 },
+        { t: 11.0, pos: [3.1, 1.25, 6.4], tgt: [0.1, 0, 0], fov: 31 },
+      ],
+      captions: [
+        { t0: 6.4, t1: 10.9, cn: '每一颗先进芯片，都始于一束 13.5 纳米的光', en: 'Every advanced chip begins with a beam of 13.5-nanometre light' },
+      ],
+      vo: [{ t0: 6.4, t1: 10.9, cn: '每一颗先进芯片，都始于一束 13.5 纳米的光。', en: 'Every advanced chip begins with a beam of 13.5-nanometre light.' }],
+      chips: [{ t0: 7.2, t1: 11, k: 'lambda' }],
+      sfx: [{ t: 0.3, id: 'riseIn' }, { t: 6.2, id: 'impact' }],
+    },
+
+    /* ------------------------------------------------------ 整机与真空环境 */
+    {
+      id: 'machine', step: 0, t0: 11, t1: 25, expo: 1.2,
+      cn: '光刻机与真空环境', en: 'THE SCANNER & ITS VACUUM',
+      cam: [
+        { t: 11.0, pos: [7.4, 3.0, 9.6], tgt: [0, 0.4, 0], fov: 38 },
+        { t: 18.0, pos: [3.2, 1.5, 5.4], tgt: [-0.4, 0.3, 0], fov: 36 },
+        { t: 25.0, pos: [-1.0, 0.9, 3.1], tgt: [-1.6, 0.2, 0], fov: 34 },
+      ],
+      captions: [
+        { t0: 11.4, t1: 16.6, cn: 'EUV 光刻机内部：光源模块与扫描机同处于真空之中', en: 'Inside an EUV scanner: source module and scanner share one vacuum' },
+        { t0: 17.0, t1: 24.6, cn: 'EUV 会被空气强烈吸收，全部光路必须在真空中传播', en: 'EUV is absorbed by air — the entire beam path must travel in vacuum' },
+      ],
+      vo: [
+        { t0: 11.4, t1: 16.6, cn: 'EUV 光刻机内部，光源模块与扫描机同处于一个真空系统之中。', en: 'Inside an EUV scanner, the source module and the scanner share a single vacuum system.' },
+        { t0: 17.0, t1: 24.6, cn: '因为极紫外光会被空气强烈吸收，从产生到曝光，全部光路都必须在真空中传播。', en: 'EUV light is absorbed by air, so the entire beam path must travel in vacuum.' },
+      ],
+      chips: [{ t0: 12.0, t1: 25, k: 'vacuum' }],
+      sfx: [{ t: 11.1, id: 'whoosh' }, { t: 21.0, id: 'tick' }],
+    },
+
+    /* --------------------------------------------------- 步骤 1 · 锡滴发生器 */
+    {
+      id: 'droplet', step: 1, t0: 25, t1: 42, expo: 1.75,
+      cn: '锡滴发生器', en: 'TIN DROPLET GENERATOR',
+      cam: [
+        { t: 25.0, pos: [2.6, 1.5, 3.4], tgt: [0, 0.7, 0], fov: 34 },
+        { t: 32.0, pos: [1.5, 0.55, 2.15], tgt: [0.02, 0.35, 0], fov: 30 },
+        { t: 42.0, pos: [0.85, -0.15, 1.45], tgt: [0.02, -0.10, 0], fov: 26 },
+      ],
+      captions: [
+        { t0: 25.4, t1: 30.4, cn: '① 锡滴发生器在真空腔内高频喷出微小锡滴', en: '① In vacuum, the generator ejects micro tin droplets at high frequency' },
+        { t0: 30.8, t1: 36.0, cn: '直径约 25–30 µm，每秒约 50,000 滴，速度约 70 m/s', en: 'Ø ≈ 25–30 µm, ≈ 50,000 droplets per second, ≈ 70 m/s' },
+        { t0: 36.4, t1: 41.6, cn: '锡滴列车穿过激光焦点，未被击中的锡滴由接收器捕获', en: 'The droplet train crosses the laser focus; unused droplets are caught downstream' },
+      ],
+      vo: [
+        { t0: 25.4, t1: 30.4, cn: '第一步，锡滴发生器在真空腔内以极高频率喷出微小的熔融锡滴。', en: 'Step one: a generator ejects tiny molten tin droplets at very high frequency.' },
+        { t0: 30.8, t1: 36.0, cn: '每一滴直径约二十五到三十微米，每秒约五万滴，以约七十米每秒飞行。', en: 'Each is roughly thirty micrometres wide. Fifty thousand of them every second.' },
+        { t0: 36.4, t1: 41.6, cn: '锡滴列车精确穿过激光焦点，未被击中的锡滴由下游的接收器捕获。', en: 'The train crosses the laser focus; unused droplets are caught downstream.' },
+      ],
+      chips: [
+        { t0: 26.5, t1: 42, k: 'dropDia' },
+        { t0: 31.0, t1: 42, k: 'dropRate' },
+        { t0: 33.5, t1: 42, k: 'dropSpeed' },
+      ],
+      sfx: [{ t: 25.2, id: 'whoosh' }, { t: 31.0, id: 'ticks' }],
+    },
+
+    /* -------------------------------------------------- 步骤 2 · 预脉冲压扁 */
+    {
+      id: 'prepulse', step: 2, t0: 42, t1: 57, expo: 0.95,
+      cn: '预脉冲：压扁成盘', en: 'PRE-PULSE: FLATTENING THE DROPLET',
+      cam: [
+        { t: 42.0, pos: [0.62, 0.10, 0.98], tgt: [0, 0, 0], fov: 26 },
+        { t: 50.0, pos: [0.30, 0.06, 0.62], tgt: [0, 0, 0], fov: 24 },
+        { t: 57.0, pos: [0.10, 0.26, 0.52], tgt: [0, 0, 0], fov: 24 },
+      ],
+      captions: [
+        { t0: 42.4, t1: 47.6, cn: '② 预脉冲激光先击打锡滴，把球形压扁成薄圆盘', en: '② A pre-pulse laser strikes the droplet, flattening the sphere into a thin disc' },
+        { t0: 48.0, t1: 52.8, cn: '圆盘让主脉冲能量被更充分吸收，转换效率显著提高', en: 'The disc absorbs the main pulse far better, raising conversion efficiency' },
+        { t0: 53.2, t1: 56.6, cn: '两次脉冲相隔约 1–2 µs（示意）', en: 'The two pulses are separated by ≈ 1–2 µs (simulated value)' },
+      ],
+      vo: [
+        { t0: 42.4, t1: 47.6, cn: '第二步，预脉冲激光先行击打锡滴，把球形的液滴压扁成一片薄圆盘。', en: 'Step two: a pre-pulse laser flattens the sphere into a thin disc.' },
+        { t0: 48.0, t1: 52.8, cn: '展开的圆盘能更充分吸收主脉冲能量，显著提高转换效率。', en: 'The flattened disc absorbs the main pulse far more efficiently.' },
+        { t0: 53.2, t1: 56.6, cn: '两次脉冲之间只相隔约一到两微秒。', en: 'The two pulses are just microseconds apart.' },
+      ],
+      chips: [
+        { t0: 43.0, t1: 57, k: 'driveLaser' },
+        { t0: 53.4, t1: 57, k: 'pulseGap' },
+      ],
+      sfx: [{ t: 45.4, id: 'laser' }, { t: 45.6, id: 'squash' }],
+    },
+
+    /* ------------------------------------------------ 步骤 3 · 主脉冲等离子体 */
+    {
+      id: 'mainpulse', step: 3, t0: 57, t1: 71, expo: 0.42,
+      cn: '主脉冲：汽化成等离子体', en: 'MAIN PULSE: PLASMA IGNITION',
+      cam: [
+        { t: 57.0, pos: [0.16, 0.22, 0.50], tgt: [0, 0, 0], fov: 24 },
+        { t: 63.0, pos: [-0.34, 0.14, 0.60], tgt: [0, 0, 0], fov: 27 },
+        { t: 71.0, pos: [-0.72, 0.26, 0.92], tgt: [0, 0, 0], fov: 30 },
+      ],
+      captions: [
+        { t0: 57.4, t1: 62.4, cn: '③ 高能主脉冲击中圆盘，锡被瞬间汽化并电离', en: '③ The high-energy main pulse vaporises and ionises the tin disc' },
+        { t0: 62.8, t1: 67.6, cn: '形成约 220,000 °C 的高温锡等离子体', en: 'A tin plasma at roughly 220,000 °C is formed' },
+        { t0: 68.0, t1: 70.8, cn: '激光能量约 5–6% 转化为 EUV（示意）', en: 'About 5–6 % of the laser energy becomes EUV (simulated value)' },
+      ],
+      vo: [
+        { t0: 57.4, t1: 62.4, cn: '第三步，能量更高的主脉冲击中圆盘，锡在瞬间被汽化并电离。', en: 'Step three: the main pulse vaporises and ionises the tin.' },
+        { t0: 62.8, t1: 67.6, cn: '这里诞生了约二十二万摄氏度的锡等离子体，比太阳表面还热。', en: 'A tin plasma forms — about two hundred twenty thousand degrees.' },
+        { t0: 68.0, t1: 70.8, cn: '约百分之五转化为极紫外光。', en: 'Five to six percent becomes EUV light.' },
+      ],
+      chips: [
+        { t0: 57.6, t1: 71, k: 'drivePower' },
+        { t0: 63.0, t1: 71, k: 'plasmaT' },
+        { t0: 68.2, t1: 71, k: 'ce' },
+      ],
+      sfx: [{ t: 59.4, id: 'laserBig' }, { t: 59.7, id: 'boom' }],
+    },
+
+    /* ----------------------------------------------- 步骤 4 · 13.5 nm 辐射 */
+    {
+      id: 'euv', step: 4, t0: 71, t1: 85, expo: 0.8,
+      cn: '等离子体辐射 13.5 nm', en: 'PLASMA RADIATES 13.5 nm',
+      cam: [
+        { t: 71.0, pos: [-0.72, 0.26, 0.92], tgt: [0, 0, 0], fov: 30 },
+        { t: 78.0, pos: [-0.10, 0.62, 1.25], tgt: [0, 0, 0], fov: 33 },
+        { t: 85.0, pos: [0.55, 0.30, 1.35], tgt: [0.05, 0, 0], fov: 33 },
+      ],
+      captions: [
+        { t0: 71.4, t1: 76.4, cn: '④ 等离子体向四周辐射极紫外光，峰值波长 13.5 nm', en: '④ The plasma radiates extreme ultraviolet light peaking at 13.5 nm' },
+        { t0: 76.8, t1: 81.6, cn: '13.5 nm 人眼不可见；本片以颜色示意其传播', en: '13.5 nm is invisible to the eye; colour here is an artistic visualisation' },
+        { t0: 82.0, t1: 84.6, cn: '同时伴随大量带外辐射与红外光，需要后续滤除', en: 'Out-of-band and infrared radiation is emitted too, and must be filtered later' },
+      ],
+      vo: [
+        { t0: 71.4, t1: 76.4, cn: '第四步，高温等离子体向四周辐射极紫外光，峰值波长正是十三点五纳米。', en: 'Step four: the hot plasma radiates extreme ultraviolet light, peaking exactly at thirteen-point-five nanometres.' },
+        { t0: 76.8, t1: 81.6, cn: '这种光人眼完全无法看见，本片用颜色对它的传播过程做示意表现。', en: 'The eye cannot see it. Colour here is a visualisation.' },
+        { t0: 82.0, t1: 84.6, cn: '同时还产生红外与带外辐射。', en: 'Infrared and out-of-band light comes too.' },
+      ],
+      chips: [{ t0: 71.6, t1: 85, k: 'lambda' }],
+      sfx: [{ t: 71.2, id: 'shimmer' }, { t: 77.0, id: 'tick' }],
+    },
+
+    /* ------------------------------------------ 步骤 5 · 多层膜集光镜 → IF */
+    {
+      id: 'collector', step: 5, t0: 85, t1: 102, expo: 0.82,
+      cn: '多层膜集光镜与中间焦点', en: 'MULTILAYER COLLECTOR → INTERMEDIATE FOCUS',
+      cam: [
+        { t: 85.0, pos: [2.9, 1.30, 3.9], tgt: [0.75, 0, 0], fov: 36 },
+        { t: 93.0, pos: [1.55, 0.62, 2.55], tgt: [0.35, 0, 0], fov: 32 },
+        { t: 102.0, pos: [3.85, 0.60, 1.95], tgt: [2.45, 0, 0], fov: 29 },
+      ],
+      captions: [
+        { t0: 85.4, t1: 90.6, cn: '⑤ 椭球形集光镜把等离子体发出的 EUV 收集并聚焦', en: '⑤ An ellipsoidal collector gathers the EUV from the plasma and focuses it' },
+        { t0: 91.0, t1: 96.4, cn: '镜面镀 Mo/Si 多层膜：约 50 对、周期约 6.9 nm，靠布拉格干涉反射 13.5 nm', en: 'Its Mo/Si multilayer — ≈ 50 pairs, ≈ 6.9 nm period — reflects 13.5 nm by Bragg interference' },
+        { t0: 96.8, t1: 101.6, cn: '等离子体位于第一焦点，光在第二焦点汇聚，即中间焦点 IF', en: 'The plasma sits at one focus; the light converges at the other — the intermediate focus' },
+      ],
+      vo: [
+        { t0: 85.4, t1: 90.6, cn: '第五步，一面椭球形的集光镜把等离子体向外辐射的极紫外光收集起来。', en: 'Step five: an ellipsoidal collector mirror gathers the extreme ultraviolet light radiating from the plasma.' },
+        { t0: 91.0, t1: 96.4, cn: '镜面镀有约五十对钼硅多层膜，靠布拉格干涉反射十三点五纳米的光。', en: 'Fifty molybdenum–silicon pairs reflect 13.5 nanometres by Bragg interference.' },
+        { t0: 96.8, t1: 101.6, cn: '等离子体位于椭球第一焦点，光线便在第二焦点精确汇聚。', en: 'The plasma sits at one focus; light converges at the other.' },
+      ],
+      chips: [
+        { t0: 91.2, t1: 102, k: 'multilayer' },
+        { t0: 93.5, t1: 102, k: 'reflect' },
+        { t0: 97.0, t1: 102, k: 'ifPower' },
+      ],
+      sfx: [{ t: 85.2, id: 'whoosh' }, { t: 91.2, id: 'layer' }, { t: 97.0, id: 'focus' }],
+    },
+
+    /* -------------------------------------- 步骤 6 · 光谱纯化与碎屑防护 */
+    {
+      id: 'purity', step: 6, t0: 102, t1: 115, expo: 0.85,
+      cn: '光谱纯化与锡碎屑防护', en: 'SPECTRAL PURITY & DEBRIS MITIGATION',
+      cam: [
+        { t: 102.0, pos: [2.4, 0.5, 1.8], tgt: [2.35, 0, 0], fov: 28 },
+        { t: 109.0, pos: [2.9, 0.28, 1.15], tgt: [2.75, 0.02, 0], fov: 26 },
+        { t: 115.0, pos: [3.6, 0.42, 1.55], tgt: [3.1, 0, 0], fov: 30 },
+      ],
+      captions: [
+        { t0: 102.4, t1: 107.4, cn: '⑥ 氢气流持续吹扫，阻挡锡碎屑污染集光镜', en: '⑥ A hydrogen flow continuously sweeps tin debris away from the collector' },
+        { t0: 107.8, t1: 112.4, cn: '光谱纯化滤除红外与带外辐射，只让 13.5 nm 通过中间焦点', en: 'Spectral purity filtering removes infrared and out-of-band light; only 13.5 nm passes the IF' },
+        { t0: 112.8, t1: 114.7, cn: '氢自由基还能把沉积的锡还原并带走', en: 'Hydrogen radicals also clean deposited tin off the optics' },
+      ],
+      vo: [
+        { t0: 102.4, t1: 107.4, cn: '第六步，氢气流在腔内持续吹扫，阻挡锡碎屑飞向价值极高的集光镜。', en: 'Step six: hydrogen flow keeps tin debris away from the collector.' },
+        { t0: 107.8, t1: 112.4, cn: '光谱纯化滤除红外与带外辐射，只让十三点五纳米通过。', en: 'Filtering removes infrared, so only 13.5 nanometres reaches the scanner.' },
+        { t0: 112.8, t1: 114.7, cn: '氢自由基还能清洁镜面。', en: 'Radicals also clean the optics.' },
+      ],
+      chips: [
+        { t0: 102.6, t1: 115, k: 'h2' },
+        { t0: 108.0, t1: 115, k: 'lambda' },
+      ],
+      sfx: [{ t: 102.2, id: 'gas' }, { t: 108.0, id: 'filter' }],
+    },
+
+    /* --------------------------------------------------- 步骤 7 · 照明光学 */
+    {
+      id: 'illuminator', step: 7, t0: 115, t1: 129, expo: 1.3,
+      cn: '照明光学系统', en: 'ILLUMINATION OPTICS',
+      cam: [
+        { t: 115.0, pos: [-0.35, 1.35, 4.2], tgt: [0.45, 0.10, 0], fov: 35 },
+        { t: 122.0, pos: [1.15, 0.70, 3.1], tgt: [0.95, 0.05, 0], fov: 32 },
+        { t: 129.0, pos: [2.85, 0.55, 2.25], tgt: [2.15, 0.15, 0], fov: 30 },
+      ],
+      captions: [
+        { t0: 115.4, t1: 120.6, cn: '⑦ 照明系统由两组小反射面阵列组成：视场面镜与光瞳面镜', en: '⑦ The illuminator uses two facet-mirror arrays: field facets and pupil facets' },
+        { t0: 121.0, t1: 126.0, cn: '光束被切分再重组，形成强度均匀的弧形曝光光场', en: 'The beam is split and recombined into a uniform arc-shaped exposure field' },
+        { t0: 126.4, t1: 128.7, cn: '面镜还可切换照明方式，优化不同图形的成像', en: 'The facets also switch illumination modes to optimise different patterns' },
+      ],
+      vo: [
+        { t0: 115.4, t1: 120.6, cn: '第七步，照明光学系统由两组细小的反射面阵列组成：视场面镜与光瞳面镜。', en: 'Step seven: two arrays of mirror facets — field and pupil.' },
+        { t0: 121.0, t1: 126.0, cn: '光束被切分成许多细束，再重新组合，形成强度高度均匀的弧形曝光光场。', en: 'The beam is split and recombined into a uniform arc field.' },
+        { t0: 126.4, t1: 128.7, cn: '面镜组合还能切换照明方式。', en: 'Facets also switch illumination modes.' },
+      ],
+      chips: [{ t0: 121.2, t1: 129, k: 'ifPower' }],
+      sfx: [{ t: 115.2, id: 'whoosh' }, { t: 121.2, id: 'facets' }],
+    },
+
+    /* --------------------------------------------------- 步骤 8 · 反射式掩模 */
+    {
+      id: 'reticle', step: 8, t0: 129, t1: 142, expo: 0.92,
+      cn: '反射式多层膜掩模', en: 'REFLECTIVE MULTILAYER MASK',
+      cam: [
+        { t: 129.0, pos: [1.85, 0.10, 2.55], tgt: [0, 0.24, 0], fov: 33 },
+        { t: 136.0, pos: [0.80, 0.34, 1.30], tgt: [0.02, 0.36, 0], fov: 27 },
+        { t: 142.0, pos: [-0.95, 0.05, 1.75], tgt: [0.05, 0.30, 0], fov: 31 },
+      ],
+      captions: [
+        { t0: 129.4, t1: 134.6, cn: '⑧ EUV 会被几乎所有材料吸收，因此掩模不能透射，只能反射', en: '⑧ EUV is absorbed by nearly all materials — so the mask reflects instead of transmitting' },
+        { t0: 135.0, t1: 139.8, cn: '掩模同样镀 Mo/Si 多层膜，其上的吸收层构成电路图形', en: 'The mask also carries a Mo/Si multilayer; an absorber layer on top forms the circuit pattern' },
+        { t0: 140.2, t1: 141.8, cn: '光以约 6° 斜入射，携带图形信息反射出去', en: 'Light arrives at ≈ 6° and reflects away carrying the pattern' },
+      ],
+      vo: [
+        { t0: 129.4, t1: 134.6, cn: '第八步，极紫外光被几乎所有材料吸收，掩模只能反射而不能透射。', en: 'Step eight: EUV is absorbed by everything, so the mask reflects.' },
+        { t0: 135.0, t1: 139.8, cn: '掩模表面同样镀有钼硅多层膜，多层膜之上的吸收层构成了电路图形。', en: 'A Mo/Si multilayer carries the absorber that forms the pattern.' },
+        { t0: 140.2, t1: 141.8, cn: '入射角约六度。', en: 'Incidence: six degrees.' },
+      ],
+      chips: [
+        { t0: 135.2, t1: 142, k: 'multilayer' },
+        { t0: 140.0, t1: 142, k: 'incidence' },
+      ],
+      sfx: [{ t: 129.2, id: 'whoosh' }, { t: 135.2, id: 'layer' }],
+    },
+
+    /* ------------------------------------------- 步骤 9 · 投影光学 4:1 缩比 */
+    {
+      id: 'projection', step: 9, t0: 142, t1: 159, expo: 1.45,
+      cn: '投影光学系统 · 4:1 缩比', en: 'PROJECTION OPTICS · 4:1 REDUCTION',
+      cam: [
+        { t: 142.0, pos: [2.7, 1.05, 4.0], tgt: [0, -0.05, 0], fov: 35 },
+        { t: 150.0, pos: [1.25, 0.35, 3.2], tgt: [0, -0.20, 0], fov: 32 },
+        { t: 159.0, pos: [1.55, -0.45, 2.35], tgt: [0.05, -0.80, 0], fov: 30 },
+      ],
+      captions: [
+        { t0: 142.4, t1: 147.6, cn: '⑨ 投影光学由 6 片非球面反射镜组成，全反射、无透镜', en: '⑨ The projection optics use six aspheric mirrors — all-reflective, no lenses' },
+        { t0: 148.0, t1: 153.0, cn: '掩模图形以 4:1 缩小投影到晶圆，NA 0.33', en: 'The mask pattern is projected onto the wafer at 4:1 reduction, NA 0.33' },
+        { t0: 153.4, t1: 158.6, cn: '曝光时掩模与晶圆同步反向扫描，速度比恰为 4:1', en: 'During exposure reticle and wafer scan in opposite directions at exactly 4:1 speed' },
+      ],
+      vo: [
+        { t0: 142.4, t1: 147.6, cn: '第九步，投影光学系统由六片非球面反射镜组成，全部依靠反射，没有任何透镜。', en: 'Step nine: six aspheric mirrors, all reflective — no lenses.' },
+        { t0: 148.0, t1: 153.0, cn: '掩模上的图形被四比一缩小投影到晶圆上，数值孔径为零点三三。', en: 'Four-to-one reduction, numerical aperture zero point three three.' },
+        { t0: 153.4, t1: 158.6, cn: '曝光过程中，掩模与晶圆沿相反方向同步扫描，速度比恰好也是四比一。', en: 'Mask and wafer scan in opposite directions, exactly four to one.' },
+      ],
+      chips: [
+        { t0: 142.6, t1: 159, k: 'mirrors' },
+        { t0: 148.2, t1: 159, k: 'demag' },
+        { t0: 150.2, t1: 159, k: 'na' },
+        { t0: 153.6, t1: 159, k: 'scanRatio' },
+      ],
+      sfx: [{ t: 142.2, id: 'whoosh' }, { t: 148.2, id: 'focus' }, { t: 153.6, id: 'scan' }],
+    },
+
+    /* ----------------------------------------- 步骤 10 · 光刻胶曝光与显影 */
+    {
+      id: 'resist', step: 10, t0: 159, t1: 178, expo: 0.52,
+      cn: '光刻胶曝光 · 潜影 · 显影', en: 'RESIST EXPOSURE · LATENT IMAGE · DEVELOPMENT',
+      cam: [
+        { t: 159.0, pos: [1.05, 0.74, 1.58], tgt: [0, 0.04, 0], fov: 32 },
+        { t: 166.0, pos: [0.60, 0.42, 0.90], tgt: [0.04, 0.03, 0], fov: 28 },
+        { t: 172.0, pos: [0.62, 0.40, 0.98], tgt: [0.02, 0.04, 0], fov: 30 },
+        { t: 178.0, pos: [0.95, 1.05, 1.85], tgt: [0, 0, 0], fov: 34 },
+      ],
+      captions: [
+        { t0: 159.4, t1: 164.4, cn: '⑩ 弧形光场扫过晶圆，光刻胶吸收 EUV 光子', en: '⑩ The arc-shaped field sweeps the wafer; the resist absorbs EUV photons' },
+        { t0: 164.8, t1: 169.8, cn: '光子引发化学放大反应，在胶内形成看不见的潜影', en: 'Photons trigger chemical amplification, forming an invisible latent image' },
+        { t0: 170.2, t1: 175.0, cn: '烘烤与显影之后，潜影变成真实的三维图形', en: 'After bake and development, the latent image becomes a real three-dimensional pattern' },
+        { t0: 175.4, t1: 177.8, cn: '逐场步进曝光，最终成为芯片上数百亿个器件', en: 'Field after field, this becomes tens of billions of devices on a chip' },
+      ],
+      vo: [
+        { t0: 159.4, t1: 164.4, cn: '第十步，弧形光场扫过晶圆，光刻胶吸收极紫外光子。', en: 'Step ten: the arc field sweeps the wafer; resist absorbs the photons.' },
+        { t0: 164.8, t1: 169.8, cn: '光子引发化学放大反应，在胶层内部形成肉眼看不见的潜影。', en: 'The photons trigger chemistry, forming an invisible latent image.' },
+        { t0: 170.2, t1: 175.0, cn: '经过曝后烘烤与显影，潜影才变成真实存在的三维图形。', en: 'Only after bake and development does the pattern become real.' },
+        { t0: 175.4, t1: 177.8, cn: '逐场曝光，成为数百亿器件。', en: 'Field after field — billions of devices.' },
+      ],
+      chips: [
+        { t0: 159.6, t1: 178, k: 'resist' },
+        { t0: 162.0, t1: 178, k: 'wafer' },
+        { t0: 170.4, t1: 178, k: 'halfPitch' },
+      ],
+      sfx: [{ t: 159.2, id: 'scan' }, { t: 165.0, id: 'chem' }, { t: 170.4, id: 'reveal' }],
+    },
+
+    /* ---------------------------------------------------------------- 片尾 */
+    {
+      id: 'outro', step: 0, t0: 178, t1: 192, expo: 2.05,
+      cn: '工艺链回顾', en: 'THE CHAIN, END TO END',
+      cam: [
+        { t: 178.0, pos: [0.5, 0.60, 5.9], tgt: [0, -0.05, 0], fov: 36 },
+        { t: 186.0, pos: [0.1, 0.32, 5.2], tgt: [0, -0.05, 0], fov: 34 },
+        { t: 192.0, pos: [-0.4, 0.15, 4.6], tgt: [0, -0.05, 0], fov: 33 },
+      ],
+      captions: [
+        { t0: 178.4, t1: 184.0, cn: '锡滴 → 预脉冲 → 主脉冲 → 等离子体 → 13.5 nm', en: 'Droplet → pre-pulse → main pulse → plasma → 13.5 nm' },
+        { t0: 184.2, t1: 189.0, cn: '集光镜 → 纯化 → 照明 → 掩模 → 投影 → 曝光', en: 'Collector → purity → illuminator → mask → projection → exposure' },
+        { t0: 189.4, t1: 191.8, cn: '十个步骤，一束 13.5 纳米的光，定义了现代芯片', en: 'Ten steps, one 13.5-nanometre beam — the foundation of the modern chip' },
+      ],
+      vo: [
+        { t0: 178.4, t1: 184.0, cn: '锡滴、预脉冲、主脉冲、等离子体、十三点五纳米。', en: 'Droplet, pre-pulse, main pulse, plasma, thirteen-point-five nanometres.' },
+        { t0: 184.2, t1: 189.0, cn: '集光镜、光谱纯化、照明系统、反射掩模、投影光学、光刻胶曝光。', en: 'Collector, spectral purity, illuminator, reflective mask, projection optics, resist exposure.' },
+        { t0: 189.4, t1: 191.8, cn: '十步，一束光，定义现代芯片。', en: 'Ten steps. One beam. Every modern chip.' },
+      ],
+      chips: [],
+      sfx: [{ t: 178.2, id: 'riseIn' }, { t: 189.4, id: 'impact' }],
+    },
+  ],
+
+  /* ------------------------------------------------------------------------ */
+  /* 社媒剪辑表：母版时间轴上的片段拼接（横版/竖版共用同一份剪辑点）            */
+  cuts: {
+    full: null,
+    social60: [
+      [0, 5], [26.5, 32.5], [44.5, 50.5], [58.5, 64.5], [72.5, 77.5],
+      [87, 94], [130.5, 135.5], [145, 151], [161, 170], [178.5, 184.5],
+    ],
+    social30: [
+      [1.5, 4.5], [29, 33], [45, 49], [59, 63], [73, 76],
+      [90, 94], [146, 150], [163, 168], [180, 183.5],
+    ],
+  },
+};
+
+/* 便捷索引 ---------------------------------------------------------------- */
+const CH = SCRIPT.chapters;
+const CH_BY_ID = {};
+for (const c of CH) CH_BY_ID[c.id] = c;
+const STEP_CHAPTERS = CH.filter((c) => c.step > 0);
+const DUR = SCRIPT.meta.duration;
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { SCRIPT };
+
+// ===== src/20-materials.js =================================================
+/* =============================================================================
+   20 · MATERIALS  ·  影棚环境光、金属/多层膜/液态锡/光刻胶材质、
+   以及等离子体、光束、气流、射线等自发光着色器（全部由共享时间 uniform 驱动）
+   ========================================================================== */
+
+const SHARED = { time: { value: 0 }, flash: { value: 0 }, expo: { value: 1.24 } };
+/* 自发光/加性效果统一的曝光与软膝，保证与 PBR 部分同步受控 */
+const FX_TONE_GLSL = `\nuniform float uExpo;\nvec4 fxOut(vec3 col, float a){\n  vec3 c = col * uExpo;\n  float m = max(c.r, max(c.g, c.b));\n  c = c / (1.0 + 0.42 * m);\n  return vec4(c, clamp(a * uExpo, 0.0, 1.0));\n}`;
+
+const NOISE_GLSL = `
+float h31(vec3 p){ return fract(sin(dot(p, vec3(17.31,41.77,91.13))) * 43758.5453); }
+float n31(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(h31(i), h31(i+vec3(1,0,0)), f.x), mix(h31(i+vec3(0,1,0)), h31(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(h31(i+vec3(0,0,1)), h31(i+vec3(1,0,1)), f.x), mix(h31(i+vec3(0,1,1)), h31(i+vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm3(vec3 p){ return 0.55*n31(p) + 0.27*n31(p*2.03) + 0.13*n31(p*4.11) + 0.05*n31(p*8.05); }
+`;
+
+const INSTANCE_GLSL = `
+#ifdef USE_INSTANCING
+  mat4 iM = instanceMatrix;
+#else
+  mat4 iM = mat4(1.0);
+#endif
+`;
+
+/* -------------------------------------------------------------------------- */
+function buildEnvironment(renderer) {
+  const w = 1024, h = 512;
+  const c = makeCanvas(w, h), g = c.getContext('2d');
+  const sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0.00, '#c3d2e4');
+  sky.addColorStop(0.26, '#6d7f96');
+  sky.addColorStop(0.48, '#2b3546');
+  sky.addColorStop(0.52, '#1c2330');
+  sky.addColorStop(1.00, '#0d1219');
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  const blob = (u, v, r, col, a) => {
+    const x = u * w, y = v * h;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r * w);
+    grd.addColorStop(0, `rgba(${col},${a})`);
+    grd.addColorStop(0.45, `rgba(${col},${a * 0.4})`);
+    grd.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = grd;
+    g.beginPath(); g.arc(x, y, r * w, 0, TAU); g.fill();
+  };
+  blob(0.22, 0.16, 0.20, '255,255,255', 0.95);      // key softbox
+  blob(0.70, 0.22, 0.16, '176,208,255', 0.80);      // cool fill
+  blob(0.92, 0.40, 0.10, '190,164,255', 0.55);      // EUV violet kicker
+  blob(0.46, 0.74, 0.30, '120,150,190', 0.22);      // floor bounce
+  for (let i = 0; i < 5; i++) {                     // hangar strips
+    const y = h * (0.06 + i * 0.05);
+    const grd = g.createLinearGradient(0, y, w, y);
+    grd.addColorStop(0, 'rgba(210,230,255,0)');
+    grd.addColorStop(0.5, `rgba(255,255,255,${0.42 - i * 0.06})`);
+    grd.addColorStop(1, 'rgba(210,230,255,0)');
+    g.fillStyle = grd; g.fillRect(0, y, w, h * 0.016);
+  }
+  g.fillStyle = 'rgba(8,11,18,0.5)';
+  for (let i = 0; i < 8; i++) g.fillRect((i / 8) * w + 10, 0, w * 0.010, h * 0.45);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const p = new THREE.PMREMGenerator(renderer);
+  p.compileEquirectangularShader();
+  const env = p.fromEquirectangular(tex).texture;
+  p.dispose(); tex.dispose();
+  return env;
+}
+
+/* ------------------------------------------------------- procedural textures */
+function texBrushed(size = 512, base = 0.5, amp = 0.24) {
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  const v = (base * 255) | 0;
+  g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, 0, size, size);
+  const r = mulberry32(5);
+  for (let i = 0; i < size * 4; i++) {
+    const y = r() * size, l = base + (r() - 0.5) * amp * 2;
+    g.strokeStyle = `rgba(${(l * 255) | 0},${(l * 255) | 0},${(l * 255) | 0},${0.06 + r() * 0.24})`;
+    g.lineWidth = r() < 0.85 ? 0.7 : 1.8;
+    g.beginPath();
+    const x0 = r() * size;
+    g.moveTo(x0, y); g.lineTo(x0 + size * (0.2 + r() * 0.9), y + (r() - 0.5));
+    g.stroke();
+  }
+  return c;
+}
+function normalFrom(src, strength = 1.2) {
+  const s = src.width;
+  const d = src.getContext('2d').getImageData(0, 0, s, s).data;
+  const out = makeCanvas(s, s), g = out.getContext('2d');
+  const img = g.createImageData(s, s);
+  const at = (x, y) => d[(((y + s) % s) * s + ((x + s) % s)) * 4] / 255;
+  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * strength, dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+    const l = Math.hypot(-dx, -dy, 1), i = (y * s + x) * 4;
+    img.data[i] = ((-dx / l) * 0.5 + 0.5) * 255;
+    img.data[i + 1] = ((-dy / l) * 0.5 + 0.5) * 255;
+    img.data[i + 2] = (1 / l) * 0.5 * 255 + 127;
+    img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return out;
+}
+/** 掩模/晶圆用的芯片版图纹理 */
+function texCircuit(size = 1024, density = 1) {
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  g.fillStyle = '#05070c'; g.fillRect(0, 0, size, size);
+  const r = mulberry32(77);
+  g.strokeStyle = '#cfe0f2';
+  const cell = size / (10 * density);
+  for (let bx = 0; bx < 10 * density; bx++) {
+    for (let by = 0; by < 10 * density; by++) {
+      const x0 = bx * cell, y0 = by * cell;
+      const kind = r();
+      g.lineWidth = Math.max(1, cell * 0.045);
+      if (kind < 0.42) {                       // dense line/space array
+        const n = 6 + Math.floor(r() * 7);
+        for (let i = 0; i < n; i++) {
+          const p = x0 + (cell * (i + 0.5)) / n;
+          g.beginPath(); g.moveTo(p, y0 + cell * 0.1); g.lineTo(p, y0 + cell * 0.9); g.stroke();
+        }
+      } else if (kind < 0.72) {                // horizontal bus
+        const n = 4 + Math.floor(r() * 5);
+        for (let i = 0; i < n; i++) {
+          const p = y0 + (cell * (i + 0.5)) / n;
+          g.beginPath(); g.moveTo(x0 + cell * 0.08, p); g.lineTo(x0 + cell * 0.92, p); g.stroke();
+        }
+      } else if (kind < 0.88) {                // contact array
+        for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+          g.fillStyle = '#b9d2ea';
+          g.fillRect(x0 + cell * (0.15 + i * 0.17), y0 + cell * (0.15 + j * 0.17), cell * 0.075, cell * 0.075);
+        }
+      } else {                                  // logic block outline
+        g.strokeRect(x0 + cell * 0.12, y0 + cell * 0.12, cell * 0.76, cell * 0.76);
+        g.beginPath(); g.moveTo(x0 + cell * 0.12, y0 + cell * 0.5); g.lineTo(x0 + cell * 0.88, y0 + cell * 0.5); g.stroke();
+      }
+    }
+  }
+  return c;
+}
+
+/* -------------------------------------------------------------------------- */
+let MAT = {};
+function buildMaterials() {
+  const brushed = texBrushed(512, 0.52, 0.26);
+  const bTex = canvasTex(brushed, [3, 3], false);
+  const bNrm = canvasTex(normalFrom(brushed, 1.0), [3, 3], false);
+  const circuit = texCircuit(1024, 1);
+  const std = (o) => new THREE.MeshStandardMaterial(o);
+  const phys = (o) => new THREE.MeshPhysicalMaterial(o);
+
+  MAT = {
+    /* 真空腔体与机械结构 */
+    steel: std({ color: 0xa6b2be, metalness: 0.88, roughness: 0.33, envMapIntensity: 1.9, roughnessMap: bTex, normalMap: bNrm, normalScale: new THREE.Vector2(0.4, 0.4) }),
+    steelDark: std({ color: 0x59636e, metalness: 0.88, roughness: 0.42, envMapIntensity: 1.2, roughnessMap: bTex }),
+    alu: std({ color: 0xc3ccd4, metalness: 0.85, roughness: 0.28, envMapIntensity: 1.7 }),
+    panel: std({ color: 0x2c333c, metalness: 0.55, roughness: 0.55, envMapIntensity: 0.9 }),
+    panelLight: std({ color: 0xe8eef5, metalness: 0.2, roughness: 0.4, envMapIntensity: 1.0 }),
+    dark: std({ color: 0x0d1118, metalness: 0.3, roughness: 0.8, envMapIntensity: 0.5 }),
+    gold: std({ color: 0xd9b25f, metalness: 0.95, roughness: 0.22, envMapIntensity: 2.0 }),
+    copper: std({ color: 0xb87333, metalness: 0.95, roughness: 0.3, envMapIntensity: 1.6 }),
+    rubber: std({ color: 0x1b1f25, metalness: 0.1, roughness: 0.92, envMapIntensity: 0.4 }),
+    accentEmissive: std({ color: 0x0b1018, emissive: 0x5fd8ff, emissiveIntensity: 1.6, metalness: 0.4, roughness: 0.5 }),
+
+    /* Mo/Si 多层膜反射镜：薄膜干涉（iridescence）呈现多层膜特有的彩虹光泽 */
+    multilayer: phys({
+      color: 0x7f8fa8, metalness: 0.80, roughness: 0.055, envMapIntensity: 2.6,
+      iridescence: 1.0, iridescenceIOR: 1.75, iridescenceThicknessRange: [180, 560],
+      clearcoat: 0.6, clearcoatRoughness: 0.06,
+    }),
+    multilayerWarm: phys({
+      color: 0x9a8c9c, metalness: 0.78, roughness: 0.07, envMapIntensity: 2.4,
+      iridescence: 1.0, iridescenceIOR: 1.6, iridescenceThicknessRange: [240, 700],
+      clearcoat: 0.5, clearcoatRoughness: 0.08,
+    }),
+    substrate: std({ color: 0x3b424c, metalness: 0.5, roughness: 0.62, envMapIntensity: 0.8 }),
+
+    /* 液态锡 / 硅 / 光刻胶 / 吸收层 */
+    tin: std({ color: 0xdfe6ee, metalness: 1.0, roughness: 0.075, envMapIntensity: 2.3 }),
+    tinHot: std({ color: 0xf2ece2, metalness: 0.95, roughness: 0.12, envMapIntensity: 2.0, emissive: 0xffb070, emissiveIntensity: 0.35 }),
+    silicon: std({ color: 0x4a5560, metalness: 0.86, roughness: 0.14, envMapIntensity: 1.8 }),
+    resist: phys({
+      color: 0x2f5b7a, metalness: 0.1, roughness: 0.16, envMapIntensity: 1.2,
+      transparent: true, opacity: 0.72, clearcoat: 1, clearcoatRoughness: 0.05,
+    }),
+    resistExposed: std({ color: 0x2e5f7d, metalness: 0.25, roughness: 0.34, envMapIntensity: 1.1, emissive: 0x123c58, emissiveIntensity: 0.30 }),
+    absorber: std({ color: 0x14181f, metalness: 0.45, roughness: 0.55, envMapIntensity: 0.6 }),
+    maskPattern: std({ color: 0x8fa7bd, metalness: 0.75, roughness: 0.25, envMapIntensity: 1.4, map: canvasTex(circuit, [1, 1]) }),
+
+    /* 玻璃窗口 */
+    window: phys({ color: 0xdfeaff, metalness: 0, roughness: 0.02, transparent: true, opacity: 0.22, envMapIntensity: 2 }),
+  };
+  MAT.circuitTex = canvasTex(circuit, [1, 1]);
+  return MAT;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 自发光效果着色器                                                            */
+
+/** 体积感光束：核心亮、边缘菲涅尔衰减、沿轴向脉冲流动 */
+function beamMaterial(o = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SHARED.time,
+      uExpo: SHARED.expo,
+      uColor: { value: new THREE.Color(o.color ?? 0x7bd6ff) },
+      uHot: { value: new THREE.Color(o.hot ?? 0xffffff) },
+      uInt: { value: o.intensity ?? 1 },
+      uFlow: { value: o.flow ?? 1.4 },
+      uPulse: { value: o.pulse ?? 0.0 },
+      uAxis: { value: new THREE.Vector2(o.a0 ?? -1, o.a1 ?? 1) },
+      uEdge: { value: o.edge ?? 1.5 },
+      uRing: { value: o.ring ?? 0.0 },
+    },
+    vertexShader: `
+      varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+      void main(){
+        ${INSTANCE_GLSL}
+        vec4 lp = iM * vec4(position, 1.0);
+        vec4 wp = modelMatrix * lp;
+        vUv = uv; vP = lp.xyz;
+        vN = normalize(mat3(modelMatrix) * mat3(iM) * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      ${NOISE_GLSL}
+      ${FX_TONE_GLSL}
+      uniform float uTime, uInt, uFlow, uPulse, uEdge, uRing;
+      uniform vec3 uColor, uHot; uniform vec2 uAxis;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+      void main(){
+        if (uInt <= 0.0005) discard;
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uEdge);
+        float along = vUv.x;
+        float flow = fract(along * 3.0 - uTime * uFlow);
+        float streak = smoothstep(0.0, 0.12, flow) * (1.0 - smoothstep(0.18, 0.85, flow));
+        float grain = 0.75 + 0.5 * fbm3(vec3(vP.xyz * 7.0 - vec3(uTime * 2.2, 0.0, 0.0)));
+        float head = uPulse > 0.0 ? smoothstep(uPulse - 0.16, uPulse, along) * (1.0 - smoothstep(uPulse, uPulse + 0.06, along)) : 0.0;
+        float ring = uRing > 0.0 ? smoothstep(0.42, 0.5, abs(vUv.y - 0.5)) * uRing : 0.0;
+        float a = uInt * (0.16 + 0.55 * fres + 0.5 * streak + 1.6 * head + ring) * grain;
+        vec3 col = mix(uColor, uHot, clamp(0.25 * fres + 0.7 * head + 0.35 * streak, 0.0, 1.0));
+        gl_FragColor = fxOut(col * a * 1.25, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+
+/** 高温等离子体：湍流噪声球，白热核心 + 橙色外缘 */
+function plasmaMaterial(o = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SHARED.time,
+      uExpo: SHARED.expo,
+      uInt: { value: 0 },
+      uScale: { value: o.scale ?? 6.0 },
+      uCore: { value: new THREE.Color(0xffffff) },
+      uMid: { value: new THREE.Color(0xd8c8ff) },
+      uEdge: { value: new THREE.Color(0xff8a3c) },
+      uSeed: { value: o.seed ?? 0 },
+    },
+    vertexShader: `
+      varying vec3 vP; varying vec3 vN; varying vec3 vV;
+      void main(){
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vP = position; vN = normalize(normalMatrix * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      ${NOISE_GLSL}
+      ${FX_TONE_GLSL}
+      uniform float uTime, uInt, uScale, uSeed;
+      uniform vec3 uCore, uMid, uEdge;
+      varying vec3 vP; varying vec3 vN; varying vec3 vV;
+      void main(){
+        if (uInt <= 0.0005) discard;
+        float r = length(vP);
+        vec3 q = normalize(vP) * uScale + vec3(uSeed, uSeed * 0.7, -uTime * 2.6);
+        float n = fbm3(q);
+        float turb = mix(0.45, 1.55, n);
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.35);
+        float core = pow(clamp(1.0 - r, 0.0, 1.0), 1.6);
+        vec3 col = mix(uEdge, uMid, clamp(core * 1.8, 0.0, 1.0));
+        col = mix(col, uCore, clamp(core * core * 2.2 * turb, 0.0, 1.0));
+        float a = uInt * turb * (0.28 + 0.85 * core + 0.5 * fres);
+        gl_FragColor = fxOut(col * a * 1.6, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+
+/** 气流 / 碎屑云 / 潜影雾等柔性体积 */
+function wispMaterial(o = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SHARED.time,
+      uExpo: SHARED.expo,
+      uInt: { value: o.intensity ?? 0.5 },
+      uColor: { value: new THREE.Color(o.color ?? 0x6ff0d0) },
+      uSpeed: { value: o.speed ?? 0.6 },
+      uScale: { value: o.scale ?? 3.0 },
+      uDir: { value: new THREE.Vector3(o.dir ? o.dir[0] : 1, o.dir ? o.dir[1] : 0, o.dir ? o.dir[2] : 0) },
+    },
+    vertexShader: `
+      varying vec2 vUv; varying vec3 vP; varying vec3 vN; varying vec3 vV;
+      void main(){
+        ${INSTANCE_GLSL}
+        vec4 lp = iM * vec4(position, 1.0);
+        vec4 wp = modelMatrix * lp;
+        vUv = uv; vP = lp.xyz;
+        vN = normalize(mat3(modelMatrix) * mat3(iM) * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      ${NOISE_GLSL}
+      ${FX_TONE_GLSL}
+      uniform float uTime, uInt, uSpeed, uScale; uniform vec3 uColor, uDir;
+      varying vec2 vUv; varying vec3 vP; varying vec3 vN; varying vec3 vV;
+      void main(){
+        if (uInt <= 0.0005) discard;
+        vec3 q = vP * uScale - uDir * (uTime * uSpeed * uScale);
+        float n = fbm3(q);
+        float band = smoothstep(0.30, 0.62, n);
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.2);
+        float endFade = smoothstep(0.0, 0.12, vUv.x) * (1.0 - smoothstep(0.72, 1.0, vUv.x));
+        float a = uInt * band * endFade * (0.35 + 0.9 * fres);
+        gl_FragColor = fxOut(uColor * a * 1.4, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+
+/** 射线束（等离子体各向辐射 / 光线示意）：细管 + 行进脉冲 */
+function rayMaterial(o = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SHARED.time,
+      uExpo: SHARED.expo,
+      uInt: { value: o.intensity ?? 1 },
+      uColor: { value: new THREE.Color(o.color ?? 0x8f7bff) },
+      uHot: { value: new THREE.Color(o.hot ?? 0xdff0ff) },
+      uSpeed: { value: o.speed ?? 0.9 },
+      uCount: { value: o.count ?? 2.0 },
+      uWidth: { value: o.width ?? 0.22 },
+      uReveal: { value: 1 },
+    },
+    vertexShader: `
+      attribute float aSeed;
+      varying vec2 vUv; varying float vSeed; varying vec3 vN; varying vec3 vV;
+      void main(){
+        ${INSTANCE_GLSL}
+        vec4 lp = iM * vec4(position, 1.0);
+        vec4 wp = modelMatrix * lp;
+        vUv = uv; vSeed = aSeed;
+        vN = normalize(mat3(modelMatrix) * mat3(iM) * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      ${FX_TONE_GLSL}
+      uniform float uTime, uInt, uSpeed, uCount, uWidth, uReveal;
+      uniform vec3 uColor, uHot;
+      varying vec2 vUv; varying float vSeed; varying vec3 vN; varying vec3 vV;
+      void main(){
+        if (uInt <= 0.0005) discard;
+        float u = vUv.x;
+        if (u > uReveal) discard;
+        float p = fract(u * uCount - uTime * uSpeed + vSeed);
+        float head = smoothstep(0.0, uWidth * 0.35, p) * (1.0 - smoothstep(uWidth * 0.4, uWidth, p));
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.1);
+        float a = uInt * (0.07 + 0.22 * fres + 1.15 * head);
+        vec3 col = mix(uColor, uHot, head);
+        gl_FragColor = fxOut(col * a * 1.35, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+
+/** 加性点光晕（等离子体闪光、焦点、反射高光） */
+function glowMaterial(color = 0xffffff, power = 2.6) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uInt: { value: 1 }, uPow: { value: power }, uExpo: SHARED.expo },
+    vertexShader: `
+      varying vec2 vUv;
+      void main(){
+        ${INSTANCE_GLSL}
+        vUv = uv;
+        vec4 wp = modelMatrix * iM * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      ${FX_TONE_GLSL}
+      uniform vec3 uColor; uniform float uInt, uPow;
+      varying vec2 vUv;
+      void main(){
+        if (uInt <= 0.0005) discard;
+        float d = length(vUv - 0.5) * 2.0;
+        float a = pow(clamp(1.0 - d, 0.0, 1.0), uPow) * uInt;
+        gl_FragColor = fxOut(uColor * a * 1.8, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+
+/** 粒子系统（锡碎屑、氢气分子、光子等）— 位置由 CPU 端解析函数每帧写入 */
+function pointsMaterial(o = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(o.color ?? 0xbfe6ff) },
+      uHot: { value: new THREE.Color(o.hot ?? 0xffffff) },
+      uSize: { value: o.size ?? 26 },
+      uPixel: { value: 1 },
+      uInt: { value: 1 },
+      uExpo: SHARED.expo,
+    },
+    vertexShader: `
+      attribute float aA; attribute float aS; attribute float aT;
+      uniform float uSize, uPixel;
+      varying float vA; varying float vT;
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = uSize * aS * uPixel / max(0.25, -mv.z);
+        vA = aA; vT = aT;
+      }`,
+    fragmentShader: `
+      ${FX_TONE_GLSL}
+      uniform vec3 uColor, uHot; uniform float uInt;
+      varying float vA; varying float vT;
+      void main(){
+        vec2 p = gl_PointCoord - 0.5;
+        float r2 = dot(p, p);
+        if (r2 > 0.25) discard;
+        float core = exp(-r2 * 14.0), glow = exp(-r2 * 3.6) * 0.4;
+        float a = (core + glow) * vA * uInt;
+        gl_FragColor = fxOut(mix(uColor, uHot, vT) * (core * 1.6 + glow), a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+
+// ===== src/30-kit.js =======================================================
+/* =============================================================================
+   30 · KIT  ·  程序化零件库：真空腔体、锡滴发生器、椭球集光镜、面镜阵列、
+   反射掩模、晶圆台、投影镜筒、光束/射线束构造器、3D 标注锚点
+   ========================================================================== */
+
+/** 场景内实用光（每个镜头独立布光；位于不可见组内时不参与渲染） */
+function practicals(parent, list) {
+  for (const l of list) {
+    const p = new THREE.PointLight(l.c ?? 0xffffff, l.i ?? 4, l.d ?? 10, 2);
+    p.position.set(l.p[0], l.p[1], l.p[2]);
+    parent.add(p);
+  }
+}
+
+/** 3D 锚定标注（由 70-overlay 投影为 HTML 引线标签） */
+const LABELS = [];
+function label3d(parent, pos, o) {
+  const anchor = new THREE.Object3D();
+    anchor.position.set(pos[0], pos[1], pos[2]);
+  parent.add(anchor);
+  LABELS.push({
+    obj: anchor, cn: o.cn, en: o.en || '', sub: o.sub || '',
+    t0: o.t0, t1: o.t1, side: o.side || 'right', tone: o.tone || 'euv',
+  });
+  return anchor;
+}
+
+/** uv.x 沿轴向的锥形管（光束、气流通道） */
+function taperedTube(len, r0, r1, seg = 24, radial = 20) {
+  const pos = [], nor = [], uv = [], idx = [];
+  for (let i = 0; i <= seg; i++) {
+    const u = i / seg, x = u * len, r = lerp(r0, r1, u);
+    for (let j = 0; j <= radial; j++) {
+      const a = (j / radial) * TAU;
+      const cy = Math.cos(a), sy = Math.sin(a);
+      pos.push(x, cy * r, sy * r);
+      nor.push(0, cy, sy);
+      uv.push(u, j / radial);
+    }
+  }
+  for (let i = 0; i < seg; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * (radial + 1) + j, b = a + 1, c = a + radial + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/** 在两点之间放置锥形光束（自动对齐方向） */
+function beamBetween(parent, p0, p1, r0, r1, mat, o = {}) {
+  const a = new THREE.Vector3(...p0), b = new THREE.Vector3(...p1);
+  const len = a.distanceTo(b);
+  const g = taperedTube(len, r0, r1, o.seg ?? 26, o.radial ?? 18);
+  const m = new THREE.Mesh(g, mat);
+  m.position.copy(a);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), b.clone().sub(a).normalize());
+  m.renderOrder = 8;
+  m.frustumCulled = false;
+  parent.add(m);
+  return m;
+}
+
+/** 一束射线（每条路径一根细管，合并为单次绘制，携带 aSeed 供着色器错相） */
+function rayBundle(parent, paths, mat, radius = 0.0045, o = {}) {
+  const geoms = [], seeds = [];
+  paths.forEach((pts, i) => {
+    geoms.push(tube(pts, radius, o.radial ?? 4, o.seg ?? Math.max(8, (pts.length - 1) * 6)));
+    seeds.push(hash1(i + 3));
+  });
+  let vc = 0, ic = 0;
+  for (const g of geoms) { vc += g.attributes.position.count; ic += g.index.count; }
+  const pos = new Float32Array(vc * 3), nor = new Float32Array(vc * 3), uv = new Float32Array(vc * 2);
+  const seed = new Float32Array(vc), idx = new Uint32Array(ic);
+  let vo = 0, io = 0;
+  geoms.forEach((g, gi) => {
+    const n = g.attributes.position.count;
+    pos.set(g.attributes.position.array, vo * 3);
+    nor.set(g.attributes.normal.array, vo * 3);
+    uv.set(g.attributes.uv.array, vo * 2);
+    seed.fill(seeds[gi], vo, vo + n);
+    for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.array[i] + vo;
+    io += g.index.count; vo += n;
+    g.dispose();
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 7;
+  parent.add(mesh);
+  return mesh;
+}
+
+/** 加性光斑（焦点、闪光、反射亮点） */
+function glowSprite(parent, pos, size, color, power = 2.6) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), glowMaterial(color, power));
+  m.position.set(pos[0], pos[1], pos[2]);
+  m.renderOrder = 9;
+  m.userData.billboard = true;
+  parent.add(m);
+  return m;
+}
+
+/* -------------------------------------------------------------------------- */
+/** 真空腔壁：内壁板 + 环向加强筋 + 法兰口（用于把镜头"包"在腔内）*/
+function vesselWall(parent, o = {}) {
+  const r = o.r ?? 2.2, len = o.len ?? 4.4, seg = Math.max(28, Q.seg);
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(
+    new THREE.CylinderGeometry(r, r, len, seg, 1, true, o.aStart ?? 0, o.aLen ?? TAU),
+    new THREE.MeshStandardMaterial({ color: 0x2b3541, metalness: 0.66, roughness: 0.48, side: THREE.BackSide, envMapIntensity: 1.05 }),
+  );
+  shell.rotation.z = Math.PI / 2;
+  g.add(shell);
+  for (let i = 0; i <= 4; i++) {
+    const x = -len / 2 + (len * i) / 4;
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(r * 0.995, 0.035, 6, seg), MAT.steelDark);
+    rib.rotation.y = Math.PI / 2;
+    rib.position.x = x;
+    g.add(rib);
+  }
+  if (o.ports !== false) {
+    for (let i = 0; i < 7; i++) {
+      const a = hash1(i) * TAU, x = lerp(-len * 0.4, len * 0.4, hash2(i));
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.1, 14), MAT.steelDark);
+      p.position.set(x, Math.cos(a) * r * 0.98, Math.sin(a) * r * 0.98);
+      p.lookAt(0, 0, 0);
+      p.rotateX(Math.PI / 2);
+      g.add(p);
+    }
+  }
+  parent.add(g);
+  return g;
+}
+
+/** 结构框架梁 */
+function frameStruct(parent, pts, size = 0.06, mat) {
+  const g = new THREE.Group();
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = new THREE.Vector3(...pts[i]), b = new THREE.Vector3(...pts[i + 1]);
+    const len = a.distanceTo(b);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(size, size, len), mat || MAT.panel);
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    m.lookAt(b);
+    g.add(m);
+  }
+  parent.add(g);
+  return g;
+}
+
+/** 六足精密调整机构（镜片支撑，工程可信度细节） */
+function hexapod(parent, o = {}) {
+  const rTop = o.rTop ?? 0.26, rBase = o.rBase ?? 0.40, h = o.h ?? 0.34;
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(rBase, rBase * 1.04, 0.05, 24), MAT.steelDark);
+  base.position.y = -h;
+  g.add(base);
+  for (let i = 0; i < 6; i++) {
+    const a0 = (i / 6) * TAU + 0.22, a1 = ((i + (i % 2 ? 1 : -1) * 0.42) / 6) * TAU;
+    const p0 = new THREE.Vector3(Math.cos(a0) * rTop, 0, Math.sin(a0) * rTop);
+    const p1 = new THREE.Vector3(Math.cos(a1) * rBase, -h, Math.sin(a1) * rBase);
+    const len = p0.distanceTo(p1);
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, len, 10), MAT.alu);
+    strut.position.copy(p0).add(p1).multiplyScalar(0.5);
+    strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p1.clone().sub(p0).normalize());
+    g.add(strut);
+    const act = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, len * 0.32, 12), MAT.steel);
+    act.position.copy(strut.position);
+    act.quaternion.copy(strut.quaternion);
+    g.add(act);
+  }
+  parent.add(g);
+  return g;
+}
+
+/** 反射镜组件：面形 + 基板 + 六足 + 编号铭牌 */
+function mirrorUnit(parent, o = {}) {
+  const g = new THREE.Group();
+  const { top, back } = mirrorPatch({
+    w: o.w ?? 0.9, h: o.h ?? 0.7, curve: o.curve ?? 0.22,
+    thick: o.thick ?? 0.10, segs: Math.max(14, Math.round(Q.seg * 0.32)),
+  });
+  const face = new THREE.Mesh(top, o.warm ? MAT.multilayerWarm : MAT.multilayer);
+  face.castShadow = false;
+  g.add(face);
+  const sub = new THREE.Mesh(back, MAT.substrate);
+  g.add(sub);
+  if (o.mount !== false) {
+    const hp = new THREE.Group();
+    hp.position.z = -(o.thick ?? 0.10) - 0.16;
+    hp.rotation.x = Math.PI / 2;
+    hexapod(hp, { rTop: (o.w ?? 0.9) * 0.24, rBase: (o.w ?? 0.9) * 0.36, h: 0.26 });
+    g.add(hp);
+  }
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  g.userData.face = face;
+  return g;
+}
+
+/**
+ * 椭球集光镜。等离子体位于第一焦点、中间焦点位于第二焦点——
+ * 射线由椭圆反射性质精确生成，保证"光路方向正确"。
+ */
+function collectorMirror(parent, o = {}) {
+  const a = o.a ?? 1.70, c = o.c ?? 1.35;          // 半长轴 / 焦距
+  const b = Math.sqrt(a * a - c * c);
+  const xFrom = o.xFrom ?? -a, xTo = o.xTo ?? -0.86;
+  const hole = o.hole ?? 0.14;                      // 中心通孔（CO₂ 激光由此射入）
+  const seg = Math.max(40, Q.seg);
+  const rAt = (x) => b * Math.sqrt(Math.max(0, 1 - (x * x) / (a * a)));
+
+  const g = new THREE.Group();
+  /* 反射面（回转面，带中心孔） */
+  const prof = [];
+  const n = 36;
+  for (let i = 0; i <= n; i++) {
+    const x = lerp(xFrom, xTo, i / n);
+    const r = rAt(x);
+    if (r < hole) continue;
+    prof.push([x, r]);
+  }
+  if (prof.length && prof[0][1] > hole) prof.unshift([xFrom + 0.001, hole]);
+  const face = new THREE.Mesh(latheX(prof, seg), MAT.multilayer);
+  face.material.side = THREE.DoubleSide;
+  g.add(face);
+  /* 基板厚度与背筋 */
+  const backProf = prof.map(([x, r]) => [x - 0.07, r]);
+  const shell = new THREE.Mesh(latheX([...prof, ...backProf.reverse()], seg), MAT.substrate);
+  g.add(shell);
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * TAU;
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.055, Math.abs(xTo - xFrom) * 0.9, 0.03), MAT.steelDark);
+    rib.position.set((xFrom + xTo) / 2 - 0.10, Math.cos(ang) * rAt((xFrom + xTo) / 2) * 0.72, Math.sin(ang) * rAt((xFrom + xTo) / 2) * 0.72);
+    rib.rotation.set(ang, 0, Math.PI / 2);
+    g.add(rib);
+  }
+  /* 冷却环 + 外框 */
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(rAt(xTo) + 0.03, 0.035, 8, seg), MAT.steel);
+  rim.rotation.y = Math.PI / 2;
+  rim.position.x = xTo;
+  g.add(rim);
+
+  /* 把第一焦点放到局部原点 */
+  g.position.x = c;
+  parent.add(g);
+  return { group: g, a, b, c, xFrom, xTo, hole, rAt, F1: [0, 0, 0], F2: [2 * c, 0, 0] };
+}
+
+/** 由第一焦点出发、经椭球面反射到第二焦点的精确光路 */
+function collectorRayPaths(col, count, o = {}) {
+  const paths = [];
+  const minA = o.minA ?? Math.atan2(col.hole * 1.5, Math.abs(col.xFrom + col.c)) + 0.05;
+  const maxA = o.maxA ?? 2.02;
+  const c0 = Math.cos(minA), c1 = Math.cos(maxA);
+  for (let i = 0; i < count; i++) {
+    const u = (i + 0.5) / count;
+    const phi = hash1(i * 1.7) * TAU;
+    /* 立体角均匀采样：cos(th) 线性插值 */
+    const th = Math.acos(clamp(lerp(c0, c1, u), -1, 1));
+    /* 由 F1（局部原点）出发的射线与椭球求交；椭球中心位于 x = c（F1 在 x=0） */
+    const dx = -Math.cos(th), dr = Math.sin(th);
+    const dy = dr * Math.cos(phi), dz = dr * Math.sin(phi);
+    const A = (dx * dx) / (col.a * col.a) + (dy * dy + dz * dz) / (col.b * col.b);
+    const B = (-2 * col.c * dx) / (col.a * col.a);
+    const C = (col.c * col.c) / (col.a * col.a) - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc < 0) continue;
+    const t = (-B + Math.sqrt(disc)) / (2 * A);
+    if (!(t > 0)) continue;
+    const P = [dx * t, dy * t, dz * t];
+    const xe = P[0] - col.c;                       // 椭球坐标系下的轴向位置
+    if (xe < col.xFrom - 1e-3 || xe > col.xTo + 1e-3) continue;
+    paths.push([[0, 0, 0], P, col.F2]);
+  }
+  return paths;
+}
+
+/* -------------------------------------------------------------------------- */
+/** 锡滴发生器：储罐 + 加热带 + 毛细管 + 喷嘴 + 压电激励环 */
+function dropletGenerator(parent, o = {}) {
+  const g = new THREE.Group();
+  const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.46, 28), MAT.steel);
+  tank.position.y = 0.62;
+  g.add(tank);
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.20, 24, 12, 0, TAU, 0, Math.PI / 2), MAT.steel).translateY(0.85));
+  for (const y of [0.50, 0.62, 0.74]) {
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.022, 8, 28), MAT.copper);
+    band.rotation.x = Math.PI / 2;
+    band.position.y = y;
+    g.add(band);
+  }
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.038, 0.30, 22), MAT.alu);
+  neck.position.y = 0.26;
+  g.add(neck);
+  const piezo = new THREE.Mesh(new THREE.TorusGeometry(0.062, 0.020, 8, 22), MAT.accentEmissive);
+  piezo.rotation.x = Math.PI / 2;
+  piezo.position.y = 0.30;
+  g.add(piezo);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.012, 0.10, 20), MAT.alu);
+  tip.position.y = 0.075;
+  g.add(tip);
+  const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.045, 28), MAT.steelDark);
+  flange.position.y = 0.98;
+  g.add(flange);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  g.userData.piezo = piezo;
+  return g;
+}
+
+/** 锡滴接收器 */
+function dropletCatcher(parent, o = {}) {
+  const g = new THREE.Group();
+  const cup = new THREE.Mesh(latheY([[0.02, -0.24], [0.16, -0.02], [0.175, 0.02], [0.02, -0.20]], 24), MAT.steelDark);
+  g.add(cup);
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.06, 0.24, 24, 1, true), MAT.steel);
+  cone.material.side = THREE.DoubleSide;
+  cone.position.y = -0.1;
+  g.add(cone);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.28, 20), MAT.steel);
+  body.position.y = -0.34;
+  g.add(body);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  return g;
+}
+
+/** 光阑板（中间焦点、光瞳） */
+function aperturePlate(parent, o = {}) {
+  const rOut = o.rOut ?? 0.6, rIn = o.rIn ?? 0.06, th = o.th ?? 0.035;
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(latheX([[-th / 2, rIn], [th / 2, rIn], [th / 2, rOut], [-th / 2, rOut]], Math.max(36, Q.seg)), MAT.alu);
+  g.add(ring);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU;
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.02, rOut * 0.5, 0.03), MAT.steelDark);
+    fin.position.set(0, Math.cos(a) * rOut * 0.75, Math.sin(a) * rOut * 0.75);
+    fin.rotation.x = a;
+    g.add(fin);
+  }
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  return g;
+}
+
+/** 光谱纯化滤网（网栅结构） */
+function spectralFilter(parent, o = {}) {
+  const r = o.r ?? 0.28;
+  const g = new THREE.Group();
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(r, 0.022, 8, 40), MAT.gold);
+  frame.rotation.y = Math.PI / 2;
+  g.add(frame);
+  const n = 15;
+  for (let i = 0; i < n; i++) {
+    const y = lerp(-r * 0.92, r * 0.92, i / (n - 1));
+    const halfW = Math.sqrt(Math.max(0, r * r - y * y));
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.008, halfW * 2), MAT.gold);
+    bar.position.y = y;
+    g.add(bar);
+    const bar2 = new THREE.Mesh(new THREE.BoxGeometry(0.006, halfW * 2, 0.008), MAT.gold);
+    bar2.position.z = y;
+    g.add(bar2);
+  }
+  const mem = new THREE.Mesh(new THREE.CircleGeometry(r * 0.96, 40), new THREE.MeshPhysicalMaterial({
+    color: 0x9fd0ff, metalness: 0.3, roughness: 0.25, transparent: true, opacity: 0.16, side: THREE.DoubleSide,
+  }));
+  mem.rotation.y = Math.PI / 2;
+  g.add(mem);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  return g;
+}
+
+/** 面镜阵列（视场面镜 / 光瞳面镜）：InstancedMesh + 可变倾角 */
+function facetArray(parent, o = {}) {
+  const nx = o.nx ?? Q.facets, ny = o.ny ?? Q.facets;
+  const size = o.size ?? 0.075, gap = o.gap ?? 0.012, curve = o.curve ?? 0.5;
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(size, size, 0.012);
+  const mesh = new THREE.InstancedMesh(geo, o.warm ? MAT.multilayerWarm : MAT.multilayer, nx * ny);
+  const w = nx * (size + gap), h = ny * (size + gap);
+  let k = 0;
+  const centers = [];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = -w / 2 + (i + 0.5) * (size + gap);
+      const y = -h / 2 + (j + 0.5) * (size + gap);
+      const z = -curve * ((x * x) / (w * 0.5) + (y * y) / (h * 0.5)) * 0.5;
+      _obj.position.set(x, y, z);
+      _obj.rotation.set(y * 0.55, -x * 0.55, hash1(k) * 0.05);
+      _obj.scale.setScalar(1);
+      _obj.updateMatrix();
+      mesh.setMatrixAt(k, _obj.matrix);
+      centers.push([x, y, z]);
+      k++;
+    }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  g.add(mesh);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(w + 0.09, h + 0.09, 0.05), MAT.substrate);
+  plate.position.z = -0.05 - curve * 0.1;
+  g.add(plate);
+  const hp = new THREE.Group();
+  hp.position.z = -0.16;
+  hp.rotation.x = Math.PI / 2;
+  hexapod(hp, { rTop: w * 0.22, rBase: w * 0.34, h: 0.2 });
+  g.add(hp);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  if (o.rot) g.rotation.set(o.rot[0], o.rot[1], o.rot[2]);
+  parent.add(g);
+  g.userData.centers = centers;
+  g.userData.mesh = mesh;
+  return g;
+}
+
+/** 反射式掩模组件：基板 + 多层膜 + 吸收层图形 + 静电夹具 */
+function reticleAssembly(parent, o = {}) {
+  const g = new THREE.Group();
+  const w = o.w ?? 1.04, h = o.h ?? 1.04, th = 0.055;
+  const blank = new THREE.Mesh(new THREE.BoxGeometry(w, th, h), MAT.substrate);
+  blank.position.y = -th / 2 - 0.004;
+  g.add(blank);
+  const ml = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, 0.008, h * 0.98), MAT.multilayer);
+  g.add(ml);
+  const pat = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.74, h * 0.74), new THREE.MeshStandardMaterial({
+    color: 0x0b0e14, metalness: 0.5, roughness: 0.45, map: MAT.circuitTex, envMapIntensity: 0.7,
+  }));
+  pat.rotation.x = -Math.PI / 2;
+  pat.position.y = 0.0055;
+  g.add(pat);
+  const chuck = new THREE.Mesh(new THREE.BoxGeometry(w * 1.12, 0.10, h * 1.12), MAT.steelDark);
+  chuck.position.y = -0.11;
+  g.add(chuck);
+  for (let i = 0; i < 4; i++) {
+    const cl = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.05, 0.16), MAT.alu);
+    cl.position.set((i < 2 ? -1 : 1) * w * 0.52, -0.03, (i % 2 ? -1 : 1) * h * 0.34);
+    g.add(cl);
+  }
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  g.userData.pattern = pat;
+  g.userData.multilayer = ml;
+  return g;
+}
+
+/** 精密工作台（掩模台 / 晶圆台）：导轨 + 音圈 + 光栅尺 */
+function precisionStage(parent, o = {}) {
+  const g = new THREE.Group();
+  const w = o.w ?? 1.6, d = o.d ?? 1.2;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), MAT.panel);
+  base.position.y = -0.12;
+  g.add(base);
+  for (const z of [-d * 0.36, d * 0.36]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, 0.035, 0.07), MAT.alu);
+    rail.position.set(0, -0.06, z);
+    g.add(rail);
+  }
+  for (let i = 0; i < 2; i++) {
+    const coil = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 0.20), MAT.copper);
+    coil.position.set((i ? 1 : -1) * w * 0.4, -0.055, 0);
+    g.add(coil);
+  }
+  const scale = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.012, 0.03), MAT.accentEmissive);
+  scale.position.set(0, -0.03, -d * 0.46);
+  g.add(scale);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  return g;
+}
+
+/** 300 mm 晶圆 + 芯片阵列 + 光刻胶层 */
+function waferAssembly(parent, o = {}) {
+  const g = new THREE.Group();
+  const R = o.r ?? 1.0;
+  const wafer = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.022, Math.max(48, Q.seg)), MAT.silicon);
+  g.add(wafer);
+  /* 缺口 (notch) */
+  const notch = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.05), MAT.dark);
+  notch.position.set(0, 0, -R);
+  g.add(notch);
+  /* 已曝光的 die 阵列 */
+  const die = new THREE.PlaneGeometry(R * 0.19, R * 0.135);
+  const dies = [];
+  const inst = new THREE.InstancedMesh(die, new THREE.MeshStandardMaterial({
+    color: 0x6d8598, metalness: 0.8, roughness: 0.2, map: MAT.circuitTex, envMapIntensity: 1.3,
+    transparent: true, opacity: 1,
+  }), 200);
+  let k = 0;
+  for (let j = -5; j <= 5; j++) {
+    for (let i = -5; i <= 5; i++) {
+      const x = i * R * 0.2, z = j * R * 0.145;
+      if (Math.hypot(x, z) > R * 0.88) continue;
+      _obj.position.set(x, 0.0125, z);
+      _obj.rotation.set(-Math.PI / 2, 0, 0);
+      _obj.scale.setScalar(1);
+      _obj.updateMatrix();
+      inst.setMatrixAt(k, _obj.matrix);
+      dies.push([x, z]);
+      k++;
+    }
+  }
+  inst.count = k;
+  inst.instanceMatrix.needsUpdate = true;
+  g.add(inst);
+  /* 光刻胶层 */
+  const resist = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.995, R * 0.995, 0.006, Math.max(48, Q.seg)), MAT.resist);
+  resist.position.y = 0.016;
+  g.add(resist);
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  g.userData.dies = dies;
+  g.userData.dieMesh = inst;
+  g.userData.resist = resist;
+  return g;
+}
+
+/** 投影物镜镜筒框架（POB） */
+function pobHousing(parent, o = {}) {
+  const g = new THREE.Group();
+  const h = o.h ?? 2.1, r = o.r ?? 0.95;
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.06, h, Math.max(28, Q.seg), 1, true), new THREE.MeshStandardMaterial({
+    color: 0x39434f, metalness: 0.58, roughness: 0.46, side: THREE.DoubleSide, transparent: true, opacity: 0.42, envMapIntensity: 1.1,
+  }));
+  g.add(shell);
+  for (const y of [-h / 2, -h / 6, h / 6, h / 2]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 1.01, 0.03, 8, Math.max(28, Q.seg)), MAT.steelDark);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = y;
+    g.add(ring);
+  }
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * TAU;
+    const col = new THREE.Mesh(new THREE.BoxGeometry(0.05, h, 0.05), MAT.panel);
+    col.position.set(Math.cos(a) * r * 1.02, 0, Math.sin(a) * r * 1.02);
+    g.add(col);
+  }
+  g.position.set(o.pos ? o.pos[0] : 0, o.pos ? o.pos[1] : 0, o.pos ? o.pos[2] : 0);
+  parent.add(g);
+  return g;
+}
+
+/** 机器外形（片头/整机镜头用的抽象面板体） */
+function machineExterior(parent, o = {}) {
+  const g = new THREE.Group();
+  const mk = (w, h, d, pos, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || MAT.panel);
+    m.position.set(pos[0], pos[1], pos[2]);
+    m.castShadow = true; m.receiveShadow = true;
+    g.add(m);
+    /* 面板缝隙高光 */
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(w * 1.002, 0.006, d * 1.002), MAT.steelDark);
+    edge.position.set(pos[0], pos[1] + h / 2 - 0.02, pos[2]);
+    g.add(edge);
+    return m;
+  };
+  mk(2.6, 1.9, 2.0, [-1.75, 0.05, 0]);                       // 光源模块
+  mk(3.4, 2.5, 2.2, [1.15, 0.35, 0]);                        // 扫描机
+  mk(1.2, 0.9, 1.4, [3.2, -0.35, 0.2], MAT.steelDark);       // 晶圆搬运
+  mk(0.9, 0.5, 1.0, [-3.3, -0.55, 0.1], MAT.steelDark);      // 驱动激光柜
+  const top = mk(1.5, 0.6, 1.2, [1.0, 1.9, 0], MAT.panelLight);
+  top.material = MAT.panelLight;
+  for (let i = 0; i < 4; i++) {
+    const led = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.02), MAT.accentEmissive);
+    led.position.set(1.15 - i * 0.02, 1.6 - i * 0.34, 1.11);
+    g.add(led);
+  }
+  frameStruct(g, [[-3.6, -1.05, -1.1], [3.9, -1.05, -1.1], [3.9, -1.05, 1.1], [-3.6, -1.05, 1.1], [-3.6, -1.05, -1.1]], 0.09, MAT.steelDark);
+  parent.add(g);
+  return g;
+}
+
+// ===== src/40-scene-a.js ===================================================
+/* =============================================================================
+   40 · SCENES A  ·  片头 / 整机 / ①锡滴发生器 / ②预脉冲 / ③主脉冲 / ④13.5nm 辐射
+   每个场景返回 update(t, local, k)：所有动画都是时间的纯函数（可逐帧复现）
+   ========================================================================== */
+
+const SCENES = {};
+const BILLBOARDS = [];
+function defineScene(id, builder) { SCENES[id] = builder; }
+function billboard(m) { BILLBOARDS.push(m); return m; }
+
+/** 单调时间弯曲（用于慢动作坡度，保持连续可复现） */
+const timeWarp = (local, r0, r1, T) => r0 * local + ((r1 - r0) * local * local) / (2 * Math.max(0.001, T));
+
+/** 确定性漂浮粒子云 */
+function dustField(parent, o = {}) {
+  const n = Math.max(60, Math.round((o.count ?? 420) * Q.particles));
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3), aA = new Float32Array(n), aS = new Float32Array(n), aT = new Float32Array(n);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aA', new THREE.BufferAttribute(aA, 1));
+  geo.setAttribute('aS', new THREE.BufferAttribute(aS, 1));
+  geo.setAttribute('aT', new THREE.BufferAttribute(aT, 1));
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 40);
+  const mat = pointsMaterial({ color: o.color ?? 0x9fc8ff, hot: o.hot ?? 0xffffff, size: o.size ?? 16 });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 6;
+  parent.add(pts);
+  return {
+    points: pts, n, geo,
+    update(t, fn) {
+      for (let i = 0; i < n; i++) {
+        const p = fn(i, t);
+        pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
+        aA[i] = p[3]; aS[i] = p[4] ?? 1; aT[i] = p[5] ?? 0;
+      }
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.aA.needsUpdate = true;
+      geo.attributes.aS.needsUpdate = true;
+      geo.attributes.aT.needsUpdate = true;
+    },
+  };
+}
+
+/* ========================================================================== */
+/* 片头：多层膜镜片阵列环绕 EUV 光核缓慢旋转                                    */
+defineScene('title', (g) => {
+  const cluster = new THREE.Group();
+  g.add(cluster);
+  const shards = [];
+  const N = 15;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * TAU * 3.1, r = lerp(1.5, 3.4, hash1(i)), y = lerp(-1.5, 1.5, hash2(i));
+    const u = mirrorUnit(cluster, {
+      w: lerp(0.5, 1.25, hash3(i)), h: lerp(0.4, 0.95, hash1(i + 9)),
+      curve: lerp(0.12, 0.4, hash2(i + 4)), thick: 0.05, mount: false,
+      pos: [Math.cos(a) * r, y, Math.sin(a) * r],
+    });
+    u.rotation.set(hash1(i + 2) * TAU, hash2(i + 3) * TAU, hash3(i + 5) * 0.9);
+    shards.push({ g: u, sp: lerp(-0.22, 0.22, hash1(i + 7)), r, a });
+  }
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.30, 4), plasmaMaterial({ scale: 5.5, seed: 3 }));
+  g.add(core);
+  const halo = billboard(glowSprite(g, [0, 0, 0], 4.2, 0x8f7bff, 2.2));
+  const halo2 = billboard(glowSprite(g, [0, 0, 0], 1.5, 0xdfe8ff, 3.2));
+  const dust = dustField(g, { count: 520, color: 0x8fb4ff, size: 13 });
+  practicals(g, [
+    { p: [4.5, 3.0, 5.5], c: 0xdfe8ff, i: 42, d: 26 },
+    { p: [-5.0, -1.5, -3.5], c: 0xa48cff, i: 32, d: 26 },
+    { p: [0, 4.5, -2.0], c: 0xbfd8ff, i: 14, d: 20 },
+  ]);
+
+  return (t, local, k) => {
+    cluster.rotation.y = local * 0.075;
+    cluster.rotation.x = Math.sin(local * 0.13) * 0.05;
+    for (const s of shards) {
+      s.g.rotation.y += 0;
+      s.g.rotation.z = s.a + local * s.sp * 0.35;
+      const br = 1 + 0.06 * Math.sin(local * 0.6 + s.r);
+      s.g.position.set(Math.cos(s.a + local * s.sp * 0.1) * s.r * br, s.g.position.y, Math.sin(s.a + local * s.sp * 0.1) * s.r * br);
+    }
+    const ig = smoothstep(0.3, 4.2, local) * (0.55 + 0.45 * Math.sin(local * 2.1) * 0.5);
+    core.material.uniforms.uInt.value = 0.55 + ig * 0.9 + pulse(local, 6.2, 0.12, 0.9) * 2.2;
+    halo.material.uniforms.uInt.value = 0.22 + 0.3 * smoothstep(0, 5, local) + pulse(local, 6.2, 0.1, 1.3) * 0.85;
+    halo2.material.uniforms.uInt.value = 0.5 + pulse(local, 6.2, 0.08, 0.7) * 1.6;
+    dust.update(local, (i, tt) => {
+      const a = hash1(i) * TAU + tt * (0.05 + hash2(i) * 0.05);
+      const r = lerp(1.0, 5.2, hash2(i));
+      const y = lerp(-2.4, 2.4, hash3(i)) + Math.sin(tt * 0.3 + i) * 0.06;
+      return [Math.cos(a) * r, y, Math.sin(a) * r, 0.5 * smoothstep(0, 3, tt), 0.5 + hash1(i + 5) * 0.9, hash2(i + 3) * 0.4];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* 整机与真空环境：外壳打开，露出内部光路骨架                                   */
+defineScene('machine', (g) => {
+  const ext = machineExterior(g);
+  /* 可移开的前面板 */
+  const doors = new THREE.Group();
+  g.add(doors);
+  const doorMat = MAT.panel.clone();
+  doorMat.transparent = true;
+  const d1 = new THREE.Mesh(new THREE.BoxGeometry(2.55, 1.85, 0.05), doorMat);
+  d1.position.set(-1.75, 0.05, 1.02);
+  const d2 = new THREE.Mesh(new THREE.BoxGeometry(3.35, 2.45, 0.05), doorMat);
+  d2.position.set(1.15, 0.35, 1.12);
+  doors.add(d1, d2);
+
+  /* 内部：光源真空腔 + 光路骨架 + 扫描机模块 */
+  const inner = new THREE.Group();
+  g.add(inner);
+  const vessel = new THREE.Mesh(new THREE.SphereGeometry(0.78, 32, 20), new THREE.MeshStandardMaterial({
+    color: 0x28313c, metalness: 0.8, roughness: 0.35, transparent: true, opacity: 0.42, side: THREE.DoubleSide, envMapIntensity: 1,
+  }));
+  vessel.position.set(-1.75, 0.05, 0);
+  inner.add(vessel);
+  const plasma = new THREE.Mesh(new THREE.IcosahedronGeometry(0.10, 3), plasmaMaterial({ scale: 6, seed: 8 }));
+  plasma.position.copy(vessel.position);
+  inner.add(plasma);
+  const flare = billboard(glowSprite(inner, [-1.75, 0.05, 0], 1.5, 0xa48cff, 2.4));
+
+  /* 光路：源 → IF → 照明 → 掩模 → 投影 → 晶圆 */
+  const P = {
+    src: [-1.75, 0.05, 0], if_: [-0.55, 0.35, 0], illum: [0.35, 0.95, 0],
+    mask: [1.30, 1.35, 0], pob: [1.30, 0.20, 0], wafer: [1.30, -0.62, 0],
+  };
+  const bm = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 1.0, edge: 1.4, intensity: 0 });
+  const segs = [
+    beamBetween(inner, P.src, P.if_, 0.045, 0.022, bm),
+    beamBetween(inner, P.if_, P.illum, 0.022, 0.05, bm),
+    beamBetween(inner, P.illum, P.mask, 0.05, 0.055, bm),
+    beamBetween(inner, P.mask, P.pob, 0.055, 0.03, bm),
+    beamBetween(inner, P.pob, P.wafer, 0.03, 0.016, bm),
+  ];
+  /* 模块盒体 */
+  const mk = (pos, w, h, d, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(pos[0], pos[1], pos[2]);
+    inner.add(m);
+    return m;
+  };
+  mk(P.illum, 0.55, 0.35, 0.5, MAT.steelDark);
+  const maskPlate = mk([1.30, 1.42, 0], 0.5, 0.04, 0.42, MAT.multilayer);
+  mk(P.pob, 0.42, 0.9, 0.42, new THREE.MeshStandardMaterial({ color: 0x2a323c, metalness: 0.7, roughness: 0.4, transparent: true, opacity: 0.5 }));
+  const wafer = mk(P.wafer, 0.46, 0.02, 0.46, MAT.silicon);
+  aperturePlate(inner, { pos: P.if_, rOut: 0.10, rIn: 0.016, th: 0.02 });
+
+  label3d(inner, [-1.75, 0.95, 0], { cn: '光源模块 · 真空腔', en: 'SOURCE MODULE · VACUUM VESSEL', t0: 13.4, t1: 20.5, side: 'left' });
+  label3d(inner, [0.35, 1.35, 0], { cn: '照明光学', en: 'ILLUMINATOR', t0: 15.2, t1: 22.5, side: 'right' });
+  label3d(inner, [1.30, 1.62, 0], { cn: '反射式掩模', en: 'REFLECTIVE MASK', t0: 16.6, t1: 23.5, side: 'right' });
+  label3d(inner, [1.86, -0.62, 0], { cn: '晶圆', en: 'WAFER', t0: 18.0, t1: 24.6, side: 'right' });
+
+  const dust = dustField(g, { count: 260, color: 0x7fa8d8, size: 10 });
+  practicals(g, [
+    { p: [4.0, 3.2, 5.0], c: 0xe8f0ff, i: 30, d: 20 },
+    { p: [-4.5, 1.0, 3.0], c: 0xa48cff, i: 16, d: 18 },
+    { p: [1.3, 0.6, 2.2], c: 0xbfd8ff, i: 8, d: 8 },
+  ]);
+
+  return (t, local, k) => {
+    const open = smoothstep(2.2, 6.2, local);
+    doorMat.opacity = 1 - open;
+    doors.visible = open < 0.995;
+    d1.position.z = 1.02 + open * 1.5;
+    d2.position.z = 1.12 + open * 1.9;
+    d1.position.x = -1.75 - open * 0.8;
+    d2.position.x = 1.15 + open * 0.9;
+    ext.visible = true;
+    plasma.material.uniforms.uInt.value = 0.6 + 0.4 * Math.sin(local * 6.0) * 0.4;
+    flare.material.uniforms.uInt.value = 0.35 * open + 0.1;
+    const flow = smoothstep(5.0, 8.0, local);
+    bm.uniforms.uInt.value = flow * 0.9;
+    bm.uniforms.uPulse.value = flow > 0 ? (local * 0.42) % 1.35 : -1;
+    maskPlate.rotation.z = Math.sin(local * 0.8) * 0.01;
+    wafer.position.x = P.wafer[0] + Math.sin(local * 1.1) * 0.05;
+    dust.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, r = lerp(0.5, 5.5, hash2(i));
+      return [Math.cos(a) * r, lerp(-1.2, 2.2, hash3(i)) + Math.sin(tt * 0.2 + i) * 0.04, Math.sin(a) * r,
+        0.28 * smoothstep(0, 2, tt), 0.4 + hash1(i + 3) * 0.6, 0.1];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ① 锡滴发生器：50 kHz 微滴列车穿过激光焦点                                    */
+defineScene('droplet', (g) => {
+  vesselWall(g, { r: 1.9, len: 4.0, aStart: 0.55, aLen: TAU * 0.72 });
+  /* 腔壁定位灯带：给暗背景一点结构感（真空腔内的检视照明示意） */
+  for (const y of [-0.75, 0.55]) {
+    const strip = new THREE.Mesh(new THREE.TorusGeometry(1.82, 0.012, 6, 64, TAU * 0.5), MAT.accentEmissive);
+    strip.rotation.set(Math.PI / 2, 0, 0.9);
+    strip.position.y = y;
+    g.add(strip);
+  }
+  const gen = dropletGenerator(g, { pos: [0, 0.62, 0] });
+  dropletCatcher(g, { pos: [0, -1.02, 0] });
+
+  /* 锡滴列车（解析位置，确定性） */
+  const N = 54;
+  const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(0.026, 16, 12), MAT.tin, N);
+  drops.frustumCulled = false;
+  g.add(drops);
+  const yTop = 0.60, yBot = -0.95, span = yTop - yBot;
+
+  /* 焦点标记 + 激光入射方向提示 */
+  const focus = billboard(glowSprite(g, [0, 0, 0], 0.5, 0x9fd6ff, 3.0));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.004, 6, 40), MAT.accentEmissive);
+  ring.rotation.y = Math.PI / 2;
+  g.add(ring);
+  const laserHint = beamBetween(g, [-1.5, 0, 0], [-0.1, 0, 0], 0.02, 0.02,
+    beamMaterial({ color: 0xff5a3c, hot: 0xffd9a0, flow: 2.2, intensity: 0 }));
+
+  /* 尺度条：≈30 µm */
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.004, 0.004), MAT.accentEmissive);
+  bar.position.set(0.14, 0.16, 0);
+  g.add(bar);
+  label3d(g, [0.30, 0.17, 0], { cn: '≈ 25–30 µm', en: 'DROPLET Ø', t0: 30.6, t1: 41.8, side: 'right' });
+  label3d(g, [-0.24, 0.72, 0], { cn: '锡滴发生器喷嘴', en: 'DROPLET NOZZLE', t0: 25.8, t1: 34.0, side: 'left' });
+  label3d(g, [0.16, -0.02, 0], { cn: '激光焦点', en: 'LASER FOCUS', t0: 36.6, t1: 41.8, side: 'right' });
+  label3d(g, [-0.20, -1.02, 0], { cn: '锡滴接收器', en: 'DROPLET CATCHER', t0: 37.2, t1: 41.8, side: 'left' });
+  label3d(g, [0.34, 0.44, 0], { cn: '≈ 50,000 滴/秒（慢放示意）', en: '≈ 50 kHz · SLOW MOTION', t0: 31.0, t1: 41.8, side: 'right', tone: 'warm' });
+
+  const dust = dustField(g, { count: 200, color: 0x88a8c8, size: 8 });
+  practicals(g, [
+    { p: [1.15, 0.75, 1.35], c: 0xd8e8ff, i: 13.0, d: 7.0 },
+    { p: [-0.95, -0.35, -1.05], c: 0xffa878, i: 7.0, d: 6.5 },
+    { p: [0.25, 1.35, -0.75], c: 0xffffff, i: 9.0, d: 6.0 },
+    { p: [-0.55, 0.25, 1.25], c: 0x9fd8ff, i: 6.0, d: 5.0 },
+    { p: [0.0, -0.85, 0.9], c: 0xbfd8ff, i: 4.0, d: 3.5 },
+  ]);
+
+  return (t, local, k) => {
+    /* 慢动作坡度：镜头推近的同时时间被拉慢 */
+    const w = timeWarp(local, 1.15, 0.16, 17);
+    const spacing = span / 14;
+    for (let i = 0; i < N; i++) {
+      const y = yTop - (((w * 0.62 + i * spacing) % span) + span) % span;
+      const wobble = Math.sin((i + w * 3) * 2.3) * 0.0015;
+      _obj.position.set(wobble, y, 0);
+      const near = smoothstep(0.22, 0.02, Math.abs(y));
+      _obj.scale.setScalar(1 + near * 0.06);
+      _obj.rotation.set(0, 0, 0);
+      _obj.updateMatrix();
+      drops.setMatrixAt(i, _obj.matrix);
+    }
+    drops.instanceMatrix.needsUpdate = true;
+    gen.userData.piezo.material.emissiveIntensity = 1.2 + Math.sin(local * 24) * 0.8;
+    focus.material.uniforms.uInt.value = 0.22 + 0.1 * Math.sin(local * 5);
+    laserHint.material.uniforms.uInt.value = smoothstep(12.5, 15.5, local) * 0.55;
+    laserHint.material.uniforms.uPulse.value = (local * 0.9) % 1.4;
+    ring.material.emissiveIntensity = 1.0 + Math.sin(local * 3) * 0.3;
+    dust.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, r = lerp(0.3, 1.7, hash2(i));
+      return [Math.cos(a) * r, lerp(-1.1, 0.9, (hash3(i) + tt * 0.02) % 1), Math.sin(a) * r, 0.16, 0.4 + hash1(i) * 0.5, 0];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ② 预脉冲：锡滴被压扁成圆盘                                                   */
+defineScene('prepulse', (g) => {
+  /* 可变形锡滴：顶点着色器实现压扁 + 边缘涟漪 */
+  const dropMat = new THREE.MeshStandardMaterial({
+    color: 0xdfe6ee, metalness: 1.0, roughness: 0.085, envMapIntensity: 2.4,
+  });
+  dropMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uSquash = dropMat.userData.uSquash = { value: 0 };
+    sh.uniforms.uRipple = dropMat.userData.uRipple = { value: 0 };
+    sh.uniforms.uTime = SHARED.time;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform float uSquash; uniform float uRipple; uniform float uTime;
+        const float R0 = 0.10;                       // 液滴半径
+        vec3 euvSquash(vec3 p){
+          float sq = uSquash;
+          float rn = length(p.yz) / R0;              // 归一化径向位置
+          float rim = smoothstep(0.15, 1.0, rn);
+          p.x *= 1.0 - 0.90 * sq;                    // 沿激光轴压缩
+          p.yz *= 1.0 + 2.35 * sq;                   // 径向展开成盘
+          p.x += sin(rn * 9.0 - uTime * 11.0) * 0.004 * uRipple * rim;
+          p.yz *= 1.0 + sin(rn * 7.0 - uTime * 9.0) * 0.03 * uRipple * rim;
+          return p;
+        }`)
+      .replace('#include <beginnormal_vertex>', `
+        vec3 objectNormal = normalize(vec3(
+          normal.x / max(0.10, 1.0 - 0.90 * uSquash),
+          normal.y / (1.0 + 2.35 * uSquash),
+          normal.z / (1.0 + 2.35 * uSquash)));`)
+      .replace('#include <begin_vertex>', 'vec3 transformed = euvSquash(position);');
+  };
+  const drop = new THREE.Mesh(new THREE.SphereGeometry(0.10, 64, 48), dropMat);
+  g.add(drop);
+
+  /* 预脉冲激光（沿 +X 传播，压扁方向即激光轴向） */
+  const pre = beamBetween(g, [-2.4, 0, 0], [-0.09, 0, 0], 0.028, 0.017,
+    beamMaterial({ color: 0xff5a3c, hot: 0xffe0b0, flow: 3.4, intensity: 0, edge: 1.2 }));
+  const hit = billboard(glowSprite(g, [-0.02, 0, 0], 0.85, 0xffb070, 2.6));
+  const shock = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.012, 8, 48), beamMaterial({ color: 0xffc890, hot: 0xffffff, intensity: 0, flow: 0 }));
+  shock.rotation.y = Math.PI / 2;
+  g.add(shock);
+  const debris = dustField(g, { count: 260, color: 0xdfe8f2, hot: 0xfff0d8, size: 10 });
+
+  practicals(g, [
+    { p: [0.55, 0.45, 0.75], c: 0xd8e8ff, i: 2.2, d: 2.6 },
+    { p: [-0.45, -0.30, -0.60], c: 0xffb890, i: 1.4, d: 2.4 },
+  ]);
+  label3d(g, [-0.55, 0.20, 0], { cn: '预脉冲激光', en: 'PRE-PULSE (CO₂)', t0: 42.6, t1: 49.0, side: 'left', tone: 'ir' });
+  label3d(g, [0.02, -0.26, 0], { cn: '压扁成圆盘', en: 'FLATTENED DISC', t0: 47.6, t1: 56.6, side: 'right' });
+  label3d(g, [0.30, 0.20, 0], { cn: '受照面积增大 → 吸收更充分', en: 'LARGER AREA → BETTER ABSORPTION', t0: 49.6, t1: 56.6, side: 'right' });
+
+  return (t, local, k) => {
+    const s = smoothstep(3.0, 4.9, local);
+    if (dropMat.userData.uSquash) dropMat.userData.uSquash.value = s;
+    if (dropMat.userData.uRipple) dropMat.userData.uRipple.value = pulse(local, 3.0, 0.35, 4.2);
+    drop.rotation.x = local * 0.12;
+    pre.material.uniforms.uInt.value = pulse(local, 2.55, 0.28, 1.5) * 1.5 + 0.04 * smoothstep(1.5, 2.5, local);
+    pre.material.uniforms.uPulse.value = ((local - 2.4) * 2.4) % 1.3;
+    hit.material.uniforms.uInt.value = pulse(local, 2.95, 0.10, 1.1) * 1.7;
+    const sp = smoothstep(2.95, 5.4, local);
+    shock.scale.setScalar(0.6 + sp * 5.0);
+    shock.material.uniforms.uInt.value = (1 - sp) * 0.9 * smoothstep(2.9, 3.1, local);
+    debris.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, e = (hash2(i) - 0.5) * 0.7;
+      const sp2 = 0.10 + hash3(i) * 0.42;
+      const tt2 = Math.max(0, tt - 3.0);
+      const r = tt2 * sp2;
+      return [Math.cos(e) * 0.02 * Math.sign(e) - r * 0.05, Math.cos(a) * r, Math.sin(a) * r,
+        clamp01(1 - r * 1.4) * smoothstep(3.0, 3.2, tt) * 0.5, 0.35 + hash1(i) * 0.5, 0.55];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ③ 主脉冲：圆盘被汽化电离，等离子体点燃                                        */
+defineScene('mainpulse', (g) => {
+  /* 圆盘（承接上一场的形态） */
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.019, 64), MAT.tinHot);
+  disc.rotation.z = Math.PI / 2;
+  g.add(disc);
+  const main = beamBetween(g, [-2.6, 0, 0], [-0.10, 0, 0], 0.085, 0.055,
+    beamMaterial({ color: 0xff4a2a, hot: 0xfff0d0, flow: 4.0, intensity: 0, edge: 1.1 }));
+  const plasma = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 5), plasmaMaterial({ scale: 7.5, seed: 17 }));
+  g.add(plasma);
+  const plasmaOuter = new THREE.Mesh(new THREE.IcosahedronGeometry(0.30, 4), plasmaMaterial({ scale: 4.2, seed: 41 }));
+  g.add(plasmaOuter);
+  const flare = billboard(glowSprite(g, [0, 0, 0], 1.05, 0xfff2e0, 3.0));
+  const flare2 = billboard(glowSprite(g, [0, 0, 0], 0.42, 0xffffff, 3.8));
+  const debris = dustField(g, { count: 420, color: 0xffd0a0, hot: 0xffffff, size: 12 });
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), beamMaterial({ color: 0xffb070, hot: 0xffffff, intensity: 0, flow: 0, edge: 2.4 }));
+  g.add(shell);
+
+  label3d(g, [-0.72, 0.28, 0], { cn: '主脉冲激光', en: 'MAIN PULSE (CO₂)', t0: 57.4, t1: 62.4, side: 'left', tone: 'ir' });
+  label3d(g, [0.26, 0.24, 0], { cn: '锡等离子体 ≈ 220,000 °C', en: 'TIN PLASMA ≈ 220,000 °C', t0: 61.0, t1: 70.8, side: 'right', tone: 'warm' });
+  label3d(g, [-0.05, -0.34, 0], { cn: '锡碎屑（需氢气防护）', en: 'Sn DEBRIS', t0: 64.6, t1: 70.8, side: 'left' });
+
+  return (t, local, k) => {
+    const ign = smoothstep(2.4, 2.62, local);
+    disc.visible = local < 3.0;
+    disc.scale.setScalar(1 + smoothstep(2.4, 3.0, local) * 0.6);
+    disc.material.emissiveIntensity = 0.35 + smoothstep(2.0, 2.5, local) * 6;
+    main.material.uniforms.uInt.value = pulse(local, 2.0, 0.30, 1.9) * 2.1 + 0.05;
+    main.material.uniforms.uPulse.value = ((local - 1.9) * 2.8) % 1.25;
+    const grow = smoothstep(2.42, 3.4, local);
+    plasma.scale.setScalar(0.35 + grow * 0.85 + Math.sin(local * 9) * 0.02 * ign);
+    plasma.material.uniforms.uInt.value = ign * (0.44 + 0.10 * Math.sin(local * 11));
+    plasmaOuter.scale.setScalar(0.5 + grow * 1.15);
+    plasmaOuter.material.uniforms.uInt.value = ign * 0.10;
+    flare.material.uniforms.uInt.value = pulse(local, 2.42, 0.06, 1.6) * 0.75 + ign * 0.07;
+    flare2.material.uniforms.uInt.value = pulse(local, 2.42, 0.04, 0.9) * 1.0 + ign * 0.14;
+    const sh = smoothstep(2.42, 6.0, local);
+    shell.scale.setScalar(0.2 + sh * 3.2);
+    shell.material.uniforms.uInt.value = (1 - sh) * 0.22 * ign;
+    debris.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, b = (hash2(i) - 0.5) * Math.PI * 0.85;
+      const sp = 0.16 + hash3(i) * 0.75;
+      const tt2 = Math.max(0, tt - 2.45);
+      const r = tt2 * sp;
+      return [Math.sin(b) * r * 0.55, Math.cos(a) * Math.cos(b) * r, Math.sin(a) * Math.cos(b) * r,
+        clamp01(1 - r * 0.55) * ign * 0.65, 0.35 + hash1(i + 2) * 0.7, 0.75];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ④ 等离子体辐射 13.5 nm（不可见光的艺术化可视化）                              */
+defineScene('euv', (g) => {
+  const plasma = new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 5), plasmaMaterial({ scale: 7.5, seed: 17 }));
+  g.add(plasma);
+  const flare = billboard(glowSprite(g, [0, 0, 0], 0.85, 0xd8ccff, 2.8));
+  practicals(g, [
+    { p: [0.9, 0.7, 1.1], c: 0xcfe0ff, i: 2.6, d: 3.2 },
+    { p: [-0.8, -0.5, -0.9], c: 0xa48cff, i: 1.8, d: 3.0 },
+  ]);
+
+  /* 各向同性 EUV 射线 */
+  const rays = [];
+  const nR = Math.max(24, Math.round(Q.rays * 0.85));
+  for (let i = 0; i < nR; i++) {
+    const a = hash1(i) * TAU, b = Math.acos(1 - 2 * hash2(i));
+    const d = [Math.sin(b) * Math.cos(a), Math.cos(b), Math.sin(b) * Math.sin(a)];
+    const L = lerp(1.1, 2.0, hash3(i));
+    rays.push([[d[0] * 0.12, d[1] * 0.12, d[2] * 0.12], [d[0] * L, d[1] * L, d[2] * L]]);
+  }
+  const euvMat = rayMaterial({ color: 0x8f7bff, hot: 0xe6f2ff, speed: 1.35, count: 1.6, width: 0.5, intensity: 0 });
+  rayBundle(g, rays, euvMat, 0.0055);
+
+  /* 带外辐射 / 红外（较暗的琥珀色） */
+  const oob = [];
+  for (let i = 0; i < Math.max(10, Math.round(nR * 0.35)); i++) {
+    const a = hash1(i + 90) * TAU, b = Math.acos(1 - 2 * hash2(i + 90));
+    const d = [Math.sin(b) * Math.cos(a), Math.cos(b), Math.sin(b) * Math.sin(a)];
+    const L = lerp(0.8, 1.5, hash3(i + 90));
+    oob.push([[d[0] * 0.12, d[1] * 0.12, d[2] * 0.12], [d[0] * L, d[1] * L, d[2] * L]]);
+  }
+  const oobMat = rayMaterial({ color: 0xff8a3c, hot: 0xffd0a0, speed: 0.8, count: 1.2, width: 0.6, intensity: 0 });
+  rayBundle(g, oob, oobMat, 0.004);
+
+  /* 扩张波前（辐射的球面示意） */
+  const shells = [];
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), beamMaterial({ color: 0x9f8cff, hot: 0xe8f0ff, intensity: 0, flow: 0, edge: 3.0 }));
+    g.add(m);
+    shells.push(m);
+  }
+  label3d(g, [0.62, 0.42, 0], { cn: 'EUV 13.5 nm（不可见 · 示意着色）', en: 'EUV 13.5 nm — INVISIBLE, COLOURISED', t0: 71.6, t1: 84.6, side: 'right' });
+  label3d(g, [-0.52, -0.44, 0], { cn: '带外辐射与红外', en: 'OUT-OF-BAND & IR', t0: 81.6, t1: 84.6, side: 'left', tone: 'ir' });
+
+  return (t, local, k) => {
+    plasma.scale.setScalar(1.05 + Math.sin(local * 7) * 0.035);
+    plasma.material.uniforms.uInt.value = 0.95 + 0.18 * Math.sin(local * 10);
+    flare.material.uniforms.uInt.value = 0.34 + 0.08 * Math.sin(local * 6);
+    euvMat.uniforms.uInt.value = smoothstep(0.2, 1.6, local) * 1.15;
+    euvMat.uniforms.uReveal.value = smoothstep(0.3, 3.0, local);
+    oobMat.uniforms.uInt.value = smoothstep(9.6, 11.2, local) * 0.85;
+    oobMat.uniforms.uReveal.value = smoothstep(9.6, 11.6, local);
+    shells.forEach((m, i) => {
+      const ph = ((local * 0.55 + i * 0.34) % 1);
+      m.scale.setScalar(0.2 + ph * 2.4);
+      m.material.uniforms.uInt.value = (1 - ph) * 0.30 * smoothstep(0.4, 1.6, local);
+    });
+  };
+});
+
+// ===== src/45-scene-b.js ===================================================
+/* =============================================================================
+   45 · SCENES B  ·  ⑤多层膜集光镜→中间焦点 / ⑥光谱纯化与碎屑防护 / ⑦照明光学
+   ========================================================================== */
+
+/* ========================================================================== */
+/* ⑤ 椭球集光镜：等离子体在第一焦点，光线精确汇聚于第二焦点（中间焦点）          */
+defineScene('collector', (g) => {
+  vesselWall(g, { r: 2.1, len: 5.4, aStart: 0.4, aLen: TAU * 0.68 });
+  const col = collectorMirror(g, { a: 1.70, c: 1.35, xFrom: -1.70, xTo: -0.90, hole: 0.15 });
+  const IF = col.F2;                                  // [2c, 0, 0]
+
+  /* 等离子体（第一焦点） */
+  const plasma = new THREE.Mesh(new THREE.IcosahedronGeometry(0.085, 4), plasmaMaterial({ scale: 8, seed: 17 }));
+  g.add(plasma);
+  const pFlare = billboard(glowSprite(g, [0, 0, 0], 1.15, 0xd8ccff, 2.6));
+
+  /* CO₂ 驱动激光：穿过集光镜中心通孔射向锡滴 */
+  const drive = beamBetween(g, [-2.9, 0, 0], [-0.06, 0, 0], 0.055, 0.028,
+    beamMaterial({ color: 0xff4a2a, hot: 0xffd9a0, flow: 3.0, intensity: 0, edge: 1.2 }));
+
+  /* 精确光路：F1 → 镜面 → F2 */
+  const paths = collectorRayPaths(col, Math.max(28, Q.rays));
+  const rayMat = rayMaterial({ color: 0x8f7bff, hot: 0xeaf4ff, speed: 0.85, count: 1.25, width: 0.34, intensity: 0 });
+  rayBundle(g, paths, rayMat, 0.005, { seg: 26 });
+
+  /* 中间焦点：光阑 + 亮斑 */
+  aperturePlate(g, { pos: IF, rOut: 0.42, rIn: 0.045, th: 0.03 });
+  const ifGlow = billboard(glowSprite(g, IF, 0.95, 0xbfd8ff, 3.0));
+  const ifCore = billboard(glowSprite(g, IF, 0.28, 0xffffff, 3.6));
+  /* 通过中间焦点后进入扫描机的发散光锥 */
+  const outCone = beamBetween(g, IF, [IF[0] + 1.5, 0, 0], 0.03, 0.30,
+    beamMaterial({ color: 0x8f7bff, hot: 0xdfe8ff, flow: 0.9, intensity: 0, edge: 1.6 }));
+
+  label3d(g, [-0.30, 1.02, 0], { cn: 'Mo/Si 多层膜集光镜', en: 'Mo/Si MULTILAYER COLLECTOR', t0: 85.6, t1: 96.5, side: 'left' });
+  label3d(g, [0.02, -0.34, 0], { cn: '第一焦点 · 等离子体', en: 'FOCUS 1 · PLASMA', t0: 88.0, t1: 99.0, side: 'left' });
+  label3d(g, [IF[0], 0.46, 0], { cn: '第二焦点 · 中间焦点 IF', en: 'FOCUS 2 · INTERMEDIATE FOCUS', t0: 96.6, t1: 101.8, side: 'right' });
+  label3d(g, [-1.15, -0.30, 0], { cn: 'CO₂ 激光经中心孔入射', en: 'DRIVE LASER THROUGH CENTRAL APERTURE', t0: 92.4, t1: 101.0, side: 'left', tone: 'ir' });
+
+  const dust = dustField(g, { count: 240, color: 0x9f8cff, size: 9 });
+  practicals(g, [
+    { p: [1.9, 1.5, 2.6], c: 0xdfe8ff, i: 22, d: 12 },
+    { p: [-1.2, -1.0, -1.8], c: 0xa48cff, i: 14, d: 12 },
+    { p: [2.9, 0.4, 0.9], c: 0xbfd8ff, i: 8, d: 6 },
+  ]);
+
+  return (t, local, k) => {
+    plasma.scale.setScalar(1 + Math.sin(local * 9) * 0.05);
+    plasma.material.uniforms.uInt.value = 1.5 + 0.3 * Math.sin(local * 12);
+    pFlare.material.uniforms.uInt.value = 0.42 + 0.1 * Math.sin(local * 7);
+    drive.material.uniforms.uInt.value = 0.10 + 0.5 * (0.5 + 0.5 * Math.sin(local * 5.5));
+    drive.material.uniforms.uPulse.value = (local * 1.7) % 1.4;
+    rayMat.uniforms.uInt.value = smoothstep(0.4, 2.4, local) * 1.0;
+    rayMat.uniforms.uReveal.value = smoothstep(0.6, 5.0, local);
+    const focused = smoothstep(9.5, 12.0, local);
+    ifGlow.material.uniforms.uInt.value = focused * (0.7 + 0.15 * Math.sin(local * 8));
+    ifCore.material.uniforms.uInt.value = focused * 1.9;
+    outCone.material.uniforms.uInt.value = smoothstep(12.5, 15.5, local) * 0.55;
+    outCone.material.uniforms.uPulse.value = (local * 0.7) % 1.5;
+    dust.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, r = lerp(0.2, 1.1, hash2(i));
+      const x = lerp(-0.4, 2.6, (hash3(i) + tt * 0.03) % 1);
+      const conv = 1 - smoothstep(0.0, 2.6, x) * 0.85;
+      return [x, Math.cos(a) * r * conv, Math.sin(a) * r * conv, 0.22, 0.4 + hash1(i) * 0.5, 0.2];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ⑥ 光谱纯化与锡碎屑防护：氢气流 + 滤片，只让 13.5 nm 通过中间焦点              */
+defineScene('purity', (g) => {
+  vesselWall(g, { r: 1.5, len: 5.0, aStart: 0.5, aLen: TAU * 0.66 });
+  const IF = [2.7, 0, 0];
+
+  /* 收敛光锥（来自集光镜）→ 中间焦点 → 发散进入照明系统 */
+  const inMat = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 1.1, intensity: 0.7, edge: 1.5 });
+  beamBetween(g, [1.05, 0, 0], IF, 0.34, 0.03, inMat);
+  const outMat = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 1.1, intensity: 0.6, edge: 1.5 });
+  beamBetween(g, IF, [IF[0] + 1.45, 0, 0], 0.03, 0.26, outMat);
+
+  /* 中间焦点光阑 + 光谱纯化滤片 */
+  aperturePlate(g, { pos: IF, rOut: 0.44, rIn: 0.042, th: 0.03 });
+  spectralFilter(g, { pos: [2.05, 0, 0], r: 0.26 });
+  const ifCore = billboard(glowSprite(g, IF, 0.3, 0xffffff, 3.4));
+  const ifGlow = billboard(glowSprite(g, IF, 0.9, 0xbfd8ff, 2.8));
+
+  /* 带外辐射 / 红外：被滤片挡住（射线在滤片处终止） */
+  const oobPaths = [];
+  for (let i = 0; i < Math.max(12, Math.round(Q.rays * 0.4)); i++) {
+    const a = hash1(i + 3) * TAU, r = lerp(0.04, 0.24, hash2(i + 3));
+    oobPaths.push([[1.05, Math.cos(a) * 0.32, Math.sin(a) * 0.32], [2.02, Math.cos(a) * r, Math.sin(a) * r]]);
+  }
+  const oobMat = rayMaterial({ color: 0xff8a3c, hot: 0xffd0a0, speed: 0.7, count: 1.1, width: 0.5, intensity: 0 });
+  rayBundle(g, oobPaths, oobMat, 0.0042);
+  const absorbGlow = billboard(glowSprite(g, [2.05, 0, 0], 0.6, 0xff9a4c, 2.8));
+
+  /* 氢气流：多股由喷嘴逆流吹向光源侧（动态气锁） */
+  const h2 = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * TAU;
+    const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.16, 12), MAT.steel);
+    noz.position.set(2.42, Math.cos(a) * 0.52, Math.sin(a) * 0.52);
+    noz.lookAt(1.2, Math.cos(a) * 0.18, Math.sin(a) * 0.18);
+    noz.rotateX(Math.PI / 2);
+    g.add(noz);
+    const m = beamBetween(g,
+      [2.36, Math.cos(a) * 0.48, Math.sin(a) * 0.48],
+      [0.75, Math.cos(a) * 0.30, Math.sin(a) * 0.30],
+      0.05, 0.16, wispMaterial({ color: 0x6ff0d0, intensity: 0, speed: 1.1, scale: 2.4, dir: [-1, 0, 0] }));
+    h2.push(m);
+  }
+
+  /* 锡碎屑：自光源侧飞来，被气流阻挡并带走 */
+  const debris = dustField(g, { count: 320, color: 0xcfd8e3, hot: 0xffd0a0, size: 11 });
+
+  practicals(g, [
+    { p: [2.6, 1.2, 2.0], c: 0xdfe8ff, i: 16, d: 10 },
+    { p: [1.2, -0.9, -1.4], c: 0x6ff0d0, i: 9, d: 10 },
+    { p: [3.4, 0.3, 0.8], c: 0xbfd8ff, i: 6, d: 6 },
+  ]);
+  label3d(g, [2.45, 0.62, 0], { cn: '氢气流 · 碎屑防护', en: 'H₂ FLOW · DEBRIS MITIGATION', t0: 102.6, t1: 110.0, side: 'right', tone: 'h2' });
+  label3d(g, [2.05, -0.42, 0], { cn: '光谱纯化滤片', en: 'SPECTRAL PURITY FILTER', t0: 107.8, t1: 114.7, side: 'left' });
+  label3d(g, [IF[0], 0.40, 0], { cn: '中间焦点 IF', en: 'INTERMEDIATE FOCUS', t0: 104.2, t1: 114.7, side: 'right' });
+  label3d(g, [1.35, -0.34, 0], { cn: '红外与带外辐射被吸收', en: 'IR / OUT-OF-BAND ABSORBED', t0: 109.4, t1: 114.7, side: 'left', tone: 'ir' });
+
+  return (t, local, k) => {
+    inMat.uniforms.uPulse.value = (local * 0.8) % 1.5;
+    outMat.uniforms.uPulse.value = ((local * 0.8) % 1.5);
+    ifCore.material.uniforms.uInt.value = 1.7 + 0.2 * Math.sin(local * 9);
+    ifGlow.material.uniforms.uInt.value = 0.6;
+    const gas = smoothstep(0.4, 2.6, local);
+    for (const m of h2) m.material.uniforms.uInt.value = gas * 0.55;
+    oobMat.uniforms.uInt.value = smoothstep(6.0, 7.6, local) * 0.9;
+    oobMat.uniforms.uReveal.value = smoothstep(6.0, 8.2, local);
+    absorbGlow.material.uniforms.uInt.value = smoothstep(6.6, 8.0, local) * (0.35 + 0.12 * Math.sin(local * 14));
+    debris.update(local, (i, tt) => {
+      const a = hash1(i) * TAU;
+      const seed = hash2(i);
+      const cyc = 3.2;
+      const ph = ((tt * (0.32 + seed * 0.3) + seed * cyc) % cyc) / cyc;      // 0..1
+      const xStart = 0.55, xTurn = lerp(1.35, 2.05, hash3(i));
+      /* 前半程向 +X 飞行，被氢气流顶回并侧向带走 */
+      let x, rr, alpha;
+      if (ph < 0.55) {
+        const p = ph / 0.55;
+        x = lerp(xStart, xTurn, p);
+        rr = lerp(0.10, 0.30, p) + 0.02 * Math.sin(tt * 3 + i);
+        alpha = 0.5 * (1 - p * 0.2);
+      } else {
+        const p = (ph - 0.55) / 0.45;
+        x = lerp(xTurn, xStart - 0.4, p);
+        rr = lerp(0.30, 0.62, p);
+        alpha = 0.5 * (1 - p);
+      }
+      return [x, Math.cos(a) * rr, Math.sin(a) * rr, alpha * gas, 0.35 + seed * 0.5, 0.25];
+    });
+  };
+});
+
+/* ========================================================================== */
+/* ⑦ 照明光学：视场面镜 + 光瞳面镜，把光整形为均匀弧形光场                      */
+defineScene('illuminator', (g) => {
+  const IF = [-1.55, 0, 0];
+  const FF = [0.10, 0.42, 0];        // field facet mirror
+  const PF = [1.30, -0.34, 0];       // pupil facet mirror
+  const RET = [2.42, 0.46, 0];       // reticle plane
+
+  /* 入射光锥 */
+  const inMat = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 1.0, intensity: 0, edge: 1.5 });
+  beamBetween(g, IF, [FF[0] - 0.06, FF[1] - 0.02, 0], 0.03, 0.34, inMat);
+  aperturePlate(g, { pos: IF, rOut: 0.30, rIn: 0.04, th: 0.025 });
+  const ifCore = billboard(glowSprite(g, IF, 0.26, 0xffffff, 3.4));
+
+  /* 两组面镜阵列 */
+  const ff = facetArray(g, { nx: Q.facets, ny: Q.facets, size: 0.062, gap: 0.010, curve: 0.35, pos: FF, rot: [0.15, -1.02, 0] });
+  const pf = facetArray(g, { nx: Math.max(6, Q.facets - 2), ny: Math.max(6, Q.facets - 2), size: 0.055, gap: 0.010, curve: 0.30, pos: PF, rot: [-0.28, 1.12, 0], warm: true });
+
+  /* 掩模平面上的弧形照明光场（ring field） */
+  const arcR = 0.62, arcHalf = 0.46, arcW = 0.075;
+  const arcGeo = new THREE.RingGeometry(arcR - arcW / 2, arcR + arcW / 2, 64, 1, -arcHalf, arcHalf * 2);
+  const arcMat = beamMaterial({ color: 0xbfd0ff, hot: 0xffffff, intensity: 0, flow: 0.6, edge: 0.6 });
+  const arc = new THREE.Mesh(arcGeo, arcMat);
+  arc.position.set(RET[0], RET[1], 0);
+  arc.rotation.set(0, -Math.PI / 2, Math.PI / 2);
+  arc.renderOrder = 8;
+  g.add(arc);
+  /* 掩模平面示意板 */
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.35, 1.35), MAT.substrate);
+  plate.position.set(RET[0] + 0.05, RET[1], 0);
+  g.add(plate);
+  const plateMl = new THREE.Mesh(new THREE.BoxGeometry(0.008, 1.24, 1.24), MAT.multilayer);
+  plateMl.position.set(RET[0] + 0.032, RET[1], 0);
+  g.add(plateMl);
+
+  /* 细束：IF → 视场面镜 → 光瞳面镜 → 弧形光场 */
+  const nB = Math.max(10, Math.round(Q.facets * 2.4));
+  const ffC = ff.userData.centers, pfC = pf.userData.centers;
+  const toWorld = (grp, p) => {
+    const v = new THREE.Vector3(p[0], p[1], p[2]);
+    grp.updateMatrixWorld(true);
+    return v.applyMatrix4(grp.matrix).toArray();
+  };
+  const paths = [];
+  for (let i = 0; i < nB; i++) {
+    const f = ffC[Math.floor(hash1(i) * ffC.length)];
+    const p = pfC[Math.floor(hash2(i) * pfC.length)];
+    const ang = lerp(-arcHalf, arcHalf, hash3(i));
+    const target = [RET[0] + 0.03, RET[1] + Math.cos(ang + Math.PI / 2) * arcR, Math.sin(ang + Math.PI / 2) * arcR];
+    paths.push([IF, toWorld(ff, f), toWorld(pf, p), target]);
+  }
+  const bMat = rayMaterial({ color: 0x9f8cff, hot: 0xeaf2ff, speed: 1.0, count: 1.15, width: 0.30, intensity: 0 });
+  rayBundle(g, paths, bMat, 0.0042, { seg: 40 });
+
+  practicals(g, [
+    { p: [0.4, 1.6, 2.6], c: 0xe8f0ff, i: 22, d: 12 },
+    { p: [2.2, -1.0, -1.4], c: 0xa48cff, i: 14, d: 12 },
+    { p: [-1.2, 0.5, 1.4], c: 0xbfd8ff, i: 8, d: 8 },
+  ]);
+  label3d(g, [FF[0], FF[1] + 0.55, 0], { cn: '视场面镜阵列', en: 'FIELD FACET MIRROR', t0: 115.6, t1: 124.0, side: 'left' });
+  label3d(g, [PF[0], PF[1] - 0.5, 0], { cn: '光瞳面镜阵列', en: 'PUPIL FACET MIRROR', t0: 117.6, t1: 126.0, side: 'right' });
+  label3d(g, [RET[0], RET[1] + 0.78, 0], { cn: '弧形均匀照明光场', en: 'UNIFORM ARC (RING) FIELD', t0: 121.4, t1: 128.7, side: 'right' });
+  label3d(g, [IF[0], -0.42, 0], { cn: '来自中间焦点', en: 'FROM INTERMEDIATE FOCUS', t0: 115.6, t1: 120.5, side: 'left' });
+
+  return (t, local, k) => {
+    inMat.uniforms.uInt.value = smoothstep(0.2, 1.4, local) * 0.65;
+    inMat.uniforms.uPulse.value = (local * 0.85) % 1.4;
+    ifCore.material.uniforms.uInt.value = 1.5;
+    bMat.uniforms.uInt.value = smoothstep(1.4, 3.4, local) * 1.0;
+    bMat.uniforms.uReveal.value = smoothstep(1.6, 6.0, local);
+    arcMat.uniforms.uInt.value = smoothstep(5.2, 8.0, local) * (0.75 + 0.06 * Math.sin(local * 5));
+    /* 面镜微动（照明方式切换示意） */
+    const sw = smoothstep(10.4, 12.4, local);
+    ff.rotation.z = Math.sin(local * 0.7) * 0.015 + sw * 0.05;
+    pf.rotation.z = -Math.sin(local * 0.6) * 0.015 - sw * 0.06;
+  };
+});
+
+// ===== src/50-scene-c.js ===================================================
+/* =============================================================================
+   50 · SCENES C  ·  ⑧反射式掩模 / ⑨投影光学 4:1 / ⑩光刻胶曝光·潜影·显影 / 片尾
+   ========================================================================== */
+
+/* ========================================================================== */
+/* ⑧ 反射式多层膜掩模：EUV 以 ≈6° 入射并反射，携带图形信息                       */
+defineScene('reticle', (g) => {
+  const MASK = [0, 0.5, 0];
+  const inc = 6 * D2R;                                   // 真实入射角
+  const dIn = [Math.sin(inc), Math.cos(inc), 0];
+  const dOut = [Math.sin(inc), -Math.cos(inc), 0];
+
+  /* 掩模（图形面朝下，与真实扫描机一致：夹具在上） */
+  const ret = reticleAssembly(g, { pos: MASK, w: 1.15, h: 1.15 });
+  ret.rotation.x = Math.PI;
+  precisionStage(g, { pos: [MASK[0], MASK[1] + 0.30, 0], w: 1.7, d: 1.4 });
+
+  /* 吸收层图形（近景可见的立体线条） */
+  const absLines = new THREE.InstancedMesh(new THREE.BoxGeometry(0.012, 0.010, 0.30), MAT.absorber, 46);
+  let k = 0;
+  for (let i = 0; i < 46; i++) {
+    const x = -0.28 + (i / 45) * 0.56;
+    _obj.position.set(x, MASK[1] - 0.012, lerp(-0.16, 0.16, hash1(i)));
+    _obj.scale.set(1, 1, lerp(0.5, 1.2, hash2(i)));
+    _obj.rotation.set(0, 0, 0);
+    _obj.updateMatrix();
+    absLines.setMatrixAt(k++, _obj.matrix);
+  }
+  absLines.instanceMatrix.needsUpdate = true;
+  g.add(absLines);
+
+  /* 入射与反射光束（严格 6°） */
+  const A = [MASK[0] - dIn[0] * 2.3, MASK[1] - dIn[1] * 2.3, 0];
+  const B = [MASK[0] + dOut[0] * 2.3, MASK[1] + dOut[1] * 2.3, 0];
+  const inMat = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 1.2, intensity: 0, edge: 1.5 });
+  beamBetween(g, A, MASK, 0.115, 0.075, inMat);
+  const outMat = beamMaterial({ color: 0xbfd0ff, hot: 0xffffff, flow: 1.2, intensity: 0, edge: 1.5 });
+  beamBetween(g, MASK, B, 0.075, 0.10, outMat);
+  const spot = billboard(glowSprite(g, [MASK[0], MASK[1] - 0.005, 0], 0.55, 0xdfe8ff, 2.8));
+
+  /* 入射角标注辅助线 */
+  const normalLine = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 1.1, 6), MAT.accentEmissive);
+  normalLine.position.set(MASK[0], MASK[1] - 0.55, 0);
+  g.add(normalLine);
+
+  practicals(g, [
+    { p: [1.0, -0.5, 1.6], c: 0xdfe8ff, i: 10, d: 7 },
+    { p: [-1.2, 0.9, -1.0], c: 0xa48cff, i: 7, d: 7 },
+    { p: [0.2, 1.3, 0.9], c: 0xbfd8ff, i: 6, d: 6 },
+  ]);
+  label3d(g, [MASK[0] - 0.62, MASK[1] + 0.14, 0], { cn: '反射式掩模（多层膜 + 吸收层）', en: 'REFLECTIVE MASK: MULTILAYER + ABSORBER', t0: 129.6, t1: 140.0, side: 'left' });
+  label3d(g, [MASK[0] + 0.10, MASK[1] - 0.62, 0], { cn: '入射角 ≈ 6°', en: 'INCIDENCE ≈ 6°', t0: 133.4, t1: 141.8, side: 'right' });
+  label3d(g, [MASK[0] - 1.0, MASK[1] - 1.6, 0], { cn: '照明光（来自照明系统）', en: 'ILLUMINATION IN', t0: 129.6, t1: 136.0, side: 'left' });
+  label3d(g, [MASK[0] + 1.0, MASK[1] - 1.7, 0], { cn: '携带图形的反射光 → 投影物镜', en: 'PATTERNED REFLECTION → PROJECTION OPTICS', t0: 136.4, t1: 141.8, side: 'right' });
+  label3d(g, [MASK[0] + 0.55, MASK[1] + 0.42, 0], { cn: '掩模台（扫描）', en: 'RETICLE STAGE (SCAN)', t0: 138.0, t1: 141.8, side: 'right' });
+
+  return (t, local, k2) => {
+    inMat.uniforms.uInt.value = smoothstep(0.3, 1.6, local) * 0.75;
+    inMat.uniforms.uPulse.value = (local * 0.9) % 1.3;
+    outMat.uniforms.uInt.value = smoothstep(1.0, 2.4, local) * 0.8;
+    outMat.uniforms.uPulse.value = ((local - 0.35) * 0.9) % 1.3;
+    spot.material.uniforms.uInt.value = smoothstep(0.8, 2.0, local) * (0.85 + 0.1 * Math.sin(local * 6));
+    normalLine.material.emissiveIntensity = smoothstep(4.2, 5.0, local) * 1.2;
+    normalLine.visible = local > 4.0;
+    /* 掩模台扫描（单向扫过 + 快速回位，比例与晶圆保持 4:1） */
+    const ph = (local * 0.30) % 1;
+    const scan = ph < 0.78 ? lerp(-0.22, 0.22, ph / 0.78) : lerp(0.22, -0.22, (ph - 0.78) / 0.22);
+    ret.position.x = MASK[0] + scan;
+    absLines.position.x = scan;
+  };
+});
+
+/* ========================================================================== */
+/* ⑨ 投影光学系统：6 片非球面反射镜，4:1 缩比，掩模/晶圆同步反向扫描              */
+defineScene('projection', (g) => {
+  /* 折叠光路控制点（掩模 → M1…M6 → 晶圆） */
+  const P = [
+    [0.06, 1.16, 0],      // reticle
+    [0.60, 0.60, 0],      // M1
+    [-0.52, 0.30, 0],     // M2
+    [-0.66, -0.26, 0],    // M3
+    [0.58, -0.44, 0],     // M4
+    [0.30, 0.16, 0],      // M5
+    [-0.12, -0.70, 0],    // M6
+    [0.00, -1.24, 0],     // wafer
+  ];
+  const V = P.map((p) => new THREE.Vector3(...p));
+
+  pobHousing(g, { pos: [0, -0.05, 0], h: 2.5, r: 0.92 });
+
+  /* 6 片反射镜：法线取入射/出射方向的角平分线 → 光路严格成立 */
+  const sizes = [[0.52, 0.40], [0.60, 0.46], [0.46, 0.36], [0.66, 0.50], [0.34, 0.28], [0.74, 0.56]];
+  for (let i = 1; i <= 6; i++) {
+    const di = V[i].clone().sub(V[i - 1]).normalize();
+    const doo = V[i + 1].clone().sub(V[i]).normalize();
+    const n = doo.clone().sub(di).normalize();
+    const u = mirrorUnit(g, {
+      w: sizes[i - 1][0], h: sizes[i - 1][1], curve: 0.18 + 0.04 * i, thick: 0.07,
+      pos: P[i], mount: i % 2 === 1, warm: i > 3,
+    });
+    u.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    label3d(g, [P[i][0] * 1.25 + (i % 2 ? 0.24 : -0.24), P[i][1] + 0.16, 0], {
+      cn: `M${i}`, en: i === 1 ? 'ASPHERIC MIRROR' : '', t0: 143.0 + i * 0.35, t1: 152.0, side: i % 2 ? 'right' : 'left',
+    });
+  }
+
+  /* 光阑（光瞳位置） */
+  const stop = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.014, 8, 40), MAT.gold);
+  stop.position.set(0.30, 0.16, 0);
+  stop.lookAt(V[6]);
+  g.add(stop);
+
+  /* 光束：半径沿路径收缩，直观呈现 4:1 缩小 */
+  const radii = [0.135, 0.120, 0.105, 0.092, 0.078, 0.062, 0.042, 0.024];
+  const segMats = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const m = beamMaterial({ color: i < 4 ? 0x9f8cff : 0xbfd0ff, hot: 0xffffff, flow: 1.1, intensity: 0, edge: 1.4 });
+    beamBetween(g, P[i], P[i + 1], radii[i], radii[i + 1], m, { radial: 16 });
+    segMats.push(m);
+  }
+
+  /* 掩模与晶圆（同步反向扫描，速度比 4:1） */
+  const mask = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.03, 0.8), MAT.multilayer);
+  mask.position.set(0.06, 1.20, 0);
+  g.add(mask);
+  const maskPat = new THREE.Mesh(new THREE.PlaneGeometry(0.74, 0.58), new THREE.MeshStandardMaterial({
+    color: 0x0b0e14, metalness: 0.5, roughness: 0.45, map: MAT.circuitTex,
+  }));
+  maskPat.rotation.x = Math.PI / 2;
+  maskPat.position.set(0.06, 1.184, 0);
+  g.add(maskPat);
+
+  const wafer = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.02, 48), MAT.silicon);
+  wafer.position.set(0, -1.27, 0);
+  g.add(wafer);
+  const field = new THREE.Mesh(new THREE.PlaneGeometry(0.185, 0.145), new THREE.MeshStandardMaterial({
+    color: 0x9fc0e0, metalness: 0.7, roughness: 0.25, map: MAT.circuitTex, emissive: 0x2b6ea0, emissiveIntensity: 0.5,
+  }));
+  field.rotation.x = -Math.PI / 2;
+  field.position.set(0, -1.258, 0);
+  g.add(field);
+
+  /* 4:1 比例示意：掩模上的特征与晶圆上的像 */
+  const featM = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), glowMaterial(0xffd08a, 1.6));
+  featM.rotation.x = Math.PI / 2;
+  featM.position.set(0.06, 1.176, 0.30);
+  g.add(featM);
+  const featW = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.03), glowMaterial(0x9fe0ff, 1.6));
+  featW.rotation.x = -Math.PI / 2;
+  featW.position.set(0, -1.252, 0.075);
+  g.add(featW);
+
+  practicals(g, [
+    { p: [2.0, 0.8, 2.6], c: 0xe8f0ff, i: 38, d: 14 },
+    { p: [-1.8, -0.5, -2.0], c: 0xa48cff, i: 24, d: 14 },
+    { p: [0.6, 1.4, 0.9], c: 0xcfe0ff, i: 16, d: 9 },
+    { p: [-0.2, -1.3, 0.8], c: 0x9fd8ff, i: 13, d: 7 },
+  ]);
+  label3d(g, [0.06, 1.42, 0], { cn: '掩模台 → 扫描速度 4v', en: 'RETICLE STAGE · 4v', t0: 153.8, t1: 158.8, side: 'right' });
+  label3d(g, [0, -1.52, 0], { cn: '晶圆台 → 反向 v（4:1）', en: 'WAFER STAGE · v (4:1)', t0: 153.8, t1: 158.8, side: 'left' });
+  label3d(g, [0.42, 0.16, 0], { cn: '光阑（数值孔径 NA 0.33）', en: 'APERTURE STOP · NA 0.33', t0: 149.6, t1: 156.0, side: 'right' });
+  label3d(g, [-0.9, -1.0, 0], { cn: '全反射式：无任何透镜', en: 'ALL-REFLECTIVE · NO LENSES', t0: 143.4, t1: 149.0, side: 'left' });
+
+  return (t, local, k) => {
+    const on = smoothstep(0.4, 2.2, local);
+    segMats.forEach((m, i) => {
+      m.uniforms.uInt.value = on * 0.62;
+      m.uniforms.uPulse.value = ((local * 0.55 - i * 0.11) % 1.35);
+    });
+    /* 同步反向扫描：严格 4:1 */
+    const scanOn = smoothstep(10.4, 11.6, local);
+    const ph = (local * 0.32) % 1;
+    const s = ph < 0.8 ? lerp(-1, 1, ph / 0.8) : lerp(1, -1, (ph - 0.8) / 0.2);
+    const amp = 0.20 * scanOn;
+    mask.position.x = 0.06 + s * amp;
+    maskPat.position.x = 0.06 + s * amp;
+    featM.position.x = 0.06 + s * amp;
+    wafer.position.x = -s * amp * 0.25;
+    field.position.x = -s * amp * 0.25;
+    featW.position.x = -s * amp * 0.25;
+    featM.material.uniforms.uInt.value = smoothstep(6.0, 7.4, local) * 0.9;
+    featW.material.uniforms.uInt.value = smoothstep(6.6, 8.0, local) * 1.1;
+    field.material.emissiveIntensity = 0.35 + 0.4 * on;
+    stop.material.emissiveIntensity = 0;
+  };
+});
+
+/* ========================================================================== */
+/* ⑩ 光刻胶曝光 → 潜影 → 显影 → 芯片                                           */
+defineScene('resist', (g) => {
+  /* --- 近景：硅片 + 光刻胶层 --- */
+  const micro = new THREE.Group();
+  g.add(micro);
+  const W = 1.55, D = 0.95;
+  const si = new THREE.Mesh(new THREE.BoxGeometry(W, 0.10, D), MAT.silicon);
+  si.position.y = -0.06;
+  micro.add(si);
+  const resistSlab = new THREE.Mesh(new THREE.BoxGeometry(W, 0.035, D), MAT.resist);
+  resistSlab.position.y = 0.0075;
+  micro.add(resistSlab);
+
+  /* 潜影：受曝光区域在胶层内部显现（wipe 由光缝位置驱动） */
+  const latentMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SHARED.time, uExpo: SHARED.expo, uWipe: { value: -1 }, uInt: { value: 0 },
+      uMap: { value: MAT.circuitTex }, uColor: { value: new THREE.Color(0x7fd8ff) },
+    },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      ${FX_TONE_GLSL}
+      uniform sampler2D uMap; uniform float uWipe, uInt, uTime; uniform vec3 uColor;
+      varying vec2 vUv;
+      void main(){
+        if (uInt <= 0.001) discard;
+        float pat = texture2D(uMap, vUv * 2.2).r;
+        float rev = smoothstep(uWipe + 0.05, uWipe - 0.02, vUv.x);
+        float a = pat * rev * uInt;
+        float shimmer = 0.85 + 0.15 * sin(uTime * 3.0 + vUv.x * 40.0);
+        gl_FragColor = fxOut(uColor * a * 1.6 * shimmer, a * 0.9);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const latent = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.96, D * 0.94), latentMat);
+  latent.rotation.x = -Math.PI / 2;
+  latent.position.y = 0.012;
+  micro.add(latent);
+
+  /* 曝光光缝（弧形）+ 入射光锥 */
+  const slitMat = beamMaterial({ color: 0xcfe0ff, hot: 0xffffff, intensity: 0, flow: 0.5, edge: 0.7 });
+  const slit = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.60, 48, 1, 1.05, 1.04), slitMat);
+  slit.rotation.x = -Math.PI / 2;
+  slit.position.y = 0.028;
+  micro.add(slit);
+  const cone = beamBetween(micro, [0, 1.25, 0], [0, 0.04, 0], 0.30, 0.075,
+    beamMaterial({ color: 0xbfd0ff, hot: 0xffffff, flow: 1.6, intensity: 0, edge: 1.3 }));
+  const photons = dustField(micro, { count: 460, color: 0xbfd8ff, hot: 0xffffff, size: 10 });
+
+  /* 显影后的三维胶图形 */
+  const nL = 58;
+  const lines = new THREE.InstancedMesh(new THREE.BoxGeometry(W / (nL * 2.1), 0.055, D * 0.86), MAT.resistExposed, nL);
+  lines.position.y = 0.0;
+  micro.add(lines);
+
+  /* --- 远景：整片晶圆 + 芯片 --- */
+  const macro = new THREE.Group();
+  macro.visible = false;
+  g.add(macro);
+  const waf = waferAssembly(macro, { pos: [0, 0, 0], r: 1.0 });
+  precisionStage(macro, { pos: [0, -0.16, 0], w: 2.6, d: 2.2 });
+  const chip = new THREE.Group();
+  chip.position.set(0, 0.55, 0);
+  macro.add(chip);
+  const pkg = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.62), MAT.dark);
+  chip.add(pkg);
+  const die = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42), new THREE.MeshStandardMaterial({
+    color: 0x8fb0cc, metalness: 0.85, roughness: 0.18, map: MAT.circuitTex, emissive: 0x1d5f8f, emissiveIntensity: 0.35,
+  }));
+  die.rotation.x = -Math.PI / 2;
+  die.position.y = 0.037;
+  chip.add(die);
+  for (let i = 0; i < 4; i++) {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(i % 2 ? 0.62 : 0.02, 0.02, i % 2 ? 0.02 : 0.62), MAT.gold);
+    side.position.set(i === 0 ? -0.31 : i === 2 ? 0.31 : 0, 0.0, i === 1 ? -0.31 : i === 3 ? 0.31 : 0);
+    chip.add(side);
+  }
+
+  practicals(g, [
+    { p: [1.1, 1.0, 1.3], c: 0xe8f0ff, i: 4.2, d: 5 },
+    { p: [-1.0, 0.5, -0.9], c: 0x9fd8ff, i: 2.8, d: 5 },
+    { p: [0.2, 0.35, 1.1], c: 0xbfd8ff, i: 1.6, d: 2.6 },
+  ]);
+  label3d(micro, [W * 0.42, 0.16, 0], { cn: '光刻胶（化学放大型）', en: 'CHEMICALLY AMPLIFIED RESIST', t0: 159.8, t1: 166.0, side: 'right' });
+  label3d(micro, [-W * 0.42, 0.12, 0], { cn: '硅晶圆', en: 'SILICON WAFER', t0: 159.8, t1: 165.0, side: 'left' });
+  label3d(micro, [0, 0.34, D * 0.3], { cn: 'EUV 光子 → 产生酸 → 潜影', en: 'PHOTONS → ACID → LATENT IMAGE', t0: 165.0, t1: 170.0, side: 'right' });
+  label3d(micro, [W * 0.30, 0.14, -D * 0.34], { cn: '显影后：≈ 13 nm 半周期图形（示意）', en: 'AFTER DEVELOPMENT ≈ 13 nm HALF-PITCH', t0: 170.6, t1: 175.4, side: 'right' });
+  label3d(macro, [1.05, 0.12, 0], { cn: '300 mm 晶圆 · 逐场步进曝光', en: '300 mm WAFER · FIELD BY FIELD', t0: 175.6, t1: 177.9, side: 'right' });
+
+  return (t, local, k) => {
+    const microOn = local < 15.2;
+    micro.visible = microOn;
+    macro.visible = !microOn;
+
+    /* 光缝扫过 */
+    const sweep = smoothstep(0.6, 9.0, local);
+    const sx = lerp(-W * 0.46, W * 0.46, sweep);
+    slit.position.x = sx;
+    cone.position.x = sx;
+    slitMat.uniforms.uInt.value = smoothstep(0.4, 1.2, local) * (1 - smoothstep(9.0, 9.8, local)) * 1.1;
+    cone.material.uniforms.uInt.value = smoothstep(0.4, 1.2, local) * (1 - smoothstep(9.0, 9.8, local)) * 0.5;
+    cone.material.uniforms.uPulse.value = (local * 1.4) % 1.2;
+
+    /* 潜影随光缝显现 */
+    latentMat.uniforms.uInt.value = smoothstep(1.4, 3.0, local) * (1 - smoothstep(10.6, 12.0, local)) * 0.95;
+    latentMat.uniforms.uWipe.value = (sx + W * 0.48) / (W * 0.96);
+
+    photons.update(local, (i, tt) => {
+      const seed = hash1(i), seed2 = hash2(i);
+      const fall = ((tt * (0.6 + seed * 0.8) + seed2 * 3) % 1.6) / 1.6;
+      const x = sx + (seed - 0.5) * 0.14;
+      const z = (seed2 - 0.5) * D * 0.86;
+      const y = lerp(0.62, 0.02, fall);
+      return [x, y, z, (1 - fall) * 0.7 * (microOn ? 1 : 0) * smoothstep(0.4, 1.2, tt) * (1 - smoothstep(9.0, 9.6, tt)), 0.4 + seed * 0.5, 0.15];
+    });
+
+    /* 显影：胶线自左向右升起 */
+    const dev = smoothstep(10.8, 14.2, local);
+    for (let i = 0; i < nL; i++) {
+      const u = i / (nL - 1);
+      const x = lerp(-W * 0.45, W * 0.45, u);
+      const h = clamp01((dev - u * 0.45) / 0.55);
+      _obj.position.set(x, 0.018 + 0.0275 * h, 0);
+      _obj.scale.set(1, Math.max(0.001, h), 1);
+      _obj.rotation.set(0, 0, 0);
+      _obj.updateMatrix();
+      lines.setMatrixAt(i, _obj.matrix);
+    }
+    lines.instanceMatrix.needsUpdate = true;
+    lines.visible = dev > 0.001;
+    resistSlab.material.opacity = 0.72 * (1 - dev * 0.75);
+
+    /* 远景：die 逐个点亮 + 芯片浮现 */
+    if (!microOn) {
+      const p = smoothstep(15.4, 18.4, local);
+      const dm = waf.userData.dieMesh;
+      dm.material.emissive = new THREE.Color(0x1d5f8f);
+      dm.material.emissiveIntensity = 0.25 + 0.5 * p;
+      waf.rotation.y = (local - 15.2) * 0.10;
+      chip.position.y = 0.55 + Math.sin(local * 0.8) * 0.02;
+      chip.rotation.y = -(local - 15.2) * 0.18;
+      chip.scale.setScalar(smoothstep(16.0, 17.4, local));
+      die.material.emissiveIntensity = 0.3 + 0.35 * Math.sin(local * 2.2);
+    }
+  };
+});
+
+/* ========================================================================== */
+/* 片尾：十步工艺链的抽象光路回顾                                                */
+defineScene('outro', (g) => {
+  const chain = new THREE.Group();
+  g.add(chain);
+  const N = 10;
+  const nodes = [];
+  const bMat = beamMaterial({ color: 0x8f7bff, hot: 0xe8f0ff, flow: 0.8, intensity: 0.55, edge: 1.5 });
+  for (let i = 0; i < N; i++) {
+    const x = lerp(-2.55, 2.55, i / (N - 1));
+    const y = Math.sin((i / (N - 1)) * Math.PI * 1.15) * 0.16 - 0.08;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.016, 10, 40), i < 4 ? MAT.multilayerWarm : MAT.multilayer);
+    ring.position.set(x, y, 0);
+    ring.rotation.y = Math.PI / 2;
+    chain.add(ring);
+    const core = billboard(glowSprite(chain, [x, y, 0], 0.62, i < 4 ? 0xffb070 : 0x9f8cff, 2.4));
+    nodes.push({ ring, core, x, y });
+    if (i > 0) {
+      beamBetween(chain, [nodes[i - 1].x, nodes[i - 1].y, 0], [x, y, 0], 0.022, 0.022, bMat, { radial: 10, seg: 10 });
+    }
+  }
+  const plasma = new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 4), plasmaMaterial({ scale: 7, seed: 5 }));
+  plasma.position.set(nodes[2].x, nodes[2].y, 0);
+  chain.add(plasma);
+  billboard(glowSprite(g, [0, -0.1, -1.6], 9.0, 0x3a3f8f, 2.0)).material.uniforms.uInt.value = 0.20;
+  const dust = dustField(g, { count: 420, color: 0x8fb4ff, size: 12 });
+  practicals(g, [
+    { p: [3.0, 2.2, 4.0], c: 0xe8f0ff, i: 30, d: 22 },
+    { p: [-3.2, -1.2, -2.6], c: 0xa48cff, i: 20, d: 22 },
+    { p: [0, 1.6, 2.2], c: 0xbfd8ff, i: 12, d: 14 },
+  ]);
+
+  return (t, local, k) => {
+    chain.rotation.y = Math.sin(local * 0.16) * 0.20;
+    chain.rotation.x = Math.sin(local * 0.11) * 0.05;
+    bMat.uniforms.uPulse.value = (local * 0.55) % 1.5;
+    plasma.material.uniforms.uInt.value = 1.2 + 0.3 * Math.sin(local * 8);
+    nodes.forEach((n, i) => {
+      const lit = smoothstep(0.4 + i * 0.42, 1.2 + i * 0.42, local);
+      n.core.material.uniforms.uInt.value = lit * (0.85 + 0.18 * Math.sin(local * 4 + i));
+      n.ring.scale.setScalar(0.9 + lit * 0.15);
+    });
+    dust.update(local, (i, tt) => {
+      const a = hash1(i) * TAU, r = lerp(0.6, 4.6, hash2(i));
+      return [Math.cos(a) * r * 0.9, lerp(-1.6, 1.6, hash3(i)) + Math.sin(tt * 0.25 + i) * 0.05, Math.sin(a) * r,
+        0.34 * smoothstep(0, 2, tt), 0.4 + hash1(i + 4) * 0.7, hash2(i + 2) * 0.3];
+    });
+  };
+});
+
+// ===== src/60-camera.js ====================================================
+/* =============================================================================
+   60 · CAMERA  ·  按分镜关键帧插值的电影机位（时间的纯函数）
+   ========================================================================== */
+
+const CAMS = {};
+function buildCameras() {
+  for (const c of CH) {
+    const pos = c.cam.map((k) => new THREE.Vector3(k.pos[0], k.pos[1], k.pos[2]));
+    const tgt = c.cam.map((k) => new THREE.Vector3(k.tgt[0], k.tgt[1], k.tgt[2]));
+    CAMS[c.id] = {
+      times: c.cam.map((k) => k.t),
+      fovs: c.cam.map((k) => k.fov),
+      cpos: new THREE.CatmullRomCurve3(pos.length > 2 ? pos : [pos[0], pos[0].clone().lerp(pos[pos.length - 1], 0.5), pos[pos.length - 1]], false, 'catmullrom', 0.35),
+      ctgt: new THREE.CatmullRomCurve3(tgt.length > 2 ? tgt : [tgt[0], tgt[0].clone().lerp(tgt[tgt.length - 1], 0.5), tgt[tgt.length - 1]], false, 'catmullrom', 0.35),
+    };
+  }
+}
+
+const _cp = new THREE.Vector3(), _ct = new THREE.Vector3();
+/** 时间 → 机位：分段缓动映射到样条参数，保证速度连续（无跳动） */
+function applyCamera(camera, chapter, t, aspectMode) {
+  const c = CAMS[chapter.id];
+  const ts = c.times;
+  const n = ts.length;
+  let i = 0;
+  while (i < n - 2 && t > ts[i + 1]) i++;
+  const seg = inv(ts[i], ts[i + 1], t);
+  const u = (i + smooth(seg)) / (n - 1);
+  c.cpos.getPoint(clamp01(u), _cp);
+  c.ctgt.getPoint(clamp01(u), _ct);
+  const fov = lerp(c.fovs[i], c.fovs[i + 1], smooth(seg));
+
+  /* 竖版画幅：适当拉远，保证主体完整 */
+  const pull = aspectMode === '9:16' ? 1.3 : 1.0;
+  const dir = _cp.clone().sub(_ct);
+  const dist = dir.length() * pull;
+  dir.normalize();
+  /* 极轻微的手持漂移，避免画面"死板" */
+  const dr = dist * 0.006;
+  camera.position.copy(_ct).addScaledVector(dir, dist);
+  camera.position.x += Math.sin(t * 0.37) * dr;
+  camera.position.y += Math.cos(t * 0.29) * dr * 0.8;
+  camera.position.z += Math.sin(t * 0.23 + 1.1) * dr;
+  camera.lookAt(_ct);
+  camera.fov = fov * (aspectMode === '9:16' ? 1.06 : 1);
+  camera.updateProjectionMatrix();
+}
+
+// ===== src/70-overlay.js ===================================================
+/* =============================================================================
+   70 · OVERLAY  ·  字幕 / 章节 / 参数芯片 / 步骤进度 / 工程示意图 / 3D 引线标注
+   全部由时间 t 驱动（无过渡状态），因此渲染帧与交互播放完全一致。
+   ========================================================================== */
+
+const OV = {
+  mark: document.getElementById('mark'),
+  chap: document.getElementById('chap'),
+  chapNum: document.getElementById('chapNum'),
+  chapCn: document.getElementById('chapCn'),
+  chapEn: document.getElementById('chapEn'),
+  chapBar: document.getElementById('chapBar'),
+  chips: document.getElementById('chips'),
+  capRule: document.getElementById('capRule'),
+  capCn: document.getElementById('capCn'),
+  capEn: document.getElementById('capEn'),
+  rail: document.getElementById('rail'),
+  railFill: document.getElementById('railFill'),
+  railTc: document.getElementById('railTc'),
+  inset: document.getElementById('inset'),
+  insetA: document.getElementById('insetA'),
+  insetB: document.getElementById('insetB'),
+  insetC: document.getElementById('insetC'),
+  insetF: document.getElementById('insetF'),
+  card: document.getElementById('card'),
+  cardBrand: document.getElementById('cardBrand'),
+  cardH1: document.getElementById('cardH1'),
+  cardH2: document.getElementById('cardH2'),
+  cardSub: document.getElementById('cardSub'),
+  cardNote: document.getElementById('cardNote'),
+  recap: document.getElementById('recap'),
+  recapGrid: document.getElementById('recapGrid'),
+  flash: document.getElementById('flash'),
+  sub: OPT.sub,
+  chipEls: new Map(),
+  tagEls: new Map(),
+  svg: null,
+};
+
+/* ------------------------------------------------------------------ insets  */
+const INSETS = [
+  {
+    ch: 'droplet', t0: 30.8, t1: 41.6, a: 'DROPLET TRAIN', foot: () => `${SCRIPT.params.dropRate.v} · ${SCRIPT.params.dropDia.v} · ${SCRIPT.params.dropSpeed.v}（示意 / SIM）`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const y = h * 0.55;
+      g.strokeStyle = 'rgba(150,190,230,.35)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(w * 0.06, y); g.lineTo(w * 0.94, y); g.stroke();
+      for (let i = 0; i < 9; i++) {
+        const x = w * 0.10 + i * (w * 0.10);
+        const bob = Math.sin(p * 4 + i) * 2;
+        g.fillStyle = i === 4 ? '#ffffff' : '#cfe0f2';
+        g.beginPath(); g.arc(x, y + bob, i === 4 ? 8 : 6, 0, TAU); g.fill();
+        if (i === 4) {
+          g.strokeStyle = '#8f7bff'; g.lineWidth = 2;
+          g.beginPath(); g.arc(x, y + bob, 15, 0, TAU); g.stroke();
+        }
+      }
+      g.strokeStyle = 'rgba(95,216,255,.9)'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(w * 0.10, y - 42); g.lineTo(w * 0.20, y - 42); g.stroke();
+      arrow(g, w * 0.10, y - 42, -1); arrow(g, w * 0.20, y - 42, 1);
+      txt(g, '20 µs', w * 0.15, y - 52, '#5fd8ff', 12, 'center');
+      txt(g, '激光焦点 LASER FOCUS', w * 0.5, y + 52, '#9fb2c4', 11, 'center');
+    },
+  },
+  {
+    ch: 'prepulse', t0: 44.0, t1: 56.6, a: 'PULSE TIMING', foot: () => `预脉冲 → 主脉冲 ${SCRIPT.params.pulseGap.v}（示意 / SIM）`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const base = h * 0.72;
+      g.strokeStyle = 'rgba(150,190,230,.35)';
+      g.beginPath(); g.moveTo(w * 0.08, base); g.lineTo(w * 0.94, base); g.stroke();
+      const pk = (x, hh, col, lbl) => {
+        g.strokeStyle = col; g.lineWidth = 2.5;
+        g.beginPath();
+        g.moveTo(x - 16, base);
+        g.quadraticCurveTo(x - 6, base - hh, x, base - hh);
+        g.quadraticCurveTo(x + 8, base - hh, x + 22, base);
+        g.stroke();
+        g.fillStyle = col.replace(')', ',.18)').replace('rgb', 'rgba');
+        g.fill();
+        txt(g, lbl, x, base - hh - 10, col, 11, 'center');
+      };
+      const t = clamp01(p / 3);
+      pk(w * 0.30, h * 0.28 * smoothstep(0.05, 0.3, t), 'rgb(255,140,90)', 'PRE-PULSE');
+      pk(w * 0.62, h * 0.50 * smoothstep(0.35, 0.6, t), 'rgb(255,90,60)', 'MAIN PULSE');
+      g.strokeStyle = 'rgba(95,216,255,.9)'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(w * 0.30, base + 22); g.lineTo(w * 0.62, base + 22); g.stroke();
+      arrow(g, w * 0.30, base + 22, -1); arrow(g, w * 0.62, base + 22, 1);
+      txt(g, '≈ 1–2 µs', w * 0.46, base + 40, '#5fd8ff', 12, 'center');
+      txt(g, '球形 → 圆盘 SPHERE → DISC', w * 0.5, h * 0.14, '#9fb2c4', 11, 'center');
+    },
+  },
+  {
+    ch: 'mainpulse', t0: 63.0, t1: 70.8, a: 'ENERGY CONVERSION', foot: () => `CO₂ 激光 ${SCRIPT.params.drivePower.v} → EUV 转换效率 ${SCRIPT.params.ce.v}（示意 / SIM）`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const y0 = h * 0.34, bh = h * 0.16;
+      const rev = smoothstep(0, 1.6, p);
+      g.fillStyle = 'rgba(255,90,60,.30)';
+      g.fillRect(w * 0.08, y0, (w * 0.84) * rev, bh);
+      g.strokeStyle = 'rgb(255,120,80)'; g.lineWidth = 1.5;
+      g.strokeRect(w * 0.08, y0, w * 0.84, bh);
+      txt(g, 'CO₂ 驱动激光 DRIVE LASER 100%', w * 0.10, y0 - 10, '#ff8a5c', 12, 'left');
+      const y1 = h * 0.66;
+      g.fillStyle = 'rgba(143,123,255,.55)';
+      g.fillRect(w * 0.08, y1, (w * 0.84 * 0.055) * rev, bh);
+      g.strokeStyle = 'rgb(160,140,255)';
+      g.strokeRect(w * 0.08, y1, w * 0.84, bh);
+      txt(g, 'EUV 13.5 nm ≈ 5–6%', w * 0.10, y1 - 10, '#b0a0ff', 12, 'left');
+      txt(g, '其余能量 → 热 / 带外辐射', w * 0.92, y1 + bh + 18, '#9fb2c4', 10, 'right');
+    },
+  },
+  {
+    ch: 'euv', t0: 72.0, t1: 84.6, a: 'EMISSION SPECTRUM', foot: () => `峰值 ${SCRIPT.params.lambda.v} · 反射带宽 ≈ 2%（示意 / SIM）`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const x0 = w * 0.10, x1 = w * 0.94, y0 = h * 0.16, y1 = h * 0.80;
+      g.strokeStyle = 'rgba(150,190,230,.4)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x0, y1); g.lineTo(x1, y1); g.stroke();
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0, y1); g.stroke();
+      /* 13.5 nm 峰 + 带外背景 */
+      const rev = smoothstep(0, 2.2, p);
+      g.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const u = i / 120;
+        const nm = lerp(5, 30, u);
+        const peak = Math.exp(-Math.pow((nm - 13.5) / 0.55, 2)) * 1.0;
+        const oob = 0.16 * Math.exp(-Math.pow((nm - 22) / 6.5, 2)) + 0.10 * Math.exp(-Math.pow((nm - 9) / 3.4, 2));
+        const v = (peak + oob) * rev;
+        const x = lerp(x0, x1, u), y = y1 - v * (y1 - y0) * 0.92;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.strokeStyle = '#b0a0ff'; g.lineWidth = 2;
+      g.stroke();
+      g.lineTo(x1, y1); g.lineTo(x0, y1);
+      g.fillStyle = 'rgba(143,123,255,.16)'; g.fill();
+      /* 2% 带宽窗口 */
+      const wx = lerp(x0, x1, (13.5 - 5) / 25);
+      g.fillStyle = 'rgba(95,216,255,.14)';
+      g.fillRect(wx - (x1 - x0) * 0.006, y0, (x1 - x0) * 0.012, y1 - y0);
+      g.strokeStyle = '#5fd8ff'; g.setLineDash([4, 4]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(wx, y0); g.lineTo(wx, y1); g.stroke(); g.setLineDash([]);
+      txt(g, '13.5 nm', wx, y0 - 4, '#5fd8ff', 12, 'center');
+      txt(g, '5', x0, y1 + 16, '#5f7386', 10, 'center');
+      txt(g, '30 nm →', x1, y1 + 16, '#5f7386', 10, 'right');
+      txt(g, '带外辐射 OUT-OF-BAND', x1 - 8, y0 + 16, '#ff9a5c', 10, 'right');
+    },
+  },
+  {
+    ch: 'collector', t0: 91.2, t1: 101.6, a: 'Mo/Si MULTILAYER', foot: () => `${SCRIPT.params.multilayer.v} · 单镜反射率 ${SCRIPT.params.reflect.v}`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const x0 = w * 0.10, x1 = w * 0.62, y0 = h * 0.12, y1 = h * 0.88;
+      const n = 11;
+      const rev = smoothstep(0, 1.8, p);
+      for (let i = 0; i < n; i++) {
+        const hh = (y1 - y0) / n;
+        const y = y0 + i * hh;
+        if (i / n > rev) break;
+        g.fillStyle = i % 2 ? 'rgba(120,150,190,.85)' : 'rgba(200,215,235,.9)';
+        g.fillRect(x0, y, x1 - x0, hh * 0.92);
+        if (i < 2) txt(g, i % 2 ? 'Si' : 'Mo', x1 + 10, y + hh * 0.7, i % 2 ? '#8fb4d8' : '#dfe8f2', 11, 'left');
+      }
+      /* 入射与相干反射 */
+      g.strokeStyle = '#b0a0ff'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x0 + 24, y0 - 6); g.lineTo(x0 + 74, y0 + (y1 - y0) * 0.5); g.stroke();
+      for (let i = 0; i < 4; i++) {
+        const yy = y0 + (y1 - y0) * (0.16 + i * 0.14);
+        const ph = clamp01(rev * 1.4 - i * 0.15);
+        g.globalAlpha = ph;
+        g.strokeStyle = '#5fd8ff'; g.lineWidth = 1.6;
+        g.beginPath(); g.moveTo(x0 + 74 + i * 6, yy); g.lineTo(x0 + 150 + i * 14, y0 - 8); g.stroke();
+        g.globalAlpha = 1;
+      }
+      txt(g, '周期 ≈ 6.9 nm', x1 + 10, y1 - 6, '#9fb2c4', 11, 'left');
+      txt(g, '布拉格干涉选出 13.5 nm', w * 0.5, h * 0.05, '#5fd8ff', 11, 'center');
+    },
+  },
+  {
+    ch: 'purity', t0: 107.8, t1: 114.7, a: 'SPECTRAL PURITY', foot: () => '仅 13.5 nm 通过中间焦点；红外/带外被滤除（示意 / SIM）',
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const x0 = w * 0.10, x1 = w * 0.94, y0 = h * 0.18, y1 = h * 0.78;
+      g.strokeStyle = 'rgba(150,190,230,.4)';
+      g.beginPath(); g.moveTo(x0, y1); g.lineTo(x1, y1); g.stroke();
+      const rev = smoothstep(0, 1.5, p);
+      /* 入射 */
+      g.fillStyle = 'rgba(255,140,90,.28)';
+      g.fillRect(x0, y0 + 10, (x1 - x0) * 0.42, (y1 - y0) - 10);
+      txt(g, '滤前：EUV + IR + 带外', x0 + 6, y0 + 2, '#ff9a5c', 11, 'left');
+      /* 滤后 */
+      g.fillStyle = `rgba(143,123,255,${0.34 * rev})`;
+      g.fillRect(x0 + (x1 - x0) * 0.58, y0 + 10, (x1 - x0) * 0.42, (y1 - y0) - 10);
+      txt(g, '滤后：仅 13.5 nm', x0 + (x1 - x0) * 0.58 + 6, y0 + 2, '#b0a0ff', 11, 'left');
+      /* 滤片符号 */
+      const fx = x0 + (x1 - x0) * 0.5;
+      g.strokeStyle = '#d9b25f'; g.lineWidth = 2;
+      for (let i = 0; i < 7; i++) {
+        const y = y0 + 14 + i * ((y1 - y0 - 16) / 6);
+        g.beginPath(); g.moveTo(fx - 14, y); g.lineTo(fx + 14, y); g.stroke();
+      }
+      txt(g, 'H₂ + 滤片', fx, y1 + 18, '#6ff0d0', 11, 'center');
+    },
+  },
+  {
+    ch: 'illuminator', t0: 121.2, t1: 128.7, a: 'FIELD UNIFORMITY', foot: () => '面镜切分—重组后照明强度趋于均匀（示意 / SIM）',
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const x0 = w * 0.10, x1 = w * 0.94, y0 = h * 0.18, y1 = h * 0.80;
+      const flat = smoothstep(0, 2.6, p);
+      g.beginPath();
+      for (let i = 0; i <= 100; i++) {
+        const u = i / 100;
+        const bumpy = 0.55 + 0.42 * Math.sin(u * Math.PI * 3.2) * Math.exp(-Math.pow((u - 0.5) * 2.2, 2));
+        const flatV = 0.86 * (smoothstep(0.02, 0.12, u) * (1 - smoothstep(0.88, 0.98, u)));
+        const v = lerp(bumpy, flatV, flat);
+        const x = lerp(x0, x1, u), y = y1 - v * (y1 - y0);
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.strokeStyle = '#5fd8ff'; g.lineWidth = 2.4; g.stroke();
+      g.lineTo(x1, y1); g.lineTo(x0, y1);
+      g.fillStyle = 'rgba(95,216,255,.14)'; g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.25)'; g.setLineDash([5, 5]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x0, y1 - 0.86 * (y1 - y0)); g.lineTo(x1, y1 - 0.86 * (y1 - y0)); g.stroke(); g.setLineDash([]);
+      txt(g, '目标均匀度', x1 - 6, y1 - 0.86 * (y1 - y0) - 8, '#9fb2c4', 10, 'right');
+      txt(g, '弧形光场位置 →', w * 0.5, y1 + 18, '#5f7386', 10, 'center');
+    },
+  },
+  {
+    ch: 'reticle', t0: 135.2, t1: 141.8, a: 'MASK CROSS-SECTION', foot: () => `多层膜 + 吸收层 · 入射角 ${SCRIPT.params.incidence.v}`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const x0 = w * 0.08, x1 = w * 0.92;
+      const yb = h * 0.74;
+      g.fillStyle = 'rgba(90,100,115,.9)';
+      g.fillRect(x0, yb, x1 - x0, h * 0.16);
+      txt(g, '低热膨胀基板 SUBSTRATE', x0 + 8, yb + h * 0.11, '#9fb2c4', 10, 'left');
+      const rev = smoothstep(0, 1.4, p);
+      for (let i = 0; i < 8; i++) {
+        const y = yb - (i + 1) * 8;
+        if (i / 8 > rev) break;
+        g.fillStyle = i % 2 ? 'rgba(120,150,190,.9)' : 'rgba(210,225,240,.95)';
+        g.fillRect(x0, y, x1 - x0, 7);
+      }
+      txt(g, 'Mo/Si 多层膜 (≈50 对)', x0 + 8, yb - 76, '#dfe8f2', 10, 'left');
+      /* 吸收层图形 */
+      const ay = yb - 84;
+      for (let i = 0; i < 7; i++) {
+        const bw = (x1 - x0) / 14;
+        const x = x0 + (x1 - x0) * (0.06 + i * 0.13);
+        g.fillStyle = 'rgba(16,20,26,.95)';
+        g.fillRect(x, ay - 18, bw, 18);
+        g.strokeStyle = 'rgba(150,190,230,.35)'; g.lineWidth = 1;
+        g.strokeRect(x, ay - 18, bw, 18);
+      }
+      txt(g, '吸收层 ABSORBER（图形）', x0 + 8, ay - 26, '#cfe0f2', 10, 'left');
+      /* 入射/反射 6° */
+      const cx = w * 0.66;
+      g.strokeStyle = '#b0a0ff'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(cx - 60, ay - 96); g.lineTo(cx, ay - 20); g.stroke();
+      g.strokeStyle = '#dfe8ff';
+      g.beginPath(); g.moveTo(cx, ay - 20); g.lineTo(cx + 66, ay - 96); g.stroke();
+      g.strokeStyle = 'rgba(95,216,255,.6)'; g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(cx, ay - 20); g.lineTo(cx, ay - 104); g.stroke(); g.setLineDash([]);
+      txt(g, '≈6°', cx + 12, ay - 100, '#5fd8ff', 11, 'left');
+    },
+  },
+  {
+    ch: 'projection', t0: 148.2, t1: 158.6, a: '4:1 REDUCTION', foot: () => `${SCRIPT.params.mirrors.v} · NA ${SCRIPT.params.na.v} · ${SCRIPT.params.scanRatio.v}`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const rev = smoothstep(0, 1.6, p);
+      /* 掩模特征 */
+      g.strokeStyle = '#ffd08a'; g.lineWidth = 2;
+      const mw = w * 0.30 * rev, mh = h * 0.26 * rev;
+      g.strokeRect(w * 0.10, h * 0.20, mw, mh);
+      txt(g, '掩模特征 4×', w * 0.10, h * 0.16, '#ffd08a', 11, 'left');
+      for (let i = 0; i < 5; i++) {
+        const x = w * 0.10 + (mw / 5) * (i + 0.3);
+        g.beginPath(); g.moveTo(x, h * 0.22); g.lineTo(x, h * 0.20 + mh - h * 0.02); g.stroke();
+      }
+      /* 晶圆像 */
+      g.strokeStyle = '#9fe0ff';
+      const ww = mw / 4, wh = mh / 4;
+      g.strokeRect(w * 0.62, h * 0.56, ww, wh);
+      txt(g, '晶圆上的像 1×', w * 0.62, h * 0.52, '#9fe0ff', 11, 'left');
+      for (let i = 0; i < 5; i++) {
+        const x = w * 0.62 + (ww / 5) * (i + 0.3);
+        g.beginPath(); g.moveTo(x, h * 0.575); g.lineTo(x, h * 0.56 + wh - h * 0.008); g.stroke();
+      }
+      /* 缩比箭头 */
+      g.strokeStyle = 'rgba(95,216,255,.85)'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(w * 0.10 + mw + 12, h * 0.20 + mh * 0.5); g.lineTo(w * 0.60, h * 0.56 + wh * 0.5); g.stroke();
+      txt(g, '4 : 1', w * 0.42, h * 0.42, '#5fd8ff', 14, 'center');
+      txt(g, '同步反向扫描 4v : v', w * 0.5, h * 0.92, '#9fb2c4', 11, 'center');
+    },
+  },
+  {
+    ch: 'resist', t0: 164.8, t1: 176.6, a: 'RESIST PROCESS', foot: () => `曝光 → 曝后烘烤 → 显影 · ${SCRIPT.params.halfPitch.v}（示意 / SIM）`,
+    draw(g, w, h, p) {
+      grid(g, w, h);
+      const steps = ['曝光 EXPOSE', '产生酸 ACID', '烘烤 PEB', '显影 DEVELOP'];
+      const rev = clamp01(p / 8);
+      for (let i = 0; i < 4; i++) {
+        const x = w * (0.09 + i * 0.225);
+        const on = clamp01(rev * 4 - i);
+        g.strokeStyle = on > 0.05 ? '#5fd8ff' : 'rgba(150,190,230,.25)';
+        g.lineWidth = 2;
+        g.strokeRect(x, h * 0.30, w * 0.185, h * 0.30);
+        g.fillStyle = `rgba(95,216,255,${0.10 + 0.22 * on})`;
+        g.fillRect(x, h * 0.30, w * 0.185, h * 0.30);
+        txt(g, steps[i], x + w * 0.0925, h * 0.68, on > 0.05 ? '#eaf1f8' : '#5f7386', 11, 'center');
+        if (i < 3) {
+          g.strokeStyle = 'rgba(150,190,230,.4)'; g.lineWidth = 1.5;
+          const ax = x + w * 0.185 + 3;
+          g.beginPath(); g.moveTo(ax, h * 0.45); g.lineTo(ax + w * 0.032, h * 0.45); g.stroke();
+          arrow(g, ax + w * 0.032, h * 0.45, 1);
+        }
+      }
+      txt(g, '潜影 LATENT IMAGE → 立体图形', w * 0.5, h * 0.16, '#9fb2c4', 11, 'center');
+    },
+  },
+];
+
+function grid(g, w, h) {
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(150,190,230,.07)';
+  g.lineWidth = 1;
+  for (let i = 1; i < 8; i++) { g.beginPath(); g.moveTo((w * i) / 8, 0); g.lineTo((w * i) / 8, h); g.stroke(); }
+  for (let i = 1; i < 5; i++) { g.beginPath(); g.moveTo(0, (h * i) / 5); g.lineTo(w, (h * i) / 5); g.stroke(); }
+}
+function txt(g, s, x, y, col, size, align) {
+  g.fillStyle = col;
+  g.font = `600 ${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  g.textAlign = align || 'left';
+  g.fillText(s, x, y);
+}
+function arrow(g, x, y, dir) {
+  g.beginPath();
+  g.moveTo(x, y); g.lineTo(x - 6 * dir, y - 4); g.lineTo(x - 6 * dir, y + 4);
+  g.closePath();
+  g.fillStyle = g.strokeStyle;
+  g.fill();
+}
+
+/* --------------------------------------------------------------- init DOM   */
+function buildOverlay() {
+  /* 参数芯片 */
+  for (const key of Object.keys(SCRIPT.params)) {
+    const p = SCRIPT.params[key];
+    const el = document.createElement('div');
+    el.className = 'chip';
+    el.innerHTML = `<span class="k">${p.en}</span><span class="v">${p.v}</span>`
+      + (p.src === 'sim' ? '<span class="s">示意 SIM</span>' : '');
+    OV.chips.appendChild(el);
+    OV.chipEls.set(key, el);
+  }
+  /* 3D 引线标注层 */
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('style', 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none');
+  document.getElementById('gfx').appendChild(svg);
+  OV.svg = svg;
+  for (let i = 0; i < LABELS.length; i++) {
+    const L = LABELS[i];
+    const el = document.createElement('div');
+    el.className = 'tag';
+    el.style.cssText = 'position:absolute;opacity:0;white-space:nowrap;transform:translate(0,-50%);'
+      + 'padding:calc(5px * var(--fs)) calc(10px * var(--fs));border:1px solid rgba(150,190,230,.3);'
+      + 'background:linear-gradient(90deg,rgba(8,14,22,.92),rgba(8,14,22,.62))';
+    const tone = L.tone === 'ir' ? '#ff8a5c' : L.tone === 'h2' ? '#6ff0d0' : L.tone === 'warm' ? '#ffc48a' : '#5fd8ff';
+    el.innerHTML = `<div style="font:600 calc(13px * var(--fs))/1.3 var(--sans);color:#eaf1f8">${L.cn}</div>`
+      + (L.en ? `<div style="font:600 calc(8.5px * var(--fs))/1.3 var(--mono);letter-spacing:.16em;color:${tone};margin-top:calc(2px * var(--fs))">${L.en}</div>` : '');
+    document.getElementById('gfx').appendChild(el);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', tone);
+    line.setAttribute('stroke-width', '1');
+    line.setAttribute('opacity', '0');
+    svg.appendChild(line);
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('r', '2.5');
+    dot.setAttribute('fill', tone);
+    dot.setAttribute('opacity', '0');
+    svg.appendChild(dot);
+    OV.tagEls.set(i, { el, line, dot });
+  }
+  /* 片尾回顾网格 */
+  for (const c of STEP_CHAPTERS) {
+    const it = document.createElement('div');
+    it.className = 'it';
+    it.innerHTML = `<div class="n">STEP ${String(c.step).padStart(2, '0')}</div><div class="c">${c.cn}</div><div class="e">${c.en}</div>`;
+    OV.recapGrid.appendChild(it);
+  }
+  OV.cardSub.textContent = `${SCRIPT.meta.subtitle.cn} · ${SCRIPT.meta.subtitle.en}`;
+  OV.cardNote.textContent = `${SCRIPT.meta.disclaimerLong.cn}\n${SCRIPT.meta.disclaimerLong.en}`;
+  setSubtitleMode(OPT.sub);
+}
+
+function setSubtitleMode(m) { OV.sub = m; }
+
+/* ------------------------------------------------------------------ update  */
+const _lp = new THREE.Vector3();
+function updateOverlay(t, chapter, camera, w, h) {
+  const fs = w / 1920;
+  document.documentElement.style.setProperty('--fs', String(fs));
+
+  /* 片头/片尾卡 */
+  const titleIn = t < 10.6;
+  const endIn = t > 188.6;
+  if (titleIn || endIn) {
+    OV.card.style.opacity = String(titleIn
+      ? smoothstep(0.6, 2.4, t) * (1 - smoothstep(8.6, 10.6, t))
+      : smoothstep(188.8, 190.2, t));
+    OV.cardH1.textContent = titleIn ? SCRIPT.meta.title.cn : '13.5 nm';
+    OV.cardH2.textContent = titleIn ? `${SCRIPT.meta.title.en} · 13.5 nm` : SCRIPT.meta.brandPlate.en;
+    OV.cardSub.style.opacity = titleIn ? '1' : '0.001';
+    OV.cardNote.style.opacity = titleIn ? String(smoothstep(3.2, 4.6, t)) : '0.001';
+    OV.cardBrand.textContent = SCRIPT.meta.brandPlate.en;
+  } else {
+    OV.card.style.opacity = '0';
+  }
+
+  /* 片名标记 + 章节 */
+  const showMark = t > 10.8 && t < 178.4;
+  OV.mark.style.opacity = String(showMark ? 0.9 : 0);
+  const isStep = chapter.step > 0;
+  const chIn = t - chapter.t0;
+  const chFade = smoothstep(0.15, 0.8, chIn) * (1 - smoothstep(chapter.t1 - chapter.t0 - 0.5, chapter.t1 - chapter.t0, chIn));
+  OV.chap.style.opacity = String(showMark ? chFade : 0);
+  OV.chapNum.innerHTML = isStep ? `${String(chapter.step).padStart(2, '0')}<sub>/10</sub>` : `<sub>OVERVIEW</sub>`;
+  OV.chapCn.textContent = chapter.cn;
+  OV.chapEn.textContent = chapter.en;
+  OV.chapBar.style.width = `${clamp01(chIn / (chapter.t1 - chapter.t0)) * 100}%`;
+
+  /* 参数芯片 */
+  for (const [key, el] of OV.chipEls) {
+    let on = false;
+    for (const c of chapter.chips || []) if (c.k === key && t >= c.t0 && t <= c.t1) on = true;
+    el.classList.toggle('on', on);
+    el.style.display = on ? '' : 'none';
+  }
+
+  /* 字幕 */
+  let cap = null;
+  for (const c of chapter.captions || []) if (t >= c.t0 && t <= c.t1) cap = c;
+  const showSub = OV.sub !== 'off' && cap;
+  if (showSub) {
+    const fade = smoothstep(cap.t0, cap.t0 + 0.35, t) * (1 - smoothstep(cap.t1 - 0.35, cap.t1, t));
+    OV.capCn.textContent = OV.sub === 'en' ? cap.en : cap.cn;
+    OV.capEn.textContent = OV.sub === 'both' ? cap.en : '';
+    OV.capCn.style.opacity = String(fade);
+    OV.capEn.style.opacity = String(OV.sub === 'both' ? fade * 0.9 : 0);
+    OV.capRule.style.opacity = String(fade * 0.8);
+  } else {
+    OV.capCn.style.opacity = '0';
+    OV.capEn.style.opacity = '0';
+    OV.capRule.style.opacity = '0';
+  }
+
+  /* 步骤进度条 */
+  const railOn = t > 24.4 && t < 178.2;
+  OV.rail.style.opacity = String(railOn ? 0.92 : 0);
+  if (railOn) {
+    if (!OV.rail.dataset.built) {
+      const track = OV.rail.querySelector('.track');
+      STEP_CHAPTERS.forEach((c, i) => {
+        const tick = document.createElement('div');
+        tick.className = 'tick';
+        tick.style.left = `${(i / (STEP_CHAPTERS.length - 1)) * 100}%`;
+        tick.innerHTML = `<b>${String(c.step).padStart(2, '0')}</b>`;
+        track.appendChild(tick);
+      });
+      OV.rail.dataset.built = '1';
+    }
+    const ticks = OV.rail.querySelectorAll('.tick');
+    const idx = STEP_CHAPTERS.findIndex((c) => c.id === chapter.id);
+    ticks.forEach((el, i) => el.classList.toggle('on', i <= idx && idx >= 0));
+    const stepStart = STEP_CHAPTERS[0].t0, stepEnd = STEP_CHAPTERS[STEP_CHAPTERS.length - 1].t1;
+    OV.railFill.style.width = `${clamp01(inv(stepStart, stepEnd, t)) * 100}%`;
+    OV.railTc.textContent = `${TC(t)} / ${TC(SCRIPT.meta.duration)}`;
+  }
+
+  /* 工程示意图插图 */
+  let ins = null;
+  for (const i of INSETS) if (i.ch === chapter.id && t >= i.t0 && t <= i.t1) ins = i;
+  OV.inset.classList.toggle('on', !!ins);
+  if (ins) {
+    OV.insetA.textContent = ins.a;
+    OV.insetF.textContent = ins.foot();
+    const c2 = OV.insetC.getContext('2d');
+    ins.draw(c2, OV.insetC.width, OV.insetC.height, t - ins.t0);
+  }
+
+  /* 片尾回顾 */
+  const recapOn = t > 178.3 && t < 189.2;
+  OV.recap.style.opacity = String(recapOn ? smoothstep(178.4, 179.2, t) * (1 - smoothstep(188.4, 189.2, t)) : 0);
+  if (recapOn) {
+    const items = OV.recapGrid.children;
+    for (let i = 0; i < items.length; i++) items[i].classList.toggle('on', t > 178.6 + i * 0.36);
+  }
+
+  /* 3D 引线标注 */
+  for (let i = 0; i < LABELS.length; i++) {
+    const L = LABELS[i];
+    const ui = OV.tagEls.get(i);
+    const vis = t >= L.t0 && t <= L.t1;
+    if (!vis) {
+      ui.el.style.opacity = '0';
+      ui.line.setAttribute('opacity', '0');
+      ui.dot.setAttribute('opacity', '0');
+      continue;
+    }
+    L.obj.getWorldPosition(_lp);
+    _lp.project(camera);
+    if (_lp.z > 1) { ui.el.style.opacity = '0'; ui.line.setAttribute('opacity', '0'); ui.dot.setAttribute('opacity', '0'); continue; }
+    const sx = (_lp.x * 0.5 + 0.5) * w, sy = (-_lp.y * 0.5 + 0.5) * h;
+    const fade = smoothstep(L.t0, L.t0 + 0.4, t) * (1 - smoothstep(L.t1 - 0.4, L.t1, t));
+    const right = L.side !== 'left';
+    const off = 90 * fs;
+    const tx = clamp(right ? sx + off : sx - off, 40 * fs, w - 40 * fs);
+    const ty = clamp(sy - 26 * fs, 60 * fs, h - 150 * fs);
+    ui.el.style.left = `${tx}px`;
+    ui.el.style.top = `${ty}px`;
+    ui.el.style.transform = right ? 'translate(0,-50%)' : 'translate(-100%,-50%)';
+    ui.el.style.opacity = String(fade * 0.97);
+    ui.line.setAttribute('points', `${sx},${sy} ${(sx + tx) / 2},${(sy + ty) / 2} ${right ? tx - 4 : tx + 4},${ty}`);
+    ui.line.setAttribute('opacity', String(fade * 0.55));
+    ui.dot.setAttribute('cx', String(sx));
+    ui.dot.setAttribute('cy', String(sy));
+    ui.dot.setAttribute('opacity', String(fade * 0.9));
+  }
+
+  /* 转场闪光（章节切换与点火瞬间） */
+  let fl = 0;
+  for (const c of CH) if (c.step > 0 || c.id === 'machine') fl = Math.max(fl, pulse(t, c.t0, 0.05, 0.42) * 0.10);
+  fl = Math.max(fl, pulse(t, 59.42, 0.04, 0.5) * 0.55);          // 主脉冲点火
+  fl = Math.max(fl, pulse(t, 45.0, 0.03, 0.25) * 0.18);          // 预脉冲
+  OV.flash.style.opacity = String(fl);
+}
+
+// ===== src/80-postfx.js ====================================================
+/* =============================================================================
+   80 · POST  ·  两级泛光 + 电影级调色（亮部提取 → 可分离模糊 → sRGB 合成）
+   ========================================================================== */
+
+const FS_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const SRGB_FN = `
+  vec3 toSRGB(vec3 c){
+    c = max(c, vec3(0.0));
+    return mix(c * 12.92, pow(c, vec3(1.0 / 2.4)) * 1.055 - 0.055, step(vec3(0.0031308), c));
+  }`;
+
+class Bloom {
+  constructor(renderer) {
+    this.r = renderer;
+    this.enabled = true;
+    this.strength = 0.60;
+    this.threshold = 0.62;
+    this.knee = 0.35;
+    const rt = (samples = 0) => {
+      const t = new THREE.WebGLRenderTarget(2, 2, {
+        type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+        depthBuffer: true, stencilBuffer: false, samples,
+      });
+      t.texture.generateMipmaps = false;
+      return t;
+    };
+    this.scene = rt(Q.msaa);
+    this.a1 = rt(); this.a2 = rt(); this.b1 = rt(); this.b2 = rt();
+    this.qs = new THREE.Scene();
+    this.qc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+    this.quad.frustumCulled = false;
+    this.qs.add(this.quad);
+
+    this.mBright = new THREE.ShaderMaterial({
+      uniforms: { tex: { value: null }, thr: { value: 0.55 }, knee: { value: 0.35 } },
+      vertexShader: FS_VERT,
+      fragmentShader: `
+        uniform sampler2D tex; uniform float thr, knee;
+        varying vec2 vUv;
+        void main(){
+          vec3 c = texture2D(tex, vUv).rgb;
+          float l = max(c.r, max(c.g, c.b));
+          float soft = clamp(l - thr + knee, 0.0, 2.0 * knee);
+          soft = soft * soft / (4.0 * knee + 1e-5);
+          float w = max(soft, l - thr) / max(l, 1e-5);
+          gl_FragColor = vec4(c * w, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
+    this.mBlur = new THREE.ShaderMaterial({
+      uniforms: { tex: { value: null }, dir: { value: new THREE.Vector2() } },
+      vertexShader: FS_VERT,
+      fragmentShader: `
+        uniform sampler2D tex; uniform vec2 dir;
+        varying vec2 vUv;
+        void main(){
+          vec3 s = texture2D(tex, vUv).rgb * 0.227027;
+          s += (texture2D(tex, vUv + dir * 1.3846154).rgb + texture2D(tex, vUv - dir * 1.3846154).rgb) * 0.3162162;
+          s += (texture2D(tex, vUv + dir * 3.2307692).rgb + texture2D(tex, vUv - dir * 3.2307692).rgb) * 0.0702703;
+          gl_FragColor = vec4(s, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
+    this.mComp = new THREE.ShaderMaterial({
+      uniforms: {
+        tex: { value: null }, bA: { value: null }, bB: { value: null },
+        strength: { value: 0.60 }, sat: { value: 1.07 }, contrast: { value: 1.06 },
+      },
+      vertexShader: FS_VERT,
+      fragmentShader: `
+        ${SRGB_FN}
+        uniform sampler2D tex, bA, bB;
+        uniform float strength, sat, contrast;
+        varying vec2 vUv;
+        void main(){
+          vec3 base = texture2D(tex, vUv).rgb;
+          vec3 glow = texture2D(bA, vUv).rgb * 0.60 + texture2D(bB, vUv).rgb * 0.95;
+          vec3 c = base + glow * strength;
+          /* 电影级基础调色：冷阴影 / 暖高光 + 轻微对比与饱和 */
+          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          c = mix(vec3(l), c, sat);
+          c = (c - 0.5) * contrast + 0.5;
+          c += vec3(-0.006, 0.000, 0.014) * (1.0 - smoothstep(0.0, 0.35, l));
+          c += vec3(0.010, 0.004, -0.008) * smoothstep(0.55, 1.0, l);
+          gl_FragColor = vec4(toSRGB(max(c, vec3(0.0))), 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
+  }
+
+  setSize(w, h, dpr) {
+    const W = Math.max(2, Math.round(w * dpr)), H = Math.max(2, Math.round(h * dpr));
+    this.scene.setSize(W, H);
+    this.a1.setSize(Math.round(W / 2), Math.round(H / 2));
+    this.a2.setSize(Math.round(W / 2), Math.round(H / 2));
+    this.b1.setSize(Math.round(W / 4), Math.round(H / 4));
+    this.b2.setSize(Math.round(W / 4), Math.round(H / 4));
+  }
+
+  pass(mat, target) {
+    this.quad.material = mat;
+    this.r.setRenderTarget(target);
+    this.r.clear(true, false, false);
+    this.r.render(this.qs, this.qc);
+  }
+
+  render(scene, camera) {
+    const r = this.r;
+    if (!this.enabled) {
+      r.setRenderTarget(null);
+      r.render(scene, camera);
+      this.stats = { triangles: r.info.render.triangles, calls: r.info.render.calls };
+      return;
+    }
+    r.setRenderTarget(this.scene);
+    r.clear();
+    r.render(scene, camera);
+    this.stats = { triangles: r.info.render.triangles, calls: r.info.render.calls };
+
+    this.mBright.uniforms.tex.value = this.scene.texture;
+    this.mBright.uniforms.thr.value = this.threshold;
+    this.mBright.uniforms.knee.value = this.knee;
+    this.pass(this.mBright, this.a1);
+    const blur = (src, dst, dx, dy, ref) => {
+      this.mBlur.uniforms.tex.value = src.texture;
+      this.mBlur.uniforms.dir.value.set(dx / ref.width, dy / ref.height);
+      this.pass(this.mBlur, dst);
+    };
+    blur(this.a1, this.a2, 1, 0, this.a1);
+    blur(this.a2, this.a1, 0, 1, this.a1);
+    this.mBright.uniforms.tex.value = this.a1.texture;
+    this.mBright.uniforms.thr.value = 0.0;
+    this.mBright.uniforms.knee.value = 0.01;
+    this.pass(this.mBright, this.b1);
+    blur(this.b1, this.b2, 1, 0, this.b1);
+    blur(this.b2, this.b1, 0, 1, this.b1);
+
+    this.mComp.uniforms.tex.value = this.scene.texture;
+    this.mComp.uniforms.bA.value = this.a1.texture;
+    this.mComp.uniforms.bB.value = this.b1.texture;
+    this.mComp.uniforms.strength.value = this.strength;
+    this.pass(this.mComp, null);
+  }
+}
+
+// ===== src/90-main.js ======================================================
+/* =============================================================================
+   90 · MAIN  ·  渲染器 / 灯光 / 场景装配 / 确定性 renderAt(t) / 播放器 / 导出 API
+   ========================================================================== */
+
+const stageEl = document.getElementById('stage');
+const canvas = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
+renderer.setClearColor(0x02040a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.24;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+{
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
+  const soft = /swiftshader|llvmpipe|software|basic render/i.test(name);
+  const small = Math.min(window.innerWidth, window.innerHeight) < 700;
+  applyQuality(OPT.quality || (soft ? 'low' : small ? 'medium' : 'high'));
+  console.log(`[euv] gpu="${name}" quality=${Q.tier} export=${OPT.export}`);
+  /* 导出模式：禁用一切 CSS 过渡/动画，保证同一时间码逐帧完全一致 */
+  if (OPT.export) document.body.classList.add('exporting');
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.dpr));
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(34, 16 / 9, 0.02, 400);
+
+boot('environment …');
+await new Promise((r) => requestAnimationFrame(() => r()));
+scene.environment = buildEnvironment(renderer);
+buildMaterials();
+
+/* 背景：深色渐变穹顶（避免纯黑死区，同时不干扰主体） */
+{
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(200, 32, 24), new THREE.ShaderMaterial({
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `
+      varying vec3 vP;
+      void main(){
+        vec3 d = normalize(vP);
+        vec3 low = vec3(0.0012, 0.0018, 0.0034);
+        vec3 mid = vec3(0.0075, 0.0105, 0.0210);
+        vec3 top = vec3(0.0030, 0.0048, 0.0105);
+        vec3 c = mix(low, mid, smoothstep(-0.6, 0.05, d.y));
+        c = mix(c, top, smoothstep(0.1, 0.9, d.y));
+        c += vec3(0.010, 0.008, 0.026) * pow(max(0.0, 1.0 - length(d.xy * 1.2)), 3.0);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+    side: THREE.BackSide, depthWrite: false,
+  }));
+  sky.frustumCulled = false;
+  scene.add(sky);
+}
+
+/* 灯光：三点式 + 半球补光（金属主要由环境贴图点亮） */
+const key = new THREE.DirectionalLight(0xfff4e6, 3.1);
+key.position.set(6, 7.5, 6.5);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x9ecdff, 1.15);
+fill.position.set(-7, 3, -5);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xc9b8ff, 1.8);
+rim.position.set(-3, -2, -8);
+scene.add(rim);
+scene.add(new THREE.HemisphereLight(0x6b86a8, 0x0a0d12, 0.5));
+
+/* ------------------------------------------------------------ 场景装配 */
+boot('building scenes …');
+await new Promise((r) => requestAnimationFrame(() => r()));
+
+const STAGES = {};
+for (const c of CH) {
+  const g = new THREE.Group();
+  g.name = c.id;
+  g.visible = false;
+  scene.add(g);
+  const builder = SCENES[c.id];
+  if (!builder) { console.warn('[euv] missing scene', c.id); continue; }
+  STAGES[c.id] = { group: g, update: builder(g) };
+  boot(`scene ${c.id} …`);
+}
+buildCameras();
+buildOverlay();
+
+const bloom = new Bloom(renderer);
+bloom.enabled = Q.bloom;
+
+/* ------------------------------------------------------------ 画幅与尺寸 */
+const VIEW = { aspect: OPT.export ? 'free' : OPT.aspect, w: 1920, h: 1080 };
+function layout() {
+  const W = window.innerWidth, H = window.innerHeight;
+  let w = W, h = H;
+  if (VIEW.aspect === '16:9' || VIEW.aspect === '9:16') {
+    const ar = VIEW.aspect === '16:9' ? 16 / 9 : 9 / 16;
+    if (W / H > ar) { h = H; w = Math.round(H * ar); } else { w = W; h = Math.round(W / ar); }
+  }
+  VIEW.w = w; VIEW.h = h;
+  stageEl.style.width = `${w}px`;
+  stageEl.style.height = `${h}px`;
+  stageEl.style.left = `${Math.round((W - w) / 2)}px`;
+  stageEl.style.top = `${Math.round((H - h) / 2)}px`;
+  stageEl.style.right = 'auto';
+  stageEl.style.bottom = 'auto';
+  document.body.classList.toggle('vert', h > w * 1.05);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  const dpr = Math.min(window.devicePixelRatio || 1, Q.dpr);
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(dpr);
+  bloom.setSize(w, h, dpr);
+  OV.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+}
+window.addEventListener('resize', layout);
+layout();
+
+/* ------------------------------------------------------------ 剪辑映射 */
+function cutRanges(name) {
+  const r = SCRIPT.cuts[name];
+  return r && r.length ? r : [[0, SCRIPT.meta.duration]];
+}
+function cutDuration(name) {
+  return cutRanges(name).reduce((s, [a, b]) => s + (b - a), 0);
+}
+/** 剪辑时间 → 母版时间 */
+function cutToMaster(name, tc) {
+  const rs = cutRanges(name);
+  let acc = 0;
+  for (const [a, b] of rs) {
+    const d = b - a;
+    if (tc <= acc + d) return a + (tc - acc);
+    acc += d;
+  }
+  return rs[rs.length - 1][1];
+}
+
+/* ------------------------------------------------------------ 渲染 */
+const _q = new THREE.Quaternion();
+function chapterAt(t) {
+  for (const c of CH) if (t >= c.t0 && t < c.t1) return c;
+  return t < CH[0].t0 ? CH[0] : CH[CH.length - 1];
+}
+
+let lastRendered = -1;
+function renderAt(t) {
+  t = clamp(t, 0, SCRIPT.meta.duration - 1e-4);
+  SHARED.time.value = t;
+  const c = chapterAt(t);
+  /* 分镜曝光补偿（相邻镜头之间做 0.6 s 交叉过渡，避免亮度跳变） */
+  const nb = CH.find((x) => x.t0 > c.t0 && x.t0 - t < 0.6 && x.t0 - t > 0);
+  const pv = CH.find((x) => x.t1 <= c.t0 && t - c.t0 < 0.6);
+  let expo = c.expo ?? 1;
+  if (nb) expo = lerp(expo, nb.expo ?? 1, smoothstep(nb.t0 - 0.6, nb.t0, t) * 0.5);
+  else if (pv) expo = lerp(pv.expo ?? 1, expo, smoothstep(c.t0, c.t0 + 0.6, t));
+  renderer.toneMappingExposure = 1.24 * expo;
+  SHARED.expo.value = 1.24 * expo;
+  for (const id in STAGES) STAGES[id].group.visible = (id === c.id);
+  applyCamera(camera, c, t, VIEW.aspect);
+  STAGES[c.id].update(t, t - c.t0, inv(c.t0, c.t1, t));
+  for (const b of BILLBOARDS) {
+    if (!b.visible || !b.parent) continue;
+    /* 无状态朝向：local = parentWorld⁻¹ · cameraWorld（可逐帧复现） */
+    b.parent.getWorldQuaternion(_q);
+    b.quaternion.copy(_q.invert()).multiply(camera.quaternion);
+  }
+  updateOverlay(t, c, camera, VIEW.w, VIEW.h);
+  bloom.render(scene, camera);
+  lastRendered = t;
+}
+
+/* ------------------------------------------------------------ 音频 */
+const AUDIO = { el: null, ready: false, on: OPT.audio && !OPT.export };
+function initAudio() {
+  const el = new Audio();
+  el.src = new URL('./audio/mix.wav', document.baseURI).href;
+  el.preload = 'auto';
+  el.addEventListener('canplay', () => { AUDIO.ready = true; console.log('[euv] audio ready'); });
+  el.addEventListener('error', () => { AUDIO.ready = false; console.log('[euv] audio unavailable (silent playback)'); });
+  AUDIO.el = el;
+}
+initAudio();
+
+/* ------------------------------------------------------------ 播放器 */
+const PLAY = { cut: OPT.cut, t: 0, playing: false, speed: 1, lastWall: 0 };
+const ui = document.getElementById('ui');
+const playBtn = document.getElementById('play');
+const scrub = document.getElementById('scrub');
+const scrubPl = document.getElementById('scrubPl');
+const scrubKn = document.getElementById('scrubKn');
+const tcode = document.getElementById('tcode');
+
+function setPlaying(v) {
+  PLAY.playing = v;
+  playBtn.textContent = v ? '❚❚' : '▶';
+  if (AUDIO.el && AUDIO.ready && AUDIO.on) {
+    if (v) { AUDIO.el.currentTime = cutToMaster(PLAY.cut, PLAY.t); AUDIO.el.play().catch(() => {}); }
+    else AUDIO.el.pause();
+  }
+}
+function seekCut(tc) {
+  PLAY.t = clamp(tc, 0, cutDuration(PLAY.cut));
+  if (AUDIO.el && AUDIO.ready) AUDIO.el.currentTime = cutToMaster(PLAY.cut, PLAY.t);
+  renderAt(cutToMaster(PLAY.cut, PLAY.t));
+  updateScrub();
+}
+function updateScrub() {
+  const d = cutDuration(PLAY.cut);
+  const p = clamp01(PLAY.t / d);
+  scrubPl.style.width = `${p * 100}%`;
+  scrubKn.style.left = `${p * 100}%`;
+  tcode.textContent = `${TC(PLAY.t)} / ${TC(d)}`;
+}
+playBtn.addEventListener('click', () => setPlaying(!PLAY.playing));
+scrub.addEventListener('pointerdown', (e) => {
+  const move = (ev) => {
+    const r = scrub.getBoundingClientRect();
+    seekCut(((ev.clientX - r.left) / r.width) * cutDuration(PLAY.cut));
+  };
+  move(e);
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+});
+for (const b of document.querySelectorAll('[data-speed]')) {
+  b.addEventListener('click', () => {
+    PLAY.speed = parseFloat(b.dataset.speed);
+    if (AUDIO.el) AUDIO.el.playbackRate = PLAY.speed;
+    for (const o of document.querySelectorAll('[data-speed]')) o.classList.toggle('on', o === b);
+  });
+}
+for (const b of document.querySelectorAll('[data-sub]')) {
+  b.addEventListener('click', () => {
+    setSubtitleMode(b.dataset.sub);
+    for (const o of document.querySelectorAll('[data-sub]')) o.classList.toggle('on', o === b);
+    renderAt(cutToMaster(PLAY.cut, PLAY.t));
+  });
+}
+for (const b of document.querySelectorAll('[data-cut]')) {
+  b.addEventListener('click', () => {
+    PLAY.cut = b.dataset.cut;
+    for (const o of document.querySelectorAll('[data-cut]')) o.classList.toggle('on', o === b);
+    buildChapterButtons();
+    seekCut(0);
+  });
+}
+for (const b of document.querySelectorAll('[data-asp]')) {
+  b.addEventListener('click', () => {
+    VIEW.aspect = b.dataset.asp;
+    for (const o of document.querySelectorAll('[data-asp]')) o.classList.toggle('on', o === b);
+    layout();
+    renderAt(cutToMaster(PLAY.cut, PLAY.t));
+  });
+}
+document.getElementById('gfxBtn').addEventListener('click', (e) => {
+  const g = document.getElementById('gfx');
+  g.classList.toggle('hidden');
+  e.currentTarget.classList.toggle('on', !g.classList.contains('hidden'));
+});
+document.getElementById('audioBtn').addEventListener('click', (e) => {
+  AUDIO.on = !AUDIO.on;
+  e.currentTarget.classList.toggle('on', AUDIO.on);
+  e.currentTarget.textContent = AUDIO.on ? '🔊 音频' : '🔇 静音';
+  if (AUDIO.el) { if (!AUDIO.on) AUDIO.el.pause(); else if (PLAY.playing) { AUDIO.el.currentTime = cutToMaster(PLAY.cut, PLAY.t); AUDIO.el.play().catch(() => {}); } }
+});
+document.getElementById('fsBtn').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+function buildChapterButtons() {
+  const host = document.getElementById('chapters');
+  host.innerHTML = '';
+  const rs = cutRanges(PLAY.cut);
+  for (const c of CH) {
+    /* 只显示当前剪辑包含的章节 */
+    let cutT = 0, found = -1, acc = 0;
+    for (const [a, b] of rs) {
+      if (c.t0 < b && c.t1 > a) { found = acc + Math.max(0, c.t0 - a); break; }
+      acc += b - a;
+    }
+    if (found < 0) continue;
+    cutT = found;
+    const el = document.createElement('button');
+    el.className = 'cb';
+    el.innerHTML = `${c.step > 0 ? `STEP ${String(c.step).padStart(2, '0')}` : 'INTRO'}<b>${c.cn}</b>`;
+    el.addEventListener('click', () => seekCut(cutT + 0.05));
+    host.appendChild(el);
+  }
+}
+buildChapterButtons();
+
+let idleTimer = 0;
+window.addEventListener('pointermove', () => { idleTimer = 0; ui.classList.remove('hide'); });
+window.addEventListener('keydown', (e) => {
+  if (e.key === ' ') { setPlaying(!PLAY.playing); e.preventDefault(); }
+  if (e.key === 'ArrowRight') seekCut(PLAY.t + 5);
+  if (e.key === 'ArrowLeft') seekCut(PLAY.t - 5);
+  if (e.key.toLowerCase() === 'f') document.getElementById('fsBtn').click();
+  if (e.key.toLowerCase() === 'g') document.getElementById('gfxBtn').click();
+});
+
+/* ------------------------------------------------------------ 主循环 */
+let frames = 0, fpsAcc = 0, fpsN = 0, fpsShown = 0;
+let prevWall = performance.now() / 1000;
+function tick() {
+  requestAnimationFrame(tick);
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.25, now - prevWall);
+  prevWall = now;
+  if (OPT.export) return;                       // 导出模式：仅按指令渲染
+
+  if (PLAY.playing) {
+    const d = cutDuration(PLAY.cut);
+    if (AUDIO.el && AUDIO.ready && AUDIO.on && !AUDIO.el.paused) {
+      /* 以音频为主时钟 → 音画严格同步 */
+      const master = AUDIO.el.currentTime;
+      let acc = 0, mapped = null;
+      for (const [a, b] of cutRanges(PLAY.cut)) {
+        if (master >= a && master <= b) { mapped = acc + (master - a); break; }
+        acc += b - a;
+      }
+      PLAY.t = mapped != null ? mapped : PLAY.t + dt * PLAY.speed;
+    } else {
+      PLAY.t += dt * PLAY.speed;
+    }
+    if (PLAY.t >= d) { PLAY.t = 0; if (AUDIO.el && AUDIO.ready) AUDIO.el.currentTime = cutToMaster(PLAY.cut, 0); }
+    updateScrub();
+  }
+  renderAt(cutToMaster(PLAY.cut, PLAY.t));
+
+  idleTimer += dt;
+  if (idleTimer > 4 && PLAY.playing) ui.classList.add('hide');
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc > 0.5) { fpsShown = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  frames++;
+}
+
+/* 初始帧 */
+renderAt(clamp(OPT.start, 0, SCRIPT.meta.duration));
+updateScrub();
+tick();
+setTimeout(() => bootEl.classList.add('done'), 300);
+if (!OPT.export && OPT.autoplay) setTimeout(() => setPlaying(true), 900);
+
+/* ------------------------------------------------------------ 公共 API */
+window.API = {
+  ready: true,
+  THREE, scene, camera, renderer, SCRIPT, STAGES, LABELS, OV, PLAY, VIEW, Q,
+  duration: SCRIPT.meta.duration,
+  fps: SCRIPT.meta.fps,
+  /** 导出用：渲染指定母版时间并在完成后 resolve */
+  seek: (t) => { renderAt(t); return true; },
+  seekFrame: (n, fps) => new Promise((res) => {
+    const f = fps || SCRIPT.meta.fps;
+    renderAt(n / f);
+    requestAnimationFrame(() => requestAnimationFrame(() => res(n / f)));
+  }),
+  play: () => setPlaying(true),
+  pause: () => setPlaying(false),
+  seekCut: (tc) => seekCut(tc),
+  setCut: (name) => { PLAY.cut = name; buildChapterButtons(); seekCut(0); },
+  setAspect: (a) => { VIEW.aspect = a; layout(); renderAt(cutToMaster(PLAY.cut, PLAY.t)); },
+  setSub: (m) => { setSubtitleMode(m); renderAt(cutToMaster(PLAY.cut, PLAY.t)); },
+  showGfx: (v) => { document.getElementById('gfx').classList.toggle('hidden', !v); },
+  chrome: (v) => { ui.style.display = v ? '' : 'none'; },
+  cutDuration: (n) => cutDuration(n || PLAY.cut),
+  cutToMaster: (n, tc) => cutToMaster(n, tc),
+  chapters: CH.map((c) => ({ id: c.id, step: c.step, t0: c.t0, t1: c.t1, cn: c.cn, en: c.en })),
+  diagnostics: () => ({
+    tier: Q.tier,
+    fps: +fpsShown.toFixed(1),
+    tris: (bloom.stats || {}).triangles || 0,
+    calls: (bloom.stats || {}).calls || 0,
+    geoms: renderer.info.memory.geometries,
+    textures: renderer.info.memory.textures,
+    scenes: Object.keys(STAGES).length,
+    labels: LABELS.length,
+    view: `${VIEW.w}x${VIEW.h}`,
+    aspect: VIEW.aspect,
+    cut: PLAY.cut,
+    t: +lastRendered.toFixed(3),
+    chapter: chapterAt(lastRendered).id,
+    audio: AUDIO.ready,
+    bloom: bloom.enabled,
+  }),
+};
+console.log('[euv] ready', JSON.stringify(window.API.diagnostics()));
+
+/* ------------------------------------------------------------- 自检 (QA) */
+/** 内容与技术不变量自检：供验收与回归使用 */
+window.API.selfTest = () => {
+  const r = { ok: true, issues: [] };
+  const bad = (m) => { r.ok = false; r.issues.push(m); };
+
+  /* 1 · 章节时间轴连续、无缝隙、总时长一致 */
+  let cursor = 0;
+  for (const c of CH) {
+    if (Math.abs(c.t0 - cursor) > 1e-6) bad(`章节 ${c.id} 起点 ${c.t0} 与上一章结束 ${cursor} 不连续`);
+    if (c.t1 <= c.t0) bad(`章节 ${c.id} 时长非正`);
+    cursor = c.t1;
+  }
+  if (Math.abs(cursor - SCRIPT.meta.duration) > 1e-6) bad(`章节总时长 ${cursor} ≠ 声明时长 ${SCRIPT.meta.duration}`);
+  r.timelineContinuous = r.issues.length === 0;
+
+  /* 2 · 10 个工艺步骤齐全且顺序正确 */
+  const steps = CH.filter((c) => c.step > 0).sort((a, b) => a.t0 - b.t0).map((c) => c.step);
+  r.steps = steps;
+  if (steps.length !== 10) bad(`工艺步骤数量 ${steps.length} ≠ 10`);
+  for (let i = 0; i < steps.length; i++) if (steps[i] !== i + 1) bad(`第 ${i + 1} 个出现的步骤是 ${steps[i]}，顺序错误`);
+
+  /* 3 · 字幕中英齐全；参数字卡引用有效；每章有场景与机位 */
+  let caps = 0, vos = 0, chips = 0;
+  for (const c of CH) {
+    for (const x of c.captions || []) {
+      caps++;
+      if (!x.cn || !x.en) bad(`章节 ${c.id} 有缺语言的字幕`);
+      if (x.t1 <= x.t0 || x.t0 < c.t0 - 1e-6 || x.t1 > c.t1 + 1e-6) bad(`章节 ${c.id} 字幕时间越界`);
+    }
+    for (const x of c.vo || []) { vos++; if (!x.cn || !x.en) bad(`章节 ${c.id} 有缺语言的配音`); }
+    for (const x of c.chips || []) { chips++; if (!SCRIPT.params[x.k]) bad(`章节 ${c.id} 引用了不存在的参数 ${x.k}`); }
+    if (!STAGES[c.id]) bad(`章节 ${c.id} 缺少三维场景`);
+    if (!c.cam || c.cam.length < 2) bad(`章节 ${c.id} 机位关键帧不足`);
+    else {
+      if (Math.abs(c.cam[0].t - c.t0) > 1e-6) bad(`章节 ${c.id} 首个机位时间 ${c.cam[0].t} ≠ ${c.t0}`);
+      if (Math.abs(c.cam[c.cam.length - 1].t - c.t1) > 1e-6) bad(`章节 ${c.id} 末个机位时间 ≠ ${c.t1}`);
+    }
+  }
+  r.captions = caps; r.voLines = vos; r.chipCues = chips; r.labels = LABELS.length;
+
+  /* 4 · 全片示意标注常驻 */
+  r.simBadge = getComputedStyle(document.getElementById('sim')).display !== 'none';
+  if (!r.simBadge) bad('「示意 / SIMULATION」标注未显示');
+
+  /* 5 · 逐时刻渲染无异常、相机数值有效 */
+  const saved = lastRendered;
+  let nan = 0;
+  for (let i = 0; i <= 96; i++) {
+    const t = (SCRIPT.meta.duration * i) / 96;
+    try { renderAt(t); } catch (e) { bad(`t=${t.toFixed(1)} 渲染异常：${e.message}`); break; }
+    if (!Number.isFinite(camera.position.x + camera.position.y + camera.position.z + camera.fov)) nan++;
+  }
+  if (nan) bad(`${nan} 个采样点相机数值无效`);
+  r.sampledFrames = 97;
+
+  /* 6 · 剪辑版本时长与字幕映射 */
+  r.cuts = {};
+  for (const k of Object.keys(SCRIPT.cuts)) {
+    const d = cutDuration(k);
+    r.cuts[k] = +d.toFixed(2);
+    if (k !== 'full' && (d < 20 || d > 70)) bad(`剪辑 ${k} 时长 ${d}s 超出预期范围`);
+  }
+
+  /* 7 · 光路几何：集光镜每条射线经反射后必须精确指向第二焦点 */
+  {
+    const a = 1.70, c0 = 1.35, b = Math.sqrt(a * a - c0 * c0);
+    let worst = 1;
+    for (let i = 0; i < 40; i++) {
+      const th = lerp(0.6, 2.0, i / 39), phi = i * 0.7;
+      const dx = -Math.cos(th), dr = Math.sin(th);
+      const d = new THREE.Vector3(dx, dr * Math.cos(phi), dr * Math.sin(phi));
+      const A = (d.x * d.x) / (a * a) + (d.y * d.y + d.z * d.z) / (b * b);
+      const B = (-2 * c0 * d.x) / (a * a);
+      const C = (c0 * c0) / (a * a) - 1;
+      const t = (-B + Math.sqrt(B * B - 4 * A * C)) / (2 * A);
+      const Pp = d.clone().multiplyScalar(t);
+      const n = new THREE.Vector3((Pp.x - c0) / (a * a), Pp.y / (b * b), Pp.z / (b * b)).normalize();
+      const refl = d.clone().sub(n.clone().multiplyScalar(2 * d.dot(n))).normalize();
+      const toF2 = new THREE.Vector3(2 * c0, 0, 0).sub(Pp).normalize();
+      worst = Math.min(worst, refl.dot(toF2));
+    }
+    r.collectorReflectionDot = +worst.toFixed(6);
+    if (worst < 0.999999) bad(`集光镜反射光路偏差过大（dot=${worst}）`);
+  }
+
+  renderAt(saved < 0 ? 0 : saved);
+  return r;
+};
+
+</script>
+</body>
+</html>

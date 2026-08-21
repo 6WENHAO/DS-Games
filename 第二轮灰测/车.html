@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>LAMBORGHINI AVENTADOR SVJ · PBR 写实 + 内部构造 (Three.js)</title>
+<style>
+  :root{
+    --org:#ff6a00;
+    --org2:#ff8a2b;
+    --ink:#eef1f6;
+    --panel:rgba(14,16,20,.72);
+    --line:rgba(255,255,255,.10);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#040507;color:var(--ink);
+    font-family:"Inter","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+  canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+  .glass{
+    position:fixed;z-index:6;border-radius:14px;padding:13px 15px;
+    background:linear-gradient(158deg,rgba(20,23,28,.80),rgba(9,11,14,.62));
+    border:1px solid var(--line);
+    box-shadow:0 14px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06);
+    backdrop-filter:blur(12px) saturate(140%);-webkit-backdrop-filter:blur(12px) saturate(140%);
+  }
+
+  /* ---- 左上：车型信息 ---- */
+  #card{top:16px;left:16px;width:262px;pointer-events:none}
+  #card .mk{font-size:9.5px;letter-spacing:.34em;color:var(--org);font-weight:700}
+  #card h1{margin:5px 0 2px;font-size:26px;line-height:1;letter-spacing:.04em;font-weight:800}
+  #card h2{margin:0;font-size:11px;letter-spacing:.30em;color:#9fabbb;font-weight:600}
+  #card .rule{height:2px;margin:10px 0;background:linear-gradient(90deg,var(--org),rgba(255,106,0,0))}
+  #card dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0;font-size:10.5px}
+  #card dt{color:#7e8b9b;letter-spacing:.06em}
+  #card dd{margin:0;text-align:right;color:#dfe6ef;font-weight:600;font-variant-numeric:tabular-nums}
+
+  /* ---- 右上：实时统计 ---- */
+  #stat{top:16px;right:16px;font-size:10px;letter-spacing:.08em;color:#8492a2;pointer-events:none;
+    font-variant-numeric:tabular-nums;line-height:1.9}
+  #stat b{color:var(--org2);font-weight:700}
+
+  /* ---- 底部：控制台 ---- */
+  #dock{bottom:16px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:10px;
+    padding:12px 14px;max-width:min(96vw,860px)}
+  .row{display:flex;gap:7px;align-items:center;justify-content:center;flex-wrap:wrap}
+  .row .sep{width:1px;height:22px;background:var(--line);margin:0 3px}
+  .lbl{font-size:9px;letter-spacing:.22em;color:#6f7d8d;margin-right:2px}
+  button.b{
+    appearance:none;cursor:pointer;border:1px solid var(--line);border-radius:9px;
+    background:rgba(255,255,255,.045);color:#cdd6e2;font:600 11px/1 inherit;letter-spacing:.10em;
+    padding:9px 11px;transition:.16s ease;white-space:nowrap
+  }
+  button.b:hover{background:rgba(255,106,0,.14);border-color:rgba(255,106,0,.55);color:#fff}
+  button.b.on{background:linear-gradient(180deg,rgba(255,106,0,.34),rgba(255,106,0,.18));
+    border-color:var(--org);color:#fff;box-shadow:0 0 18px rgba(255,106,0,.28)}
+  .sw{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.18);cursor:pointer;padding:0;transition:.16s}
+  .sw:hover{transform:scale(1.14)}
+  .sw.on{border-color:#fff;box-shadow:0 0 14px rgba(255,255,255,.35)}
+  #cutWrap{display:none;align-items:center;gap:9px}
+  #cutWrap.show{display:flex}
+  input[type=range]{width:190px;accent-color:var(--org);height:16px}
+
+  /* ---- 左下提示 ---- */
+  #tip{bottom:16px;left:16px;font-size:10px;color:#788595;letter-spacing:.05em;pointer-events:none;padding:9px 12px}
+  #tip b{color:var(--org2);font-weight:700}
+
+  /* ---- 载入 ---- */
+  #boot{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;gap:18px;
+    align-items:center;justify-content:center;background:#040507;transition:opacity .8s ease}
+  #boot.off{opacity:0;pointer-events:none}
+  #boot .bmk{font-size:10px;letter-spacing:.5em;color:var(--org);font-weight:700}
+  #boot .bt{font-size:22px;letter-spacing:.22em;font-weight:800}
+  #boot .bar{width:min(58vw,300px);height:2px;background:rgba(255,255,255,.10);overflow:hidden;border-radius:2px}
+  #boot .bar i{display:block;height:100%;width:36%;background:linear-gradient(90deg,var(--org),#ffd08a);
+    animation:slide 1.05s ease-in-out infinite}
+  #boot .bs{font-size:10px;letter-spacing:.26em;color:#6f7d8d}
+  #boot .berr{display:none;max-width:76vw;text-align:center;font-size:12.5px;line-height:1.9;color:#ffb083}
+  @keyframes slide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+
+  @media (max-width:820px){
+    #card{width:208px;padding:10px 12px}
+    #card h1{font-size:20px}
+    #card dl{display:none}
+    #tip,#stat{display:none}
+    #dock{gap:7px;padding:9px 10px;bottom:10px}
+    button.b{padding:8px 8px;font-size:10px;letter-spacing:.05em}
+    input[type=range]{width:120px}
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="card" class="glass">
+  <div class="mk">AUTOMOBILI LAMBORGHINI</div>
+  <h1>AVENTADOR</h1>
+  <h2>LP 770-4 SVJ</h2>
+  <div class="rule"></div>
+  <dl>
+    <dt>发动机</dt><dd>6.5L V12 自吸</dd>
+    <dt>最大功率</dt><dd>770 CV / 8500</dd>
+    <dt>峰值扭矩</dt><dd>720 N·m</dd>
+    <dt>0–100 km/h</dt><dd>2.8 s</dd>
+    <dt>极速</dt><dd>350+ km/h</dd>
+    <dt>车身结构</dt><dd>碳纤维单体壳</dd>
+    <dt>涂装</dt><dd id="paintName">Arancio Atlas</dd>
+  </dl>
+</div>
+
+<div id="stat" class="glass">
+  <div>FPS <b id="sFps">–</b></div>
+  <div>三角面 <b id="sTri">–</b></div>
+  <div>绘制批次 <b id="sCall">–</b></div>
+</div>
+
+<div id="tip" class="glass">
+  <b>左键拖拽</b> 环绕 · <b>滚轮/双指</b> 推拉 · <b>右键</b> 平移 · 静止 3 秒自动环绕
+</div>
+
+<div id="dock" class="glass">
+  <div class="row">
+    <span class="lbl">视图</span>
+    <button class="b on" id="mSolid">实车</button>
+    <button class="b" id="mXray">透视</button>
+    <button class="b" id="mCut">剖切</button>
+    <button class="b" id="mExp">爆炸</button>
+    <button class="b" id="mWire">线框</button>
+    <span class="sep"></span>
+    <span class="lbl">机位</span>
+    <button class="b" id="vHero">全景</button>
+    <button class="b" id="vSide">侧身</button>
+    <button class="b" id="vFace">前脸</button>
+    <button class="b" id="vTail">尾部</button>
+    <button class="b" id="vBay">引擎舱</button>
+    <button class="b" id="vCab">座舱</button>
+  </div>
+  <div class="row">
+    <span class="lbl">功能</span>
+    <button class="b" id="tDoor">剪刀门</button>
+    <button class="b" id="tWing">尾翼</button>
+    <button class="b" id="tLamp">大灯</button>
+    <button class="b on" id="tSpin">自动环绕</button>
+    <span class="sep"></span>
+    <span class="lbl">涂装</span>
+    <button class="sw on" id="c0" style="background:#ff6a00"></button>
+    <button class="sw" id="c1" style="background:#e8340c"></button>
+    <button class="sw" id="c2" style="background:#c9d400"></button>
+    <button class="sw" id="c3" style="background:#1b1d21"></button>
+    <span class="sep"></span>
+    <span id="cutWrap"><span class="lbl">剖面</span><input type="range" id="cutR" min="-1.05" max="1.05" step="0.01" value="0"></span>
+  </div>
+</div>
+
+<div id="boot">
+  <div class="bmk">AUTOMOBILI LAMBORGHINI</div>
+  <div class="bt">AVENTADOR SVJ</div>
+  <div class="bar"><i></i></div>
+  <div class="bs" id="bootMsg">正在生成 PBR 贴图与车身放样…</div>
+  <div class="berr" id="bootErr"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/* ============================================================================================
+   LAMBORGHINI AVENTADOR SVJ —— 单文件 Three.js 写实模型
+   ├ 车身：横截面放样（loft）曲面，由 11 条纵向控制曲线驱动，硬折边保留兰博基尼刀锋棱线
+   ├ 材质：MeshPhysicalMaterial（clearcoat 清漆 + 金属漆片 + 各向异性），全部贴图程序化生成
+   │        法线贴图 / 粗糙度贴图 / 透明度贴图 均由 Canvas 高度场实时求导得到，无任何外部资源
+   ├ 内构：碳纤维单体壳、6.5L V12、ISR 变速箱、传动轴、推杆式双叉臂悬挂、排气、油箱、座舱
+   └ 交互：透视 / 剖切（局部裁剪面）/ 爆炸 / 线框，剪刀门、升降尾翼、大灯、涂装切换
+   坐标系：X 车宽（右+），Y 车高，Z 车长（车头 +Z）；单位：米
+   ============================================================================================ */
+
+let THREE, OrbitControls, Reflector, EffectComposer, RenderPass, UnrealBloomPass, OutputPass;
+const bootErr = document.getElementById('bootErr');
+const bootMsg = document.getElementById('bootMsg');
+try {
+  THREE = await import('three');
+  ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+} catch (e) {
+  document.querySelector('#boot .bar').style.display = 'none';
+  bootMsg.style.display = 'none';
+  bootErr.style.display = 'block';
+  bootErr.innerHTML = '无法从 CDN 载入 Three.js。请连接网络后刷新，'
+    + '或把 importmap 中的 <b>cdn.jsdelivr.net</b> 改为 <b>unpkg.com</b> / 本地 three 副本。<br><small>' + e + '</small>';
+  throw e;
+}
+// 可选增强模块（失败则自动降级，不影响主体）
+let HAS_REFLECT = false, HAS_BLOOM = false;
+try { ({ Reflector } = await import('three/addons/objects/Reflector.js')); HAS_REFLECT = true; } catch (e) { }
+try {
+  ({ EffectComposer } = await import('three/addons/postprocessing/EffectComposer.js'));
+  ({ RenderPass } = await import('three/addons/postprocessing/RenderPass.js'));
+  ({ UnrealBloomPass } = await import('three/addons/postprocessing/UnrealBloomPass.js'));
+  ({ OutputPass } = await import('three/addons/postprocessing/OutputPass.js'));
+  HAS_BLOOM = true;
+} catch (e) { }
+
+/* ============================================================================================
+   0 · 数学与几何工具
+   ============================================================================================ */
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = (t) => t * t * (3 - 2 * t);
+
+/** 单调三次 Hermite 插值（控制点 [z,value] 按 z 升序），用于纵向车身曲线，避免过冲 */
+function smoothAt(ctrl, z) {
+  const n = ctrl.length;
+  if (z <= ctrl[0][0]) return ctrl[0][1];
+  if (z >= ctrl[n - 1][0]) return ctrl[n - 1][1];
+  let i = 0; while (i < n - 2 && z > ctrl[i + 1][0]) i++;
+  const z0 = ctrl[i][0], v0 = ctrl[i][1], z1 = ctrl[i + 1][0], v1 = ctrl[i + 1][1];
+  const h = z1 - z0, t = (z - z0) / h, s = (v1 - v0) / h;
+  const sp = i > 0 ? (v0 - ctrl[i - 1][1]) / (z0 - ctrl[i - 1][0]) : s;
+  const sn = i + 2 < n ? (ctrl[i + 2][1] - v1) / (ctrl[i + 2][0] - z1) : s;
+  let m0 = (sp + s) * .5, m1 = (s + sn) * .5;
+  if (s === 0) { m0 = 0; m1 = 0; } else {
+    if (m0 / s < 0) m0 = 0; if (m1 / s < 0) m1 = 0;
+    if (m0 / s > 3) m0 = 3 * s; if (m1 / s > 3) m1 = 3 * s;
+  }
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * h * m1;
+}
+
+const BOX = (w, h, d, sw, sh, sd) => new THREE.BoxGeometry(w, h, d, sw, sh, sd);
+const CYL = (rt, rb, h, s, o) => new THREE.CylinderGeometry(rt, rb, h, s || 20, 1, !!o);
+const SPH = (r, w, h) => new THREE.SphereGeometry(r, w || 20, h || 14);
+
+/** 圆角盒（用 SphereGeometry 顶点重投影得到软边方块，做发动机缸体/油箱等） */
+function roundBox(w, h, d, r, seg = 3) {
+  const g = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
+  const p = g.attributes.position, hx = w / 2 - r, hy = h / 2 - r, hz = d / 2 - r, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const cx = clamp(v.x, -hx, hx), cy = clamp(v.y, -hy, hy), cz = clamp(v.z, -hz, hz);
+    const dx = v.x - cx, dy = v.y - cy, dz = v.z - cz, L = Math.hypot(dx, dy, dz) || 1;
+    p.setXYZ(i, cx + dx / L * r, cy + dy / L * r, cz + dz / L * r);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 管道（用于排气头段、油管、线束） */
+function tube(pts, r, seg = 24, rad = 8) {
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => V3(p[0], p[1], p[2]))), seg, r, rad, false);
+}
+
+/** 镜像几何体（翻转绕序，保证法线朝外） */
+function mirrorX(src) {
+  const g = src.clone(); g.scale(-1, 1, 1);
+  const idx = g.getIndex();
+  if (idx) { const a = idx.array; for (let i = 0; i < a.length; i += 3) { const t = a[i]; a[i] = a[i + 2]; a[i + 2] = t; } idx.needsUpdate = true; }
+  else for (const k of Object.keys(g.attributes)) {
+    const at = g.attributes[k], it = at.itemSize, ar = at.array;
+    for (let i = 0; i < at.count; i += 3) for (let c = 0; c < it; c++) {
+      const a0 = i * it + c, a2 = (i + 2) * it + c, t = ar[a0]; ar[a0] = ar[a2]; ar[a2] = t;
+    }
+    at.needsUpdate = true;
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 世界尺度盒式投影 UV（单位：米）
+ *  内置几何体的 UV 是 0..1 归一化的，贴到大小不同的零件上会被任意拉伸 —— 这正是
+ *  "贴图位置不对"的根因。这里按面法线主轴取另两个世界坐标做 UV，
+ *  于是所有零件共享同一物理尺度，碳纤维/蜂窝/皮革的纹理大小与车身放样面完全一致
+ *  （车身放样面的 UV 本来就是"弧长-车长"米制）。纹理密度改由 texture.repeat 控制。*/
+const BOXUV = new Set();
+function uvBox(src) {
+  const g = src.index ? src.toNonIndexed() : src.clone();
+  const p = g.attributes.position;
+  const uv = new Float32Array(p.count * 2);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), fn = new THREE.Vector3(), t2 = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+    fn.copy(b).sub(a).cross(t2.copy(c).sub(a));
+    const ax = Math.abs(fn.x), ay = Math.abs(fn.y), az = Math.abs(fn.z);
+    for (let k = 0; k < 3; k++) {
+      const v = k === 0 ? a : k === 1 ? b : c;
+      let u, w;
+      if (ax >= ay && ax >= az) { u = v.z; w = v.y; }
+      else if (ay >= az) { u = v.x; w = v.z; }
+      else { u = v.x; w = v.y; }
+      uv[(i + k) * 2] = u; uv[(i + k) * 2 + 1] = w;
+    }
+  }
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+
+let MESH_COUNT = 0;
+/** 建 Mesh 并挂载 */
+function put(parent, geo, mat, name, opt = {}) {
+  if (BOXUV.has(mat)) geo = uvBox(geo);
+  const m = new THREE.Mesh(geo, mat);
+  m.name = name; MESH_COUNT++;
+  m.castShadow = opt.shadow !== false;
+  m.receiveShadow = opt.shadow !== false;
+  if (opt.p) m.position.set(opt.p[0], opt.p[1], opt.p[2]);
+  if (opt.r) m.rotation.set(opt.r[0], opt.r[1], opt.r[2]);
+  if (opt.s) m.scale.set(opt.s[0], opt.s[1], opt.s[2]);
+  parent.add(m);
+  return m;
+}
+/** 左右成对（几何体镜像，法线正确） */
+function pair(parent, geo, mat, name, opt = {}) {
+  const a = put(parent, geo, mat, name + '_R', opt);
+  const b = put(parent, mirrorX(geo), mat, name + '_L', opt);
+  if (opt.p) b.position.set(-opt.p[0], opt.p[1], opt.p[2]);
+  if (opt.r) b.rotation.set(opt.r[0], -opt.r[1], -opt.r[2]);
+  return [a, b];
+}
+/** 同一几何体左右对称摆放（不镜像几何，用于回转体） */
+function twin(parent, geo, mat, name, x, y, z, rot) {
+  const out = [];
+  for (const s of [1, -1]) {
+    const m = put(parent, geo, mat, name + (s > 0 ? '_R' : '_L'), { p: [s * x, y, z] });
+    if (rot) m.rotation.set(rot[0], s > 0 ? rot[1] : -rot[1], s > 0 ? rot[2] : -rot[2]);
+    out.push(m);
+  }
+  return out;
+}
+const grp = (parent, name) => { const g = new THREE.Group(); g.name = name; parent.add(g); return g; };
+
+/* ============================================================================================
+   1 · 渲染器 / 场景 / 相机
+   ============================================================================================ */
+const canvas = document.getElementById('gl');
+const isMobile = matchMedia('(pointer:coarse)').matches || innerWidth < 820;
+const HI = !isMobile;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: HI, powerPreference: 'high-performance', stencil: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, HI ? 2 : 1.5));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;              // 剖切模式需要
+const MAXA = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 260);
+camera.position.set(5.6, 1.85, 6.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.62, 0);
+controls.enableDamping = true;
+controls.dampingFactor = .055;
+controls.minDistance = 2.2;
+controls.maxDistance = 20;
+controls.minPolarAngle = .05;
+controls.maxPolarAngle = 1.545;
+controls.autoRotate = true;
+controls.autoRotateSpeed = .42;
+controls.panSpeed = .6;
+
+/* ============================================================================================
+   2 · 程序化 PBR 贴图（Canvas 高度场 → 法线/粗糙度/透明贴图）
+   ============================================================================================ */
+function cv(size, h) { const c = document.createElement('canvas'); c.width = size; c.height = h || size; return c; }
+
+/** 由灰度高度图求导生成法线贴图（Sobel） */
+function heightToNormal(srcCanvas, strength = 2.0) {
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const s = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = cv(w, h), ctx = out.getContext('2d'), img = ctx.createImageData(w, h);
+  const H = (x, y) => {
+    const xx = (x + w) % w, yy = (y + h) % h;
+    return s[(yy * w + xx) * 4] / 255;
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (H(x - 1, y - 1) + 2 * H(x - 1, y) + H(x - 1, y + 1)) - (H(x + 1, y - 1) + 2 * H(x + 1, y) + H(x + 1, y + 1));
+    const dy = (H(x - 1, y - 1) + 2 * H(x, y - 1) + H(x + 1, y - 1)) - (H(x - 1, y + 1) + 2 * H(x, y + 1) + H(x + 1, y + 1));
+    let nx = dx * strength, ny = dy * strength, nz = 1;
+    const L = Math.hypot(nx, ny, nz);
+    const i = (y * w + x) * 4;
+    img.data[i] = (nx / L * .5 + .5) * 255;
+    img.data[i + 1] = (ny / L * .5 + .5) * 255;
+    img.data[i + 2] = (nz / L * .5 + .5) * 255;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
+}
+function tex(canvas, rep = 1, repY, srgb = false) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rep, repY === undefined ? rep : repY);
+  t.anisotropy = Math.min(8, MAXA);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+/** 值噪声（用于漆面橘皮、金属漆片、地面） */
+function noiseCanvas(size, cells, oct = 3, contrast = 1) {
+  const c = cv(size), x = c.getContext('2d');
+  const rnd = (() => { let s = 20240519; return () => (s = s * 16807 % 2147483647) / 2147483647; })();
+  const img = x.createImageData(size, size);
+  const grids = [];
+  for (let o = 0; o < oct; o++) {
+    const n = cells * (1 << o), g = new Float32Array(n * n);
+    for (let i = 0; i < n * n; i++) g[i] = rnd();
+    grids.push({ n, g });
+  }
+  const at = (gr, i, j) => gr.g[((j + gr.n) % gr.n) * gr.n + ((i + gr.n) % gr.n)];
+  for (let y = 0; y < size; y++) for (let px = 0; px < size; px++) {
+    let v = 0, amp = 1, sum = 0;
+    for (const gr of grids) {
+      const fx = px / size * gr.n, fy = y / size * gr.n;
+      const i0 = Math.floor(fx), j0 = Math.floor(fy), tx = ease(fx - i0), ty = ease(fy - j0);
+      const a = lerp(at(gr, i0, j0), at(gr, i0 + 1, j0), tx);
+      const b = lerp(at(gr, i0, j0 + 1), at(gr, i0 + 1, j0 + 1), tx);
+      v += lerp(a, b, ty) * amp; sum += amp; amp *= .5;
+    }
+    v = clamp((v / sum - .5) * contrast + .5, 0, 1);
+    const i = (y * size + px) * 4, g = v * 255;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = g; img.data[i + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+
+/* —— 碳纤维（2×2 斜纹编织）：颜色 + 法线 + 粗糙度 —— */
+function carbonSet() {
+  const S = 256, c = cv(S), x = c.getContext('2d');
+  const hc = cv(S), hx = hc.getContext('2d');
+  x.fillStyle = '#0a0b0d'; x.fillRect(0, 0, S, S);
+  hx.fillStyle = '#808080'; hx.fillRect(0, 0, S, S);
+  const tw = S / 8;                                  // 单根纤维束宽度
+  for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) {
+    const over = ((i >> 1) + (j >> 1)) % 2 === 0;     // 2×2 斜纹
+    const px = i * tw, py = j * tw;
+    const g = x.createLinearGradient(px, py, over ? px + tw : px, over ? py : py + tw);
+    g.addColorStop(0, '#101216'); g.addColorStop(.42, '#2f343c'); g.addColorStop(.55, '#363c45');
+    g.addColorStop(1, '#0d0f12');
+    x.fillStyle = g; x.fillRect(px, py, tw, tw);
+    const hg = hx.createLinearGradient(px, py, over ? px + tw : px, over ? py : py + tw);
+    hg.addColorStop(0, '#3a3a3a'); hg.addColorStop(.5, '#e8e8e8'); hg.addColorStop(1, '#3a3a3a');
+    hx.fillStyle = hg; hx.fillRect(px, py, tw, tw);
+  }
+  return { map: tex(c, 1, 1, true), normal: tex(heightToNormal(hc, 1.5)) };
+}
+
+/* —— 金属漆：低频橘皮 + 高频金属漆片 —— */
+function paintNormals() {
+  return {
+    peel: tex(heightToNormal(noiseCanvas(256, 6, 3, .55), .55)),
+    flake: tex(heightToNormal(noiseCanvas(256, 128, 1, 1.6), 1.1)),
+  };
+}
+
+/* —— 轮胎：胎面花纹（周向主沟 + 横向排水槽）法线 + 粗糙度 —— */
+function tireSet() {
+  const S = 256, h = cv(S), x = h.getContext('2d');
+  x.fillStyle = '#d8d8d8'; x.fillRect(0, 0, S, S);
+  x.fillStyle = '#101010';                                     // 4 条周向主沟（沿 U 方向）
+  for (const gy of [.14, .38, .62, .86]) x.fillRect(0, gy * S - 7, S, 14);
+  x.fillStyle = '#232323';                                     // 横向排水槽（左右错位）
+  for (let i = 0; i < 18; i++) {
+    const px = i * S / 18;
+    x.fillRect(px, .15 * S, 6, .22 * S);
+    x.fillRect(px + S / 36, .63 * S, 6, .22 * S);
+    x.fillRect(px + S / 36, .39 * S, 5, .22 * S);
+  }
+  const r = cv(64), rx = r.getContext('2d');
+  rx.fillStyle = '#d0d0d0'; rx.fillRect(0, 0, 64, 64);
+  rx.globalAlpha = .5; rx.drawImage(noiseCanvas(64, 8, 2, 1), 0, 0);
+  return { normal: tex(heightToNormal(h, 2.6), 6, 2), rough: tex(r, 6, 2) };
+}
+
+/* —— 六边形蜂窝网：颜色 + 透贴（可透视内部）+ 法线 —— */
+function hexSet() {
+  const S = 256, c = cv(S), x = c.getContext('2d'), a = cv(S), ax = a.getContext('2d');
+  const hh = cv(S), hx = hh.getContext('2d');
+  x.fillStyle = '#0e1013'; x.fillRect(0, 0, S, S);
+  ax.fillStyle = '#ffffff'; ax.fillRect(0, 0, S, S);
+  hx.fillStyle = '#f0f0f0'; hx.fillRect(0, 0, S, S);
+  const R = 21, w = Math.sqrt(3) / 2 * R;
+  const hexPath = (ctx, cx, cy, r) => {
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const an = Math.PI / 180 * (60 * k - 30), px = cx + r * Math.cos(an), py = cy + r * Math.sin(an);
+      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  };
+  for (let row = -1; row < 12; row++) for (let col = -1; col < 10; col++) {
+    const cx = col * w * 2 + (row & 1 ? w : 0), cy = row * R * 1.5;
+    hexPath(x, cx, cy, R * .80); x.fillStyle = '#05060700'; x.fill();
+    hexPath(ax, cx, cy, R * .74); ax.fillStyle = '#000'; ax.fill();       // 洞 → 透明
+    hexPath(hx, cx, cy, R * .74); hx.fillStyle = '#404040'; hx.fill();
+    hexPath(x, cx, cy, R * .84); x.strokeStyle = '#4a5158'; x.lineWidth = 3; x.stroke();
+  }
+  return { map: tex(c, 1, 1, true), alpha: tex(a), normal: tex(heightToNormal(hh, 1.2)) };
+}
+
+/* —— 拉丝金属（各向异性，用于刹车盘/排气/机加工件） —— */
+function brushedNormal(lines = 220) {
+  const S = 256, h = cv(S), x = h.getContext('2d');
+  x.fillStyle = '#808080'; x.fillRect(0, 0, S, S);
+  for (let i = 0; i < lines; i++) {
+    const y = Math.random() * S, g = 128 + (Math.random() * 2 - 1) * 90;
+    x.strokeStyle = 'rgb(' + (g | 0) + ',' + (g | 0) + ',' + (g | 0) + ')';
+    x.lineWidth = Math.random() * 1.8 + .3; x.beginPath(); x.moveTo(0, y); x.lineTo(S, y); x.stroke();
+  }
+  return tex(heightToNormal(h, 1.0), 1, 1);
+}
+
+/* —— 皮革 / Alcantara —— */
+function leatherSet() {
+  const S = 256, h = cv(S), x = h.getContext('2d');
+  x.drawImage(noiseCanvas(S, 26, 3, 1.5), 0, 0);
+  x.globalAlpha = .5; x.drawImage(noiseCanvas(S, 90, 2, 1.2), 0, 0); x.globalAlpha = 1;
+  return { normal: tex(heightToNormal(h, 1.4), 5) };
+}
+
+/* —— 散热器鳍片 —— */
+function radiatorSet() {
+  const S = 128, h = cv(S), x = h.getContext('2d');
+  x.fillStyle = '#202020'; x.fillRect(0, 0, S, S);
+  x.fillStyle = '#e0e0e0';
+  for (let i = 0; i < S; i += 4) x.fillRect(i, 0, 2, S);
+  const c = cv(S), cx2 = c.getContext('2d');
+  cx2.fillStyle = '#14161a'; cx2.fillRect(0, 0, S, S);
+  cx2.fillStyle = '#3c4249'; for (let i = 0; i < S; i += 4) cx2.fillRect(i, 0, 2, S);
+  return { map: tex(c, 6, 3, true), normal: tex(heightToNormal(h, 2.2), 6, 3) };
+}
+
+/* —— 刹车盘（打孔 + 划痕） —— */
+function discSet() {
+  const S = 256, h = cv(S), x = h.getContext('2d');
+  x.fillStyle = '#909090'; x.fillRect(0, 0, S, S);
+  x.strokeStyle = '#b8b8b8'; x.lineWidth = 1;
+  for (let i = 0; i < S; i += 3) { x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke(); }
+  x.fillStyle = '#101010';
+  for (let r = 0; r < 5; r++) for (let cIdx = 0; cIdx < 22; cIdx++) {
+    const px = (cIdx + (r & 1 ? .5 : 0)) * S / 22, py = 26 + r * 34;
+    x.beginPath(); x.arc(px, py, 6, 0, 7); x.fill();
+  }
+  return { normal: tex(heightToNormal(h, 2.0), 1, 1) };
+}
+
+/* —— 地面（抛光混凝土） —— */
+function floorSet() {
+  const n = noiseCanvas(512, 10, 4, .8);
+  const r = cv(512), rx = r.getContext('2d');
+  rx.drawImage(n, 0, 0);
+  rx.globalAlpha = .55; rx.fillStyle = '#3a3a3a'; rx.fillRect(0, 0, 512, 512);
+  return { normal: tex(heightToNormal(n, .35), 26), rough: tex(r, 13) };
+}
+
+/* —— 画布文字（车尾铭牌，程序化，无需字体文件） —— */
+function textTexture(txt, opt = {}) {
+  const W = opt.w || 512, H = opt.h || 128, c = cv(W, H), x = c.getContext('2d');
+  x.clearRect(0, 0, W, H);
+  x.font = (opt.weight || 700) + ' ' + (opt.size || 74) + 'px "Segoe UI",Arial,sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = opt.color || '#d8dde4';
+  x.letterSpacing && (x.letterSpacing = opt.tracking || '10px');
+  x.fillText(txt, W / 2, H / 2 + 2);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, MAXA);
+  return t;
+}
+
+bootMsg.textContent = '正在生成 PBR 贴图（法线 / 粗糙度 / 透贴）…';
+const TX = {
+  carbon: carbonSet(),
+  paint: paintNormals(),
+  tire: tireSet(),
+  hex: hexSet(),
+  brushed: brushedNormal(),
+  leather: leatherSet(),
+  radiator: radiatorSet(),
+  disc: discSet(),
+  floor: floorSet(),
+};
+
+/* —— 摄影棚环境（自建灯箱场景 → PMREM），车漆反射的关键 —— */
+function studioEnvironment() {
+  const s = new THREE.Scene();
+  const dark = new THREE.MeshBasicMaterial({ color: 0x0b0d10, side: THREE.BackSide });
+  s.add(new THREE.Mesh(new THREE.BoxGeometry(26, 14, 26), dark));
+  const soft = (w, h, d, x, y, z, col, int, rx, ry) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(int), side: THREE.DoubleSide }));
+    m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); s.add(m);
+  };
+  soft(16, 2.2, 0, 0, 6.4, 2.6, 0xffffff, 5.2, Math.PI / 2);      // 顶部长条主灯箱
+  soft(16, 1.4, 0, 0, 6.4, -3.4, 0xdfe9ff, 3.0, Math.PI / 2);     // 顶部副灯箱
+  soft(9, 3.4, 0, -9, 3.0, 0, 0xd8e6ff, 1.7, 0, Math.PI / 2);     // 左侧柔光板
+  soft(9, 3.4, 0, 9, 3.0, 0, 0xfff0dd, 1.5, 0, -Math.PI / 2);     // 右侧柔光板
+  soft(7, 2.6, 0, 0, 2.2, -11, 0xffb066, 1.9, 0, 0);              // 背景暖光（勾轮廓）
+  soft(20, 20, 0, 0, -1.2, 0, 0x0a0b0d, 1, -Math.PI / 2);         // 暗地板
+  const pm = new THREE.PMREMGenerator(renderer);
+  pm.compileEquirectangularShader();
+  const rt = pm.fromScene(s, .02);
+  pm.dispose();
+  s.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+  return rt.texture;
+}
+scene.environment = studioEnvironment();
+scene.background = new THREE.Color(0x06070a);
+scene.fog = new THREE.FogExp2(0x06070a, .026);
+
+/* ============================================================================================
+   3 · 材质库（全部 PBR；exterior 组参与透视/剖切，internal 组常显）
+   ============================================================================================ */
+const PAINTS = {
+  atlas: { c: 0xff5c00, name: 'Arancio Atlas' },
+  argos: { c: 0xd42a06, name: 'Rosso Argos' },
+  verde: { c: 0xb8cf00, name: 'Verde Mantis' },
+  nero: { c: 0x14161a, name: 'Nero Nemesis' },
+};
+
+const M = {};
+// 车漆：金属底色 + 清漆层（clearcoat）+ 漆片法线，是“拟真”的核心
+M.paint = new THREE.MeshPhysicalMaterial({
+  color: PAINTS.atlas.c, metalness: .62, roughness: .34,
+  clearcoat: 1, clearcoatRoughness: .045,
+  normalMap: TX.paint.peel, normalScale: new THREE.Vector2(.10, .10),
+  clearcoatNormalMap: TX.paint.flake, clearcoatNormalScale: new THREE.Vector2(.12, .12),
+  envMapIntensity: 1.35, side: THREE.FrontSide,
+});
+
+// 车身下部 / 前后唇 / 侧裙：干碳纤维（清漆）
+M.carbon = new THREE.MeshPhysicalMaterial({
+  color: 0x2b2f36, map: TX.carbon.map, normalMap: TX.carbon.normal,
+  normalScale: new THREE.Vector2(.55, .55),
+  metalness: .58, roughness: .28, clearcoat: .9, clearcoatRoughness: .10, envMapIntensity: 1.15,
+});
+
+// 亚光黑（进气口内腔、A 柱、格栅框、底盘护板）
+M.matte = new THREE.MeshPhysicalMaterial({ color: 0x0c0e11, metalness: .35, roughness: .72, envMapIntensity: .7 });
+// 缎面黑（饰条、后视镜壳）
+M.satin = new THREE.MeshPhysicalMaterial({ color: 0x1b1e23, metalness: .85, roughness: .34, clearcoat: .6, envMapIntensity: 1.1 });
+// 车窗玻璃（深色隔热玻璃 + 强清漆反射）
+M.glass = new THREE.MeshPhysicalMaterial({
+  color: 0x1d242b, metalness: 0, roughness: .045, transparent: true, opacity: .42,
+  ior: 1.52, clearcoat: 1, clearcoatRoughness: .02, envMapIntensity: 2.4,
+  depthWrite: false, side: THREE.DoubleSide,
+});
+// 深色引擎盖玻璃（可看见 V12）
+M.glassDark = new THREE.MeshPhysicalMaterial({
+  color: 0x14181d, metalness: 0, roughness: .07, transparent: true, opacity: .40,
+  clearcoat: 1, clearcoatRoughness: .04, envMapIntensity: 1.8, depthWrite: false, side: THREE.DoubleSide,
+});
+// 蜂窝网（alphaTest 挖孔，可透视散热器 / 发动机）
+M.hex = new THREE.MeshPhysicalMaterial({
+  color: 0x585f66, map: TX.hex.map, alphaMap: TX.hex.alpha, normalMap: TX.hex.normal,
+  metalness: .92, roughness: .38, alphaTest: .5, side: THREE.DoubleSide, envMapIntensity: 1.2,
+});
+// 轮胎
+M.tire = new THREE.MeshPhysicalMaterial({
+  color: 0x0b0c0e, normalMap: TX.tire.normal, normalScale: new THREE.Vector2(1.1, 1.1),
+  roughnessMap: TX.tire.rough, roughness: .95, metalness: .02, envMapIntensity: .45,
+});
+M.sidewall = new THREE.MeshPhysicalMaterial({ color: 0x0d0e10, roughness: .86, metalness: .03, envMapIntensity: .5 });
+// 轮辋（缎面深灰）+ 轮辋亮边；双面渲染，避免透过辐条缝隙看穿轮腔
+M.rim = new THREE.MeshPhysicalMaterial({
+  color: 0x23262b, metalness: 1, roughness: .26, clearcoat: .5, side: THREE.DoubleSide,
+  normalMap: TX.brushed, normalScale: new THREE.Vector2(.18, .18), envMapIntensity: 1.5,
+});
+M.rimLip = new THREE.MeshPhysicalMaterial({ color: 0x8c9298, metalness: 1, roughness: .14, envMapIntensity: 1.9 });
+// 碳陶刹车盘（各向异性）+ 卡钳
+M.disc = new THREE.MeshPhysicalMaterial({
+  color: 0x3c3f44, metalness: .95, roughness: .42, normalMap: TX.disc.normal,
+  normalScale: new THREE.Vector2(.8, .8), anisotropy: .8, anisotropyRotation: 0, envMapIntensity: 1.3,
+});
+M.caliper = new THREE.MeshPhysicalMaterial({ color: 0x16181c, metalness: .7, roughness: .38, clearcoat: .7, envMapIntensity: 1.1 });
+M.caliperOrg = new THREE.MeshPhysicalMaterial({ color: 0xff6a00, metalness: .5, roughness: .35, clearcoat: 1, envMapIntensity: 1.2 });
+// 灯光相关
+M.lens = new THREE.MeshPhysicalMaterial({
+  color: 0x0b0e12, metalness: 0, roughness: .05, transparent: true, opacity: .5,
+  clearcoat: 1, envMapIntensity: 2.4, depthWrite: false,
+});
+M.ledCold = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xdfe9ff, emissiveIntensity: 0, roughness: .2, metalness: 0 });
+M.ledRed = new THREE.MeshStandardMaterial({ color: 0x2a0604, emissive: 0xff2408, emissiveIntensity: 2.6, roughness: .25, metalness: 0 });
+M.ledAmber = new THREE.MeshStandardMaterial({ color: 0x2a1400, emissive: 0xff7a10, emissiveIntensity: 1.8, roughness: .3, metalness: 0 });
+// 排气 / 金属
+M.exhaust = new THREE.MeshPhysicalMaterial({
+  color: 0x6b6f75, metalness: 1, roughness: .22, normalMap: TX.brushed,
+  normalScale: new THREE.Vector2(.35, .35), anisotropy: .6, envMapIntensity: 1.8,
+});
+M.exhaustHot = new THREE.MeshPhysicalMaterial({ color: 0x4a4038, metalness: 1, roughness: .48, envMapIntensity: 1.2 });
+M.alu = new THREE.MeshPhysicalMaterial({ color: 0x9aa0a8, metalness: 1, roughness: .34, envMapIntensity: 1.5 });
+M.aluCast = new THREE.MeshPhysicalMaterial({
+  color: 0x74797f, metalness: .92, roughness: .58, normalMap: TX.paint.flake,
+  normalScale: new THREE.Vector2(.5, .5), envMapIntensity: 1.1,
+});
+M.steel = new THREE.MeshPhysicalMaterial({ color: 0x4a4e54, metalness: 1, roughness: .34, envMapIntensity: 1.4 });
+M.gold = new THREE.MeshPhysicalMaterial({ color: 0xc8a24a, metalness: 1, roughness: .30, envMapIntensity: 1.7 });
+M.rubber = new THREE.MeshPhysicalMaterial({ color: 0x131417, roughness: .9, metalness: .02 });
+M.orgAcc = new THREE.MeshPhysicalMaterial({ color: 0xff6a00, metalness: .5, roughness: .3, clearcoat: 1, envMapIntensity: 1.3 });
+M.spring = new THREE.MeshPhysicalMaterial({ color: 0xff5a00, metalness: .8, roughness: .3, envMapIntensity: 1.3 });
+// 内饰
+M.alcantara = new THREE.MeshPhysicalMaterial({
+  color: 0x14161a, roughness: .95, metalness: .02, normalMap: TX.leather.normal,
+  normalScale: new THREE.Vector2(.9, .9), sheen: .6, sheenColor: new THREE.Color(0x2a2d33), envMapIntensity: .5,
+});
+M.leatherOrg = new THREE.MeshPhysicalMaterial({
+  color: 0xd8500a, roughness: .62, metalness: .05, normalMap: TX.leather.normal,
+  normalScale: new THREE.Vector2(.7, .7), clearcoat: .3, envMapIntensity: .8,
+});
+M.screen = new THREE.MeshStandardMaterial({ color: 0x0a0d12, emissive: 0x1a3a5a, emissiveIntensity: 1.2, roughness: .18, metalness: 0 });
+M.radiator = new THREE.MeshPhysicalMaterial({
+  color: 0x2a2e33, map: TX.radiator.map, normalMap: TX.radiator.normal,
+  normalScale: new THREE.Vector2(1.2, 1.2), metalness: .9, roughness: .55, envMapIntensity: 1.0,
+});
+
+// 材质分组：透视 / 剖切时处理的“外壳”，以及始终可见的“内构”
+const EXT_MATS = [M.paint, M.carbon, M.matte, M.satin, M.glass, M.glassDark, M.hex, M.lens,
+  M.tire, M.sidewall, M.rim, M.rimLip];
+const ALL_MATS = Object.values(M);
+
+/* —— 纹理物理尺度（世界 UV 以米为单位，repeat = 每米重复次数）——
+   车身放样面 UV 与 uvBox() 产出的 UV 同为米制，因此全车纹理密度统一：
+   碳纤维束 ~8 mm → repeat≈15；蜂窝孔 ~14 mm → repeat≈12；皮革颗粒 ~10 mm → repeat≈10 */
+BOXUV.add(M.carbon); BOXUV.add(M.hex); BOXUV.add(M.radiator);
+BOXUV.add(M.alcantara); BOXUV.add(M.leatherOrg); BOXUV.add(M.aluCast);
+for (const mat of [M.carbon, M.hex, M.radiator, M.alcantara, M.leatherOrg, M.aluCast]) {
+  mat.map && mat.map.repeat.set(14, 14);
+  mat.normalMap && mat.normalMap.repeat.set(14, 14);
+  mat.alphaMap && mat.alphaMap.repeat.set(12, 12);
+  mat.roughnessMap && mat.roughnessMap.repeat.set(14, 14);
+}
+M.aluCast.normalMap = TX.paint.flake.clone();
+M.aluCast.normalMap.repeat.set(22, 22);
+M.aluCast.normalMap.needsUpdate = true;
+M.paint.clearcoatNormalMap = TX.paint.flake.clone();
+M.paint.clearcoatNormalMap.repeat.set(16, 16);
+M.paint.clearcoatNormalMap.needsUpdate = true;
+M.paint.normalMap.repeat.set(1.0, 1.0);
+
+/* ============================================================================================
+   4 · 车身：横截面放样（Loft）
+   由 15 条纵向控制曲线定义每个 Z 站位的横截面环（18 点闭合），再放样成连续曲面。
+   环点含义（右半，自底向上）——这套拓扑是"像不像大牛"的关键：
+     h0 底盘中心 · h1 底盘外缘 · h2 门槛外缘/轮拱内顶 · h3 最宽腰线
+     h4 肩线棱（宽车肩顶点）· h5 侧窗根部（肩部平台内缘）· h6 车顶纵梁（侧窗上沿）
+     h7 车顶外肩 · h8 车顶过渡 · h9 顶部中心
+   h4→h5 是近水平的"肩部平台"，h5→h6 才是近乎直立的侧窗（内倾约 25°），
+   h6→h9 构成宽而平的车顶 —— 由此得到 Aventador 的宽体窄舱、直立玻璃、平顶造型。
+   ============================================================================================ */
+const CAR = {
+  nose: 2.42, tail: -2.39, halfW: 1.015, height: 1.136,
+  axF: 1.35, axR: -1.35,
+  wF: { r: .330, w: .255, x: .86, rim: .2413 },   // 前 255/35 ZR19
+  wR: { r: .355, w: .335, x: .85, rim: .2540 },   // 后 335/30 ZR20
+};
+
+const C = {
+  // 底盘中心高度：前铲低、后扩散器上扬
+  uy: [[-2.39, .40], [-2.10, .30], [-1.85, .19], [-1.60, .128], [-1.0, .116], [0, .110], [1.0, .105], [1.75, .105], [2.05, .118], [2.22, .140], [2.36, .180], [2.42, .215]],
+  // 底盘平面半宽
+  uw: [[-2.39, .56], [-2.05, .60], [-1.60, .62], [0, .62], [1.60, .62], [2.05, .58], [2.22, .50], [2.36, .36], [2.42, .20]],
+  // 侧面最低点 X（门槛外缘 / 轮拱内壁）
+  sx: [[-2.39, .68], [-2.10, .80], [-1.96, .865], [-1.88, .79], [-1.82, .66], [-1.35, .630], [-1.02, .652], [-.96, .78], [-.90, .905],
+  [-.40, .940], [.40, .945], [.90, .935], [.97, .84], [1.04, .68], [1.35, .625], [1.62, .648], [1.71, .78], [1.80, .86],
+  [2.05, .84], [2.22, .735], [2.36, .545], [2.42, .30]],
+  // 侧面最低点 Y（门槛线；轮拱处抬升为拱顶）
+  sy: [[-2.39, .455], [-2.10, .375], [-1.96, .302], [-1.88, .255], [-1.82, .420], [-1.74, .620], [-1.62, .735], [-1.35, .775],
+  [-1.12, .752], [-1.02, .620], [-.96, .400], [-.90, .205], [-.40, .176], [.40, .170], [.90, .180], [.97, .340],
+  [1.04, .560], [1.14, .690], [1.35, .715], [1.56, .690], [1.66, .548], [1.74, .320], [1.84, .200], [2.05, .190],
+  [2.22, .212], [2.36, .258], [2.42, .290]],
+  // 车门下切线 / 碳纤维门槛上缘 X
+  kx: [[-2.39, .720], [-2.10, .830], [-1.96, .880], [-1.88, .830], [-1.82, .720], [-1.35, .720], [-1.02, .740], [-.96, .830], [-.90, .935],
+  [-.40, .962], [.40, .966], [.90, .958], [.97, .880], [1.04, .750], [1.35, .720], [1.62, .740], [1.71, .830], [1.80, .900],
+  [2.05, .875], [2.22, .790], [2.36, .580], [2.42, .310]],
+  // 车门下切线 Y
+  ky: [[-2.39, .500], [-2.10, .430], [-1.96, .360], [-1.88, .320], [-1.82, .470], [-1.74, .650], [-1.62, .755], [-1.35, .800],
+  [-1.12, .780], [-1.02, .660], [-.96, .460], [-.90, .290], [-.40, .300], [.40, .300], [.90, .305], [.97, .400],
+  [1.04, .600], [1.14, .715], [1.35, .745], [1.56, .720], [1.66, .590], [1.74, .390], [1.84, .290], [2.05, .280],
+  [2.22, .300], [2.36, .330], [2.42, .320]],
+  // 最宽处半宽（腰线）
+  hw: [[-2.39, .855], [-2.10, .925], [-1.90, .995], [-1.35, 1.015], [-1.02, 1.010], [-.80, 1.005], [-.40, .995], [0, .988], [.30, .988],
+  [.90, 1.000], [1.35, 1.012], [1.75, 1.000], [2.05, .925], [2.22, .815], [2.36, .600], [2.42, .335]],
+  // 最宽处高度
+  hy: [[-2.39, .600], [-2.10, .565], [-1.90, .620], [-1.50, .795], [-1.35, .820], [-1.12, .800], [-1.02, .700], [-.80, .580], [-.40, .520],
+  [0, .500], [.70, .500], [.95, .580], [1.16, .740], [1.35, .775], [1.60, .758], [1.80, .620], [2.05, .500], [2.22, .420],
+  [2.36, .360], [2.42, .335]],
+  // 肩线棱半宽（后翼板明显外扩，形成大牛标志性的宽后髋）
+  tw: [[-2.39, .798], [-2.10, .878], [-1.90, .933], [-1.35, .967], [-1.02, .955], [-.80, .932], [-.40, .860], [0, .850], [.30, .860],
+  [.64, .892], [.95, .925], [1.35, .952], [1.75, .930], [2.05, .855], [2.22, .755], [2.36, .565], [2.42, .315]],
+  // 肩线高度
+  ty: [[-2.39, .858], [-2.10, .882], [-1.90, .900], [-1.35, .932], [-1.02, .914], [-.80, .892], [-.40, .882], [0, .866], [.30, .850],
+  [.64, .828], [.95, .806], [1.20, .818], [1.35, .820], [1.60, .804], [1.75, .716], [2.05, .610], [2.22, .520],
+  [2.36, .442], [2.42, .392]],
+  // 侧窗根部半宽（肩部平台内缘 = 玻璃下沿）
+  dw: [[-2.39, .720], [-2.10, .795], [-1.90, .840], [-1.35, .875], [-1.02, .868], [-.80, .848], [-.40, .806], [0, .800], [.30, .806],
+  [.64, .836], [.95, .862], [1.35, .888], [1.75, .868], [2.05, .790], [2.22, .690], [2.36, .510], [2.42, .280]],
+  // 侧窗根部高度（抬高，压低侧窗玻璃高度 → 大壳子的整体感）
+  dy: [[-2.39, .868], [-2.10, .895], [-1.90, .910], [-1.35, .945], [-1.02, .930], [-.80, .912], [-.40, .906], [0, .894], [.30, .878],
+  [.64, .850], [.95, .816], [1.35, .828], [1.75, .728], [2.05, .622], [2.22, .530], [2.36, .450], [2.42, .398]],
+  // 车顶纵梁半宽（侧窗上沿）—— 座舱窄于车身，形成"宽体窄舱"
+  gw: [[-2.39, .578], [-2.10, .632], [-1.90, .668], [-1.35, .692], [-1.02, .702], [-.80, .710], [-.40, .706], [0, .694], [.30, .680],
+  [.64, .706], [.95, .790], [1.35, .812], [1.75, .792], [2.05, .706], [2.22, .606], [2.36, .438], [2.42, .238]],
+  // 车顶纵梁高度（压到 1.055 以下，让弓形车顶由中央主导，而非平顶）
+  gy: [[-2.39, .880], [-2.10, .904], [-1.90, .920], [-1.35, .958], [-1.02, 1.002], [-.80, 1.068], [-.40, 1.078], [0, 1.060], [.30, .998],
+  [.64, .886], [.95, .822], [1.35, .828], [1.75, .730], [2.05, .628], [2.22, .534], [2.36, .452], [2.42, .400]],
+  // 车顶外肩半宽
+  rw: [[-2.39, .425], [-2.10, .452], [-1.90, .462], [-1.35, .470], [-1.02, .520], [-.80, .562], [-.40, .572], [0, .564], [.30, .554],
+  [.64, .560], [.95, .520], [1.35, .520], [1.75, .500], [2.05, .440], [2.22, .380], [2.36, .270], [2.42, .140]],
+  // 车顶外肩高度
+  ry: [[-2.39, .888], [-2.10, .912], [-1.90, .926], [-1.35, .968], [-1.02, 1.032], [-.80, 1.108], [-.40, 1.122], [0, 1.106], [.30, 1.042],
+  [.64, .910], [.95, .762], [1.35, .752], [1.75, .700], [2.05, .606], [2.22, .516], [2.36, .442], [2.42, .396]],
+  // 顶部中心高度（中央隆起明显高于纵梁 → 流线型弓形大壳）
+  cy: [[-2.39, .898], [-2.10, .922], [-1.90, .936], [-1.35, .978], [-1.02, 1.050], [-.80, 1.124], [-.40, 1.136], [0, 1.122], [.30, 1.062],
+  [.64, .925], [.95, .752], [1.35, .780], [1.75, .692], [2.05, .598], [2.22, .508], [2.36, .436], [2.42, .392]],
+};
+
+/** 某个 Z 站位的截面环（20 点闭合，逆序补左半） */
+function ringAt(z) {
+  const uy = smoothAt(C.uy, z), uw = smoothAt(C.uw, z), sx = smoothAt(C.sx, z), sy = smoothAt(C.sy, z),
+    kx = smoothAt(C.kx, z), ky = smoothAt(C.ky, z),
+    hw = smoothAt(C.hw, z), hy = smoothAt(C.hy, z), tw = smoothAt(C.tw, z), ty = smoothAt(C.ty, z),
+    dw = smoothAt(C.dw, z), dy = smoothAt(C.dy, z), gw = smoothAt(C.gw, z), gy = smoothAt(C.gy, z),
+    rw = smoothAt(C.rw, z), ry = smoothAt(C.ry, z), cy = smoothAt(C.cy, z);
+  const half = [
+    [0, uy], [uw, uy + .014], [sx, sy], [kx, ky], [hw, hy], [tw, ty], [dw, dy], [gw, gy], [rw, ry],
+    [rw * .46, ry + (cy - ry) * .58], [0, cy]
+  ];
+  const ring = half.slice();
+  for (let i = 9; i >= 1; i--) ring.push([-half[i][0], half[i][1]]);
+  return ring;
+}
+
+// 站位：车头、车尾、轮拱边缘、风挡与车顶边界处加密，保证棱线与拱口锐利
+const ZS = [
+  2.42, 2.395, 2.36, 2.31, 2.25, 2.18, 2.10, 2.02, 1.94, 1.865, 1.80, 1.755, 1.72, 1.69, 1.655,
+  1.60, 1.53, 1.45, 1.38, 1.31, 1.24, 1.17, 1.10, 1.055, 1.015, .985, .955, .925, .89, .83,
+  .75, .69, .655, .62, .56, .48, .38, .26, .13, 0, -.13, -.26, -.38, -.50, -.62, -.72,
+  -.79, -.845, -.885, -.925, -.965, -1.00, -1.04, -1.09, -1.16, -1.24, -1.35, -1.46, -1.56,
+  -1.64, -1.70, -1.755, -1.80, -1.845, -1.89, -1.95, -2.03, -2.13, -2.25, -2.34, -2.39
+];
+
+const MAT_SLOT = [M.paint, M.carbon, M.matte, M.glass, M.glassDark, M.satin];
+// 硬棱线：底盘缘、门槛上下缘、车门切线、肩线棱（其余软化，形成流线大壳的连续曲面）
+const HARD_RING = new Set([1, 2, 3, 5, 15, 17, 18, 19]);
+const HARD_ST = new Set();
+
+/** 面片材质分配：b = 面片下侧环索引（0..19） */
+function bandMat(z, b) {
+  const bb = b >= 10 ? 19 - b : b;
+  if (bb <= 1) return 2;                                   // 底盘 / 内衬板
+  if (bb === 2) return 1;                                  // 碳纤维门槛 / 前后下唇（贯穿全车下缘）
+  if (bb === 3) return z > 2.06 ? 2 : 0;                   // 下侧面（车头处为进气口内腔）
+  if (bb === 4) return z > 2.12 ? 2 : 0;                   // 上侧面
+  if (bb === 5) return 0;                                  // 肩部平台（融入车顶壳的过渡面）
+  if (bb === 6) return (z > -1.02 && z < .66) ? 3 : 0;     // 侧窗带（压低后仅一条窄玻璃）
+  // bb 7、8、9：车顶 / 前后盖中央（弓形大壳的主体）
+  if (z > -.16 && z < .64) return 3;                       // 前风挡（并入玻璃区域）
+  if (bb === 8 && z < -1.06 && z > -1.68) return 4;        // 后窗玻璃（仅中央一条）
+  if (z < -.96 && z > -1.68) return 4;                     // 引擎盖玻璃（中央六边形区域）
+  return 0;
+}
+
+/** 车门区域：下侧面 + 上侧面 + 肩部平台 + 侧窗（碳纤维门槛留在车身上） */
+const DOOR_BANDS_R = new Set([3, 4, 5, 6]);
+const DOOR_BANDS_L = new Set([13, 14, 15, 16]);
+const inDoor = (z, b) => (z > -.62 && z < .95) && (DOOR_BANDS_R.has(b) || DOOR_BANDS_L.has(b));
+
+/**
+ * 放样器：生成非索引几何 + 材质分组 + 硬边法线
+ * keep(zMid, band) 返回 false 则跳过该面片（挖车门洞）
+ */
+function loft(zs, keep) {
+  const nS = zs.length, rings = zs.map(ringAt), nR = rings[0].length;
+  const P = rings.map((r, i) => r.map(p => [p[0], p[1], zs[i]]));
+  const CY = P.map(r => r.reduce((a, p) => a + p[1], 0) / nR);     // 环心高度（判断朝外）
+  const U = P.map(r => { let a = 0; const u = [0]; for (let j = 1; j < nR; j++) { a += Math.hypot(r[j][0] - r[j - 1][0], r[j][1] - r[j - 1][1]); u.push(a); } return u; });
+
+  const FN = [], FLIP = [];
+  for (let i = 0; i < nS - 1; i++) {
+    const rn = [], rf = [];
+    for (let j = 0; j < nR; j++) {
+      const j1 = (j + 1) % nR, A = P[i][j], B = P[i][j1], C2 = P[i + 1][j1], D = P[i + 1][j];
+      const ux = C2[0] - A[0], uy2 = C2[1] - A[1], uz = C2[2] - A[2];
+      const vx = D[0] - B[0], vy = D[1] - B[1], vz = D[2] - B[2];
+      let n = [uy2 * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy2 * vx];
+      const L = Math.hypot(n[0], n[1], n[2]) || 1; n = [n[0] / L, n[1] / L, n[2] / L];
+      const cx = (A[0] + B[0] + C2[0] + D[0]) / 4, cy2 = (A[1] + B[1] + C2[1] + D[1]) / 4;
+      const oy = (CY[i] + CY[i + 1]) / 2;
+      const flip = (n[0] * cx + n[1] * (cy2 - oy)) < 0;
+      if (flip) n = [-n[0], -n[1], -n[2]];
+      rn.push(n); rf.push(flip);
+    }
+    FN.push(rn); FLIP.push(rf);
+  }
+
+  // 角点法线：跨硬边界不参与平均
+  function cn(i, j, a, b) {
+    const acc = [0, 0, 0];
+    for (const fi of [a - 1, a]) {
+      if (fi < 0 || fi > nS - 2) continue;
+      if (fi !== i && HARD_ST.has(a)) continue;
+      for (const fjRaw of [b - 1, b]) {
+        const fj = (fjRaw + nR) % nR;
+        if (fj !== j && HARD_RING.has(((b % nR) + nR) % nR)) continue;
+        const n = FN[fi][fj]; acc[0] += n[0]; acc[1] += n[1]; acc[2] += n[2];
+      }
+    }
+    const L = Math.hypot(acc[0], acc[1], acc[2]);
+    if (L < 1e-6) return FN[i][j];
+    return [acc[0] / L, acc[1] / L, acc[2] / L];
+  }
+
+  const buckets = new Map();
+  for (let i = 0; i < nS - 1; i++) for (let j = 0; j < nR; j++) {
+    const zm = (zs[i] + zs[i + 1]) / 2;
+    if (keep && !keep(zm, j)) continue;
+    const mi = bandMat(zm, j);
+    if (!buckets.has(mi)) buckets.set(mi, []);
+    buckets.get(mi).push([i, j]);
+  }
+
+  const pos = [], nor = [], uvs = [], groups = [];
+  let cursor = 0;
+  for (const [mi, list] of [...buckets.entries()].sort((a, b) => a[0] - b[0])) {
+    for (const [i, j] of list) {
+      const j1 = (j + 1) % nR;
+      const A = P[i][j], B = P[i][j1], C2 = P[i + 1][j1], D = P[i + 1][j];
+      const nA = cn(i, j, i, j), nB = cn(i, j, i, j + 1), nC = cn(i, j, i + 1, j + 1), nD = cn(i, j, i + 1, j);
+      const uA = [U[i][j], zs[i]], uB = [U[i][j1] || (U[i][j] + .12), zs[i]];
+      const uC = [U[i + 1][j1] || (U[i + 1][j] + .12), zs[i + 1]], uD = [U[i + 1][j], zs[i + 1]];
+      const quad = FLIP[i][j] ? [[A, nA, uA], [D, nD, uD], [C2, nC, uC], [A, nA, uA], [C2, nC, uC], [B, nB, uB]]
+        : [[A, nA, uA], [B, nB, uB], [C2, nC, uC], [A, nA, uA], [C2, nC, uC], [D, nD, uD]];
+      for (const [p, n, u] of quad) { pos.push(p[0], p[1], p[2]); nor.push(n[0], n[1], n[2]); uvs.push(u[0], u[1]); }
+    }
+    groups.push([cursor, list.length * 6, mi]);
+    cursor += list.length * 6;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  for (const [s, c, m] of groups) g.addGroup(s, c, m);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** 端面封盖（三角扇） */
+function capGeo(z, outward) {
+  const r = ringAt(z), n = r.length, cx = 0, cy = r.reduce((a, p) => a + p[1], 0) / n;
+  const pos = [], nor = [], uvs = [];
+  for (let j = 0; j < n; j++) {
+    const a = r[j], b = r[(j + 1) % n];
+    const tri = outward > 0 ? [[cx, cy], a, b] : [[cx, cy], b, a];
+    for (const p of tri) { pos.push(p[0], p[1], z); nor.push(0, 0, outward); uvs.push(p[0], p[1]); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  return g;
+}
+
+// ---- 挤出辅助：三种朝向的板件 ----
+function shapeOf(pts) {
+  const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+  s.closePath(); return s;
+}
+function extr(pts, depth, bev) {
+  return new THREE.ExtrudeGeometry(shapeOf(pts), {
+    depth, steps: 1, curveSegments: 2, bevelEnabled: bev !== 0,
+    bevelThickness: bev || .006, bevelSize: bev || .006, bevelOffset: 0, bevelSegments: 1
+  });
+}
+/** 平板：轮廓在 (x,z)，厚度沿 Y */
+function plateXZ(pts, t, bev) { const g = extr(pts, t, bev); g.rotateX(Math.PI / 2); g.translate(0, t / 2, 0); return g; }
+/** 立板：轮廓在 (x,y)，厚度沿 Z */
+function plateXY(pts, t, bev) { const g = extr(pts, t, bev); g.translate(0, 0, -t / 2); return g; }
+/** 侧板：轮廓在 (z,y)，厚度沿 X */
+function plateZY(pts, t, bev) { const g = extr(pts, t, bev); g.rotateY(-Math.PI / 2); g.translate(t / 2, 0, 0); return g; }
+
+/* ---- 装配根节点 ---- */
+const car = new THREE.Group(); car.name = 'AventadorSVJ'; scene.add(car);
+const gShell = grp(car, 'shell');        // 车身外壳
+const gDoors = grp(car, 'doors');        // 剪刀门
+const gFront = grp(car, 'frontEnd');     // 前脸
+const gRear = grp(car, 'rearEnd');       // 尾部
+const gSide = grp(car, 'sideDetail');    // 侧面细节
+const gWing = grp(car, 'rearWing');      // 尾翼
+const gWheels = grp(car, 'wheels');      // 车轮总成
+const gIn = grp(car, 'internals');       // 内部构造
+gIn.name = 'internals';
+
+bootMsg.textContent = '正在放样车身曲面…';
+const bodyGeo = loft(ZS, (z, b) => !inDoor(z, b));
+const bodyMesh = new THREE.Mesh(bodyGeo, MAT_SLOT);
+bodyMesh.name = 'bodyShell'; bodyMesh.castShadow = true; bodyMesh.receiveShadow = true;
+gShell.add(bodyMesh); MESH_COUNT++;
+put(gShell, capGeo(CAR.nose, 1), M.paint, 'noseCap');
+put(gShell, capGeo(CAR.tail, -1), M.matte, 'tailPanel');
+
+/* ---- 剪刀门（复用同一放样曲面，向内偏 4.5 mm 形成钣金缝） ---- */
+const DOOR_HINGE = [.720, .900, .945];
+function buildDoor(side) {
+  const g = loft(ZS, (z, b) => inDoor(z, b) && (side > 0 ? DOOR_BANDS_R.has(b) : DOOR_BANDS_L.has(b)));
+  g.scale(.9955, 1, 1);
+  g.translate(-side * DOOR_HINGE[0], -DOOR_HINGE[1], -DOOR_HINGE[2]);
+  const pivot = new THREE.Group();
+  pivot.name = 'doorPivot' + (side > 0 ? 'R' : 'L');
+  pivot.position.set(side * DOOR_HINGE[0], DOOR_HINGE[1], DOOR_HINGE[2]);
+  const m = new THREE.Mesh(g, MAT_SLOT);
+  m.name = 'doorSkin' + (side > 0 ? 'R' : 'L'); m.castShadow = true; m.receiveShadow = true;
+  MESH_COUNT++;
+  pivot.add(m);
+  // 门内板 + 橙色缝线饰条
+  const inner = put(pivot, roundBox(.055, .40, 1.30, .03), M.alcantara, 'doorInner' + side,
+    { p: [side * .845 - side * DOOR_HINGE[0], .585 - DOOR_HINGE[1], .18 - DOOR_HINGE[2]] });
+  inner.userData.noXray = true;
+  put(pivot, BOX(.02, .022, 1.16), M.leatherOrg, 'doorStitch' + side,
+    { p: [side * .878 - side * DOOR_HINGE[0], .700 - DOOR_HINGE[1], .18 - DOOR_HINGE[2]] });
+  gDoors.add(pivot);
+  return pivot;
+}
+const doorR = buildDoor(1), doorL = buildDoor(-1);
+
+/* ============================================================================================
+   5 · 前脸：Y 形 LED 大灯 / 双箭头进气口 / 前铲与导流片
+   ============================================================================================ */
+// —— 大灯总成：轮廓以自身中心建模，再按翼子板脊线斜率整体倾斜，保证严格贴合曲面 ——
+function headlight(side) {
+  const g = grp(gFront, 'headlight' + (side > 0 ? 'R' : 'L'));
+  const cz = 2.035, cx = .680;
+  const cy0 = smoothAt(C.gy, cz);
+  const slope = Math.atan2(smoothAt(C.gy, cz - .16) - smoothAt(C.gy, cz + .16), .32);
+  // 平面外形（相对灯组中心，刀锋状后掠）
+  const OUT = [[-.205, .150], [.185, .020], [.215, -.145], [-.045, -.125], [-.195, .015]];
+  const lay = (pts, t, mat, dy, nm) => {
+    const m = put(g, plateXZ(pts, t, 0), mat, nm, { shadow: false });
+    m.position.set(side * cx, cy0 + dy, cz);
+    m.rotation.x = slope; m.scale.x = side;
+    return m;
+  };
+  lay(OUT, .075, M.matte, -.030, 'socket');                                  // 灯腔
+  lay(OUT.map(p => [p[0] * .93, p[1] * .93]), .05, M.lens, .012, 'lens');    // 灯罩
+  // Y 形日行灯（主干 + 上下分叉）
+  lay([[-.165, .095], [.145, -.010], [.155, -.038], [-.155, .068]], .026, M.ledCold, .022, 'drl0');
+  lay([[-.040, .030], [.030, .105], [.052, .086], [-.018, .012]], .026, M.ledCold, .022, 'drl1');
+  lay([[-.018, .012], [.045, -.055], [.066, -.036], [.004, .028]], .026, M.ledCold, .022, 'drl2');
+  // 转向灯细条
+  lay([[-.150, -.098], [.180, -.170], [.185, -.190], [-.145, -.120]], .022, M.ledAmber, .020, 'turn');
+  // 投影透镜
+  const pr = put(g, CYL(.048, .048, .05, 16), M.alu, 'projector', { shadow: false });
+  pr.position.set(side * (cx + .075), cy0 - .002, cz - .055);
+  pr.rotation.set(Math.PI / 2 + slope, 0, 0);
+  const pl = put(g, CYL(.038, .038, .012, 16), M.ledCold, 'projLens', { shadow: false });
+  pl.position.set(side * (cx + .075), cy0 + .012, cz - .046);
+  pl.rotation.set(Math.PI / 2 + slope, 0, 0);
+  return g;
+}
+headlight(1); headlight(-1);
+
+// —— 前保险杠：双箭头进气口（蜂窝网 + 垂直导流叶）——
+// 保险杠转角面在平面内由 (sx,z) 向车头急收，进气口板绕 Y 轴旋转以贴合该斜面
+for (const s of [1, -1]) {
+  const gg = grp(gFront, 'frontIntake' + (s > 0 ? 'R' : 'L'));
+  const ang = .72, cxp = .716, czp = 2.192;
+  const mk = (w, h, t, mat, off, nm) => put(gg, BOX(w, h, t), mat, nm,
+    { p: [s * (cxp + Math.sin(ang) * off), .300, czp + Math.cos(ang) * off], r: [0, s * ang, 0], shadow: false });
+  mk(.30, .215, .02, M.hex, .014, 'mesh');
+  mk(.30, .215, .03, M.matte, -.028, 'back');
+  for (let i = 0; i < 3; i++) {                                    // 垂直分割叶片
+    const t2 = (i - 1) * .10;
+    put(gg, BOX(.020, .205, .07), M.carbon, 'fin' + i,
+      { p: [s * (cxp + Math.sin(ang) * .018 + t2 * Math.cos(ang)), .300, czp + Math.cos(ang) * .018 - t2 * Math.sin(ang)], r: [0, s * ang, 0] });
+  }
+  // 前翼板导流片（SVJ 风格，仅翼尖外露）
+  put(gg, plateXZ([[.80, 2.00], [1.02, 1.925], [1.03, 1.855], [.82, 1.925]], .022, 0), M.carbon,
+    'canard', { p: [0, .448, 0], s: [s, 1, 1] });
+}
+// 中央下进气口（车头正面）+ 前唇分离器（沿保险杠轮廓的箭形刀锋）
+put(gFront, plateXY([[-.25, .215], [.25, .215], [.23, .345], [-.23, .345]], .03, 0), M.hex, 'centerMesh', { p: [0, 0, 2.404], shadow: false });
+put(gFront, plateXY([[-.25, .215], [.25, .215], [.23, .345], [-.23, .345]], .03, 0), M.matte, 'centerBack', { p: [0, 0, 2.372], shadow: false });
+put(gFront, plateXZ([
+  [-.98, 1.940], [-.90, 2.100], [-.72, 2.260], [-.40, 2.380], [0, 2.420], [.40, 2.380], [.72, 2.260], [.90, 2.100], [.98, 1.940],
+  [.86, 1.905], [.78, 2.060], [.62, 2.200], [.34, 2.300], [0, 2.340], [-.34, 2.300], [-.62, 2.200], [-.78, 2.060], [-.86, 1.905]
+], .03, .004), M.carbon, 'frontSplitter', { p: [0, .118, 0] });
+put(gFront, plateXZ([[-.22, 2.418], [.22, 2.418], [.20, 2.352], [-.20, 2.352]], .022, 0), M.orgAcc, 'splitterAccent', { p: [0, .140, 0], shadow: false });
+// 引擎盖上的两道 SVJ 通风口（贴合前罩曲面）
+for (const s of [1, -1]) {
+  put(gFront, plateXZ([[.16, 1.62], [.44, 1.60], [.46, 1.30], [.18, 1.34]], .02, 0), M.hex,
+    'hoodVent' + (s > 0 ? 'R' : 'L'), { p: [0, smoothAt(C.cy, 1.46) + .014, 0], s: [s, 1, 1], shadow: false });
+}
+
+/* ============================================================================================
+   6 · 侧面：后视镜 / 侧进气口 / 门槛导流 / 轮拱饰边
+   ============================================================================================ */
+for (const s of [1, -1]) {
+  const gg = grp(gSide, 'side' + (s > 0 ? 'R' : 'L'));
+  // 后视镜（支架 + 壳体 + 镜面）
+  put(gg, CYL(.016, .020, .175, 10), M.satin, 'mirrorArm', { p: [s * .935, .845, .585], r: [.10, 0, -s * .62] });
+  const shell = plateXZ([[.98, .70], [1.135, .655], [1.16, .545], [1.02, .530]], .075, .006);
+  put(gg, s > 0 ? shell : mirrorX(shell), M.satin, 'mirrorShell', { p: [0, .885, 0] });
+  put(gg, plateXZ([[1.00, .688], [1.128, .648], [1.148, .556], [1.03, .545]], .01, 0), M.rimLip,
+    'mirrorGlass', { p: [0, .928, 0], s: [s, 1, 1], shadow: false });
+  // 车身侧后方大进气口（位于车门之后的后翼板上，通往散热器）
+  const scoopOutline = [[-.955, .590], [-.615, .548], [-.605, .800], [-.940, .838]];
+  put(gg, plateZY(scoopOutline, .05, 0), M.hex, 'sideScoop', { p: [s * 1.010, 0, 0], s: [s, 1, 1], shadow: false });
+  put(gg, plateZY(scoopOutline, .05, 0), M.matte, 'sideScoopBack', { p: [s * .950, 0, 0], s: [s, 1, 1], shadow: false });
+  for (let i = 0; i < 3; i++)                                       // 叶片
+    put(gg, BOX(.055, .020, .310), M.carbon, 'scoopFin' + i, { p: [s * 1.018, .618 + i * .066, -.780], r: [.10, 0, 0] });
+  // 门槛后段下进气口（强化侧面图形）
+  put(gg, plateZY([[-1.02, .270], [-.72, .250], [-.72, .400], [-1.00, .430]], .04, 0), M.matte,
+    'sillIntake', { p: [s * .975, 0, 0], s: [s, 1, 1], shadow: false });
+  // 后轮之后的门槛导流小翼
+  put(gg, plateXZ([[.800, -1.865], [.925, -1.895], [.930, -2.000], [.805, -1.975]], .022, 0), M.carbon,
+    'sideWinglet', { p: [0, .300, 0], s: [s, 1, 1] });
+}
+
+/* ============================================================================================
+   7 · 尾部：Y 形尾灯 / 六边形中置排气 / 扩散器 / ALA 尾翼 / 铭牌
+   ============================================================================================ */
+// —— Y 形尾灯（贴合尾部近垂直面，外形收在尾板轮廓内）——
+for (const s of [1, -1]) {
+  const gg = grp(gRear, 'taillight' + (s > 0 ? 'R' : 'L'));
+  const socket = plateXY([[.30, .722], [.775, .742], [.795, .845], [.32, .832]], .05, .004);
+  put(gg, s > 0 ? socket : mirrorX(socket), M.matte, 'socket', { p: [0, 0, -2.375] });
+  const yb = [
+    [[.355, .776], [.735, .790], [.742, .812], [.362, .800]],
+    [[.500, .800], [.552, .838], [.575, .828], [.520, .792]],
+    [[.500, .776], [.552, .742], [.575, .752], [.520, .786]],
+  ];
+  yb.forEach((b, i) => {
+    const g2 = plateXY(b, .03, 0);
+    put(gg, s > 0 ? g2 : mirrorX(g2), M.ledRed, 'yBar' + i, { p: [0, 0, -2.402], shadow: false });
+  });
+  put(gg, plateXY([[.355, .748], [.735, .762], [.740, .776], [.360, .764]], .02, 0), M.lens,
+    'lens', { p: [0, 0, -2.408], s: [s, 1, 1], shadow: false });
+  // 倒车灯
+  put(gg, BOX(.07, .032, .02), M.ledCold, 'reverse', { p: [s * .28, .560, -2.398], shadow: false });
+}
+// —— 后保险杠饰板 + 蜂窝网（外形按尾部截面轮廓裁剪）——
+put(gRear, plateXY([[-.70, .470], [.70, .470], [.845, .620], [.800, .705], [-.800, .705], [-.845, .620]], .035, .004),
+  M.carbon, 'rearValance', { p: [0, 0, -2.404] });
+put(gRear, plateXY([[-.60, .500], [.60, .500], [.70, .610], [.66, .668], [-.66, .668], [-.70, .610]], .02, 0),
+  M.hex, 'rearMesh', { p: [0, 0, -2.428], shadow: false });
+// —— 六边形中置排气（SVJ 高位双出）——
+const hexPipe = CYL(.088, .088, .20, 6, false);
+for (const s of [1, -1]) {
+  put(gRear, hexPipe, M.exhaust, 'exhaustTip' + (s > 0 ? 'R' : 'L'), { p: [s * .115, .585, -2.44], r: [Math.PI / 2, 0, 0] });
+  put(gRear, CYL(.068, .068, .16, 6, false), M.matte, 'exhaustBore' + (s > 0 ? 'R' : 'L'), { p: [s * .115, .585, -2.47], r: [Math.PI / 2, 0, 0], shadow: false });
+  put(gRear, CYL(.104, .104, .05, 6, false), M.satin, 'exhaustRing' + (s > 0 ? 'R' : 'L'), { p: [s * .115, .585, -2.386], r: [Math.PI / 2, 0, 0] });
+}
+// —— 后扩散器 + 竖向导流片（上扬型面直接写入轮廓，避免整体旋转）——
+put(gRear, plateZY([[-1.88, .150], [-2.40, .395], [-2.40, .440], [-1.88, .196]], 1.64, .004), M.carbon, 'diffuser');
+for (let i = -3; i <= 3; i++) {
+  const x = i * .215;
+  put(gRear, plateZY([[-1.90, .160], [-2.40, .405], [-2.40, .470], [-1.90, .245]], .028, 0), M.carbon,
+    'diffFin' + (i + 3), { p: [x, 0, 0], shadow: i === 0 });
+}
+put(gRear, plateZY([[-2.34, .392], [-2.40, .420], [-2.40, .462], [-2.34, .436]], 1.58, 0), M.orgAcc, 'diffAccent', { shadow: false });
+// —— ALA 尾翼（可调角度）——
+const wingPivot = grp(gWing, 'wingPivot');
+wingPivot.position.set(0, 1.128, -2.055);
+for (const s of [1, -1]) {                                          // 天鹅颈支架
+  put(gWing, plateZY([[-1.90, .905], [-1.82, .930], [-2.02, 1.118], [-2.10, 1.100]], .05, .004), M.carbon,
+    'wingPylon' + (s > 0 ? 'R' : 'L'), { p: [s * .50, 0, 0] });
+}
+const wingMain = put(wingPivot, plateXZ([[-.86, .17], [.86, .17], [.86, -.19], [-.86, -.19]], .034, .004), M.carbon, 'wingPlane', { p: [0, 0, 0] });
+put(wingPivot, BOX(1.72, .05, .022), M.orgAcc, 'wingGurney', { p: [0, .022, -.198], shadow: false });
+for (const s of [1, -1]) {
+  put(wingPivot, plateZY([[.22, -.13], [.26, .10], [-.20, .13], [-.26, -.10]], .04, .004), M.carbon,
+    'wingEndplate' + (s > 0 ? 'R' : 'L'), { p: [s * .875, 0, 0] });
+  put(wingPivot, BOX(.05, .075, .03), M.orgAcc, 'wingEpAccent' + (s > 0 ? 'R' : 'L'), { p: [s * .90, .10, -.05], shadow: false });
+}
+// —— 后风挡上的引擎盖百叶（贴合后盖曲面，可见 V12）——
+for (let i = 0; i < 5; i++) {
+  const z = -1.14 - i * .125;
+  put(gRear, BOX(.60, .018, .085), M.carbon, 'deckSlat' + i, { p: [0, smoothAt(C.cy, z) + .014, z], r: [-.34, 0, 0] });
+}
+// —— 车顶后方双进气道 ——
+for (const s of [1, -1]) {
+  put(gRear, plateXZ([[.13, -.80], [.40, -.86], [.42, -1.06], [.15, -1.02]], .07, .006), M.satin,
+    'roofScoop' + (s > 0 ? 'R' : 'L'), { p: [0, smoothAt(C.cy, -.93) + .012, 0], s: [s, 1, 1] });
+  put(gRear, plateXZ([[.16, -.83], [.37, -.875], [.385, -1.03], [.175, -.995]], .02, 0), M.matte,
+    'roofScoopIn' + (s > 0 ? 'R' : 'L'), { p: [0, smoothAt(C.cy, -.93) + .048, 0], s: [s, 1, 1], shadow: false });
+}
+// —— 铭牌 ——
+const plate = new THREE.Mesh(new THREE.PlaneGeometry(.44, .055),
+  new THREE.MeshBasicMaterial({ map: textTexture('LAMBORGHINI', { size: 58, color: '#c9d0d8' }), transparent: true, depthWrite: false }));
+plate.position.set(0, .722, -2.396); plate.name = 'badgeText'; gRear.add(plate); MESH_COUNT++;
+const plate2 = new THREE.Mesh(new THREE.PlaneGeometry(.20, .06),
+  new THREE.MeshBasicMaterial({ map: textTexture('SVJ', { size: 92, color: '#ff7a1a' }), transparent: true, depthWrite: false }));
+plate2.position.set(.60, .650, -2.427); plate2.name = 'badgeSVJ'; gRear.add(plate2); MESH_COUNT++;
+
+/* ============================================================================================
+   8 · 车轮总成：旋成轮胎（LatheGeometry）+ 五 Y 辐锻造轮辋 + 碳陶刹车
+   ============================================================================================ */
+/** 两点之间的杆件（悬挂 / 传动轴 / 车架管） */
+function rod(parent, a, b, r, mat, name, seg = 10) {
+  const A = V3(a[0], a[1], a[2]), B = V3(b[0], b[1], b[2]);
+  const d = B.clone().sub(A), len = d.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), mat);
+  m.name = name; MESH_COUNT++;
+  m.position.copy(A).add(B).multiplyScalar(.5);
+  m.quaternion.setFromUnitVectors(V3(0, 1, 0), d.normalize());
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+/** 螺旋弹簧 */
+function coilSpring(len, r, turns, wire) {
+  const n = turns * 14, pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, a = t * turns * Math.PI * 2;
+    pts.push(V3(Math.cos(a) * r, t * len - len / 2, Math.sin(a) * r));
+  }
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n, wire, 6, false);
+}
+/** 旋成轮胎（含胎肩倒角与胎侧鼓起） */
+function tireGeo(R, hw, rimR) {
+  const p = [
+    [rimR, -hw * .96], [rimR + .016, -hw * .99], [lerp(rimR, R, .40), -hw * 1.02],
+    [lerp(rimR, R, .82), -hw * .94], [R - .006, -hw * .74], [R, -hw * .46],
+    [R, hw * .46], [R - .006, hw * .74], [lerp(rimR, R, .82), hw * .94],
+    [lerp(rimR, R, .40), hw * 1.02], [rimR + .016, hw * .99], [rimR, hw * .96],
+  ].map(a => new THREE.Vector2(a[0], a[1]));
+  const g = new THREE.LatheGeometry(p, HI ? 48 : 32);
+  g.rotateZ(Math.PI / 2);
+  return g;
+}
+function buildWheel(spec, isRear) {
+  const g = new THREE.Group();
+  const R = spec.r, hw = spec.w / 2, rr = spec.rim;
+  put(g, tireGeo(R, hw, rr), M.tire, 'tire');
+  // 胎侧（内外两片，压出品牌沟槽感）
+  for (const s of [1, -1]) put(g, CYL(rr + .004, rr + .004, .004, 30), M.sidewall, 'bead' + s, { p: [s * hw * .95, 0, 0], r: [0, 0, Math.PI / 2], shadow: false });
+  // 轮辋桶身 + 内外唇
+  put(g, CYL(rr, rr, spec.w * .92, 34, true), M.rim, 'barrel', { r: [0, 0, Math.PI / 2] });
+  for (const s of [1, -1]) put(g, new THREE.TorusGeometry(rr - .006, .012, 6, 34), M.rimLip, 'lip' + s, { p: [s * hw * .93, 0, 0], r: [0, Math.PI / 2, 0] });
+  // 五组 Y 形锻造辐条
+  const faceX = hw * .30;
+  for (let i = 0; i < 5; i++) {
+    const a = i * Math.PI * 2 / 5, sp = grp(g, 'spoke' + i);
+    sp.rotation.x = a;
+    const stem = BOX(.052, rr * .52, .105);
+    put(sp, stem, M.rim, 'stem', { p: [faceX, rr * .30, 0] });
+    for (const d of [1, -1]) {
+      const arm = BOX(.040, rr * .50, .075);
+      put(sp, arm, M.rim, 'arm' + d, { p: [faceX + .006, rr * .74, d * rr * .21], r: [d * .30, 0, 0] });
+    }
+    put(sp, BOX(.030, .05, .085), M.rimLip, 'tip', { p: [faceX + .012, rr * .95, 0], shadow: false });
+  }
+  // 中心锁 + 盘面
+  put(g, CYL(rr * .30, rr * .34, .05, 22), M.rim, 'hubPlate', { p: [faceX, 0, 0], r: [0, 0, Math.PI / 2] });
+  put(g, CYL(.052, .058, .052, 6), M.gold, 'centerLock', { p: [faceX + .045, 0, 0], r: [0, 0, Math.PI / 2] });
+  put(g, CYL(.020, .020, .012, 6), M.orgAcc, 'lockPin', { p: [faceX + .073, 0, 0], r: [0, 0, Math.PI / 2], shadow: false });
+  return g;
+}
+/** 刹车总成（碳陶盘 + 铝制盘毂 + 六活塞卡钳） */
+function buildBrake(spec, isRear, side) {
+  const g = new THREE.Group();
+  const dR = isRear ? .190 : .200, hw = spec.w / 2;
+  put(g, CYL(dR, dR, .038, 40), M.disc, 'disc', { r: [0, 0, Math.PI / 2] });
+  put(g, CYL(dR * .55, dR * .55, .055, 26), M.gold, 'bell', { p: [-hw * .10, 0, 0], r: [0, 0, Math.PI / 2] });
+  put(g, CYL(.048, .048, .10, 16), M.steel, 'hubShaft', { p: [-hw * .2, 0, 0], r: [0, 0, Math.PI / 2] });
+  // 卡钳（弧形本体 + 六活塞 + 橙色饰条）
+  const cal = grp(g, 'caliper');
+  cal.rotation.x = isRear ? -2.1 : 2.1;
+  const body = new THREE.TorusGeometry(dR * .92, .048, 8, 14, .78);
+  const bm = put(cal, body, M.caliper, 'calBody', { r: [0, Math.PI / 2, -.39] });
+  bm.scale.set(1, 1, .62);
+  for (let i = 0; i < 3; i++) for (const s of [1, -1]) {
+    const an = -.30 + i * .30;
+    put(cal, CYL(.021, .021, .026, 10), M.satin, 'piston' + i + s,
+      { p: [s * .046, Math.cos(an) * dR * .92, Math.sin(an) * dR * .92], r: [0, 0, Math.PI / 2], shadow: false });
+  }
+  put(cal, new THREE.TorusGeometry(dR * .92, .008, 5, 14, .74), M.orgAcc, 'calAccent', { p: [.048, 0, 0], r: [0, Math.PI / 2, -.37], shadow: false });
+  return g;
+}
+bootMsg.textContent = '正在装配轮组与制动系统…';
+const wheelRefs = [];
+for (const s of [1, -1]) for (const f of [1, 0]) {
+  const spec = f ? CAR.wF : CAR.wR;
+  const hub = grp(gWheels, (f ? 'wheelF' : 'wheelR') + (s > 0 ? 'R' : 'L'));
+  hub.position.set(s * spec.x, spec.r, f ? CAR.axF : CAR.axR);
+  const w = buildWheel(spec, !f);
+  if (s < 0) w.rotation.y = Math.PI;                    // 使辐条正面朝外
+  hub.add(w);
+  const br = buildBrake(spec, !f, s);
+  if (s < 0) br.rotation.y = Math.PI;
+  hub.add(br);
+  wheelRefs.push({ hub, wheel: w, front: !!f, side: s });
+}
+
+/* ============================================================================================
+   9 · 内部构造（透视 / 剖切 / 爆炸时展示）
+   9.1 碳纤维单体壳 + 前后铝合金副车架
+   ============================================================================================ */
+bootMsg.textContent = '正在构建单体壳与 V12 动力总成…';
+const gTub = grp(gIn, 'monocoque');
+put(gTub, BOX(1.00, .045, 2.05), M.carbon, 'tubFloor', { p: [0, .152, .12] });
+put(gTub, roundBox(.28, .26, 1.86, .04), M.carbon, 'centerTunnel', { p: [0, .278, .10] });
+twin(gTub, roundBox(.155, .30, 1.90, .05), M.carbon, 'sill', .735, .300, .10);
+put(gTub, plateXY([[-.50, .17], [.50, .17], [.46, .740], [-.46, .740]], .05, .004), M.carbon, 'frontBulkhead', { p: [0, 0, .800] });
+put(gTub, plateXY([[-.53, .17], [.53, .17], [.50, .86], [-.50, .86]], .05, .004), M.carbon, 'firewall', { p: [0, 0, -.775] });
+put(gTub, BOX(1.02, .05, .34), M.carbon, 'seatShelf', { p: [0, .585, -.62] });
+// A 柱 / 车顶环（碳纤维，位于侧窗玻璃内侧约 5 cm）
+for (const s of [1, -1]) {
+  rod(gTub, [s * .560, .800, .620], [s * .655, 1.028, -.160], .036, M.carbon, 'aPillar' + s, 8);
+  rod(gTub, [s * .655, 1.028, -.160], [s * .656, 1.018, -.800], .034, M.carbon, 'roofRail' + s, 8);
+  rod(gTub, [s * .656, 1.018, -.800], [s * .590, .860, -1.000], .034, M.carbon, 'cPillar' + s, 8);
+}
+rod(gTub, [-.640, 1.032, -.170], [.640, 1.032, -.170], .030, M.carbon, 'roofCross', 8);
+rod(gTub, [-.640, 1.014, -.790], [.640, 1.014, -.790], .034, M.carbon, 'roofCrossR', 8);
+// 前部铝合金吸能框架
+const gFrame = grp(gIn, 'subframeFront');
+for (const s of [1, -1]) {
+  rod(gFrame, [s * .40, .60, 1.04], [s * .52, .50, 1.66], .028, M.alu, 'fUpper' + s);
+  rod(gFrame, [s * .34, .22, 1.06], [s * .46, .21, 1.72], .030, M.alu, 'fLower' + s);
+  rod(gFrame, [s * .52, .50, 1.66], [s * .46, .21, 1.72], .022, M.alu, 'fDiag' + s);
+  rod(gFrame, [s * .52, .50, 1.66], [s * .40, .44, 2.02], .024, M.alu, 'fCrash' + s);
+  rod(gFrame, [s * .46, .21, 1.72], [s * .38, .22, 2.02], .024, M.alu, 'fCrashL' + s);
+}
+rod(gFrame, [-.40, .44, 2.03], [.40, .44, 2.03], .030, M.alu, 'bumperBeam');
+rod(gFrame, [-.42, .50, 1.66], [.42, .50, 1.66], .026, M.alu, 'strutBrace');
+// 后部铝合金副车架（包裹动力总成）
+const gFrameR = grp(gIn, 'subframeRear');
+for (const s of [1, -1]) {
+  rod(gFrameR, [s * .46, .78, -.80], [s * .50, .74, -1.35], .028, M.alu, 'rUpper' + s);
+  rod(gFrameR, [s * .50, .74, -1.35], [s * .44, .62, -1.92], .026, M.alu, 'rUpper2' + s);
+  rod(gFrameR, [s * .40, .24, -.82], [s * .46, .24, -1.40], .030, M.alu, 'rLower' + s);
+  rod(gFrameR, [s * .46, .24, -1.40], [s * .40, .30, -2.00], .026, M.alu, 'rLower2' + s);
+  rod(gFrameR, [s * .50, .74, -1.35], [s * .46, .24, -1.40], .022, M.alu, 'rDiag' + s);
+  rod(gFrameR, [s * .44, .62, -1.92], [s * .40, .30, -2.00], .022, M.alu, 'rDiag2' + s);
+}
+rod(gFrameR, [-.44, .64, -1.94], [.44, .64, -1.94], .026, M.alu, 'rCross');
+rod(gFrameR, [-.40, .30, -2.02], [.40, .30, -2.02], .028, M.alu, 'rCrossL');
+
+/* 9.2 6.5 L V12（65° 夹角，纵置） */
+const gEngine = grp(gIn, 'engineV12');
+const EZ = -1.34;                                    // 曲轴中心 Z
+const CRANK_Y = .400;
+put(gEngine, roundBox(.40, .30, .80, .05), M.aluCast, 'crankcase', { p: [0, CRANK_Y, EZ] });
+put(gEngine, roundBox(.34, .14, .74, .04), M.aluCast, 'oilPan', { p: [0, CRANK_Y - .21, EZ] });
+put(gEngine, CYL(.115, .115, .05, 20), M.steel, 'crankPulley', { p: [0, CRANK_Y, EZ + .43], r: [Math.PI / 2, 0, 0] });
+const BANK = 32.5 * Math.PI / 180;
+for (const s of [1, -1]) {
+  const bg = grp(gEngine, 'bank' + (s > 0 ? 'R' : 'L'));
+  bg.position.set(s * Math.sin(BANK) * .215, CRANK_Y + Math.cos(BANK) * .215, EZ);
+  bg.rotation.z = -s * BANK;
+  put(bg, roundBox(.215, .175, .78, .03), M.aluCast, 'head', { p: [0, 0, 0] });
+  put(bg, roundBox(.185, .105, .74, .035), M.alu, 'camCover', { p: [0, .135, 0] });
+  put(bg, BOX(.19, .012, .70), M.satin, 'camTrim', { p: [0, .192, 0], shadow: false });
+  for (let i = 0; i < 6; i++) {                      // 点火线圈
+    put(bg, BOX(.05, .055, .052), M.rubber, 'coil' + i, { p: [0, .205, -.31 + i * .124], shadow: false });
+  }
+  // 排气头段：6 根不等长弯管汇入集气管
+  for (let i = 0; i < 6; i++) {
+    const z0 = EZ - .31 + i * .124;
+    const ox = s * (Math.sin(BANK) * .215 + Math.cos(BANK) * .112);
+    const oy = CRANK_Y + Math.cos(BANK) * .215 - Math.sin(BANK) * .112;
+    put(gEngine, tube([
+      [ox, oy, z0], [ox + s * .085, oy - .045, z0], [ox + s * .13, oy - .16, z0 - .05],
+      [s * .30, .32, EZ - .40 + Math.abs(i - 2.5) * .012], [s * .26, .30, EZ - .53]
+    ], .026, 16, 7), M.exhaustHot, 'header' + s + i, { shadow: false });
+  }
+}
+// V 型进气：碳纤维双腔进气歧管 + 12 根进气管
+put(gEngine, roundBox(.30, .19, .70, .05), M.carbon, 'plenum', { p: [0, .820, EZ] });
+put(gEngine, roundBox(.13, .09, .30, .03), M.carbon, 'plenumNeck', { p: [0, .880, EZ + .40] });
+put(gEngine, CYL(.075, .085, .12, 18), M.carbon, 'throttle', { p: [0, .880, EZ + .58], r: [Math.PI / 2, 0, 0] });
+for (const s of [1, -1]) for (let i = 0; i < 6; i++) {
+  const z0 = EZ - .31 + i * .124;
+  put(gEngine, tube([
+    [s * .06, .800, z0], [s * .15, .775, z0], [s * .205, .700, z0], [s * .225, .630, z0]
+  ], .030, 10, 7), M.aluCast, 'runner' + s + i, { shadow: false });
+}
+// 发动机铭牌
+const engPlate = new THREE.Mesh(new THREE.PlaneGeometry(.30, .05),
+  new THREE.MeshBasicMaterial({ map: textTexture('LAMBORGHINI  V12', { size: 44, color: '#dfe4ea' }), transparent: true }));
+engPlate.position.set(0, .916, EZ + .04); engPlate.rotation.x = -Math.PI / 2; engPlate.name = 'enginePlate';
+gEngine.add(engPlate); MESH_COUNT++;
+// 附件：交流发电机 / 水泵 / 机油罐
+put(gEngine, CYL(.062, .062, .13, 16), M.steel, 'alternator', { p: [.24, .60, EZ + .40], r: [Math.PI / 2, 0, .2] });
+put(gEngine, CYL(.055, .055, .10, 16), M.aluCast, 'waterPump', { p: [-.22, .58, EZ + .42], r: [Math.PI / 2, 0, -.2] });
+put(gEngine, roundBox(.16, .22, .16, .05), M.alu, 'oilTank', { p: [-.34, .70, EZ - .52] });
+put(gEngine, roundBox(.15, .12, .20, .04), M.satin, 'ecu', { p: [.34, .74, EZ - .50] });
+
+/* 9.3 ISR 变速箱 / 四驱传动 / 差速器 */
+const gDrive = grp(gIn, 'driveline');
+put(gDrive, roundBox(.36, .34, .44, .06), M.aluCast, 'gearbox', { p: [0, .400, -.98] });
+put(gDrive, roundBox(.26, .26, .16, .05), M.aluCast, 'bellhousing', { p: [0, .400, -.80] });
+put(gDrive, roundBox(.30, .22, .22, .05), M.aluCast, 'rearDiff', { p: [0, .360, -1.22] });
+for (const s of [1, -1]) {                                    // 后半轴 + 万向节
+  rod(gDrive, [s * .15, .360, -1.24], [s * .74, .355, CAR.axR], .034, M.steel, 'halfShaftR' + s);
+  put(gDrive, SPH(.055, 14, 10), M.steel, 'cvR' + s, { p: [s * .74, .355, CAR.axR], shadow: false });
+}
+rod(gDrive, [0, .262, -.80], [0, .245, 1.16], .030, M.steel, 'propShaft', 12);
+put(gDrive, roundBox(.28, .20, .22, .05), M.aluCast, 'frontDiff', { p: [0, .255, 1.30] });
+for (const s of [1, -1]) {
+  rod(gDrive, [s * .14, .255, 1.31], [s * .74, .330, CAR.axF], .030, M.steel, 'halfShaftF' + s);
+  put(gDrive, SPH(.05, 14, 10), M.steel, 'cvF' + s, { p: [s * .74, .330, CAR.axF], shadow: false });
+}
+// 排气：集气管 → 三元催化 → 中央消声器 → 排气尾段
+const gExh = grp(gIn, 'exhaust');
+for (const s of [1, -1]) {
+  put(gExh, CYL(.062, .062, .26, 16), M.exhaustHot, 'cat' + s, { p: [s * .26, .30, -2.00], r: [Math.PI / 2, 0, 0] });
+  put(gExh, tube([[s * .26, .30, -2.13], [s * .225, .38, -2.24], [s * .13, .50, -2.30]], .048, 14, 8), M.exhaust, 'midPipe' + s, { shadow: false });
+}
+put(gExh, roundBox(.60, .20, .22, .07), M.exhaust, 'silencer', { p: [0, .520, -2.300] });
+for (const s of [1, -1]) put(gExh, CYL(.062, .062, .20, 14), M.exhaust, 'tailPipe' + s, { p: [s * .115, .585, -2.400], r: [Math.PI / 2, 0, 0], shadow: false });
+
+/* 9.4 推杆式双叉臂悬挂（四轮） */
+function suspension(side, front) {
+  const s = side, f = front;
+  const g = grp(gIn, (f ? 'suspF' : 'suspR') + (s > 0 ? 'R' : 'L'));
+  const az = f ? CAR.axF : CAR.axR, hx = (f ? CAR.wF.x : CAR.wR.x), hy = f ? CAR.wF.r : CAR.wR.r;
+  const inX = f ? .40 : .44;
+  const lo = [s * (hx - .10), hy * .62, az], up = [s * (hx - .13), hy * 1.38, az];
+  // 下叉臂
+  rod(g, [s * inX, .215, az - .26], lo, .026, M.alu, 'lcaA');
+  rod(g, [s * inX, .215, az + .26], lo, .026, M.alu, 'lcaB');
+  // 上叉臂
+  rod(g, [s * (inX - .02), hy * 1.42, az - .22], up, .022, M.alu, 'ucaA');
+  rod(g, [s * (inX - .02), hy * 1.42, az + .22], up, .022, M.alu, 'ucaB');
+  // 转向节 / 轮毂支架
+  put(g, roundBox(.075, hy * .95, .12, .03), M.aluCast, 'upright', { p: [s * (hx - .115), hy, az] });
+  put(g, CYL(.045, .045, .10, 14), M.steel, 'stubAxle', { p: [s * (hx - .06), hy, az], r: [0, 0, Math.PI / 2], shadow: false });
+  // 推杆 + 摇臂 + 弹簧减振器（内置）
+  const rockZ = az + (f ? .10 : -.10);
+  rod(g, lo, [s * .30, hy + .34, rockZ], .020, M.steel, 'pushrod');
+  put(g, plateZY([[-.10, -.05], [.10, -.05], [.07, .09], [-.07, .09]], .022, 0), M.alu, 'rocker',
+    { p: [s * .30, hy + .34, rockZ] });
+  const damperA = [s * .26, hy + .34, rockZ], damperB = [s * .04, hy + .16, rockZ + (f ? .04 : -.04)];
+  rod(g, damperA, damperB, .022, M.steel, 'damper');
+  const dl = Math.hypot(damperA[0] - damperB[0], damperA[1] - damperB[1], damperA[2] - damperB[2]);
+  const spr = put(g, coilSpring(dl * .8, .046, 7, .0085), M.spring, 'spring',
+    { p: [(damperA[0] + damperB[0]) / 2, (damperA[1] + damperB[1]) / 2, (damperA[2] + damperB[2]) / 2] });
+  spr.quaternion.setFromUnitVectors(V3(0, 1, 0), V3(damperB[0] - damperA[0], damperB[1] - damperA[1], damperB[2] - damperA[2]).normalize());
+  // 防倾杆 + 连杆
+  rod(g, [s * .10, hy + .30, rockZ + (f ? .16 : -.16)], [s * .30, hy + .30, rockZ + (f ? .16 : -.16)], .014, M.steel, 'arb');
+  // 转向拉杆（前）/ 前束拉杆（后）
+  rod(g, [s * .22, hy * .78, az + (f ? -.20 : .20)], [s * (hx - .13), hy * .82, az + (f ? -.14 : .14)], .015, M.steel, 'tieRod');
+  // 刹车导风管
+  put(g, tube([[s * .34, .20, az + .30], [s * .55, .20, az + .16], [s * (hx - .18), hy * .7, az + .04]], .028, 10, 7), M.rubber, 'brakeDuct', { shadow: false });
+  return g;
+}
+for (const s of [1, -1]) { suspension(s, true); suspension(s, false); }
+
+/* 9.5 散热与油箱 */
+const gCool = grp(gIn, 'cooling');
+for (const s of [1, -1]) {
+  put(gCool, BOX(.30, .34, .06), M.radiator, 'radiator' + s, { p: [s * .48, .40, 1.70], r: [.42, -s * .32, 0] });
+  put(gCool, CYL(.115, .115, .05, 18), M.satin, 'fan' + s, { p: [s * .48, .40, 1.58], r: [.42, -s * .32, 0], shadow: false });
+  for (let i = 0; i < 5; i++) put(gCool, BOX(.085, .012, .03), M.rubber, 'blade' + s + i,
+    { p: [s * .48 + Math.cos(i * 1.256) * .06, .40 + Math.sin(i * 1.256) * .06, 1.565], r: [.42, -s * .32, i * 1.256], shadow: false });
+  put(gCool, BOX(.24, .26, .05), M.radiator, 'oilCooler' + s, { p: [s * .545, .590, -1.10], r: [0, -s * 1.35, 0] });
+  put(gCool, tube([[s * .44, .42, 1.60], [s * .38, .30, .60], [s * .22, .30, -.70], [s * .20, .42, EZ + .40]], .026, 20, 7), M.rubber, 'coolantPipe' + s, { shadow: false });
+}
+put(gCool, roundBox(.70, .26, .30, .08), M.alu, 'fuelTank', { p: [0, .440, -.560] });
+put(gCool, roundBox(.20, .16, .18, .04), M.satin, 'battery', { p: [-.42, .32, 1.30] });
+put(gCool, roundBox(.14, .16, .16, .03), M.alu, 'brakeBooster', { p: [.30, .52, 1.06] });
+
+/* 9.6 座舱内饰 */
+const gCab = grp(gIn, 'cabin');
+function seat(side) {
+  const g = grp(gCab, 'seat' + (side > 0 ? 'R' : 'L'));
+  const x = side * .375;
+  put(g, roundBox(.46, .10, .50, .05), M.alcantara, 'cushion', { p: [x, .285, -.130] });
+  put(g, roundBox(.44, .58, .11, .05), M.alcantara, 'back', { p: [x, .570, -.400], r: [-.16, 0, 0] });
+  put(g, roundBox(.22, .16, .10, .04), M.alcantara, 'headrest', { p: [x, .880, -.455] });
+  for (const d of [1, -1])                                    // 侧向支撑翼
+    put(g, roundBox(.07, .40, .13, .035), M.alcantara, 'bolster' + d, { p: [x + d * .185, .560, -.360], r: [-.16, 0, 0] });
+  put(g, BOX(.40, .02, .022), M.leatherOrg, 'stitch', { p: [x, .341, -.130], shadow: false });
+  put(g, BOX(.02, .46, .022), M.leatherOrg, 'stitchV', { p: [x, .570, -.345], r: [-.16, 0, 0], shadow: false });
+  // 四点式安全带
+  for (const d of [1, -1]) {
+    put(g, BOX(.055, .40, .012), M.leatherOrg, 'belt' + d, { p: [x + d * .105, .600, -.330], r: [-.16, 0, d * .10], shadow: false });
+  }
+  return g;
+}
+seat(1); seat(-1);
+// 仪表台 / 中控 / 方向盘 / 踏板（左舵）
+put(gCab, roundBox(1.02, .16, .34, .06), M.alcantara, 'dashboard', { p: [0, .700, .500], r: [-.24, 0, 0] });
+put(gCab, BOX(.98, .02, .30), M.leatherOrg, 'dashTrim', { p: [0, .772, .478], r: [-.24, 0, 0], shadow: false });
+put(gCab, roundBox(.34, .16, .05, .02), M.screen, 'tft', { p: [-.375, .742, .388], r: [-.30, 0, 0], shadow: false });
+put(gCab, roundBox(.24, .28, .05, .03), M.screen, 'centerScreen', { p: [0, .640, .430], r: [-.42, 0, 0], shadow: false });
+put(gCab, roundBox(.28, .22, .70, .05), M.alcantara, 'console', { p: [0, .400, -.020] });
+put(gCab, CYL(.055, .055, .04, 6), M.orgAcc, 'startCover', { p: [0, .512, .190], r: [-.20, 0, 0], shadow: false });
+const sw = grp(gCab, 'steeringWheel');
+sw.position.set(-.375, .735, .300); sw.rotation.x = -.42;
+const swRimGeo = new THREE.TorusGeometry(.145, .022, 8, 26, Math.PI * 1.62);
+put(sw, swRimGeo, M.alcantara, 'swRim', { r: [0, 0, -Math.PI * .19] });
+put(sw, BOX(.24, .028, .05), M.alcantara, 'swBottom', { p: [0, -.132, 0], shadow: false });
+put(sw, CYL(.048, .048, .05, 16), M.satin, 'swHub', { r: [Math.PI / 2, 0, 0], shadow: false });
+put(sw, BOX(.03, .022, .02), M.orgAcc, 'swMark', { p: [0, .128, .015], shadow: false });
+for (const d of [1, -1]) put(sw, BOX(.026, .10, .022), M.satin, 'paddle' + d, { p: [d * .10, -.02, -.045], r: [0, 0, d * .3], shadow: false });
+for (let i = 0; i < 3; i++) put(gCab, BOX(.07, .11, .022), M.alu, 'pedal' + i, { p: [-.24 - i * .10, .275, .690], r: [-.34, 0, 0], shadow: false });
+put(gCab, BOX(.86, .04, .30), M.carbon, 'rearShelf', { p: [0, .620, -.700] });
+
+/* ============================================================================================
+   10 · 灯光 · 地面（镜面反射 + 阴影接收）
+   ============================================================================================ */
+bootMsg.textContent = '正在布置灯光与环境…';
+scene.add(new THREE.AmbientLight(0xffffff, .10));
+scene.add(new THREE.HemisphereLight(0x9fb6d8, 0x0a0b0e, .55));
+
+const key = new THREE.DirectionalLight(0xfff4e6, 2.6);
+key.position.set(4.6, 6.4, 3.8);
+key.castShadow = true;
+key.shadow.mapSize.set(HI ? 2048 : 1024, HI ? 2048 : 1024);
+key.shadow.camera.near = .5; key.shadow.camera.far = 18;
+key.shadow.camera.left = -3.4; key.shadow.camera.right = 3.4;
+key.shadow.camera.top = 3.4; key.shadow.camera.bottom = -3.4;
+key.shadow.bias = -.00035; key.shadow.normalBias = .018;
+scene.add(key);
+
+const fillL = new THREE.DirectionalLight(0x9ec2ff, .70); fillL.position.set(-5.5, 2.6, -4.2); scene.add(fillL);
+const rim = new THREE.SpotLight(0xff9a4a, 42, 14, .78, .55, 1.6);
+rim.position.set(-3.2, 2.4, -5.2); rim.target.position.set(0, .7, -1.4);
+scene.add(rim, rim.target);
+const rim2 = new THREE.SpotLight(0xbfd8ff, 26, 14, .8, .6, 1.6);
+rim2.position.set(4.4, 2.2, -4.4); rim2.target.position.set(0, .7, -.6);
+scene.add(rim2, rim2.target);
+// 大灯光束（默认关闭）
+const beams = [];
+for (const s of [1, -1]) {
+  const sp = new THREE.SpotLight(0xeaf2ff, 0, 30, .34, .42, 1.4);
+  sp.position.set(s * .70, .64, 2.05);
+  sp.target.position.set(s * 1.0, .10, 12);
+  scene.add(sp, sp.target); beams.push(sp);
+}
+
+// —— 地面 ——
+const gFloor = grp(scene, 'floor');
+let reflector = null;
+if (HAS_REFLECT && HI) {
+  reflector = new Reflector(new THREE.PlaneGeometry(46, 46), {
+    textureWidth: 1024, textureHeight: 1024, color: 0x252831, clipBias: .003
+  });
+  reflector.rotation.x = -Math.PI / 2;
+  reflector.position.y = 0;
+  gFloor.add(reflector);
+}
+const floorTop = new THREE.Mesh(new THREE.PlaneGeometry(46, 46),
+  new THREE.MeshPhysicalMaterial({
+    color: 0x0b0c0f, roughness: .62, metalness: .35,
+    roughnessMap: TX.floor.rough, normalMap: TX.floor.normal, normalScale: new THREE.Vector2(.35, .35),
+    transparent: !!reflector, opacity: reflector ? .62 : 1, envMapIntensity: .55, depthWrite: !reflector
+  }));
+floorTop.rotation.x = -Math.PI / 2; floorTop.position.y = .006; floorTop.renderOrder = 1;
+floorTop.receiveShadow = false;                       // 阴影统一由 shadowCatcher 承接
+gFloor.add(floorTop); MESH_COUNT++;
+const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(22, 22),
+  new THREE.ShadowMaterial({ color: 0x000000, opacity: .62, depthWrite: false }));
+shadowCatcher.rotation.x = -Math.PI / 2; shadowCatcher.position.y = .010;
+shadowCatcher.receiveShadow = true; shadowCatcher.renderOrder = 2;
+gFloor.add(shadowCatcher); MESH_COUNT++;
+// 展台光圈
+const halo = new THREE.Mesh(new THREE.RingGeometry(5.4, 5.48, 96),
+  new THREE.MeshBasicMaterial({ color: 0xff6a00, transparent: true, opacity: .30, side: THREE.DoubleSide, depthWrite: false }));
+halo.rotation.x = -Math.PI / 2; halo.position.y = .014; halo.renderOrder = 3; gFloor.add(halo);
+
+/* ============================================================================================
+   11 · 后处理（Bloom；失败自动降级为直接渲染）
+   ============================================================================================ */
+let composer = null, bloomPass = null;
+if (HAS_BLOOM && HI) {
+  try {
+    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+    composer = new EffectComposer(renderer, rt);
+    composer.addPass(new RenderPass(scene, camera));
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .40, .62, .86);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+  } catch (e) { composer = null; }
+}
+
+/* ============================================================================================
+   12 · 视图模式 / 交互
+   ============================================================================================ */
+// 记录外壳材质的原始状态，便于透视模式恢复
+for (const m of EXT_MATS) m.userData.base = { t: m.transparent, o: m.opacity, d: m.depthWrite, s: m.side };
+const XRAY_OP = new Map([[M.paint, .17], [M.carbon, .16], [M.matte, .14], [M.satin, .16],
+[M.glass, .10], [M.glassDark, .10], [M.hex, .14], [M.lens, .12],
+[M.tire, .16], [M.sidewall, .16], [M.rim, .22], [M.rimLip, .26]]);
+
+const cutPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
+let mode = 'solid', wireOn = false;
+const btn = id => document.getElementById(id);
+const MODE_BTN = { solid: btn('mSolid'), xray: btn('mXray'), cut: btn('mCut'), exp: btn('mExp') };
+
+// 爆炸视图位移表
+const EXPLODE = [];
+function reg(obj, dx, dy, dz) { if (obj) EXPLODE.push({ o: obj, base: obj.position.clone(), off: V3(dx, dy, dz) }); }
+reg(bodyMesh, 0, .92, 0); reg(gShell.getObjectByName('noseCap'), 0, .92, 0); reg(gShell.getObjectByName('tailPanel'), 0, .92, 0);
+reg(doorR, .62, .22, 0); reg(doorL, -.62, .22, 0);
+reg(gFront, 0, .18, .95); reg(gRear, 0, .18, -.95); reg(gWing, 0, .78, -.30);
+reg(gSide.getObjectByName('sideR'), .55, 0, 0); reg(gSide.getObjectByName('sideL'), -.55, 0, 0);
+for (const w of wheelRefs) reg(w.hub, w.side * .62, 0, 0);
+reg(gEngine, 0, .95, -.10); reg(gCab, 0, .40, 0); reg(gCool, 0, .30, .25); reg(gExh, 0, -.28, -.30);
+
+function applyMode() {
+  const xray = mode === 'xray', cut = mode === 'cut';
+  for (const m of EXT_MATS) {
+    const b = m.userData.base;
+    m.transparent = xray ? true : b.t;
+    m.opacity = xray ? (XRAY_OP.get(m) || .16) : b.o;
+    m.depthWrite = xray ? false : b.d;
+    m.clippingPlanes = cut ? [cutPlane] : null;
+    m.needsUpdate = true;
+  }
+  for (const k in MODE_BTN) MODE_BTN[k].classList.toggle('on', mode === k);
+  btn('cutWrap').classList.toggle('show', cut);
+  halo.material.opacity = xray ? .5 : .3;
+  if (bloomPass) bloomPass.strength = xray ? .62 : .40;
+}
+for (const k in MODE_BTN) MODE_BTN[k].onclick = () => { mode = k; applyMode(); };
+btn('mWire').onclick = () => {
+  wireOn = !wireOn;
+  btn('mWire').classList.toggle('on', wireOn);
+  for (const m of ALL_MATS) { m.wireframe = wireOn; m.needsUpdate = true; }
+};
+btn('cutR').oninput = e => { cutPlane.constant = parseFloat(e.target.value); };
+
+// —— 剪刀门 / 尾翼 / 大灯 / 自动环绕 ——
+const anim = { door: 0, doorT: 0, wing: 0, wingT: 0, exp: 0, lamp: 0 };
+btn('tDoor').onclick = e => { anim.doorT = anim.doorT > .5 ? 0 : 1; e.currentTarget.classList.toggle('on', anim.doorT > .5); };
+btn('tWing').onclick = e => { anim.wingT = anim.wingT > .5 ? 0 : 1; e.currentTarget.classList.toggle('on', anim.wingT > .5); };
+btn('tLamp').onclick = e => {
+  anim.lamp = anim.lamp ? 0 : 1;
+  e.currentTarget.classList.toggle('on', !!anim.lamp);
+  M.ledCold.emissiveIntensity = anim.lamp ? 3.4 : 0;
+  M.ledAmber.emissiveIntensity = anim.lamp ? 2.6 : 1.6;
+  M.ledRed.emissiveIntensity = anim.lamp ? 4.0 : 2.6;
+  for (const b of beams) b.intensity = anim.lamp ? 70 : 0;
+};
+btn('tSpin').onclick = e => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
+
+// —— 涂装 ——
+const SW = [['c0', 'atlas'], ['c1', 'argos'], ['c2', 'verde'], ['c3', 'nero']];
+for (const [id, key2] of SW) btn(id).onclick = () => {
+  const p = PAINTS[key2];
+  M.paint.color.setHex(p.c);
+  M.paint.metalness = key2 === 'nero' ? .78 : .62;
+  btn('paintName').textContent = p.name;
+  SW.forEach(([i2]) => btn(i2).classList.toggle('on', i2 === id));
+  M.orgAcc.color.setHex(key2 === 'atlas' ? 0xff6a00 : 0xff7a1a);
+};
+
+// —— 预设机位（平滑过渡）——
+const VIEWS = {
+  vHero: [[5.6, 1.85, 6.2], [0, .62, 0]],
+  vSide: [[8.3, .82, .25], [0, .60, 0]],
+  vFace: [[.85, 1.02, 7.3], [0, .56, 1.30]],
+  vTail: [[-1.5, 1.30, -6.6], [0, .70, -1.60]],
+  vBay: [[1.55, 1.92, -2.30], [0, .78, -1.35]],
+  vCab: [[-1.95, 1.42, 1.55], [0, .74, .10]],
+};
+let fly = null;
+for (const id in VIEWS) btn(id).onclick = () => {
+  fly = { p: V3(...VIEWS[id][0]), t: V3(...VIEWS[id][1]) };
+  controls.autoRotate = false; btn('tSpin').classList.remove('on');
+};
+// 交互后 3 秒恢复自动环绕
+let idle = null;
+controls.addEventListener('start', () => { clearTimeout(idle); controls.autoRotate = false; btn('tSpin').classList.remove('on'); fly = null; });
+controls.addEventListener('end', () => {
+  clearTimeout(idle);
+  idle = setTimeout(() => { controls.autoRotate = true; btn('tSpin').classList.add('on'); }, 3000);
+});
+applyMode();
+
+/* ============================================================================================
+   13 · 自适应与渲染循环
+   ============================================================================================ */
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, HI ? 2 : 1.5));
+  renderer.setSize(w, h, false);
+  if (composer) composer.setSize(w, h);
+}
+addEventListener('resize', resize, { passive: true });
+addEventListener('orientationchange', () => setTimeout(resize, 140));
+
+const sFps = btn('sFps'), sTri = btn('sTri'), sCall = btn('sCall');
+let acc = 0, frames = 0, booted = false;
+const clock = new THREE.Clock();
+
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), .05);
+
+  // 机位过渡
+  if (fly) {
+    camera.position.lerp(fly.p, 1 - Math.pow(.012, dt));
+    controls.target.lerp(fly.t, 1 - Math.pow(.012, dt));
+    if (camera.position.distanceTo(fly.p) < .03) fly = null;
+  }
+  // 剪刀门
+  anim.door += (anim.doorT - anim.door) * Math.min(1, dt * 3.4);
+  const dA = ease(clamp(anim.door, 0, 1)) * .88;
+  doorR.rotation.x = dA; doorL.rotation.x = dA;
+  doorR.position.x = DOOR_HINGE[0] + dA * .075; doorL.position.x = -(DOOR_HINGE[0] + dA * .075);
+  // ALA 尾翼
+  anim.wing += (anim.wingT - anim.wing) * Math.min(1, dt * 3.0);
+  const wA = ease(clamp(anim.wing, 0, 1));
+  wingPivot.rotation.x = wA * .26;
+  wingPivot.position.y = 1.128 + wA * .085;
+  // 爆炸视图
+  const expT = mode === 'exp' ? 1 : 0;
+  anim.exp += (expT - anim.exp) * Math.min(1, dt * 2.6);
+  const eT = ease(clamp(anim.exp, 0, 1));
+  if (Math.abs(anim.exp - expT) > .0004 || eT > .0004) {
+    for (const it of EXPLODE) {
+      it.o.position.set(it.base.x + it.off.x * eT, it.base.y + it.off.y * eT, it.base.z + it.off.z * eT);
+    }
+    // 车门铰链位移需叠加剪刀门开合
+    doorR.position.x = DOOR_HINGE[0] + dA * .075 + .62 * eT;
+    doorL.position.x = -(DOOR_HINGE[0] + dA * .075) - .62 * eT;
+  }
+  // 剖切模式下轻微呼吸，强调剖面结构
+  controls.update();
+
+  if (composer) composer.render(dt); else renderer.render(scene, camera);
+
+  // 统计
+  frames++; acc += dt;
+  if (acc > .5) {
+    sFps.textContent = (frames / acc).toFixed(0);
+    sTri.textContent = (renderer.info.render.triangles / 1000).toFixed(1) + 'k';
+    sCall.textContent = renderer.info.render.calls;
+    frames = 0; acc = 0;
+  }
+  if (!booted) { booted = true; document.getElementById('boot').classList.add('off'); }
+}
+resize();
+tick();
+
+// 控制台调试入口
+window.SVJ = { car, scene, camera, controls, renderer, M, TX, groups: { gShell, gDoors, gFront, gRear, gSide, gWing, gWheels, gIn }, meshCount: MESH_COUNT };
+</script>
+</body>
+</html>

@@ -1,0 +1,3343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#08080f">
+<title>LINE RHYTHM · 跳舞的线</title>
+<style>
+/* ============================================================
+   LINE RHYTHM — 100% procedural 3D rhythm runner
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#07070d;color:#eef1f7;
+  font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+canvas#gl{position:fixed;inset:0;display:block;z-index:0}
+
+/* ---------- shared layer ---------- */
+.layer{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transition:opacity .28s ease}
+.layer.on{opacity:1;pointer-events:auto}
+.layer.hud{pointer-events:none!important}
+.hidden{display:none!important}
+
+/* ---------- typography ---------- */
+.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.grad{background:linear-gradient(94deg,#ffd479,#ff6f91 42%,#63e6ff);-webkit-background-clip:text;
+  background-clip:text;color:transparent}
+
+/* ---------- MENU ---------- */
+#menu{background:radial-gradient(120% 90% at 50% 6%,#1c2136 0%,#0a0b13 58%,#05050a 100%)}
+.menuWrap{width:min(1020px,92vw);max-height:94vh;overflow:auto;padding:24px 4px;text-align:center}
+.brand{font-size:clamp(34px,6.4vw,66px);font-weight:900;letter-spacing:.16em;line-height:1;
+  text-shadow:0 0 46px rgba(120,190,255,.25)}
+.brandSub{margin-top:10px;font-size:clamp(11px,1.5vw,13px);letter-spacing:.42em;color:#7b87a8;text-transform:uppercase}
+.tip{margin:16px auto 22px;font-size:13px;color:#93a0c0;line-height:1.85;max-width:640px}
+.tip b{color:#ffd479;font-weight:700}
+.kbd{display:inline-block;min-width:22px;padding:1px 7px;margin:0 2px;border-radius:5px;
+  background:#232941;border:1px solid #39415f;border-bottom-width:2px;font-size:12px;color:#dbe3f7;font-weight:600}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(204px,1fr));gap:15px;margin-top:6px}
+.card{position:relative;border-radius:16px;overflow:hidden;cursor:pointer;text-align:left;
+  border:1px solid rgba(255,255,255,.1);background:#0e1120;transition:transform .18s ease,box-shadow .18s ease,border-color .18s;
+  outline:none}
+.card:hover,.card:focus-visible{transform:translateY(-6px);border-color:rgba(255,255,255,.34);
+  box-shadow:0 18px 46px -12px rgba(0,0,0,.85)}
+.card:active{transform:translateY(-2px)}
+.thumb{height:102px;position:relative;overflow:hidden}
+.thumb::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(transparent 34%,rgba(6,7,14,.94))}
+.t1{background:linear-gradient(165deg,#ffe7b8,#ffb066 46%,#f2795b)}
+.t2{background:linear-gradient(165deg,#127a9c,#0a3b5e 50%,#03121f)}
+.t3{background:linear-gradient(165deg,#2b0f3d,#7d1f6a 42%,#141425)}
+.t4{background:linear-gradient(160deg,#ffa8c8,#5ad8c0 34%,#2f3f8e 68%,#ffc45e)}
+.t5{background:linear-gradient(168deg,#26313d,#101820 52%,#05070a)}
+.t5 .thumbLine i{background:#7fe9ff;box-shadow:0 0 10px rgba(127,233,255,.9)}
+.t6{background:linear-gradient(150deg,#ff9a4a,#d15bff 26%,#2ee0b0 50%,#4b8cff 72%,#ffe08a)}
+.t6 .thumbLine i{background:#fff6de;box-shadow:0 0 12px rgba(255,240,200,.95)}
+.cardName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thumbLine{position:absolute;inset:0;opacity:.92}
+.thumbLine i{position:absolute;display:block;background:#fff;border-radius:1px;box-shadow:0 0 12px rgba(255,255,255,.65)}
+.cardBody{padding:12px 14px 14px}
+.cardTop{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.cardName{font-size:17px;font-weight:800;letter-spacing:.05em}
+.cardEn{font-size:10px;letter-spacing:.24em;color:#8492b5;text-transform:uppercase;margin-top:3px}
+.stars{font-size:11px;color:#ffd479;letter-spacing:.01em;white-space:nowrap;flex:none}
+.cardMeta{margin-top:10px;display:flex;gap:14px;font-size:11px;color:#8e9cbd;letter-spacing:.06em}
+.cardMeta b{color:#cfd8ef;font-weight:700}
+.menuFoot{margin-top:20px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap}
+.chip{pointer-events:auto;cursor:pointer;font-size:11px;letter-spacing:.12em;color:#8b98ba;
+  padding:7px 13px;border-radius:999px;border:1px solid #262d46;background:#10131f;transition:.16s}
+.chip:hover{color:#dfe6f8;border-color:#48527a}
+.chip.act{color:#0a0d15;background:#7ce0ff;border-color:#7ce0ff;font-weight:700}
+
+/* ---------- HUD ---------- */
+#hud{align-items:stretch;justify-content:flex-start;flex-direction:column;transition:opacity .2s}
+.hudTop{position:absolute;top:0;left:0;right:0;padding:14px 18px 0;display:flex;gap:14px;align-items:flex-start}
+.pWrap{flex:1;max-width:520px}
+.pRow{display:flex;align-items:baseline;gap:9px}
+.pNum{font-size:26px;font-weight:900;letter-spacing:.02em;line-height:1;
+  text-shadow:0 2px 14px rgba(0,0,0,.6)}
+.pPct{font-size:12px;font-weight:700;color:#9fb0d4;margin-left:-3px}
+.pName{font-size:11px;letter-spacing:.26em;color:#a9b7d6;text-transform:uppercase;
+  text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.pBar{margin-top:7px;height:5px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden;
+  box-shadow:0 1px 6px rgba(0,0,0,.35)}
+.pFill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#fff,#ffe9a8);
+  box-shadow:0 0 12px rgba(255,255,255,.55)}
+.pMark{position:absolute;width:2px;height:9px;margin-top:-2px;background:rgba(255,255,255,.55);border-radius:2px}
+.counts{display:flex;gap:10px;align-items:center}
+.cBox{display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:11px;
+  background:rgba(10,12,22,.42);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(6px)}
+.cVal{font-size:15px;font-weight:800;letter-spacing:.02em}
+.cVal small{font-size:10px;color:#9fb0d4;font-weight:700}
+.icoD{width:13px;height:13px;background:linear-gradient(140deg,#a8f4ff,#3fb8ff);transform:rotate(45deg);
+  border-radius:2px;box-shadow:0 0 10px rgba(90,210,255,.75)}
+.icoC{width:15px;height:12px;background:linear-gradient(140deg,#ffe9a0,#ffb52e);
+  clip-path:polygon(0% 100%,100% 100%,100% 26%,78% 52%,50% 0%,22% 52%,0% 26%);
+  filter:drop-shadow(0 0 7px rgba(255,190,60,.7))}
+.judge{position:absolute;top:20%;left:0;right:0;text-align:center;font-size:30px;font-weight:900;
+  letter-spacing:.2em;opacity:0;text-shadow:0 3px 22px rgba(0,0,0,.65)}
+.judge.go{animation:pop .62s cubic-bezier(.2,1.1,.3,1) forwards}
+@keyframes pop{0%{opacity:0;transform:translateY(14px) scale(.82)}
+  22%{opacity:1;transform:translateY(0) scale(1.06)}70%{opacity:1;transform:scale(1)}
+  100%{opacity:0;transform:translateY(-16px) scale(.99)}}
+.combo{position:absolute;top:calc(20% + 40px);left:0;right:0;text-align:center;font-size:13px;
+  font-weight:800;letter-spacing:.24em;color:#ffe9a8;opacity:0;transition:opacity .2s}
+.combo.on{opacity:.92}
+.startTip{position:absolute;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;text-align:center}
+.startTip.on{display:flex}
+.startTip .st1{font-size:clamp(22px,4vw,36px);font-weight:900;letter-spacing:.24em;
+  animation:breathe 1.5s ease-in-out infinite;text-shadow:0 4px 26px rgba(0,0,0,.7)}
+.startTip .st2{font-size:12px;letter-spacing:.3em;color:rgba(235,242,255,.72);
+  text-shadow:0 2px 12px rgba(0,0,0,.8)}
+.startTip .st3{margin-top:2px;font-size:11px;letter-spacing:.2em;color:rgba(235,242,255,.5)}
+@keyframes breathe{0%,100%{opacity:.55;transform:scale(.985)}50%{opacity:1;transform:scale(1.015)}}
+.hudFoot{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:11px;
+  letter-spacing:.2em;color:rgba(230,238,255,.5)}
+.flash{position:fixed;inset:0;z-index:9;pointer-events:none;background:#fff;opacity:0}
+.vig{position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0;transition:opacity .25s;
+  background:radial-gradient(120% 92% at 50% 50%,transparent 42%,rgba(120,0,20,.62))}
+
+/* ---------- RESULT ---------- */
+#result{background:rgba(5,6,12,.74);backdrop-filter:blur(9px)}
+.panel{width:min(430px,90vw);border-radius:20px;padding:26px 26px 22px;text-align:center;
+  background:linear-gradient(180deg,rgba(28,33,54,.96),rgba(12,14,24,.97));
+  border:1px solid rgba(255,255,255,.13);box-shadow:0 26px 70px -18px rgba(0,0,0,.9);
+  transform:translateY(16px) scale(.97);transition:transform .3s cubic-bezier(.2,1.05,.3,1)}
+.layer.on .panel{transform:none}
+.rTitle{font-size:13px;letter-spacing:.4em;color:#93a0c0;text-transform:uppercase}
+.rBig{margin:6px 0 2px;font-size:64px;font-weight:900;line-height:1;letter-spacing:-.01em}
+.rBig span{font-size:24px;font-weight:800;color:#93a0c0;margin-left:2px}
+.rLvl{font-size:12px;letter-spacing:.2em;color:#8e9cbd;margin-bottom:16px}
+.stat{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:12px;color:#b7c3de}
+.stat .lb{width:74px;text-align:left;letter-spacing:.1em;flex:none}
+.stat .track{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}
+.stat .fill{height:100%;width:0;border-radius:99px;transition:width .6s cubic-bezier(.2,1,.3,1)}
+.stat .vl{width:66px;text-align:right;font-weight:800;color:#eef1f7;flex:none}
+.f1{background:linear-gradient(90deg,#7ce0ff,#3f9bff)}
+.f2{background:linear-gradient(90deg,#ffe08a,#ffab2e)}
+.f3{background:linear-gradient(90deg,#a6ff9e,#39d97e)}
+.best{margin-top:14px;font-size:11px;letter-spacing:.16em;color:#7b87a8}
+.btns{margin-top:18px;display:flex;gap:10px}
+.btn{flex:1;cursor:pointer;border:none;outline:none;border-radius:12px;padding:13px 10px;
+  font-size:13px;font-weight:800;letter-spacing:.14em;font-family:inherit;transition:.16s;
+  background:#232941;color:#dfe6f8;border:1px solid #39415f}
+.btn:hover{background:#2c3450;transform:translateY(-2px)}
+.btn:active{transform:none}
+.btn.pri{background:linear-gradient(96deg,#7ce0ff,#4aa8ff);color:#06121e;border-color:transparent;
+  box-shadow:0 8px 24px -8px rgba(80,180,255,.7)}
+.btn.pri:hover{filter:brightness(1.07)}
+
+/* ---------- PAUSE / LOADING ---------- */
+#pause,#load{background:rgba(5,6,12,.8);backdrop-filter:blur(6px);flex-direction:column;gap:14px}
+.pTitle{font-size:22px;font-weight:900;letter-spacing:.3em}
+.pHint{font-size:12px;letter-spacing:.16em;color:#93a0c0}
+.spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.14);
+  border-top-color:#7ce0ff;animation:sp .85s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{max-width:460px;text-align:center;font-size:13px;line-height:1.9;color:#ffb1b1}
+.err code{background:#1b1f31;padding:2px 6px;border-radius:5px;font-size:12px;color:#ffd479}
+
+/* ---------- debug ---------- */
+#dbg{position:fixed;left:10px;bottom:10px;z-index:20;font:11px/1.55 ui-monospace,Consolas,monospace;
+  color:#7fe3a0;background:rgba(4,6,12,.62);padding:7px 10px;border-radius:8px;
+  border:1px solid rgba(120,230,170,.24);white-space:pre;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ============ HUD ============ -->
+<div class="layer hud" id="hud">
+  <div class="hudTop">
+    <div class="pWrap">
+      <div class="pRow"><span class="pNum mono" id="hProg">0</span><span class="pPct">%</span>
+        <span class="pName" id="hName">—</span></div>
+      <div class="pBar"><div class="pFill" id="hFill"></div></div>
+    </div>
+    <div class="counts">
+      <div class="cBox"><i class="icoD"></i><span class="cVal mono" id="hDia">0<small>/0</small></span></div>
+      <div class="cBox"><i class="icoC"></i><span class="cVal mono" id="hCrown">0<small>/0</small></span></div>
+    </div>
+  </div>
+  <div class="judge" id="hJudge"></div>
+  <div class="combo mono" id="hCombo"></div>
+  <div class="startTip" id="hStart">
+    <div class="st1">点击开始</div>
+    <div class="st2">TAP OR PRESS ANY KEY</div>
+    <div class="st3" id="hStartLvl">—</div>
+  </div>
+  <div class="hudFoot" id="hFoot">点击 / 任意键 转向 · R 重开 · ESC 返回</div>
+</div>
+<div class="flash" id="flash"></div>
+<div class="vig" id="vig"></div>
+
+<!-- ============ MENU ============ -->
+<div class="layer on" id="menu">
+  <div class="menuWrap">
+    <div class="brand grad">LINE&nbsp;RHYTHM</div>
+    <div class="brandSub">Procedural 3D Rhythm Runner · Zero Assets</div>
+    <div class="tip">
+      选关后<b>点击一次开始</b>，线随即以恒定速度前进；<b>点击鼠标</b>或按<b>任意键</b>让它做 90° 折角转向。<br>
+      掉出路径即失败 —— 全部音乐、几何体与音效均由代码实时合成，无任何外部素材。<br>
+      <span class="kbd">R</span> 重开 &nbsp; <span class="kbd">ESC</span> 返回 &nbsp; <span class="kbd">P</span> 暂停
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="menuFoot">
+      <div class="chip" id="cDbg">性能诊断 OFF</div>
+      <div class="chip" id="cShadow">阴影 ON</div>
+      <div class="chip" id="cReset">清除记录</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESULT ============ -->
+<div class="layer" id="result">
+  <div class="panel">
+    <div class="rTitle" id="rTitle">CRASHED</div>
+    <div class="rBig mono"><span id="rPct">0</span><span>%</span></div>
+    <div class="rLvl" id="rLvl">—</div>
+    <div class="stat"><span class="lb">钻石</span><span class="track"><i class="fill f1" id="rfD"></i></span><span class="vl mono" id="rvD">0/0</span></div>
+    <div class="stat"><span class="lb">皇冠</span><span class="track"><i class="fill f2" id="rfC"></i></span><span class="vl mono" id="rvC">0/0</span></div>
+    <div class="stat"><span class="lb">精准率</span><span class="track"><i class="fill f3" id="rfP"></i></span><span class="vl mono" id="rvP">0%</span></div>
+    <div class="best" id="rBest">最佳 0%</div>
+    <div class="btns">
+      <button class="btn" id="bMenu">选关</button>
+      <button class="btn pri" id="bRetry">重试 · R</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PAUSE ============ -->
+<div class="layer" id="pause">
+  <div class="pTitle">PAUSED</div>
+  <div class="pHint">点击画面继续 · ESC 返回选关</div>
+</div>
+
+<!-- ============ LOADING ============ -->
+<div class="layer on" id="load">
+  <div class="spin" id="ldSpin"></div>
+  <div class="pHint" id="ldTxt">正在载入 Three.js 运行库…</div>
+</div>
+
+<div id="dbg" class="hidden"></div>
+
+<script type="module">
+'use strict';
+/* ============================================================================
+   LINE RHYTHM — a 100% procedural 3D rhythm runner (Dancing-Line homage)
+   ----------------------------------------------------------------------------
+   · zero external assets: every mesh, colour, note and sound effect is
+     generated at runtime (Three.js is the only remote dependency)
+   · one WebGL context, one requestAnimationFrame loop, listeners bound once
+   · trail ribbon lives in a pre-allocated BufferGeometry (no per-frame alloc)
+   · particles: single pooled THREE.Points, hard cap 150
+   · head distance is an ANALYTIC function of audio time -> no drift, no
+     累加误差; input is timestamped and applied at its exact sub-frame distance
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- DOM refs */
+const $ = (id) => document.getElementById(id);
+const D = {
+  canvas: $('gl'), hud: $('hud'), menu: $('menu'), result: $('result'),
+  pause: $('pause'), load: $('load'), ldTxt: $('ldTxt'), ldSpin: $('ldSpin'),
+  cards: $('cards'), dbg: $('dbg'), flash: $('flash'), vig: $('vig'),
+  hProg: $('hProg'), hFill: $('hFill'), hName: $('hName'), hDia: $('hDia'),
+  hCrown: $('hCrown'), hJudge: $('hJudge'), hCombo: $('hCombo'), hFoot: $('hFoot'),
+  hStart: $('hStart'), hStartLvl: $('hStartLvl'),
+  rTitle: $('rTitle'), rPct: $('rPct'), rLvl: $('rLvl'), rBest: $('rBest'),
+  rfD: $('rfD'), rvD: $('rvD'), rfC: $('rfC'), rvC: $('rvC'),
+  rfP: $('rfP'), rvP: $('rvP'),
+  bMenu: $('bMenu'), bRetry: $('bRetry'),
+  cDbg: $('cDbg'), cShadow: $('cShadow'), cReset: $('cReset')
+};
+const showLayer = (el, on) => el.classList.toggle('on', !!on);
+
+/* ------------------------------------------------------------ tiny helpers */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+/** deterministic PRNG — identical level & melody on every retry */
+function mulberry32(a) {
+  a |= 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+/** frame-rate independent smoothing factor */
+const smooth = (rate, dt) => 1 - Math.exp(-rate * dt);
+
+/* -------------------------------------------------------- persistent bests */
+const SAVE_KEY = 'lineRhythm.best.v2';
+let BEST = [0, 0, 0, 0, 0, 0];
+try {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) for (let i = 0; i < BEST.length; i++) BEST[i] = +p[i] || 0; }
+} catch (e) { /* storage unavailable — play on */ }
+function saveBest() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(BEST)); } catch (e) {} }
+
+/* ==========================================================================
+   LEVEL DEFINITIONS — path rhythm, palette, decoration recipe, music score
+   ========================================================================== */
+const LEVELS = [
+  { /* ---------------- 1 · 晨曦平原 ---------------- */
+    key: 'dawn', name: '晨曦平原', en: 'Dawn Plains', stars: '★☆☆', seed: 1975031,
+    bpm: 100, segCount: 56, speed: 8.4, halfW: 2.25, lw: 0.50, lh: 0.62,
+    leadBeats: 0, floorH: 1.1, speedPlan: null,
+    patterns: [[2, 2, 4], [2, 2, 2, 2], [4, 2, 2], [2, 4], [4, 4], [2, 2, 2, 4], [4, 2, 4]],
+    pal: {
+      bgTop: 0xffeccb, bgBot: 0xf59a5e, fogKind: 'lin', fog: 0xffd0a2, fogA: 46, fogB: 210,
+      amb: 0xffe6c8, ambI: 0.66, dir: 0xfff6e4, dirI: 1.05, dirPos: [-0.5, 1.0, 0.36],
+      tileA: 0xfff8ec, tileB: 0xffe6c6, pad: 0xffb877, edge: 0xff9d55,
+      trailA: 0xff8a45, trailB: 0xff5c8f,
+      dia: 0x4fd2ff, crown: 0xffbe28, deco1: 0xffcf95, deco2: 0x7ad6a8, glow: 0xffd9a0
+    },
+    deco: 'plain',
+    mus: {
+      root: 60, scale: [0, 2, 4, 7, 9], prog: [[0, 0], [9, 1], [5, 0], [7, 0]],
+      kick: 'x.......x.......', snare: '....x.......x...', hat: '..x...x...x...x.',
+      bass: 'x.......x...x...', ride: '',
+      lead: ['x...x...x.x.....', 'x.x...x...x.....', 'x...x.x...x...x.', 'x.......x.x.x...'],
+      leadWave: 'triangle', leadOct: 12, leadGain: 0.150, leadCut: 2600, leadQ: 2.0,
+      bassWave: 'triangle', bassGain: 0.230, bassOct: -12,
+      kickG: 0.90, snareG: 0.17, hatG: 0.055, padG: 0.055, padWave: 'triangle',
+      dlyTime: 0.36, dlyFb: 0.26, dlyWet: 0.18, accentG: 0.11, accentWave: 'triangle'
+    }
+  },
+  { /* ---------------- 2 · 深海迷宫 ---------------- */
+    key: 'abyss', name: '深海迷宫', en: 'Abyss Labyrinth', stars: '★★☆', seed: 8813077,
+    bpm: 124, segCount: 104, speed: 10.0, halfW: 1.80, lw: 0.42, lh: 0.54,
+    leadBeats: 0, floorH: 0.75, speedPlan: null,
+    patterns: [[1, 1, 2], [1, 1, 1, 1], [2, 1, 1], [1, 2, 1, 2], [2, 2], [1, 1, 1, 2], [1, 1, 2, 2]],
+    pal: {
+      bgTop: 0x0a3550, bgBot: 0x01070d, fogKind: 'exp', fog: 0x04202f, fogD: 0.0195,
+      amb: 0x2f6f96, ambI: 0.60, dir: 0xa9e8ff, dirI: 0.92, dirPos: [0.42, 1.0, -0.4],
+      tileA: 0x14455f, tileB: 0x0d3247, pad: 0x1f7fa6, edge: 0x35e6ff,
+      trailA: 0x35f0ff, trailB: 0x7d6bff,
+      dia: 0x7dffe0, crown: 0xffd35e, deco1: 0x1de1ff, deco2: 0x2a6f9e, glow: 0x35e6ff
+    },
+    deco: 'abyss',
+    mus: {
+      root: 57, scale: [0, 2, 3, 5, 7, 8, 10], prog: [[0, 1], [8, 0], [3, 0], [10, 0]],
+      kick: 'x...x...x...x...', snare: '....x.......x..x', hat: '..x...x.x.x...x.',
+      bass: 'x.x...x.x.x...x.', ride: '',
+      lead: ['x.x.x.x.x.x.x.x.', 'x..x..x.x..x..x.', 'x.xx..x.x.xx..x.', 'x.x..x.xx.x..x.x'],
+      leadWave: 'square', leadOct: 12, leadGain: 0.088, leadCut: 1500, leadQ: 6.5,
+      bassWave: 'sawtooth', bassGain: 0.215, bassOct: -12,
+      kickG: 0.95, snareG: 0.19, hatG: 0.050, padG: 0.075, padWave: 'triangle',
+      dlyTime: 0.2903, dlyFb: 0.44, dlyWet: 0.30, accentG: 0.10, accentWave: 'square'
+    }
+  },
+  { /* ---------------- 3 · 风暴裂隙 ---------------- */
+    key: 'storm', name: '风暴裂隙', en: 'Storm Rift', stars: '★★★★', seed: 4410662,
+    bpm: 150, segCount: 164, speed: 12.6, halfW: 1.58, lw: 0.40, lh: 0.50,
+    leadBeats: 0, floorH: 0.62,
+    speedPlan: [[0, 11.2], [22, 13.4], [48, 11.0], [66, 14.6], [92, 12.2], [118, 15.4], [144, 13.0]],
+    patterns: [[1, 1, 2], [1, 1, 1, 1], [1, 1, 1, 2], [2, 1, 1], [1, 2, 1], [1, 1, 1, 1, 2], [2, 2, 1, 1]],
+    pal: {
+      bgTop: 0x2a0f3d, bgBot: 0x05050c, fogKind: 'exp', fog: 0x0b0616, fogD: 0.0148,
+      amb: 0x5b3a7a, ambI: 0.56, dir: 0xffd6ff, dirI: 1.0, dirPos: [0.5, 1.0, 0.5],
+      tileA: 0x241a3d, tileB: 0x150f26, pad: 0xff3d94, edge: 0xff2e86,
+      trailA: 0xff2e86, trailB: 0x36e8ff,
+      dia: 0x7ce8ff, crown: 0xffcf3d, deco1: 0xff2e86, deco2: 0x36e8ff, glow: 0xff5aa8
+    },
+    deco: 'storm',
+    mus: {
+      root: 52, scale: [0, 1, 4, 5, 7, 8, 11], prog: [[0, 1], [0, 1], [8, 0], [10, 0]],
+      kick: 'x..x..x...x.x...', snare: '....x..x....x..x', hat: 'x.x.x.x.x.x.xxx.',
+      bass: 'x.xx..x.x.xx..x.', ride: '',
+      lead: ['x.xx.x.xx.x.x.x.', 'xx.x.xx.x.xx.x.x', 'x.x.xx.xx.x.xx.x', 'xxx.x.x.xx.xx.x.'],
+      leadWave: 'sawtooth', leadOct: 12, leadGain: 0.072, leadCut: 1250, leadQ: 9.0,
+      bassWave: 'sawtooth', bassGain: 0.200, bassOct: -12,
+      kickG: 1.0, snareG: 0.20, hatG: 0.048, padG: 0.05, padWave: 'sawtooth',
+      dlyTime: 0.2, dlyFb: 0.42, dlyWet: 0.24, accentG: 0.12, accentWave: 'square'
+    }
+  },
+  { /* ---------------- 4 · 棱镜长廊 · 四段式场景转换 ---------------- */
+    key: 'prism', name: '棱镜长廊', en: 'Prism Corridor', stars: '★★★', seed: 6620194,
+    bpm: 120, segCount: 116, speed: 11.0, halfW: 1.86, lw: 0.44, lh: 0.56,
+    leadBeats: 0, floorH: 0.85, speedPlan: null,
+    patterns: [[2, 2, 1, 1], [1, 1, 2], [2, 1, 1, 2], [1, 2, 1], [2, 2, 2], [1, 1, 1, 2], [2, 1, 2]],
+    pal: {
+      bgTop: 0xffc2d8, bgBot: 0x2a1436, fogKind: 'exp', fog: 0x3a1b40, fogD: 0.0125,
+      amb: 0xffb9d4, ambI: 0.62, dir: 0xfff0f6, dirI: 1.0, dirPos: [-0.44, 1.0, 0.44],
+      tileA: 0xf7e2ee, tileB: 0xe6c2dd, pad: 0xffd76a, edge: 0xff74b4,
+      trailA: 0xff77bd, trailB: 0xffd76a,
+      dia: 0x8ff3ff, crown: 0xffcf3d, deco1: 0xff74b4, deco2: 0x63e6d0, glow: 0xffa8d2
+    },
+    /* four themed zones — fog, lights, tile colours and camera all cross-fade */
+    zones: [
+      { at: 0.00, fog: 0x3a1b40, bgTop: 0xffc2d8, fogD: 0.0125, amb: 0xffb9d4, ambI: 0.62,
+        dir: 0xfff0f6, dirI: 1.00, tileA: 0xf7e2ee, tileB: 0xe4bcd8, edge: 0xff74b4,
+        deco: 0xff74b4, cam: [-17.5, 21.0, -17.5], name: '玫瑰黎明' },
+      { at: 0.27, fog: 0x08363a, bgTop: 0x7ff0d8, fogD: 0.0175, amb: 0x8ff0dc, ambI: 0.58,
+        dir: 0xd8fff4, dirI: 0.95, tileA: 0xd6f6ee, tileB: 0x8fd8cc, edge: 0x2fe6c0,
+        deco: 0x63e6d0, cam: [-14.0, 16.6, -14.0], name: '碧晶回廊' },
+      { at: 0.55, fog: 0x080f2e, bgTop: 0x2b3f9e, fogD: 0.0150, amb: 0x6a7edc, ambI: 0.52,
+        dir: 0xc9d8ff, dirI: 0.92, tileA: 0x25336b, tileB: 0x161f47, edge: 0x62a8ff,
+        deco: 0x74b0ff, cam: [-19.5, 15.2, -19.5], name: '靛蓝深空' },
+      { at: 0.82, fog: 0x3b210a, bgTop: 0xffd98a, fogD: 0.0115, amb: 0xffd9a0, ambI: 0.66,
+        dir: 0xfff3d8, dirI: 1.06, tileA: 0xfff0d2, tileB: 0xf0c98c, edge: 0xffb42e,
+        deco: 0xffc45e, cam: [-15.5, 23.5, -15.5], name: '熔金终章' }
+    ],
+    deco: 'prism',
+    mus: {
+      root: 62, scale: [0, 2, 3, 5, 7, 9, 10], prog: [[0, 1], [10, 0], [5, 0], [7, 1]],
+      kick: 'x.....x...x.....', snare: '....x.......x...', hat: '..x.x.x...x.x.x.',
+      bass: 'x...x...x.x...x.', ride: '',
+      lead: ['x..x.x..x.x.x...', 'x.x..x.x..x.x.x.', 'x..x..x.x..x.x..', 'x.x.x..x.x..x.x.'],
+      leadWave: 'triangle', leadOct: 12, leadGain: 0.115, leadCut: 2100, leadQ: 4.5,
+      bassWave: 'sawtooth', bassGain: 0.205, bassOct: -12,
+      kickG: 0.92, snareG: 0.18, hatG: 0.052, padG: 0.068, padWave: 'triangle',
+      dlyTime: 0.375, dlyFb: 0.36, dlyWet: 0.26, accentG: 0.105, accentWave: 'triangle'
+    }
+  },
+  { /* -------------- 5 · 零度终章 · 手写谱面 + 极简构成 --------------
+       难度来自谱面结构而非蛮力：176 BPM 下 1 拍即转向（约 2.9 次/秒），
+       判定窗口 ±90 ms。乐句是手写的、可背诵的 —— 难但公平。
+       视觉走极简：近黑轨道 + 单一冰蓝高光，装饰只有细光柱、乐句拱框与远处石板。 */
+    key: 'zero', name: '零度终章', en: 'Absolute Zero', stars: '★★★★★', seed: 31415926,
+    bpm: 176, segCount: 185, speed: 14.5, halfW: 1.30, lw: 0.36, lh: 0.46,
+    leadBeats: 0, floorH: 0.55, speedPlan: null, rimW: 0.22, diaRate: 0.22,
+    patterns: [[1, 1, 2]],
+    script: [
+      [2, [2, 2, 2, 2]],          /* 起句：确立脉冲 */
+      [4, [1, 1, 2]],             /* 疾走 */
+      [2, [1, 1, 1, 1]],          /* 第一段连打 */
+      [1, [2, 2, 4]],             /* 换气 */
+      [4, [1, 1, 2]],
+      [4, [1.5, 1.5, 1]],         /* 切分：转向落在八分反拍 */
+      [1, [4]],                   /* 大换气 */
+      [6, [1, 1, 1, 1]],          /* 长连打 */
+      [2, [1, 1, 2, 1, 1, 3]],    /* 顿挫 */
+      [4, [1.5, 1.5, 1]],
+      [1, [2, 2]],
+      [8, [1, 1, 1, 1]],          /* 高墙：32 连打 */
+      [3, [1, 1, 1, 2]],
+      [4, [1.5, 1.5, 1]],
+      [1, [4]],
+      [10, [1, 1]],               /* 终盘冲刺 */
+      [1, [2, 4]]                 /* 收束 */
+    ],
+    pal: {
+      bgTop: 0x18222e, bgBot: 0x05070a, fogKind: 'exp', fog: 0x05070a, fogD: 0.0140,
+      amb: 0x8ea6c0, ambI: 0.52, dir: 0xe9f5ff, dirI: 0.95, dirPos: [-0.42, 1.0, 0.4],
+      tileA: 0x232b35, tileB: 0x1a212a, pad: 0x9fe9ff, edge: 0x6fe3ff,
+      trailA: 0xffffff, trailB: 0x6fe3ff,
+      dia: 0xd8f6ff, crown: 0xffd36a, deco1: 0x6fe3ff, deco2: 0xaebfd4, glow: 0x9fe9ff
+    },
+    /* three restrained zones: ice → white → gold, camera closes in then pulls back */
+    zones: [
+      { at: 0.00, fog: 0x05070a, bgTop: 0x18222e, fogD: 0.0140, amb: 0x8ea6c0, ambI: 0.52,
+        dir: 0xe9f5ff, dirI: 0.95, tileA: 0x232b35, tileB: 0x1a212a, edge: 0x6fe3ff,
+        deco: 0x6fe3ff, cam: [-15.5, 19.5, -15.5], name: '冰蓝' },
+      { at: 0.40, fog: 0x070a0e, bgTop: 0x22303e, fogD: 0.0152, amb: 0xa8bed6, ambI: 0.50,
+        dir: 0xffffff, dirI: 1.00, tileA: 0x262f3a, tileB: 0x1c242e, edge: 0xe4f6ff,
+        deco: 0xe4f6ff, cam: [-13.5, 17.5, -13.5], name: '纯白' },
+      { at: 0.74, fog: 0x0a0806, bgTop: 0x2e2418, fogD: 0.0132, amb: 0xd8c3a0, ambI: 0.54,
+        dir: 0xfff2dd, dirI: 1.02, tileA: 0x2b2620, tileB: 0x201d18, edge: 0xffc46b,
+        deco: 0xffc46b, cam: [-16.5, 21.5, -16.5], name: '熔金' }
+    ],
+    deco: 'minimal',
+    mus: {
+      root: 57, scale: [0, 3, 5, 7, 10], prog: [[0, 1], [10, 0], [8, 0], [7, 1]],
+      kick: 'x...x...x...x...', snare: '....x.......x...', hat: '..x...x...x...x.',
+      bass: 'x...x.x.x...x.x.', ride: '',
+      lead: ['x.......x...x...', 'x...x.......x...', 'x.....x.x.......', 'x.......x.x.....'],
+      leadWave: 'triangle', leadOct: 24, leadGain: 0.100, leadCut: 3400, leadQ: 3.0,
+      bassWave: 'square', bassGain: 0.190, bassOct: -12,
+      kickG: 0.98, snareG: 0.165, hatG: 0.046, padG: 0.048, padWave: 'triangle',
+      dlyTime: 0.2557, dlyFb: 0.34, dlyWet: 0.22, accentG: 0.115, accentWave: 'triangle'
+    }
+  },
+  { /* ============== 6 · 万华圣殿 · 七星魔王 ==============
+       难度：186 BPM，判定窗口 ±74 ms，最密处 4.13 转/秒（0.75 拍一转）。
+       但谱面是「爆发—回气」结构：每段急速连打后必有 3~4 拍的长直线让手复位，
+       且每一次转向都恰好是旋律的一个音 —— 跟着旋律敲，就能过。
+       视觉：极繁主义。列柱、拱顶、栏杆细饰、层叠露台、旗幡、悬灯、远景尖塔，
+       五段场景由朱金 → 紫霞 → 碧潮 → 蓝宝 → 白金逐段过渡。 */
+    key: 'grand', name: '万华圣殿', en: 'Myriad Cathedral', stars: '★★★★★★★', seed: 1618033,
+    bpm: 186, segCount: 257, speed: 16.0, halfW: 1.18, lw: 0.32, lh: 0.42,
+    leadBeats: 0, floorH: 0.7, speedPlan: null, rimW: 0.16, diaRate: 0.30,
+    leadOnTurns: true,
+    patterns: [[1, 1, 2]],
+    script: [
+      [2, [2, 2, 2, 2]],                        /* Ⅰ 序曲 —— 立稳脉冲 */
+      [4, [1, 1, 2]],                           /*   疾驰 */
+      [2, [1, 1, 1, 1]],                        /*   四连 */
+      [1, [2, 2, 4]],                           /*   回气 */
+      [4, [0.75, 0.75, 0.75, 0.75]],            /* Ⅱ 第一次爆发（4.13/s） */
+      [1, [4]],                                 /*   长直线复位 */
+      [4, [1, 1, 1, 1]],
+      [4, [1.5, 0.75, 0.75]],                   /* Ⅲ 交错切分 */
+      [1, [2, 2]],
+      [6, [1, 1, 2]],
+      [4, [0.75, 0.75, 0.75, 0.75, 1]],         /* Ⅳ 爆发＋落点 */
+      [1, [4]],
+      [8, [1, 1, 1, 1]],                        /* Ⅴ 高墙：32 连打 */
+      [4, [1.5, 0.75, 0.75]],
+      [1, [2, 2]],
+      [6, [0.75, 0.75, 0.75, 0.75]],            /* Ⅵ 长爆发：24 连 */
+      [1, [3]],
+      [4, [1, 1, 1, 1]],
+      [6, [0.75, 0.75, 1.5]],                   /* Ⅶ 爆发—回气交替 */
+      [1, [4]],
+      [8, [1, 1]],                              /* Ⅷ 终盘冲刺 */
+      [4, [0.75, 0.75, 0.75, 0.75]],            /*   最终爆发 */
+      [1, [2, 4]]                               /*   收束 */
+    ],
+    pal: {
+      bgTop: 0xffb07a, bgBot: 0x2a0a12, fogKind: 'exp', fog: 0x2a0a12, fogD: 0.0128,
+      amb: 0xffc9a0, ambI: 0.60, dir: 0xfff0dd, dirI: 1.05, dirPos: [-0.46, 1.0, 0.42],
+      tileA: 0x4a2030, tileB: 0x381626, pad: 0xffd88a, edge: 0xffb648,
+      trailA: 0xfff0c8, trailB: 0xff5c9c,
+      dia: 0x9ff0ff, crown: 0xffd44a, deco1: 0xff8a3c, deco2: 0xffd88a, glow: 0xffb648
+    },
+    /* five-act scenography */
+    zones: [
+      { at: 0.00, fog: 0x2a0a12, bgTop: 0xffa86a, fogD: 0.0128, amb: 0xffc9a0, ambI: 0.60,
+        dir: 0xfff0dd, dirI: 1.05, tileA: 0x4a2030, tileB: 0x381626, edge: 0xffb648,
+        deco: 0xff8a3c, cam: [-16.5, 20.5, -16.5], name: '朱金' },
+      { at: 0.22, fog: 0x1b0a2e, bgTop: 0xc86bff, fogD: 0.0140, amb: 0xd8a0ff, ambI: 0.56,
+        dir: 0xf6e8ff, dirI: 1.00, tileA: 0x3a1c56, tileB: 0x2a1240, edge: 0xd86bff,
+        deco: 0xff6bd8, cam: [-14.5, 18.0, -14.5], name: '紫霞' },
+      { at: 0.44, fog: 0x03231e, bgTop: 0x5cf0c0, fogD: 0.0150, amb: 0x9cffe0, ambI: 0.54,
+        dir: 0xe8fff6, dirI: 0.98, tileA: 0x123f36, tileB: 0x0c2b26, edge: 0x3cf0b0,
+        deco: 0x3cf0b0, cam: [-17.5, 16.8, -17.5], name: '碧潮' },
+      { at: 0.66, fog: 0x050f36, bgTop: 0x6b9dff, fogD: 0.0138, amb: 0x9cb8ff, ambI: 0.56,
+        dir: 0xe8f0ff, dirI: 1.02, tileA: 0x1a2a60, tileB: 0x121c46, edge: 0x5c9cff,
+        deco: 0x5c9cff, cam: [-15.0, 22.0, -15.0], name: '蓝宝' },
+      { at: 0.86, fog: 0x2e2408, bgTop: 0xfff0c0, fogD: 0.0120, amb: 0xfff2d0, ambI: 0.64,
+        dir: 0xffffff, dirI: 1.10, tileA: 0x6a5220, tileB: 0x4e3c18, edge: 0xffe08a,
+        deco: 0xffd45c, cam: [-18.0, 24.0, -18.0], name: '白金' }
+    ],
+    deco: 'grand',
+    mus: {
+      root: 50, scale: [0, 2, 3, 5, 7, 8, 11], prog: [[0, 1], [8, 0], [5, 1], [7, 0]],
+      kick: 'x..x..x.x..x..x.', snare: '....x.......x..x', hat: '..x.x.x...x.x.x.',
+      bass: 'x.x.x.x.x.x.x.x.', ride: '',
+      lead: ['x...x...x...x...'],
+      leadWave: 'square', leadOct: 12, leadGain: 0.082, leadCut: 2800, leadQ: 3.2,
+      bassWave: 'sawtooth', bassGain: 0.185, bassOct: -12,
+      kickG: 0.96, snareG: 0.172, hatG: 0.042, padG: 0.060, padWave: 'sawtooth',
+      dlyTime: 0.2419, dlyFb: 0.32, dlyWet: 0.24, accentG: 0.125, accentWave: 'triangle'
+    }
+  }
+];
+
+/* ==========================================================================
+   AUDIO ENGINE — everything is synthesised: OscillatorNode + GainNode +
+   BiquadFilterNode + one procedurally filled noise AudioBuffer.
+   No mp3 / wav / external sample is ever referenced.
+   ========================================================================== */
+const AUD = {
+  ctx: null, ok: false, on: true,
+  master: null, music: null, drums: null, sfx: null, delay: null, fb: null, fbLp: null, wet: null,
+  noise: null,
+  t0: 0, audioT0: 0, stepDur: 0.15, beatDur: 0.6, nextStep: 0, totalSteps: 0, playing: false,
+  resync: false, wasRunning: false,
+  mel: null, mdur: null, turnMask: null, cfg: null, mus: null, pauseMark: 0
+};
+const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+/** shared, allocation-free voice teardown (`this` === the source node) */
+function voiceEnded() {
+  const o = this;
+  try { o.disconnect(); } catch (e) {}
+  if (o._f) { try { o._f.disconnect(); } catch (e) {} o._f = null; }
+  if (o._g) { try { o._g.disconnect(); } catch (e) {} o._g = null; }
+  o.onended = null;
+}
+
+function audioInit() {
+  if (AUD.ctx) return true;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  let ctx;
+  try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { return false; }
+  AUD.ctx = ctx;
+
+  AUD.master = ctx.createGain(); AUD.master.gain.value = 0.0;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -13; comp.knee.value = 24; comp.ratio.value = 3.6;
+  comp.attack.value = 0.004; comp.release.value = 0.22;
+  AUD.master.connect(comp); comp.connect(ctx.destination);
+
+  AUD.music = ctx.createGain(); AUD.music.gain.value = 0.85; AUD.music.connect(AUD.master);
+  AUD.drums = ctx.createGain(); AUD.drums.gain.value = 0.80; AUD.drums.connect(AUD.master);
+  AUD.sfx = ctx.createGain(); AUD.sfx.gain.value = 0.95; AUD.sfx.connect(AUD.master);
+
+  /* feedback delay used as a cheap procedural "space" */
+  AUD.delay = ctx.createDelay(1.2); AUD.delay.delayTime.value = 0.3;
+  AUD.fb = ctx.createGain(); AUD.fb.gain.value = 0.3;
+  AUD.fbLp = ctx.createBiquadFilter(); AUD.fbLp.type = 'lowpass'; AUD.fbLp.frequency.value = 2600;
+  AUD.wet = ctx.createGain(); AUD.wet.gain.value = 0.2;
+  AUD.delay.connect(AUD.fbLp); AUD.fbLp.connect(AUD.fb); AUD.fb.connect(AUD.delay);
+  AUD.delay.connect(AUD.wet); AUD.wet.connect(AUD.master);
+
+  /* one second of white noise, generated once, reused by every percussive hit */
+  const len = Math.floor(ctx.sampleRate);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const ch = buf.getChannelData(0);
+  let s = 0x9e3779b9;
+  for (let i = 0; i < len; i++) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; ch[i] = ((s >>> 0) / 2147483648 - 1); }
+  AUD.noise = buf;
+
+  AUD.ok = true;
+  return true;
+}
+function audioResumeCtx() {
+  if (AUD.ok && AUD.ctx.state === 'suspended') { const p = AUD.ctx.resume(); if (p && p.catch) p.catch(() => {}); }
+}
+
+/* ------------------------------------------------------------------ voices */
+function tone(t, freq, dur, wave, g, cut, q, send, atk, rel, bus, detune) {
+  if (!AUD.ok || !AUD.on) return;
+  const ctx = AUD.ctx;
+  const o = ctx.createOscillator();
+  o.type = wave; o.frequency.value = freq;
+  if (detune) o.detune.value = detune;
+  const gn = ctx.createGain();
+  let f = null;
+  if (cut > 0) {
+    f = ctx.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(cut, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(220, cut * 0.42), t + dur + rel);
+    f.Q.value = q;
+    o.connect(f); f.connect(gn);
+  } else { o.connect(gn); }
+  gn.connect(bus || AUD.music);
+  if (send) gn.connect(AUD.delay);
+  const a = Math.max(0.004, atk);
+  gn.gain.setValueAtTime(0.0001, t);
+  gn.gain.exponentialRampToValueAtTime(g, t + a);
+  gn.gain.exponentialRampToValueAtTime(g * 0.62, t + Math.max(a + 0.01, dur * 0.7));
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + dur + rel);
+  o.start(t); o.stop(t + dur + rel + 0.03);
+  o._g = gn; o._f = f; o.onended = voiceEnded;
+}
+function noiseHit(t, dur, type, freq, q, g, bus, send) {
+  if (!AUD.ok || !AUD.on) return;
+  const ctx = AUD.ctx;
+  const src = ctx.createBufferSource();
+  src.buffer = AUD.noise; src.loop = true;
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const gn = ctx.createGain();
+  src.connect(f); f.connect(gn); gn.connect(bus || AUD.drums);
+  if (send) gn.connect(AUD.delay);
+  gn.gain.setValueAtTime(g, t);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.start(t, Math.random() * 0.6); src.stop(t + dur + 0.02);
+  src._g = gn; src._f = f; src.onended = voiceEnded;
+}
+function kickHit(t, g) {
+  if (!AUD.ok || !AUD.on) return;
+  const ctx = AUD.ctx;
+  const o = ctx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(168, t);
+  o.frequency.exponentialRampToValueAtTime(44, t + 0.085);
+  const gn = ctx.createGain();
+  gn.gain.setValueAtTime(g, t);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+  o.connect(gn); gn.connect(AUD.drums);
+  o.start(t); o.stop(t + 0.28);
+  o._g = gn; o.onended = voiceEnded;
+  noiseHit(t, 0.022, 'highpass', 1800, 0.7, g * 0.22, AUD.drums, 0);
+}
+function snareHit(t, g) {
+  noiseHit(t, 0.14, 'bandpass', 1750, 0.9, g, AUD.drums, 1);
+  tone(t, 186, 0.05, 'triangle', g * 0.55, 0, 1, 0, 0.004, 0.03, AUD.drums, 0);
+}
+function hatHit(t, g) { noiseHit(t, 0.042, 'highpass', 8200, 0.8, g, AUD.drums, 0); }
+
+/* ------------------------------------------------------- procedural score  */
+function buildScore(cfg, path) {
+  const M = cfg.mus;
+  AUD.cfg = cfg; AUD.mus = M;
+  AUD.beatDur = 60 / cfg.bpm;
+  AUD.stepDur = AUD.beatDur / 4;
+  const leadIn = cfg.leadBeats * AUD.beatDur;
+  const total = leadIn + path.totalTime + AUD.beatDur * 6;
+  let steps = Math.ceil(total / AUD.stepDur);
+  steps = Math.ceil(steps / 16) * 16;
+  AUD.totalSteps = steps;
+
+  const mel = new Int16Array(steps); mel.fill(-128);
+  const mdur = new Uint8Array(steps);
+  const mask = new Uint8Array(steps);
+  const rnd = mulberry32(cfg.seed ^ 0x5f3759df);
+  const scale = M.scale, L = scale.length;
+
+  /* mark every path corner on the musical grid -> percussive accent on turns */
+  for (let i = 1; i <= path.n; i++) {
+    const st = Math.round((leadIn + path.segT0[i]) / AUD.stepDur);
+    if (st >= 0 && st < steps) mask[st] = 1;
+  }
+
+  if (cfg.leadOnTurns) {
+    /* ---- THE MELODY *IS* THE CHART ----
+       One lead note on every single corner, so each of the player's clicks
+       lands exactly on a note of the tune: tapping the level plays it. */
+    let deg = 5, prev = -1;
+    for (let s = 0; s < steps; s++) {
+      if (!mask[s]) continue;
+      const bar = s >> 4;
+      const chord = M.prog[bar % M.prog.length];
+      const cr = chord[0], minor = chord[1];
+      const ct0 = cr % 12, ct1 = (cr + (minor ? 3 : 4)) % 12, ct2 = (cr + 7) % 12;
+      const jump = rnd();
+      deg += jump < 0.32 ? 1 : jump < 0.60 ? -1 : jump < 0.76 ? 2 : jump < 0.88 ? -2 : 0;
+      if (deg > L + 5) deg -= L; if (deg < 0) deg += L;
+      if ((s & 3) === 0) { /* on the beat: snap to a chord tone */
+        for (let k = 0; k < 4; k++) {
+          const d2 = deg + (k === 0 ? 0 : k === 1 ? 1 : k === 2 ? -1 : 2);
+          const pc = (M.root + scale[((d2 % L) + L) % L] + 12 * Math.floor(d2 / L)) % 12;
+          if (pc === ct0 || pc === ct1 || pc === ct2) { deg = d2; break; }
+        }
+      }
+      mel[s] = M.root + M.leadOct + scale[((deg % L) + L) % L] + 12 * Math.floor(deg / L);
+      if (prev >= 0) mdur[prev] = Math.min(6, s - prev);
+      prev = s;
+    }
+    if (prev >= 0) mdur[prev] = 4;
+  } else {
+  /* melody: motif rhythm + chord-aware random walk (deterministic per level) */
+  let deg = 4;
+  for (let bar = 0, nb = steps >> 4; bar < nb; bar++) {
+    const rh = M.lead[(rnd() * M.lead.length) | 0];
+    const chord = M.prog[bar % M.prog.length];
+    const cr = chord[0], minor = chord[1];
+    const ct0 = cr % 12, ct1 = (cr + (minor ? 3 : 4)) % 12, ct2 = (cr + 7) % 12;
+    let prev = -1;
+    for (let i = 0; i < 16; i++) {
+      const s = (bar << 4) + i;
+      if (s >= steps) break;
+      if (rh.charCodeAt(i) !== 120 /* 'x' */) continue;
+      const strong = (i & 3) === 0;
+      const jump = rnd();
+      deg += jump < 0.34 ? 1 : jump < 0.62 ? -1 : jump < 0.78 ? 2 : jump < 0.9 ? -2 : 0;
+      if (deg > L + 4) deg -= L; if (deg < 0) deg += L;
+      if (strong) { /* snap onto a chord tone for tonal coherence */
+        for (let k = 0; k < 4; k++) {
+          const d2 = deg + (k === 0 ? 0 : k === 1 ? 1 : k === 2 ? -1 : 2);
+          const pc = (M.root + scale[((d2 % L) + L) % L] + 12 * Math.floor(d2 / L)) % 12;
+          if (pc === ct0 || pc === ct1 || pc === ct2) { deg = d2; break; }
+        }
+      }
+      const oct = Math.floor(deg / L);
+      mel[s] = M.root + M.leadOct + scale[((deg % L) + L) % L] + 12 * oct;
+      if (prev >= 0) mdur[prev] = Math.min(255, s - prev);
+      prev = s;
+    }
+    if (prev >= 0) mdur[prev] = 3;
+  }
+  }
+  AUD.mel = mel; AUD.mdur = mdur; AUD.turnMask = mask;
+
+  /* voice the delay for this theme */
+  if (AUD.ok) {
+    AUD.delay.delayTime.value = M.dlyTime;
+    AUD.fb.gain.value = M.dlyFb;
+    AUD.wet.gain.value = M.dlyWet;
+    AUD.fbLp.frequency.value = cfg.key === 'dawn' ? 3200 : cfg.key === 'abyss' ? 2200 : 3600;
+  }
+  return leadIn;
+}
+
+function playStep(s) {
+  const M = AUD.mus, t = AUD.audioT0 + s * AUD.stepDur, i = s & 15, bar = s >> 4;
+  const sd = AUD.stepDur;
+  if (M.kick.charCodeAt(i) === 120) kickHit(t, M.kickG);
+  if (M.snare.charCodeAt(i) === 120) snareHit(t, M.snareG);
+  if (M.hat.charCodeAt(i) === 120) hatHit(t, M.hatG * ((i & 3) === 2 ? 1.3 : 0.82));
+
+  const chord = M.prog[bar % M.prog.length];
+  if (M.bass.charCodeAt(i) === 120) {
+    tone(t, midiToFreq(M.root + M.bassOct + chord[0]), sd * 1.5, M.bassWave,
+      M.bassGain, 380, 1.4, 0, 0.006, 0.05, AUD.music, 0);
+  }
+  if (i === 0) { /* one sustained pad chord per bar */
+    const d = sd * 15, r = M.root + chord[0], third = chord[1] ? 3 : 4;
+    tone(t, midiToFreq(r), d, M.padWave, M.padG, 900, 1.0, 1, 0.32, 0.5, AUD.music, -5);
+    tone(t, midiToFreq(r + third), d, M.padWave, M.padG * 0.8, 900, 1.0, 1, 0.36, 0.5, AUD.music, 4);
+    tone(t, midiToFreq(r + 7), d, M.padWave, M.padG * 0.7, 900, 1.0, 1, 0.4, 0.5, AUD.music, 8);
+  }
+  const n = AUD.mel[s];
+  if (n > -100) {
+    const dur = Math.max(1, AUD.mdur[s]) * sd * 0.9;
+    tone(t, midiToFreq(n), dur, M.leadWave, M.leadGain, M.leadCut, M.leadQ, 1, 0.008, 0.09, AUD.music, 0);
+  }
+  if (AUD.turnMask[s]) { /* the "click" that makes every corner audible */
+    if (AUD.cfg.leadOnTurns) {
+      /* boss chart: a layered bell-pluck right on the note, so the tap itself
+         feels struck — transient + octave shimmer + a crisp tick */
+      const base = AUD.mel[s] > -100 ? AUD.mel[s] : M.root + M.leadOct + 12;
+      tone(t, midiToFreq(base + 12), sd * 0.55, 'triangle', M.accentG, 6800, 1.0, 1, 0.002, 0.05, AUD.music, 0);
+      tone(t, midiToFreq(base + 19), sd * 0.4, 'sine', M.accentG * 0.55, 0, 1.0, 1, 0.002, 0.06, AUD.music, 0);
+      noiseHit(t, 0.03, 'highpass', 8200, 0.8, 0.055, AUD.drums, 0);
+    } else {
+      tone(t, midiToFreq(M.root + M.leadOct + 12 + 7), sd * 0.7, M.accentWave,
+        M.accentG, 5200, 1.0, 1, 0.003, 0.05, AUD.music, 0);
+      noiseHit(t, 0.05, 'highpass', 6400, 0.7, 0.05, AUD.drums, 0);
+    }
+  }
+}
+
+/** scheduler — called from the single rAF loop, look-ahead 0.16 s.
+ *  The GAME clock is performance.now(); the audio timeline keeps its own
+ *  origin (audioT0) and is re-synced whenever the context (re)starts, so a
+ *  blocked / suspended AudioContext can never stall the game. */
+function audioTick() {
+  if (!AUD.ok || !AUD.playing || !AUD.on) return;
+  const ctx = AUD.ctx;
+  if (ctx.state !== 'running') { AUD.wasRunning = false; return; }
+  if (!AUD.wasRunning) { AUD.wasRunning = true; AUD.resync = true; }
+  if (AUD.resync) {
+    AUD.resync = false;
+    const st = songTime();
+    AUD.audioT0 = ctx.currentTime - st + 0.02;
+    AUD.nextStep = Math.max(0, Math.ceil(st / AUD.stepDur));
+  }
+  const now = ctx.currentTime;
+  const look = now + 0.16;
+  const cur = Math.floor((now - AUD.audioT0) / AUD.stepDur);
+  if (cur - AUD.nextStep > 10) AUD.nextStep = cur; /* recover from tab throttling */
+  let guard = 0;
+  while (AUD.audioT0 + AUD.nextStep * AUD.stepDur < look && guard++ < 64) {
+    if (AUD.nextStep >= AUD.totalSteps) { AUD.playing = false; break; }
+    if (AUD.nextStep >= 0) playStep(AUD.nextStep);
+    AUD.nextStep++;
+  }
+}
+
+
+/** master clock: wall clock — monotonic, never blocked by autoplay policy */
+function nowClock() { return performance.now() * 0.001; }
+function songTime() { return nowClock() - AUD.t0; }
+
+function musicStart() {
+  audioResumeCtx();
+  AUD.t0 = nowClock() + 0.14;
+  AUD.nextStep = 0; AUD.playing = true; AUD.resync = true; AUD.wasRunning = false;
+  if (!AUD.ok) return;
+  const now = AUD.ctx.currentTime;
+  AUD.audioT0 = now + 0.14;
+  AUD.master.gain.cancelScheduledValues(now);
+  AUD.master.gain.setValueAtTime(Math.max(0.0001, AUD.master.gain.value), now);
+  AUD.master.gain.linearRampToValueAtTime(AUD.on ? 1 : 0, now + 0.12);
+}
+function musicStop(fade) {
+  if (!AUD.ok) return;
+  AUD.playing = false;
+  const now = AUD.ctx.currentTime;
+  AUD.music.gain.cancelScheduledValues(now);
+  AUD.music.gain.setTargetAtTime(0.0001, now, Math.max(0.02, fade * 0.35));
+  AUD.drums.gain.cancelScheduledValues(now);
+  AUD.drums.gain.setTargetAtTime(0.0001, now, Math.max(0.02, fade * 0.35));
+}
+function musicRestoreBuses() {
+  if (!AUD.ok) return;
+  const now = AUD.ctx.currentTime;
+  AUD.music.gain.cancelScheduledValues(now); AUD.music.gain.setValueAtTime(0.85, now);
+  AUD.drums.gain.cancelScheduledValues(now); AUD.drums.gain.setValueAtTime(0.80, now);
+}
+function audioPause() {
+  AUD.pauseMark = nowClock();
+  if (AUD.ok) { try { AUD.ctx.suspend(); } catch (e) {} }
+}
+/** Resume is fully synchronous: the game clock is the wall clock, so the pause
+ *  compensation never depends on the AudioContext promise resolving (which can
+ *  be slow, or never happen at all under a strict autoplay policy). */
+function audioUnpause() {
+  const drift = nowClock() - AUD.pauseMark;
+  if (drift > 0) AUD.t0 += drift;
+  AUD.resync = true;
+  if (AUD.ok) { try { const p = AUD.ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+}
+
+/* --------------------------------------------------------------------- sfx */
+function sfxPickup(streak) {
+  if (!AUD.ok || !AUD.on) return;
+  const t = AUD.ctx.currentTime + 0.008;
+  const base = 72 + Math.min(10, streak | 0);
+  tone(t, midiToFreq(base), 0.07, 'triangle', 0.17, 4200, 1, 1, 0.004, 0.05, AUD.sfx, 0);
+  tone(t + 0.055, midiToFreq(base + 4), 0.07, 'triangle', 0.15, 4600, 1, 1, 0.004, 0.05, AUD.sfx, 0);
+  tone(t + 0.11, midiToFreq(base + 7), 0.11, 'triangle', 0.14, 5200, 1, 1, 0.004, 0.10, AUD.sfx, 0);
+}
+function sfxCrown() {
+  if (!AUD.ok || !AUD.on) return;
+  const t = AUD.ctx.currentTime + 0.008;
+  const seq = [0, 4, 7, 12, 16, 19];
+  for (let i = 0; i < seq.length; i++) {
+    tone(t + i * 0.058, midiToFreq(72 + seq[i]), 0.13, 'triangle',
+      0.15 - i * 0.012, 6000, 1, 1, 0.004, 0.16, AUD.sfx, 0);
+  }
+  noiseHit(t, 0.4, 'highpass', 5200, 0.6, 0.055, AUD.sfx, 1);
+}
+function sfxDeath() {
+  if (!AUD.ok || !AUD.on) return;
+  const ctx = AUD.ctx, t = ctx.currentTime + 0.005;
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(320, t);
+  o.frequency.exponentialRampToValueAtTime(42, t + 0.55);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5;
+  f.frequency.setValueAtTime(2400, t);
+  f.frequency.exponentialRampToValueAtTime(200, t + 0.55);
+  const gn = ctx.createGain();
+  gn.gain.setValueAtTime(0.26, t);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
+  o.connect(f); f.connect(gn); gn.connect(AUD.sfx);
+  o.start(t); o.stop(t + 0.64);
+  o._g = gn; o._f = f; o.onended = voiceEnded;
+  noiseHit(t, 0.34, 'lowpass', 1200, 1.2, 0.3, AUD.sfx, 1);
+}
+function sfxWin() {
+  if (!AUD.ok || !AUD.on) return;
+  const t = AUD.ctx.currentTime + 0.01;
+  const seq = [0, 7, 12, 16, 19, 24];
+  for (let i = 0; i < seq.length; i++) {
+    tone(t + i * 0.1, midiToFreq(60 + seq[i]), 0.42, 'triangle', 0.16, 5000, 1, 1, 0.006, 0.3, AUD.sfx, 0);
+  }
+}
+function sfxUI(up) {
+  if (!AUD.ok || !AUD.on) return;
+  const t = AUD.ctx.currentTime + 0.005;
+  tone(t, up ? 880 : 520, 0.05, 'square', 0.055, 3000, 1, 0, 0.003, 0.04, AUD.sfx, 0);
+}
+
+/* ==========================================================================
+   THREE.js bootstrap — several CDNs are tried in order, so one dead mirror
+   never kills the game. Nothing else is downloaded, ever.
+   ========================================================================== */
+const CDNS = [
+  'https://unpkg.com/three@0.160.1/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js',
+  'https://esm.sh/three@0.160.1',
+  'https://cdn.skypack.dev/three@0.160.1'
+];
+let THREE = null;
+for (let i = 0; i < CDNS.length; i++) {
+  D.ldTxt.textContent = '正在载入 Three.js 运行库…  (' + (i + 1) + '/' + CDNS.length + ')';
+  try {
+    const mod = await import(/* @vite-ignore */ CDNS[i]);
+    if (mod && mod.WebGLRenderer && mod.Scene) { THREE = mod; break; }
+  } catch (e) { /* try next mirror */ }
+}
+if (!THREE) {
+  D.ldSpin.classList.add('hidden');
+  D.ldTxt.className = 'err';
+  D.ldTxt.innerHTML = '<b>无法载入 Three.js</b><br>本作通过 CDN 引入 three@0.160.1（除此之外零外部资源）。<br>' +
+    '请检查网络后刷新，或将 <code>three.module.js</code> 放在同目录并把首个 CDN 地址改为 <code>./three.module.js</code>。';
+  throw new Error('three.js unavailable');
+}
+
+/* ==========================================================================
+   GEOMETRY WRITERS — allocation-free box emitter shared by the static
+   batchers and by the live trail ribbon.
+   ========================================================================== */
+const F_TOP = 1, F_PX = 2, F_NX = 4, F_PZ = 8, F_NZ = 16, F_BOT = 32, F_SIDES = 30, F_ALL = 63, F_NOBOT = 31;
+/* faux-AO face shading — gives the low-poly look real volume */
+const SH_TOP = 1.0, SH_PX = 0.88, SH_NX = 0.79, SH_PZ = 0.845, SH_NZ = 0.755, SH_BOT = 0.55;
+
+const W = { p: null, n: null, c: null, v: 0 };
+function wv(px, py, pz, nx, ny, nz, r, g, b) {
+  const i = W.v * 3;
+  W.p[i] = px; W.p[i + 1] = py; W.p[i + 2] = pz;
+  W.n[i] = nx; W.n[i + 1] = ny; W.n[i + 2] = nz;
+  W.c[i] = r; W.c[i + 1] = g; W.c[i + 2] = b;
+  W.v++;
+}
+/** emits up to 6 quads (4 verts each, quad winding 0-1-2 / 0-2-3) */
+function wBox(x0, y0, z0, x1, y1, z1, r, g, b, faces) {
+  let m;
+  if (faces & F_TOP) {
+    m = SH_TOP;
+    wv(x0, y1, z1, 0, 1, 0, r * m, g * m, b * m); wv(x1, y1, z1, 0, 1, 0, r * m, g * m, b * m);
+    wv(x1, y1, z0, 0, 1, 0, r * m, g * m, b * m); wv(x0, y1, z0, 0, 1, 0, r * m, g * m, b * m);
+  }
+  if (faces & F_PX) {
+    m = SH_PX;
+    wv(x1, y0, z1, 1, 0, 0, r * m, g * m, b * m); wv(x1, y0, z0, 1, 0, 0, r * m, g * m, b * m);
+    wv(x1, y1, z0, 1, 0, 0, r * m, g * m, b * m); wv(x1, y1, z1, 1, 0, 0, r * m, g * m, b * m);
+  }
+  if (faces & F_NX) {
+    m = SH_NX;
+    wv(x0, y0, z0, -1, 0, 0, r * m, g * m, b * m); wv(x0, y0, z1, -1, 0, 0, r * m, g * m, b * m);
+    wv(x0, y1, z1, -1, 0, 0, r * m, g * m, b * m); wv(x0, y1, z0, -1, 0, 0, r * m, g * m, b * m);
+  }
+  if (faces & F_PZ) {
+    m = SH_PZ;
+    wv(x0, y0, z1, 0, 0, 1, r * m, g * m, b * m); wv(x1, y0, z1, 0, 0, 1, r * m, g * m, b * m);
+    wv(x1, y1, z1, 0, 0, 1, r * m, g * m, b * m); wv(x0, y1, z1, 0, 0, 1, r * m, g * m, b * m);
+  }
+  if (faces & F_NZ) {
+    m = SH_NZ;
+    wv(x1, y0, z0, 0, 0, -1, r * m, g * m, b * m); wv(x0, y0, z0, 0, 0, -1, r * m, g * m, b * m);
+    wv(x0, y1, z0, 0, 0, -1, r * m, g * m, b * m); wv(x1, y1, z0, 0, 0, -1, r * m, g * m, b * m);
+  }
+  if (faces & F_BOT) {
+    m = SH_BOT;
+    wv(x0, y0, z0, 0, -1, 0, r * m, g * m, b * m); wv(x1, y0, z0, 0, -1, 0, r * m, g * m, b * m);
+    wv(x1, y0, z1, 0, -1, 0, r * m, g * m, b * m); wv(x0, y0, z1, 0, -1, 0, r * m, g * m, b * m);
+  }
+}
+
+const _v3 = new THREE.Vector3(), _v3b = new THREE.Vector3();
+const _m4 = new THREE.Matrix4(), _m3 = new THREE.Matrix3();
+const _q = new THREE.Quaternion(), _col = new THREE.Color(), _col2 = new THREE.Color();
+
+/** growing CPU-side batcher: many boxes / merged shapes -> ONE draw call */
+class Batch {
+  constructor() { this.p = []; this.n = []; this.c = []; this.i = []; this.v = 0; }
+  box(x0, y0, z0, x1, y1, z1, r, g, b, faces) {
+    W.p = this.p; W.n = this.n; W.c = this.c; W.v = this.v;
+    wBox(x0, y0, z0, x1, y1, z1, r, g, b, faces);
+    const added = W.v - this.v, idx = this.i;
+    for (let q = 0, nq = added >> 2; q < nq; q++) {
+      const o = this.v + q * 4;
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    }
+    this.v = W.v;
+  }
+  cube(cx, cy, cz, sx, sy, sz, r, g, b, faces) {
+    this.box(cx - sx * 0.5, cy - sy * 0.5, cz - sz * 0.5, cx + sx * 0.5, cy + sy * 0.5, cz + sz * 0.5, r, g, b, faces);
+  }
+  /** merge an arbitrary THREE geometry (cone / cylinder / octahedron / …) */
+  merge(geo, mat, r, g, b) {
+    const src = geo.index ? geo.toNonIndexed() : geo;
+    const pa = src.attributes.position.array, na = src.attributes.normal.array;
+    const cnt = src.attributes.position.count;
+    _m3.getNormalMatrix(mat);
+    const p = this.p, n = this.n, c = this.c, idx = this.i;
+    let v = this.v;
+    for (let k = 0; k < cnt; k++) {
+      const k3 = k * 3;
+      _v3.set(pa[k3], pa[k3 + 1], pa[k3 + 2]).applyMatrix4(mat);
+      _v3b.set(na[k3], na[k3 + 1], na[k3 + 2]).applyMatrix3(_m3).normalize();
+      const o = v * 3;
+      p[o] = _v3.x; p[o + 1] = _v3.y; p[o + 2] = _v3.z;
+      n[o] = _v3b.x; n[o + 1] = _v3b.y; n[o + 2] = _v3b.z;
+      c[o] = r; c[o + 1] = g; c[o + 2] = b;
+      idx.push(v); v++;
+    }
+    this.v = v;
+    if (src !== geo) src.dispose();
+  }
+  empty() { return this.v === 0; }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.p), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(this.n), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.c), 3));
+    g.setIndex(this.v > 65535 ? new THREE.BufferAttribute(new Uint32Array(this.i), 1)
+                              : new THREE.BufferAttribute(new Uint16Array(this.i), 1));
+    g.computeBoundingSphere();
+    this.p = null; this.n = null; this.c = null; this.i = null;
+    return g;
+  }
+}
+
+/** recursive, paranoid GPU-resource teardown */
+function disposeTree(root) {
+  root.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    const m = o.material;
+    if (m) {
+      if (Array.isArray(m)) { for (let i = 0; i < m.length; i++) disposeMaterial(m[i]); }
+      else disposeMaterial(m);
+    }
+  });
+  for (let i = root.children.length - 1; i >= 0; i--) root.remove(root.children[i]);
+}
+function disposeMaterial(m) {
+  for (const k in m) {
+    const v = m[k];
+    if (v && v.isTexture) v.dispose();
+  }
+  m.dispose();
+}
+
+/* ==========================================================================
+   RENDERER / SCENE — created exactly once for the whole page lifetime
+   ========================================================================== */
+const GFX = {
+  renderer: null, scene: null, camera: null, amb: null, sun: null, sunTarget: null,
+  persist: null, level: null, backdrop: null, w: 0, h: 0, dpr: 1, shadowWanted: true,
+  contextLost: false
+};
+
+function gfxInit() {
+  const r = new THREE.WebGLRenderer({
+    canvas: D.canvas, antialias: true, alpha: false,
+    powerPreference: 'high-performance', stencil: false, depth: true
+  });
+  GFX.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  r.setPixelRatio(GFX.dpr);
+  r.shadowMap.enabled = true;
+  r.shadowMap.type = THREE.PCFSoftShadowMap;
+  r.setClearColor(0x05050a, 1);
+  GFX.renderer = r;
+
+  const sc = new THREE.Scene();
+  GFX.scene = sc;
+  GFX.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 460);
+
+  GFX.amb = new THREE.AmbientLight(0xffffff, 0.6);
+  sc.add(GFX.amb);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  const sc2 = sun.shadow.camera;
+  sc2.left = -34; sc2.right = 34; sc2.top = 34; sc2.bottom = -34; sc2.near = 1; sc2.far = 170;
+  sun.shadow.bias = -0.0009; sun.shadow.normalBias = 0.035;
+  GFX.sun = sun; sc.add(sun);
+  GFX.sunTarget = new THREE.Object3D(); sc.add(GFX.sunTarget); sun.target = GFX.sunTarget;
+
+  GFX.persist = new THREE.Group(); sc.add(GFX.persist);
+  GFX.level = new THREE.Group(); sc.add(GFX.level);
+
+  /* procedural gradient sky dome (persistent geometry, colours rewritten per level) */
+  const sg = new THREE.SphereGeometry(340, 18, 12);
+  const cnt = sg.attributes.position.count;
+  sg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cnt * 3), 3));
+  const sm = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
+  GFX.backdrop = new THREE.Mesh(sg, sm);
+  GFX.backdrop.frustumCulled = false;
+  GFX.backdrop.renderOrder = -10;
+  GFX.persist.add(GFX.backdrop);
+
+  gfxResize();
+  return r;
+}
+const _bkA = new THREE.Color(), _bkB = new THREE.Color();
+function paintBackdrop(botHex, topHex) {
+  paintBackdropColors(_bkA.setHex(botHex), _bkB.setHex(topHex));
+}
+function paintBackdropColors(bot, top) {
+  const g = GFX.backdrop.geometry;
+  const pos = g.attributes.position, col = g.attributes.color, a = col.array;
+  for (let i = 0, n = pos.count; i < n; i++) {
+    const y = pos.getY(i) / 340;
+    const t = clamp((y + 0.22) / 0.9, 0, 1), t2 = t * t * (3 - 2 * t);
+    const i3 = i * 3;
+    a[i3] = lerp(bot.r, top.r, t2);
+    a[i3 + 1] = lerp(bot.g, top.g, t2);
+    a[i3 + 2] = lerp(bot.b, top.b, t2);
+  }
+  col.needsUpdate = true;
+}
+function gfxResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  if (w === GFX.w && h === GFX.h) return;
+  GFX.w = w; GFX.h = h;
+  GFX.camera.aspect = w / Math.max(1, h);
+  GFX.camera.updateProjectionMatrix();
+  GFX.renderer.setSize(w, h, false);
+  D.canvas.style.width = w + 'px';
+  D.canvas.style.height = h + 'px';
+}
+
+/* ==========================================================================
+   TRAIL RIBBON — one pre-allocated BufferGeometry.
+   Slot layout: [0]=start pad, [1]=segment, [2]=corner pad, [3]=segment, …
+   Only the *active* segment's 20 vertices are rewritten each frame; normals
+   are constant per slot and uploaded exactly once.
+   ========================================================================== */
+const TR = {
+  MAX: 900, VPB: 20, IPB: 30,
+  geo: null, mesh: null, pos: null, nor: null, col: null,
+  boxCount: 0, slot: 1, sx: 0, sz: 0, axis: 0, lw: 0.5, h: 0.6, top: 0.6,
+  dFrom: 1e9, dTo: -1, cA: new THREE.Color(), cB: new THREE.Color(), cc: new THREE.Color(),
+  full: false
+};
+function trailInit() {
+  const nv = TR.MAX * TR.VPB, ni = TR.MAX * TR.IPB;
+  TR.pos = new Float32Array(nv * 3);
+  TR.nor = new Float32Array(nv * 3);
+  TR.col = new Float32Array(nv * 3);
+  const idx = new Uint32Array(ni);
+  let k = 0;
+  for (let b = 0; b < TR.MAX; b++) {
+    const base = b * TR.VPB;
+    for (let q = 0; q < 5; q++) {
+      const o = base + q * 4;
+      idx[k++] = o; idx[k++] = o + 1; idx[k++] = o + 2;
+      idx[k++] = o; idx[k++] = o + 2; idx[k++] = o + 3;
+    }
+  }
+  /* normals are identical for every box slot -> write once, never touch again */
+  W.p = TR.pos; W.n = TR.nor; W.c = TR.col;
+  for (let b = 0; b < TR.MAX; b++) { W.v = b * TR.VPB; wBox(0, 0, 0, 0, 0, 0, 0, 0, 0, F_NOBOT); }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(TR.pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(TR.nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(TR.col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.setDrawRange(0, 0);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.frustumCulled = false;
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  TR.geo = g; TR.mesh = mesh;
+  GFX.persist.add(mesh);
+}
+function markDirty(from, to) { if (from < TR.dFrom) TR.dFrom = from; if (to > TR.dTo) TR.dTo = to; }
+function trailWrite(slot, x0, z0, x1, z1, r, g, b) {
+  if (x1 < x0) x1 = x0;
+  if (z1 < z0) z1 = z0;
+  W.p = TR.pos; W.n = TR.nor; W.c = TR.col; W.v = slot * TR.VPB;
+  wBox(x0, 0, z0, x1, TR.h, z1, r, g, b, F_NOBOT);
+  markDirty(slot * TR.VPB, slot * TR.VPB + TR.VPB);
+}
+function trailReset(cfg, x, z, axis) {
+  TR.lw = cfg.lw; TR.h = cfg.lh; TR.axis = axis; TR.full = false;
+  TR.cA.setHex(cfg.pal.trailA); TR.cB.setHex(cfg.pal.trailB);
+  TR.cc.copy(TR.cA);
+  const lw = TR.lw;
+  trailWrite(0, x - lw, z - lw, x + lw, z + lw, TR.cA.r, TR.cA.g, TR.cA.b);
+  TR.slot = 1; TR.boxCount = 2;
+  TR.sx = x + (axis === 0 ? lw : 0);
+  TR.sz = z + (axis === 1 ? lw : 0);
+  trailWrite(TR.slot, TR.sx - (axis === 0 ? 0 : lw), TR.sz - (axis === 1 ? 0 : lw),
+    TR.sx + (axis === 0 ? 0 : lw), TR.sz + (axis === 1 ? 0 : lw), TR.cA.r, TR.cA.g, TR.cA.b);
+  TR.geo.setDrawRange(0, TR.boxCount * TR.IPB);
+  TR.mesh.position.y = 0;
+}
+function trailProgressColor(t) {
+  TR.cc.copy(TR.cA).lerp(TR.cB, clamp(t, 0, 1));
+  return TR.cc;
+}
+/** stretch the active segment up to the head (called every frame) */
+function trailStretch(hx, hz, t) {
+  const lw = TR.lw, c = trailProgressColor(t);
+  if (TR.axis === 0) trailWrite(TR.slot, TR.sx, TR.sz - lw, hx, TR.sz + lw, c.r, c.g, c.b);
+  else trailWrite(TR.slot, TR.sx - lw, TR.sz, TR.sx + lw, hz, c.r, c.g, c.b);
+}
+/** commit a corner: finalise segment, drop a pad, open the next segment */
+function trailTurn(tx, tz, newAxis, t) {
+  const lw = TR.lw, c = trailProgressColor(t);
+  if (TR.axis === 0) trailWrite(TR.slot, TR.sx, TR.sz - lw, tx - lw, TR.sz + lw, c.r, c.g, c.b);
+  else trailWrite(TR.slot, TR.sx - lw, TR.sz, TR.sx + lw, tz - lw, c.r, c.g, c.b);
+  if (TR.boxCount + 2 <= TR.MAX) {
+    const pad = TR.boxCount;
+    /* corner block uses the exact same colour as the segments: head, body and
+       corners are one continuous ribbon */
+    trailWrite(pad, tx - lw, tz - lw, tx + lw, tz + lw, c.r, c.g, c.b);
+    TR.slot = pad + 1;
+    TR.boxCount = pad + 2;
+    TR.geo.setDrawRange(0, TR.boxCount * TR.IPB);
+  } else { TR.full = true; }
+  TR.axis = newAxis;
+  TR.sx = tx + (newAxis === 0 ? lw : 0);
+  TR.sz = tz + (newAxis === 1 ? lw : 0);
+  trailStretch(TR.sx, TR.sz, t);
+}
+function trailFlush() {
+  if (TR.dTo < 0) return;
+  const p = TR.geo.attributes.position, c = TR.geo.attributes.color;
+  const off = TR.dFrom * 3, cnt = (TR.dTo - TR.dFrom) * 3;
+  p.needsUpdate = true; c.needsUpdate = true;
+  if (p.addUpdateRange) {
+    p.clearUpdateRanges(); p.addUpdateRange(off, cnt);
+    c.clearUpdateRanges(); c.addUpdateRange(off, cnt);
+  } else if (p.updateRange) {
+    p.updateRange.offset = off; p.updateRange.count = cnt;
+    c.updateRange.offset = off; c.updateRange.count = cnt;
+  }
+  TR.dFrom = 1e9; TR.dTo = -1;
+}
+
+/* ==========================================================================
+   PARTICLE POOL — ONE THREE.Points, hard cap 150, ring allocation,
+   dead slots go transparent (additive) and are recycled. No allocations.
+   ========================================================================== */
+const PT = {
+  MAX: 150, geo: null, mesh: null, mat: null, tex: null,
+  pos: null, col: null, base: null, vel: null, life: null, ttl: null, grav: null, drg: null,
+  next: 0, live: 0
+};
+function dotTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(255,255,255,1)');
+  rg.addColorStop(0.35, 'rgba(255,255,255,0.85)');
+  rg.addColorStop(0.72, 'rgba(255,255,255,0.22)');
+  rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function particlesInit() {
+  const n = PT.MAX;
+  PT.pos = new Float32Array(n * 3);
+  PT.col = new Float32Array(n * 3);
+  PT.base = new Float32Array(n * 3);
+  PT.vel = new Float32Array(n * 3);
+  PT.life = new Float32Array(n);
+  PT.ttl = new Float32Array(n);
+  PT.grav = new Float32Array(n);
+  PT.drg = new Float32Array(n);
+  for (let i = 0; i < n; i++) { PT.pos[i * 3 + 1] = -9999; }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(PT.pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(PT.col, 3));
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+  PT.tex = dotTexture();
+  PT.mat = new THREE.PointsMaterial({
+    size: 0.72, sizeAttenuation: true, vertexColors: true, map: PT.tex,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true
+  });
+  PT.geo = g;
+  PT.mesh = new THREE.Points(g, PT.mat);
+  PT.mesh.frustumCulled = false;
+  PT.mesh.renderOrder = 5;
+  GFX.persist.add(PT.mesh);
+}
+function ptEmit(n, x, y, z, spd, spread, up, r, g, b, ttl, grav, drag) {
+  for (let k = 0; k < n; k++) {
+    const i = PT.next; PT.next = (PT.next + 1) % PT.MAX;
+    const i3 = i * 3;
+    PT.pos[i3] = x + (Math.random() - 0.5) * spread;
+    PT.pos[i3 + 1] = y + (Math.random() - 0.5) * spread * 0.6;
+    PT.pos[i3 + 2] = z + (Math.random() - 0.5) * spread;
+    const a = Math.random() * 6.28318, e = Math.random();
+    const s = spd * (0.45 + 0.75 * Math.random());
+    PT.vel[i3] = Math.cos(a) * s * (0.4 + e * 0.9);
+    PT.vel[i3 + 1] = up * (0.35 + Math.random() * 1.15);
+    PT.vel[i3 + 2] = Math.sin(a) * s * (0.4 + e * 0.9);
+    const j = 0.78 + Math.random() * 0.5;
+    PT.base[i3] = r * j; PT.base[i3 + 1] = g * j; PT.base[i3 + 2] = b * j;
+    PT.col[i3] = r * j; PT.col[i3 + 1] = g * j; PT.col[i3 + 2] = b * j;
+    const lt = ttl * (0.7 + Math.random() * 0.6);
+    PT.life[i] = lt; PT.ttl[i] = lt; PT.grav[i] = grav; PT.drg[i] = drag;
+  }
+  PT.live = 1;
+}
+function ptUpdate(dt) {
+  if (!PT.live) return;
+  let alive = 0;
+  const pos = PT.pos, vel = PT.vel, col = PT.col, base = PT.base;
+  for (let i = 0; i < PT.MAX; i++) {
+    let lf = PT.life[i];
+    if (lf <= 0) continue;
+    lf -= dt;
+    const i3 = i * 3;
+    if (lf <= 0) {
+      PT.life[i] = 0;
+      col[i3] = 0; col[i3 + 1] = 0; col[i3 + 2] = 0;
+      pos[i3 + 1] = -9999;
+      continue;
+    }
+    PT.life[i] = lf; alive++;
+    const d = 1 - PT.drg[i] * dt;
+    vel[i3] *= d; vel[i3 + 2] *= d;
+    vel[i3 + 1] = vel[i3 + 1] * d - PT.grav[i] * dt;
+    pos[i3] += vel[i3] * dt;
+    pos[i3 + 1] += vel[i3 + 1] * dt;
+    pos[i3 + 2] += vel[i3 + 2] * dt;
+    const f = lf / PT.ttl[i], ff = f * f * (0.6 + 0.4 * f);
+    col[i3] = base[i3] * ff; col[i3 + 1] = base[i3 + 1] * ff; col[i3 + 2] = base[i3 + 2] * ff;
+  }
+  PT.geo.attributes.position.needsUpdate = true;
+  PT.geo.attributes.color.needsUpdate = true;
+  if (!alive) PT.live = 0;
+}
+function ptClear() {
+  for (let i = 0; i < PT.MAX; i++) {
+    PT.life[i] = 0;
+    const i3 = i * 3;
+    PT.col[i3] = 0; PT.col[i3 + 1] = 0; PT.col[i3 + 2] = 0;
+    PT.pos[i3 + 1] = -9999;
+  }
+  PT.geo.attributes.position.needsUpdate = true;
+  PT.geo.attributes.color.needsUpdate = true;
+  PT.live = 0; PT.next = 0;
+}
+
+/* ==========================================================================
+   PATH GENERATION — the corner grid is derived from the musical grid, so
+   every turn lands exactly on a beat. Distance is an analytic, piecewise
+   linear function of song time (no per-frame accumulation → zero drift).
+   ========================================================================== */
+function genPath(cfg) {
+  const rnd = mulberry32(cfg.seed);
+  const beatDur = 60 / cfg.bpm;
+  const n = cfg.segCount;
+  const beats = new Float32Array(n);
+  let phrase = null, phraseIdx = null;
+  if (cfg.script) {
+    /* HAND-COMPOSED CHART: blocks of [repeats, [beats between turns…]].
+       Structured, learnable phrases instead of a random pattern pool — the
+       player can memorise the rhythm, which is what makes a hard chart fair. */
+    phrase = new Uint8Array(n + 1);
+    phraseIdx = [];
+    let i = 0;
+    for (let b = 0; b < cfg.script.length && i < n; b++) {
+      const rep = cfg.script[b][0], seq = cfg.script[b][1];
+      phrase[i] = 1; phraseIdx.push(i);
+      for (let r = 0; r < rep && i < n; r++) {
+        for (let j = 0; j < seq.length && i < n; j++) beats[i++] = seq[j];
+      }
+    }
+    while (i < n) beats[i++] = 2;
+  } else {
+    for (let i = 0; i < n;) {
+      const p = cfg.patterns[(rnd() * cfg.patterns.length) | 0];
+      for (let j = 0; j < p.length && i < n; j++) beats[i++] = p[j];
+    }
+  }
+  const minLen = 2 * cfg.halfW + 0.9;
+  /* the run begins the instant the player taps, so give the opening straight a
+     full bar of breathing room before the first corner */
+  if (beats[0] < 4) beats[0] = 4;
+  const cx = new Float32Array(n + 1), cz = new Float32Array(n + 1);
+  const segLen = new Float32Array(n), segD0 = new Float32Array(n + 1);
+  const segT0 = new Float32Array(n + 1), segSpd = new Float32Array(n);
+  const phT = [], phD = [], phS = [];
+  let d = 0, t = 0, x = 0, z = 0, cur = -1;
+  for (let s = 0; s < n; s++) {
+    let sp = cfg.speed;
+    if (cfg.speedPlan) { for (let k = 0; k < cfg.speedPlan.length; k++) if (s >= cfg.speedPlan[k][0]) sp = cfg.speedPlan[k][1]; }
+    if (sp !== cur) { phT.push(t); phD.push(d); phS.push(sp); cur = sp; }
+    let bt = beats[s];
+    while (sp * bt * beatDur < minLen) bt += 0.5;   /* keep corners geometrically legal */
+    beats[s] = bt;
+    const len = sp * bt * beatDur;
+    cx[s] = x; cz[s] = z; segD0[s] = d; segT0[s] = t; segLen[s] = len; segSpd[s] = sp;
+    if ((s & 1) === 0) x += len; else z += len;
+    d += len; t += bt * beatDur;
+  }
+  cx[n] = x; cz[n] = z; segD0[n] = d; segT0[n] = t;
+
+  /* collision rectangles, in traversal order: pad, tile, pad, tile … pad, finish */
+  const hw = cfg.halfW;
+  const nr = 2 * n + 2;
+  const rc = new Float32Array(nr * 4);
+  let ri = 0;
+  const push = (x0, x1, z0, z1) => { rc[ri++] = x0; rc[ri++] = x1; rc[ri++] = z0; rc[ri++] = z1; };
+  for (let s = 0; s < n; s++) {
+    push(cx[s] - hw, cx[s] + hw, cz[s] - hw, cz[s] + hw);        /* corner pad */
+    if ((s & 1) === 0) push(cx[s] + hw, cx[s + 1] - hw, cz[s] - hw, cz[s] + hw);
+    else push(cx[s] - hw, cx[s] + hw, cz[s] + hw, cz[s + 1] - hw);
+  }
+  push(cx[n] - hw, cx[n] + hw, cz[n] - hw, cz[n] + hw);
+  const fp = hw * 2.35;
+  push(cx[n] - fp, cx[n] + fp, cz[n] - fp, cz[n] + fp);          /* finish platform */
+
+  return {
+    n, beats, cx, cz, segLen, segD0, segT0, segSpd, beatDur,
+    totalD: d, totalTime: t, phT, phD, phS, phCur: 0, hw,
+    rects: rc, nRects: nr, finishHalf: fp, phrase, phraseIdx
+  };
+}
+/** analytic distance travelled at path-time t (t=0 → line starts moving) */
+function distAt(path, t) {
+  if (t <= 0) return 0;
+  const pt = path.phT;
+  let k = path.phCur;
+  while (k + 1 < pt.length && t >= pt[k + 1]) k++;
+  while (k > 0 && t < pt[k]) k--;
+  path.phCur = k;
+  return path.phD[k] + path.phS[k] * (t - pt[k]);
+}
+function timeAtDist(path, d) {
+  const pd = path.phD;
+  let k = 0;
+  while (k + 1 < pd.length && d >= pd[k + 1]) k++;
+  return path.phT[k] + (d - pd[k]) / path.phS[k];
+}
+/** world position on the *ideal* path at distance d (used for placement) */
+function pathPos(path, d, out) {
+  let s = 0;
+  while (s + 1 < path.n && path.segD0[s + 1] <= d) s++;
+  const f = d - path.segD0[s];
+  out[0] = path.cx[s] + ((s & 1) === 0 ? f : 0);
+  out[1] = path.cz[s] + ((s & 1) === 1 ? f : 0);
+  out[2] = s;
+  return out;
+}
+
+/* ==========================================================================
+   LEVEL CONSTRUCTION
+   ========================================================================== */
+const LV = {
+  cfg: null, idx: 0, path: null, leadIn: 0,
+  chunks: [], instanced: [], gateMesh: null, gates: null, gateN: 0,
+  diaMesh: null, diaN: 0, colX: null, colZ: null, colD: null, colType: null,
+  colTaken: null, colAnim: null, colInst: null, colN: 0, colCur: 0,
+  crowns: [], crownN: 0, diaTotal: 0, crownTotal: 0, dust: null,
+  decoKind: '', pulseMats: [], pulseBasic: []
+};
+const _tmp3 = [0, 0, 0];
+const BGCOL = new THREE.Color();
+
+/* -------------------------------------------------- zone cross-fade helper */
+const ZP = { a: null, b: null, t: 0 };
+const ZA = new THREE.Color(), ZB = new THREE.Color(), ZC = new THREE.Color();
+/** locate the two zones surrounding `prog` (0..1) and their smooth blend */
+function zonePick(zones, prog) {
+  let i = 0;
+  while (i + 1 < zones.length && prog >= zones[i + 1].at) i++;
+  const a = zones[i], b = zones[i + 1 < zones.length ? i + 1 : i];
+  ZP.a = a; ZP.b = b;
+  if (a === b) { ZP.t = 0; return; }
+  const span = b.at - a.at;
+  const t = span > 1e-6 ? clamp((prog - a.at) / span, 0, 1) : 0;
+  ZP.t = t * t * (3 - 2 * t);
+}
+
+/** true when the XZ footprint touches no part of the playable track.
+ *  Every ground-level decoration is placement-tested against this, which is
+ *  what stops props from clipping into the path. */
+function pathClear(path, x0, x1, z0, z1, margin) {
+  const r = path.rects, n = path.nRects;
+  const a0 = x0 - margin, a1 = x1 + margin, b0 = z0 - margin, b1 = z1 + margin;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    /* the path only ever advances +X/+Z, so once a rect starts beyond the query
+       box on both axes nothing later can overlap either — bail out early */
+    if (r[o] > a1 && r[o + 2] > b1) break;
+    if (a1 > r[o] && a0 < r[o + 1] && b1 > r[o + 2] && b0 < r[o + 3]) return false;
+  }
+  return true;
+}
+/** same test for a centred square footprint */
+function spotClear(path, cx, cz, half, margin) {
+  return pathClear(path, cx - half, cx + half, cz - half, cz + half, margin);
+}
+
+function clearLevel() {
+  disposeTree(GFX.level);
+  LV.chunks.length = 0; LV.instanced.length = 0; LV.crowns.length = 0;
+  LV.pulseMats.length = 0; LV.pulseBasic.length = 0;
+  LV.diaMesh = null; LV.gateMesh = null; LV.dust = null;
+  LV.path = null; LV.gates = null; LV.gateN = 0; LV.colN = 0; LV.colCur = 0;
+  LV.diaN = 0; LV.diaTotal = 0; LV.crownTotal = 0;
+}
+
+function buildLevel(idx) {
+  clearLevel();
+  const cfg = LEVELS[idx], pal = cfg.pal;
+  LV.cfg = cfg; LV.idx = idx; LV.decoKind = cfg.deco;
+  const path = genPath(cfg);
+  LV.path = path;
+  const rnd = mulberry32(cfg.seed ^ 0x2545f491);
+
+  /* ---------- atmosphere ---------- */
+  BGCOL.setHex(pal.fog);
+  GFX.scene.background = BGCOL;
+  if (pal.fogKind === 'exp') GFX.scene.fog = new THREE.FogExp2(pal.fog, pal.fogD);
+  else GFX.scene.fog = new THREE.Fog(pal.fog, pal.fogA, pal.fogB);
+  paintBackdrop(pal.fog, pal.bgTop);
+  GFX.amb.color.setHex(pal.amb); GFX.amb.intensity = pal.ambI;
+  GFX.sun.color.setHex(pal.dir); GFX.sun.intensity = pal.dirI;
+  GFX.renderer.setClearColor(pal.fog, 1);
+
+  /* ---------- floor: batched into chunks (few draw calls, culled) ---------- */
+  const hw = cfg.halfW, fh = cfg.floorH, n = path.n;
+  const cA = new THREE.Color(pal.tileA), cB = new THREE.Color(pal.tileB);
+  const cP = new THREE.Color(pal.pad), cE = new THREE.Color(pal.edge);
+  const zones = cfg.zones || null;
+  const CH = 26;
+  const RIM = cfg.rimW || 0.17, RIMY0 = -0.03, RIMY1 = 0.06;
+  const matteMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+
+  for (let c0 = 0; c0 < n; c0 += CH) {
+    const c1 = Math.min(n, c0 + CH);
+    const bt = new Batch(), gl = new Batch();
+    for (let s = c0; s < c1; s++) {
+      const ax = s & 1, x = path.cx[s], z = path.cz[s], L = path.segLen[s];
+      const j = 0.93 + rnd() * 0.14;
+      const mix = (s & 2) ? 1 : 0;
+      /* zone levels fade their tile + rim colours along the path */
+      if (zones) {
+        zonePick(zones, path.segD0[s] / path.totalD);
+        ZA.setHex(ZP.a.tileA).lerp(ZB.setHex(ZP.b.tileA), ZP.t);
+        ZC.setHex(ZP.a.tileB).lerp(ZB.setHex(ZP.b.tileB), ZP.t);
+        cA.copy(ZA); cB.copy(ZC);
+        cE.setHex(ZP.a.edge).lerp(ZB.setHex(ZP.b.edge), ZP.t);
+      }
+      const r = lerp(cA.r, cB.r, mix) * j, g = lerp(cA.g, cB.g, mix) * j, b = lerp(cA.b, cB.b, mix) * j;
+      /* corner pad — SAME colour family as the straight tiles so the track
+         reads as one continuous ribbon (no odd solid-colour platform) */
+      let pf = F_TOP | F_PX | F_NX | F_PZ | F_NZ;
+      const prevAx = (s - 1) & 1;
+      if (s > 0) pf &= ~(prevAx === 0 ? F_NX : F_NZ);
+      pf &= ~(ax === 0 ? F_PX : F_PZ);
+      const pj = j * 1.03;
+      bt.box(x - hw, -fh, z - hw, x + hw, 0, z + hw,
+        lerp(cA.r, cB.r, mix) * pj, lerp(cA.g, cB.g, mix) * pj, lerp(cA.b, cB.b, mix) * pj, pf);
+      /* rim light wraps the corner: the two exposed pad faces continue the
+         strips of the incoming and outgoing tiles, giving one unbroken edge */
+      if (s > 0) {
+        if (prevAx === 0) gl.box(x + hw - RIM, RIMY0, z - hw, x + hw, RIMY1, z + hw, cE.r, cE.g, cE.b, F_NOBOT);
+        else gl.box(x - hw, RIMY0, z + hw - RIM, x + hw, RIMY1, z + hw, cE.r, cE.g, cE.b, F_NOBOT);
+        if (ax === 0) gl.box(x - hw, RIMY0, z - hw, x + hw, RIMY1, z - hw + RIM, cE.r, cE.g, cE.b, F_NOBOT);
+        else gl.box(x - hw, RIMY0, z - hw, x - hw + RIM, RIMY1, z + hw, cE.r, cE.g, cE.b, F_NOBOT);
+      } else {
+        gl.box(x - hw, RIMY0, z - hw, x + hw, RIMY1, z - hw + RIM, cE.r, cE.g, cE.b, F_NOBOT);
+        gl.box(x - hw, RIMY0, z - hw, x - hw + RIM, RIMY1, z + hw, cE.r, cE.g, cE.b, F_NOBOT);
+      }
+      /* phrase marker: a bright bar straight across the deck wherever a new
+         musical phrase begins — pure information design, readable at speed */
+      if (path.phrase && path.phrase[s] && s > 0) {
+        const bw = RIM * 1.7;
+        if (prevAx === 0) gl.box(x - hw, RIMY0, z - hw, x - hw + bw, RIMY1 + 0.02, z + hw, cE.r * 1.5, cE.g * 1.5, cE.b * 1.5, F_NOBOT);
+        else gl.box(x - hw, RIMY0, z - hw, x + hw, RIMY1 + 0.02, z - hw + bw, cE.r * 1.5, cE.g * 1.5, cE.b * 1.5, F_NOBOT);
+      }
+      /* straight tile */
+      if (ax === 0) {
+        bt.box(x + hw, -fh, z - hw, x + L - hw, 0, z + hw, r, g, b, F_TOP | F_PZ | F_NZ);
+        gl.box(x + hw, RIMY0, z - hw, x + L - hw, RIMY1, z - hw + RIM, cE.r, cE.g, cE.b, F_NOBOT);
+        gl.box(x + hw, RIMY0, z + hw - RIM, x + L - hw, RIMY1, z + hw, cE.r, cE.g, cE.b, F_NOBOT);
+      } else {
+        bt.box(x - hw, -fh, z + hw, x + hw, 0, z + L - hw, r, g, b, F_TOP | F_PX | F_NX);
+        gl.box(x - hw, RIMY0, z + hw, x - hw + RIM, RIMY1, z + L - hw, cE.r, cE.g, cE.b, F_NOBOT);
+        gl.box(x + hw - RIM, RIMY0, z + hw, x + hw, RIMY1, z + L - hw, cE.r, cE.g, cE.b, F_NOBOT);
+      }
+    }
+    if (c1 === n) { /* last pad + finish platform (the one deliberate accent) */
+      const x = path.cx[n], z = path.cz[n], fpH = path.finishHalf;
+      if (zones) {
+        zonePick(zones, 1);
+        cE.setHex(ZP.a.edge).lerp(ZB.setHex(ZP.b.edge), ZP.t);
+      }
+      bt.box(x - hw, -fh, z - hw, x + hw, 0, z + hw, cP.r, cP.g, cP.b, F_TOP | F_PX | F_NX | F_PZ | F_NZ);
+      bt.box(x - fpH, -fh * 1.6, z - fpH, x + fpH, 0, z + fpH,
+        cP.r * 0.9, cP.g * 0.9, cP.b * 0.9, F_NOBOT);
+      gl.box(x - fpH, 0.01, z - fpH, x + fpH, 0.07, z - fpH + 0.3, cE.r, cE.g, cE.b, F_NOBOT);
+      gl.box(x - fpH, 0.01, z + fpH - 0.3, x + fpH, 0.07, z + fpH, cE.r, cE.g, cE.b, F_NOBOT);
+      gl.box(x - fpH, 0.01, z - fpH, x - fpH + 0.3, 0.07, z + fpH, cE.r, cE.g, cE.b, F_NOBOT);
+      gl.box(x + fpH - 0.3, 0.01, z - fpH, x + fpH, 0.07, z + fpH, cE.r, cE.g, cE.b, F_NOBOT);
+    }
+    const mm = new THREE.Mesh(bt.geometry(), matteMat);
+    mm.receiveShadow = true; mm.castShadow = false;
+    GFX.level.add(mm); LV.chunks.push(mm);
+    if (!gl.empty()) {
+      const gm = new THREE.Mesh(gl.geometry(), glowMat);
+      GFX.level.add(gm);
+    }
+  }
+
+  /* ---------- theme decoration ---------- */
+  const deco = new Batch(), decoGlow = new Batch();
+  if (cfg.deco === 'plain') buildDecoPlain(cfg, path, rnd, deco, decoGlow);
+  else if (cfg.deco === 'abyss') buildDecoAbyss(cfg, path, rnd, deco, decoGlow);
+  else if (cfg.deco === 'prism') buildDecoPrism(cfg, path, rnd, deco, decoGlow);
+  else if (cfg.deco === 'minimal') buildDecoMinimal(cfg, path, rnd, deco, decoGlow);
+  else if (cfg.deco === 'grand') buildDecoGrand(cfg, path, rnd, deco, decoGlow);
+  else buildDecoStorm(cfg, path, rnd, deco, decoGlow);
+  if (!deco.empty()) {
+    const dm = new THREE.Mesh(deco.geometry(), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    dm.castShadow = GFX.shadowWanted; dm.receiveShadow = false;
+    dm.userData.deco = 1;
+    GFX.level.add(dm);
+  }
+  if (!decoGlow.empty()) {
+    const dg = new THREE.Mesh(decoGlow.geometry(), new THREE.MeshBasicMaterial({ vertexColors: true, fog: true }));
+    dg.userData.deco = 1;
+    GFX.level.add(dg);
+    /* the minimal theme breathes its highlights with the beat (one uniform) */
+    if (cfg.deco === 'minimal' || cfg.deco === 'grand') LV.pulseBasic.push(dg.material);
+  }
+
+  buildCollectibles(cfg, path, rnd);
+  applyTier();
+  return path;
+}
+
+/* ---------------------------------------------------------- deco: level 1 */
+function buildDecoPlain(cfg, path, rnd, bt, gl) {
+  const pal = cfg.pal, hw = cfg.halfW, n = path.n;
+  const c1 = new THREE.Color(pal.deco1), c2 = new THREE.Color(pal.deco2);
+  const trunk = new THREE.CylinderGeometry(0.22, 0.3, 1.6, 5, 1);
+  const leaf = new THREE.ConeGeometry(1.25, 2.6, 6, 1);
+  const rock = new THREE.OctahedronGeometry(1, 0);
+  for (let s = 1; s < n; s += 2) {
+    const ax = s & 1, L = path.segLen[s];
+    for (let side = -1; side <= 1; side += 2) {
+      if (rnd() > 0.82) continue;
+      const off = hw + 3.2 + rnd() * 13;
+      const f = (0.15 + rnd() * 0.7) * L;
+      const px = path.cx[s] + (ax === 0 ? f : side * off);
+      const pz = path.cz[s] + (ax === 1 ? f : side * off);
+      const kind = rnd();
+      if (kind < 0.42) { /* hill */
+        const h = 1.4 + rnd() * 5.2, w = 3 + rnd() * 6;
+        const j = 0.82 + rnd() * 0.36;
+        if (!spotClear(path, px, pz, w * 0.5, 0.5)) continue;
+        bt.box(px - w * 0.5, -cfg.floorH - h, pz - w * 0.5, px + w * 0.5, -cfg.floorH + rnd() * 1.2, pz + w * 0.5,
+          c2.r * j, c2.g * j, c2.b * j, F_NOBOT);
+      } else if (kind < 0.76) { /* tree */
+        const sc = 0.7 + rnd() * 0.9;
+        if (!spotClear(path, px, pz, 1.35 * sc, 0.5)) continue;
+        _m4.makeTranslation(px, -cfg.floorH + 0.8 * sc, pz).scale(_v3.set(sc, sc, sc));
+        bt.merge(trunk, _m4, 0.42, 0.3, 0.22);
+        _m4.makeTranslation(px, -cfg.floorH + (1.6 + 1.3) * sc, pz).scale(_v3.set(sc, sc, sc));
+        bt.merge(leaf, _m4, c2.r * 0.9, c2.g * 0.95, c2.b * 0.8);
+      } else { /* boulder */
+        const sc = 0.8 + rnd() * 1.7;
+        if (!spotClear(path, px, pz, sc, 0.5)) continue;
+        _q.setFromAxisAngle(_v3.set(0.3, 1, 0.2).normalize(), rnd() * 6.28);
+        _m4.compose(_v3b.set(px, -cfg.floorH + sc * 0.4, pz), _q, _v3.set(sc, sc * 0.8, sc));
+        bt.merge(rock, _m4, c1.r * 0.9, c1.g * 0.85, c1.b * 0.8);
+      }
+    }
+  }
+  trunk.dispose(); leaf.dispose(); rock.dispose();
+
+  /* floating polyhedra — one InstancedMesh, animated in the main loop.
+     Kept high enough that they can never intersect the ribbon. */
+  const N = 26;
+  const geo = new THREE.OctahedronGeometry(1.05, 0);
+  const mat = new THREE.MeshPhongMaterial({ color: pal.deco1, flatShading: true, shininess: 22, specular: 0x332211 });
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  im.castShadow = GFX.shadowWanted;
+  const data = new Float32Array(N * 5);
+  for (let i = 0; i < N; i++) {
+    const s = 2 + ((i * 2.13 * path.n / N) | 0) % (path.n - 2);
+    const ax = s & 1, f = rnd() * path.segLen[s];
+    const off = (rnd() < 0.5 ? -1 : 1) * (cfg.halfW + 3 + rnd() * 11);
+    data[i * 5] = path.cx[s] + (ax === 0 ? f : off);
+    data[i * 5 + 1] = 5.5 + rnd() * 11;
+    data[i * 5 + 2] = path.cz[s] + (ax === 1 ? f : off);
+    data[i * 5 + 3] = rnd() * 6.28;
+    data[i * 5 + 4] = 0.55 + rnd() * 1.15;
+    _col.setHex(pal.deco1).lerp(_col2.setHex(0xffffff), rnd() * 0.5);
+    im.setColorAt(i, _col);
+  }
+  im.instanceColor.needsUpdate = true;
+  im.userData.data = data; im.userData.kind = 'float';
+  GFX.level.add(im); LV.instanced.push(im);
+}
+
+/* ---------------------------------------------------------- deco: level 2 */
+function buildDecoAbyss(cfg, path, rnd, bt, gl) {
+  const pal = cfg.pal, hw = cfg.halfW, n = path.n;
+  const c1 = new THREE.Color(pal.deco2), cE = new THREE.Color(pal.edge);
+  /* hanging pillars flanking the corridor, plus stalactites above */
+  for (let s = 1; s < n; s++) {
+    if (rnd() > 0.62) continue;
+    const ax = s & 1, L = path.segLen[s];
+    const side = rnd() < 0.5 ? -1 : 1;
+    const off = hw + 1.6 + rnd() * 7;
+    const f = (0.1 + rnd() * 0.8) * L;
+    const px = path.cx[s] + (ax === 0 ? f : side * off);
+    const pz = path.cz[s] + (ax === 1 ? f : side * off);
+    const w = 1.1 + rnd() * 2.6, h = 6 + rnd() * 26;
+    const j = 0.7 + rnd() * 0.5;
+    const down = rnd() < 0.5;
+    const y0 = down ? -cfg.floorH - h : 7 + rnd() * 10;
+    if (!spotClear(path, px, pz, w * 0.5 + 0.1, 0.45)) continue;
+    bt.box(px - w * 0.5, y0, pz - w * 0.5, px + w * 0.5, y0 + h, pz + w * 0.5,
+      c1.r * j, c1.g * j, c1.b * j, F_ALL);
+    if (rnd() < 0.35) {
+      gl.box(px - w * 0.5, y0 + h * 0.5, pz - w * 0.5 - 0.06, px + w * 0.5, y0 + h * 0.5 + 0.12, pz + w * 0.5 + 0.06,
+        cE.r, cE.g, cE.b, F_NOBOT);
+    }
+  }
+  /* glowing crystals — InstancedMesh, emissive Phong, beat-pulsed */
+  const N = 34;
+  const geo = new THREE.OctahedronGeometry(1, 0);
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x0a2c3c, emissive: pal.deco1, emissiveIntensity: 0.9,
+    flatShading: true, shininess: 70, specular: 0x88ddff
+  });
+  LV.pulseMats.push(mat);
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  im.castShadow = false;
+  const data = new Float32Array(N * 5);
+  let placed = 0;
+  for (let i = 0, guard = 0; placed < N && guard < N * 14; guard++) {
+    const s = 2 + ((guard * 3.7 * path.n / N) | 0) % (path.n - 2);
+    const ax = s & 1, f = rnd() * path.segLen[s];
+    const off = (rnd() < 0.5 ? -1 : 1) * (hw + 1.6 + rnd() * 8);
+    const px = path.cx[s] + (ax === 0 ? f : off);
+    const pz = path.cz[s] + (ax === 1 ? f : off);
+    const sc = 0.5 + rnd() * 1.9;
+    const y = -0.8 + rnd() * 9;
+    /* only crystals that hang low need the clearance test */
+    if (y - sc * 1.6 < 1.4 && !spotClear(path, px, pz, sc * 0.72, 0.4)) continue;
+    i = placed++;
+    data[i * 5] = px; data[i * 5 + 1] = y; data[i * 5 + 2] = pz;
+    data[i * 5 + 3] = rnd() * 6.28; data[i * 5 + 4] = sc;
+    _col.setHex(pal.deco1).lerp(_col2.setHex(0x7d6bff), rnd() * 0.75);
+    im.setColorAt(i, _col);
+  }
+  im.count = Math.max(1, placed);
+  im.instanceColor.needsUpdate = true;
+  im.userData.data = data; im.userData.kind = 'crystal';
+  GFX.level.add(im); LV.instanced.push(im);
+}
+
+/* ---------------------------------------------------------- deco: level 3 */
+function buildDecoStorm(cfg, path, rnd, bt, gl) {
+  const pal = cfg.pal, hw = cfg.halfW, n = path.n;
+  const cA = new THREE.Color(pal.deco1), cB = new THREE.Color(pal.deco2);
+  /* jagged rift shards below the path */
+  for (let s = 0; s < n; s += 2) {
+    for (let side = -1; side <= 1; side += 2) {
+      if (rnd() > 0.7) continue;
+      const ax = s & 1, L = path.segLen[s];
+      const off = hw + 2 + rnd() * 16;
+      const f = rnd() * L;
+      const px = path.cx[s] + (ax === 0 ? f : side * off);
+      const pz = path.cz[s] + (ax === 1 ? f : side * off);
+      const w = 1.6 + rnd() * 4, h = 4 + rnd() * 22;
+      const j = 0.5 + rnd() * 0.5;
+      if (!spotClear(path, px, pz, w * 0.5 + 0.1, 0.5)) continue;
+      const top = -cfg.floorH - 0.35 - rnd() * 2;
+      bt.box(px - w * 0.5, top - h, pz - w * 0.5, px + w * 0.5, top, pz + w * 0.5,
+        0.10 * j, 0.07 * j, 0.16 * j, F_NOBOT);
+      if (rnd() < 0.45) {
+        const c = rnd() < 0.5 ? cA : cB;
+        gl.box(px - w * 0.5, top - 0.22, pz - w * 0.5, px + w * 0.5, top, pz + w * 0.5,
+          c.r, c.g, c.b, F_TOP);
+      }
+    }
+  }
+  /* beat-pumping pillars — one InstancedMesh. These grow tall, so every one is
+     clearance-tested against the whole track before it is accepted. */
+  const N = 46;
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x1a1030, emissive: pal.deco1, emissiveIntensity: 0.55,
+    flatShading: true, shininess: 40, specular: 0xff88cc
+  });
+  LV.pulseMats.push(mat);
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  im.castShadow = false;
+  const data = new Float32Array(N * 5);
+  let placed = 0;
+  for (let g = 0; placed < N && g < N * 16; g++) {
+    const s = 1 + ((g * 3.11 * path.n / N) | 0) % (path.n - 1);
+    const ax = s & 1, f = rnd() * path.segLen[s];
+    const off = (g & 1 ? -1 : 1) * (hw + 2.6 + rnd() * 12);
+    const px = path.cx[s] + (ax === 0 ? f : off);
+    const pz = path.cz[s] + (ax === 1 ? f : off);
+    const sc = 1.1 + rnd() * 2.6;
+    if (!spotClear(path, px, pz, sc * 0.5 + 0.1, 0.55)) continue;
+    const i = placed++;
+    data[i * 5] = px; data[i * 5 + 1] = -cfg.floorH; data[i * 5 + 2] = pz;
+    data[i * 5 + 3] = rnd() * 6.28318; data[i * 5 + 4] = sc;
+    _col.setHex(i & 1 ? pal.deco1 : pal.deco2).lerp(_col2.setHex(0xffffff), rnd() * 0.35);
+    im.setColorAt(i, _col);
+  }
+  im.count = Math.max(1, placed);
+  im.instanceColor.needsUpdate = true;
+  im.userData.data = data; im.userData.kind = 'pump';
+  GFX.level.add(im); LV.instanced.push(im);
+
+  buildGates(cfg, path, rnd, 8, 9, 0x2a0f2a, pal.edge);
+  buildDust(cfg, path, rnd, 240, 0.5, 46, 34);
+}
+
+/* --------------------- timing-locked rising gates (shared by lvl 3 & 4) ----
+   A gate is fully retracted while the player passes and slams up behind them,
+   so a correctly-played run is never blocked — yet the AABB is checked for
+   real, which is what makes the hazard honest.                              */
+function buildGates(cfg, path, rnd, first, stride, bodyHex, edgeHex) {
+  const n = path.n, gseg = [];
+  for (let s = first; s < n - 4; s += stride + ((rnd() * 4) | 0)) gseg.push(s);
+  const GN = gseg.length;
+  if (!GN) return;
+  const gg = new THREE.BoxGeometry(1, 1, 1);
+  const gm = new THREE.MeshPhongMaterial({
+    color: bodyHex, emissive: edgeHex, emissiveIntensity: 0.75,
+    flatShading: true, shininess: 60, specular: 0xffaadd
+  });
+  const gim = new THREE.InstancedMesh(gg, gm, GN);
+  gim.castShadow = false;
+  const gd = new Float32Array(GN * 8); /* x,z,ax,h,passTime,period,halfLen,dist */
+  for (let i = 0; i < GN; i++) {
+    const s = gseg[i], ax = s & 1;
+    const d = path.segD0[s] + path.segLen[s] * 0.55;
+    pathPos(path, d, _tmp3);
+    gd[i * 8] = _tmp3[0]; gd[i * 8 + 1] = _tmp3[1]; gd[i * 8 + 2] = ax;
+    gd[i * 8 + 3] = 2.6 + (i % 3) * 0.9;
+    gd[i * 8 + 4] = timeAtDist(path, d);
+    gd[i * 8 + 5] = path.beatDur * 2;
+    gd[i * 8 + 6] = 0.55;
+    gd[i * 8 + 7] = d;
+    _col.setHex(edgeHex);
+    gim.setColorAt(i, _col);
+  }
+  gim.instanceColor.needsUpdate = true;
+  GFX.level.add(gim);
+  LV.gateMesh = gim; LV.gates = gd; LV.gateN = GN;
+}
+
+/** drifting dust — one Points object re-centred on the head (0 CPU/particle) */
+function buildDust(cfg, path, rnd, DN, size, radius, height) {
+  const pal = cfg.pal;
+  const dg = new THREE.BufferGeometry();
+  const dp = new Float32Array(DN * 3), dc = new Float32Array(DN * 3);
+  for (let i = 0; i < DN; i++) {
+    const r = 8 + Math.pow(rnd(), 0.6) * radius, a = rnd() * 6.28318;
+    dp[i * 3] = Math.cos(a) * r;
+    dp[i * 3 + 1] = -6 + rnd() * height;
+    dp[i * 3 + 2] = Math.sin(a) * r;
+    _col.setHex(rnd() < 0.5 ? pal.deco1 : pal.deco2);
+    const j = 0.35 + rnd() * 0.65;
+    dc[i * 3] = _col.r * j; dc[i * 3 + 1] = _col.g * j; dc[i * 3 + 2] = _col.b * j;
+  }
+  dg.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+  dg.setAttribute('color', new THREE.BufferAttribute(dc, 3));
+  dg.boundingSphere = new THREE.Sphere(new THREE.Vector3(), radius + height + 20);
+  const dmat = new THREE.PointsMaterial({
+    size: size, sizeAttenuation: true, vertexColors: true, map: dotTexture(),
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true
+  });
+  const pts = new THREE.Points(dg, dmat);
+  pts.frustumCulled = false;
+  GFX.level.add(pts);
+  LV.dust = pts;
+}
+
+/* ---------------------------------------------------------- deco: level 4
+   四段式场景：每个 zone 有自己的配色、装饰密度与镜头；zone 交界处架起拱门，
+   地面下方铺霓虹网格，空中悬浮旋转光环 —— 全部批处理，只占几个 draw call。 */
+function buildDecoPrism(cfg, path, rnd, bt, gl) {
+  const pal = cfg.pal, hw = cfg.halfW, n = path.n, zones = cfg.zones;
+  const fh = cfg.floorH;
+
+  /* ---- neon ground grid far below the track (26 long thin bars) ---- */
+  const gx0 = -60, gx1 = path.cx[n] + 60, gz0 = -60, gz1 = path.cz[n] + 60;
+  const gy = -fh - 13;
+  const step = 34;
+  ZA.setHex(zones[2].edge);
+  for (let x = gx0; x < gx1; x += step) {
+    gl.box(x, gy, gz0, x + 0.3, gy + 0.3, gz1, ZA.r * 0.5, ZA.g * 0.5, ZA.b * 0.5, F_TOP | F_PX | F_NX);
+  }
+  for (let z = gz0; z < gz1; z += step) {
+    gl.box(gx0, gy, z, gx1, gy + 0.3, z + 0.3, ZA.r * 0.5, ZA.g * 0.5, ZA.b * 0.5, F_TOP | F_PZ | F_NZ);
+  }
+
+  /* ---- zone portals: an arch straddling the track at every transition ---- */
+  for (let zi = 1; zi < zones.length; zi++) {
+    const d = zones[zi].at * path.totalD;
+    pathPos(path, d, _tmp3);
+    const px = _tmp3[0], pz = _tmp3[1], s = _tmp3[2] | 0, ax = s & 1;
+    ZA.setHex(zones[zi - 1].edge); ZB.setHex(zones[zi].edge);
+    const cr = (ZA.r + ZB.r) * 0.5, cg2 = (ZA.g + ZB.g) * 0.5, cb = (ZA.b + ZB.b) * 0.5;
+    const post = 0.85, gap = hw + 1.5, top = 8.5;
+    for (let sd = -1; sd <= 1; sd += 2) {
+      const ox = ax === 0 ? 0 : sd * gap, oz = ax === 0 ? sd * gap : 0;
+      bt.box(px + ox - post, -fh - 1.5, pz + oz - post, px + ox + post, top, pz + oz + post,
+        0.18, 0.16, 0.26, F_ALL);
+      gl.box(px + ox - post * 0.55, top - 0.2, pz + oz - post * 0.55,
+        px + ox + post * 0.55, top + 0.55, pz + oz + post * 0.55, cr, cg2, cb, F_NOBOT);
+    }
+    /* lintel + glowing under-beam, high above the ribbon */
+    if (ax === 0) {
+      bt.box(px - post, top, pz - gap - post, px + post, top + 1.5, pz + gap + post, 0.2, 0.18, 0.3, F_ALL);
+      gl.box(px - post * 0.7, top - 0.28, pz - gap, px + post * 0.7, top - 0.05, pz + gap, cr, cg2, cb, F_NOBOT);
+    } else {
+      bt.box(px - gap - post, top, pz - post, px + gap + post, top + 1.5, pz + post, 0.2, 0.18, 0.3, F_ALL);
+      gl.box(px - gap, top - 0.28, pz - post * 0.7, px + gap, top - 0.05, pz + post * 0.7, cr, cg2, cb, F_NOBOT);
+    }
+  }
+
+  /* ---- per-zone scenery: towers, slabs, prisms (all clearance-tested) ---- */
+  const prism = new THREE.OctahedronGeometry(1, 0);
+  const cone = new THREE.ConeGeometry(1, 2.2, 5, 1);
+  for (let s = 1; s < n; s++) {
+    const ax = s & 1, L = path.segLen[s];
+    zonePick(zones, path.segD0[s] / path.totalD);
+    ZA.setHex(ZP.a.deco).lerp(ZB.setHex(ZP.b.deco), ZP.t);
+    for (let side = -1; side <= 1; side += 2) {
+      if (rnd() > 0.74) continue;
+      const off = hw + 2.4 + rnd() * 15;
+      const f = (0.1 + rnd() * 0.8) * L;
+      const px = path.cx[s] + (ax === 0 ? f : side * off);
+      const pz = path.cz[s] + (ax === 1 ? f : side * off);
+      const kind = rnd();
+      if (kind < 0.4) { /* mirrored tower with glowing window band */
+        const w = 1.4 + rnd() * 3.2, h = 5 + rnd() * 24;
+        if (!spotClear(path, px, pz, w * 0.5 + 0.15, 0.5)) continue;
+        const j = 0.5 + rnd() * 0.4;
+        bt.box(px - w * 0.5, -fh - 1, pz - w * 0.5, px + w * 0.5, -fh - 1 + h, pz + w * 0.5,
+          ZA.r * j * 0.35, ZA.g * j * 0.35, ZA.b * j * 0.4, F_ALL);
+        const bands = 1 + ((rnd() * 3) | 0);
+        for (let bi = 0; bi < bands; bi++) {
+          const by = -fh - 1 + h * (0.25 + 0.22 * bi + rnd() * 0.1);
+          gl.box(px - w * 0.5 - 0.05, by, pz - w * 0.5 - 0.05,
+            px + w * 0.5 + 0.05, by + 0.3, pz + w * 0.5 + 0.05, ZA.r, ZA.g, ZA.b, F_SIDES);
+        }
+      } else if (kind < 0.66) { /* stepped slab platform */
+        const w = 3 + rnd() * 7, dp2 = 3 + rnd() * 7, h = 0.7 + rnd() * 2.4;
+        if (!pathClear(path, px - w * 0.5, px + w * 0.5, pz - dp2 * 0.5, pz + dp2 * 0.5, 0.6)) continue;
+        const j = 0.42 + rnd() * 0.3;
+        bt.box(px - w * 0.5, -fh - h, pz - dp2 * 0.5, px + w * 0.5, -fh - 0.05, pz + dp2 * 0.5,
+          ZA.r * j * 0.5, ZA.g * j * 0.5, ZA.b * j * 0.55, F_NOBOT);
+        gl.box(px - w * 0.5, -fh - 0.05, pz - dp2 * 0.5, px + w * 0.5, -fh + 0.1, pz - dp2 * 0.5 + 0.2,
+          ZA.r, ZA.g, ZA.b, F_NOBOT);
+      } else if (kind < 0.86) { /* ground prism cluster */
+        const sc = 0.9 + rnd() * 2.2;
+        if (!spotClear(path, px, pz, sc + 0.2, 0.5)) continue;
+        _q.setFromAxisAngle(UPV, rnd() * 6.28);
+        _m4.compose(_v3b.set(px, -fh + sc * 0.55, pz), _q, _v3.set(sc, sc * 1.7, sc));
+        bt.merge(prism, _m4, ZA.r * 0.55, ZA.g * 0.55, ZA.b * 0.62);
+        gl.box(px - sc * 0.18, -fh + sc * 2.05, pz - sc * 0.18, px + sc * 0.18, -fh + sc * 2.4, pz + sc * 0.18,
+          ZA.r, ZA.g, ZA.b, F_NOBOT);
+      } else { /* spire */
+        const sc = 0.8 + rnd() * 1.6;
+        if (!spotClear(path, px, pz, sc + 0.2, 0.5)) continue;
+        _m4.makeTranslation(px, -fh + sc * 1.1, pz).scale(_v3.set(sc, sc * (1.4 + rnd()), sc));
+        bt.merge(cone, _m4, ZA.r * 0.4, ZA.g * 0.4, ZA.b * 0.5);
+      }
+    }
+  }
+  prism.dispose(); cone.dispose();
+
+  /* ---- floating rings, high above the ribbon (InstancedMesh, 1 draw call) -- */
+  const N = 30;
+  const geo = new THREE.TorusGeometry(1.5, 0.16, 3, 14);
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x201a30, emissive: pal.deco1, emissiveIntensity: 0.85,
+    flatShading: true, shininess: 70, specular: 0xffffff
+  });
+  LV.pulseMats.push(mat);
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  im.castShadow = false;
+  const data = new Float32Array(N * 5);
+  for (let i = 0; i < N; i++) {
+    const s = 2 + ((i * 3.37 * n / N) | 0) % (n - 2);
+    const ax = s & 1, f = rnd() * path.segLen[s];
+    const off = (rnd() - 0.5) * 2 * (hw + 5 + rnd() * 9);
+    data[i * 5] = path.cx[s] + (ax === 0 ? f : off);
+    data[i * 5 + 1] = 6.8 + rnd() * 12;
+    data[i * 5 + 2] = path.cz[s] + (ax === 1 ? f : off);
+    data[i * 5 + 3] = rnd() * 6.28318;
+    data[i * 5 + 4] = 0.7 + rnd() * 1.5;
+    zonePick(zones, path.segD0[s] / path.totalD);
+    _col.setHex(ZP.a.deco).lerp(_col2.setHex(ZP.b.deco), ZP.t);
+    im.setColorAt(i, _col);
+  }
+  im.instanceColor.needsUpdate = true;
+  im.userData.data = data; im.userData.kind = 'ring';
+  GFX.level.add(im); LV.instanced.push(im);
+
+  buildGates(cfg, path, rnd, 10, 7, 0x241d38, pal.edge);
+  buildDust(cfg, path, rnd, 200, 0.44, 40, 30);
+}
+
+/* ---------------------------------------------------------- deco: level 5
+   极简构成 —— 只有三种元素，全部批处理进 2 个 draw call：
+     · 细光柱：等间距、左右交替，像节拍器一样标出脉冲
+     · 乐句拱框：只在主要乐句起点架一道细方框，宣告段落
+     · 远景石板：极薄的巨大立板，给虚空以尺度
+   没有杂物、没有粒子云堆叠 —— 让玩家的注意力全部留给线。 */
+function buildDecoMinimal(cfg, path, rnd, bt, gl) {
+  const hw = cfg.halfW, n = path.n, fh = cfg.floorH;
+  const zones = cfg.zones;
+  const body = 0.085, bodyG = 0.10, bodyB = 0.125;   /* graphite */
+
+  /* accent colour follows the zone fade, sampled per prop */
+  function accentAt(prog) {
+    zonePick(zones, prog);
+    ZA.setHex(ZP.a.deco).lerp(ZB.setHex(ZP.b.deco), ZP.t);
+    return ZA;
+  }
+
+  /* ---- 1. slim light rods, alternating sides, evenly spaced ---- */
+  for (let s = 4; s < n - 2; s += 5) {
+    const ax = s & 1, L = path.segLen[s];
+    const side = ((s / 5) | 0) & 1 ? 1 : -1;
+    const off = hw + 7.5 + (s * 7) % 9;
+    const px = path.cx[s] + (ax === 0 ? L * 0.5 : side * off);
+    const pz = path.cz[s] + (ax === 1 ? L * 0.5 : side * off);
+    const w = 0.15, h = 13 + (s * 11) % 21;
+    if (!spotClear(path, px, pz, w + 0.1, 0.4)) continue;
+    const c = accentAt(path.segD0[s] / path.totalD);
+    const y0 = -fh - 2.2;
+    bt.box(px - w, y0, pz - w, px + w, y0 + h, pz + w, body, bodyG, bodyB, F_ALL);
+    /* glowing cap + a hairline seam running the full height */
+    gl.box(px - w, y0 + h, pz - w, px + w, y0 + h + 0.55, pz + w, c.r, c.g, c.b, F_NOBOT);
+    gl.box(px - w * 0.34, y0 + 1.5, pz - w - 0.035, px + w * 0.34, y0 + h, pz + w + 0.035,
+      c.r * 0.5, c.g * 0.5, c.b * 0.5, F_PZ | F_NZ);
+  }
+
+  /* ---- 2. phrase frames: one thin square arch at every 3rd phrase ---- */
+  const ph = path.phraseIdx;
+  if (ph) {
+    for (let k = 0; k < ph.length; k++) {
+      if (k % 3 !== 0) continue;
+      const s = ph[k];
+      if (s < 2 || s >= n) continue;
+      const ax = s & 1, px = path.cx[s], pz = path.cz[s];
+      const c = accentAt(path.segD0[s] / path.totalD);
+      const gap = hw + 1.15, bar = 0.15, top = 7.2, base = -fh - 1.2;
+      for (let sd = -1; sd <= 1; sd += 2) {
+        const ox = ax === 0 ? 0 : sd * gap, oz = ax === 0 ? sd * gap : 0;
+        bt.box(px + ox - bar, base, pz + oz - bar, px + ox + bar, top, pz + oz + bar,
+          body, bodyG, bodyB, F_ALL);
+        /* inner hairline, facing the corridor */
+        if (ax === 0) {
+          gl.box(px + ox - bar * 0.5, base + 0.6, pz + oz - sd * bar - 0.03,
+            px + ox + bar * 0.5, top, pz + oz - sd * bar + 0.03, c.r, c.g, c.b, F_PZ | F_NZ);
+        } else {
+          gl.box(px + ox - sd * bar - 0.03, base + 0.6, pz + oz - bar * 0.5,
+            px + ox - sd * bar + 0.03, top, pz + oz + bar * 0.5, c.r, c.g, c.b, F_PX | F_NX);
+        }
+      }
+      /* lintel, well clear of the ribbon */
+      if (ax === 0) {
+        bt.box(px - bar, top, pz - gap - bar, px + bar, top + bar * 2, pz + gap + bar, body, bodyG, bodyB, F_ALL);
+        gl.box(px - bar * 0.5, top - 0.05, pz - gap, px + bar * 0.5, top + 0.02, pz + gap, c.r, c.g, c.b, F_NOBOT);
+      } else {
+        bt.box(px - gap - bar, top, pz - bar, px + gap + bar, top + bar * 2, pz + bar, body, bodyG, bodyB, F_ALL);
+        gl.box(px - gap, top - 0.05, pz - bar * 0.5, px + gap, top + 0.02, pz + bar * 0.5, c.r, c.g, c.b, F_NOBOT);
+      }
+    }
+  }
+
+  /* ---- 3. distant monoliths: very large, very thin, one lit edge ---- */
+  for (let i = 0; i < 9; i++) {
+    const s = 6 + ((i * 2.71 * n / 9) | 0) % (n - 10);
+    const ax = s & 1, side = i & 1 ? 1 : -1;
+    const off = hw + 17 + (i % 3) * 11;
+    const wide = 9 + (i % 4) * 3.5, tall = 20 + (i % 5) * 5.5, thin = 0.45;
+    const px = path.cx[s] + (ax === 0 ? path.segLen[s] * 0.5 : side * off);
+    const pz = path.cz[s] + (ax === 1 ? path.segLen[s] * 0.5 : side * off);
+    const hx = ax === 0 ? wide * 0.5 : thin, hz = ax === 0 ? thin : wide * 0.5;
+    if (!pathClear(path, px - hx, px + hx, pz - hz, pz + hz, 0.8)) continue;
+    const c = accentAt(path.segD0[s] / path.totalD);
+    const y0 = -fh - 4;
+    bt.box(px - hx, y0, pz - hz, px + hx, y0 + tall, pz + hz, body * 0.8, bodyG * 0.8, bodyB * 0.9, F_ALL);
+    /* single hairline along the top edge — the only detail it gets */
+    gl.box(px - hx, y0 + tall - 0.12, pz - hz - 0.04, px + hx, y0 + tall, pz + hz + 0.04,
+      c.r * 0.75, c.g * 0.75, c.b * 0.75, F_NOBOT);
+  }
+
+  buildDust(cfg, path, rnd, 130, 0.34, 34, 26);
+}
+
+/* ---------------------------------------------------------- deco: level 6
+   极繁主义大教堂 —— 七个层次，全部烘进 2 个 batch：
+     栏杆细饰 · 列柱（基座/柱身/柱头/凹槽） · 拱顶（叠层楣梁/拱心石/垂饰）
+     层叠露台 · 旗幡 · 远景尖塔 · 悬灯与光环（instanced，随拍呼吸）
+   每一件落地装饰都过 spotClear 净空检测，绝不侵入轨道。 */
+function buildDecoGrand(cfg, path, rnd, bt, gl) {
+  const hw = cfg.halfW, n = path.n, fh = cfg.floorH, zones = cfg.zones;
+  const cAcc = new THREE.Color(), cStone = new THREE.Color();
+  const sA = new THREE.Color(), sB = new THREE.Color();
+  function palAt(prog) {
+    zonePick(zones, prog);
+    cAcc.setHex(ZP.a.deco).lerp(sA.setHex(ZP.b.deco), ZP.t);
+    cStone.setHex(ZP.a.tileA).lerp(sB.setHex(ZP.b.tileA), ZP.t);
+  }
+
+  /* ---- 1. 栏杆细饰: balusters lining both rims, cap lit in the zone accent -- */
+  for (let s = 0; s < n; s++) {
+    const ax = s & 1, L = path.segLen[s];
+    const t0 = hw + 0.9, t1 = L - hw - 0.5;
+    if (t1 - t0 < 1.2) continue;
+    palAt(path.segD0[s] / path.totalD);
+    const bw = 0.14, out = hw + 0.18;
+    for (let t = t0; t <= t1; t += 5.5) {
+      for (let side = -1; side <= 1; side += 2) {
+        const px = path.cx[s] + (ax === 0 ? t : side * out);
+        const pz = path.cz[s] + (ax === 1 ? t : side * out);
+        if (!spotClear(path, px, pz, bw + 0.03, 0.02)) continue;
+        bt.box(px - bw, -fh - 0.5, pz - bw, px + bw, 0.66, pz + bw,
+          cStone.r * 1.5, cStone.g * 1.5, cStone.b * 1.5, F_ALL);
+        gl.box(px - bw * 1.3, 0.66, pz - bw * 1.3, px + bw * 1.3, 0.82, pz + bw * 1.3,
+          cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+      }
+    }
+  }
+
+  /* ---- 2. 列柱: base / fluted shaft / capital / lit inlay ---- */
+  for (let s = 2; s < n - 1; s += 4) {
+    const ax = s & 1, L = path.segLen[s];
+    palAt(path.segD0[s] / path.totalD);
+    const off = hw + 3.4;
+    const h = 11 + (s * 13) % 9;
+    for (let side = -1; side <= 1; side += 2) {
+      const px = path.cx[s] + (ax === 0 ? L * 0.5 : side * off);
+      const pz = path.cz[s] + (ax === 1 ? L * 0.5 : side * off);
+      const rB = 1.05, rS = 0.72, rC = 1.0;
+      if (!spotClear(path, px, pz, rB + 0.1, 0.35)) continue;
+      const y0 = -fh - 1.6;
+      bt.box(px - rB, y0, pz - rB, px + rB, y0 + 0.85, pz + rB,
+        cStone.r * 1.15, cStone.g * 1.15, cStone.b * 1.15, F_ALL);              /* base  */
+      bt.box(px - rS, y0 + 0.85, pz - rS, px + rS, y0 + h, pz + rS,
+        cStone.r * 1.9, cStone.g * 1.9, cStone.b * 1.9, F_ALL);                 /* shaft */
+      bt.box(px - rC, y0 + h, pz - rC, px + rC, y0 + h + 0.9, pz + rC,
+        cStone.r * 1.35, cStone.g * 1.35, cStone.b * 1.35, F_ALL);              /* capital */
+      /* two fluting seams + a lit ring under the capital */
+      gl.box(px - 0.07, y0 + 1.1, pz - rS - 0.035, px + 0.07, y0 + h - 0.2, pz + rS + 0.035,
+        cAcc.r * 0.55, cAcc.g * 0.55, cAcc.b * 0.55, F_PZ | F_NZ);
+      gl.box(px - rS - 0.035, y0 + 1.1, pz - 0.07, px + rS + 0.035, y0 + h - 0.2, pz + 0.07,
+        cAcc.r * 0.55, cAcc.g * 0.55, cAcc.b * 0.55, F_PX | F_NX);
+      gl.box(px - rC * 1.02, y0 + h - 0.22, pz - rC * 1.02, px + rC * 1.02, y0 + h, pz + rC * 1.02,
+        cAcc.r, cAcc.g, cAcc.b, F_SIDES);
+    }
+  }
+
+  /* ---- 3. 拱顶: a stepped vault straddling the track at every phrase ---- */
+  const ph = path.phraseIdx;
+  if (ph) {
+    for (let k = 0; k < ph.length; k++) {
+      const s = ph[k];
+      if (s < 2 || s >= n - 1) continue;
+      const ax = s & 1, px = path.cx[s], pz = path.cz[s];
+      palAt(path.segD0[s] / path.totalD);
+      const gap = hw + 1.75, post = 0.5, top = 8.6;
+      /* both feet must be clear of the whole track (a neighbouring parallel
+         corridor can run as close as one short segment away) — otherwise skip
+         the vault entirely rather than build half an arch */
+      const fh2 = post * 1.5 + 0.05;
+      let blocked = false;
+      for (let sd = -1; sd <= 1; sd += 2) {
+        const ox = ax === 0 ? 0 : sd * gap, oz = ax === 0 ? sd * gap : 0;
+        if (!spotClear(path, px + ox, pz + oz, fh2, 0.3)) blocked = true;
+      }
+      if (blocked) continue;
+      for (let sd = -1; sd <= 1; sd += 2) {
+        const ox = ax === 0 ? 0 : sd * gap, oz = ax === 0 ? sd * gap : 0;
+        const cx2 = px + ox, cz2 = pz + oz;
+        bt.box(cx2 - post * 1.5, -fh - 1.2, cz2 - post * 1.5, cx2 + post * 1.5, -fh + 0.5, cz2 + post * 1.5,
+          cStone.r * 1.1, cStone.g * 1.1, cStone.b * 1.1, F_ALL);
+        bt.box(cx2 - post, -fh + 0.5, cz2 - post, cx2 + post, top, cz2 + post,
+          cStone.r * 1.7, cStone.g * 1.7, cStone.b * 1.7, F_ALL);
+        bt.box(cx2 - post * 1.3, top, cz2 - post * 1.3, cx2 + post * 1.3, top + 0.6, cz2 + post * 1.3,
+          cStone.r * 1.25, cStone.g * 1.25, cStone.b * 1.25, F_ALL);
+        /* inner light band facing the corridor */
+        if (ax === 0) {
+          gl.box(cx2 - post * 0.6, 1.4, cz2 - sd * post - 0.04, cx2 + post * 0.6, top - 0.4, cz2 - sd * post + 0.04,
+            cAcc.r, cAcc.g, cAcc.b, F_PZ | F_NZ);
+        } else {
+          gl.box(cx2 - sd * post - 0.04, 1.4, cz2 - post * 0.6, cx2 - sd * post + 0.04, top - 0.4, cz2 + post * 0.6,
+            cAcc.r, cAcc.g, cAcc.b, F_PX | F_NX);
+        }
+      }
+      /* stepped lintel + keystone + pendants, all well above the ribbon */
+      const y1 = top + 0.6;
+      for (let st = 0; st < 3; st++) {
+        const shrink = st * 0.22, hy = y1 + st * 0.55;
+        if (ax === 0) {
+          bt.box(px - post * (1.2 - shrink), hy, pz - gap - post, px + post * (1.2 - shrink), hy + 0.55, pz + gap + post,
+            cStone.r * (1.4 + st * 0.2), cStone.g * (1.4 + st * 0.2), cStone.b * (1.4 + st * 0.2), F_ALL);
+        } else {
+          bt.box(px - gap - post, hy, pz - post * (1.2 - shrink), px + gap + post, hy + 0.55, pz + post * (1.2 - shrink),
+            cStone.r * (1.4 + st * 0.2), cStone.g * (1.4 + st * 0.2), cStone.b * (1.4 + st * 0.2), F_ALL);
+        }
+      }
+      if (ax === 0) {
+        gl.box(px - 0.3, y1 - 0.16, pz - gap, px + 0.3, y1 - 0.02, pz + gap, cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+        bt.box(px - 0.42, y1 + 1.65, pz - 0.42, px + 0.42, y1 + 2.5, pz + 0.42,
+          cStone.r * 2.1, cStone.g * 2.1, cStone.b * 2.1, F_ALL);
+        for (let sd = -1; sd <= 1; sd += 2) {
+          bt.box(px - 0.2, y1 - 1.5, pz + sd * (gap - 0.9) - 0.2, px + 0.2, y1, pz + sd * (gap - 0.9) + 0.2,
+            cStone.r * 1.6, cStone.g * 1.6, cStone.b * 1.6, F_ALL);
+          gl.box(px - 0.26, y1 - 1.85, pz + sd * (gap - 0.9) - 0.26, px + 0.26, y1 - 1.5, pz + sd * (gap - 0.9) + 0.26,
+            cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+        }
+      } else {
+        gl.box(px - gap, y1 - 0.16, pz - 0.3, px + gap, y1 - 0.02, pz + 0.3, cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+        bt.box(px - 0.42, y1 + 1.65, pz - 0.42, px + 0.42, y1 + 2.5, pz + 0.42,
+          cStone.r * 2.1, cStone.g * 2.1, cStone.b * 2.1, F_ALL);
+        for (let sd = -1; sd <= 1; sd += 2) {
+          bt.box(px + sd * (gap - 0.9) - 0.2, y1 - 1.5, pz - 0.2, px + sd * (gap - 0.9) + 0.2, y1, pz + 0.2,
+            cStone.r * 1.6, cStone.g * 1.6, cStone.b * 1.6, F_ALL);
+          gl.box(px + sd * (gap - 0.9) - 0.26, y1 - 1.85, pz - 0.26, px + sd * (gap - 0.9) + 0.26, y1 - 1.5, pz + 0.26,
+            cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+        }
+      }
+    }
+  }
+
+  /* ---- 4. 层叠露台: terraces stepping down into the void ---- */
+  for (let s = 3; s < n - 1; s += 5) {
+    const ax = s & 1, L = path.segLen[s], side = ((s / 5) | 0) & 1 ? 1 : -1;
+    palAt(path.segD0[s] / path.totalD);
+    const cx2 = path.cx[s] + (ax === 0 ? L * 0.5 : side * (hw + 8.5));
+    const cz2 = path.cz[s] + (ax === 1 ? L * 0.5 : side * (hw + 8.5));
+    for (let tier = 0; tier < 3; tier++) {
+      const wd = 5.5 + tier * 2.6, dp = 4.5 + tier * 2.2, y = -fh - 1.4 - tier * 1.7;
+      const hx = ax === 0 ? wd * 0.5 : dp * 0.5, hz = ax === 0 ? dp * 0.5 : wd * 0.5;
+      if (!pathClear(path, cx2 - hx, cx2 + hx, cz2 - hz, cz2 + hz, 0.5)) break;
+      bt.box(cx2 - hx, y - 1.5, cz2 - hz, cx2 + hx, y, cz2 + hz,
+        cStone.r * (1.5 - tier * 0.3), cStone.g * (1.5 - tier * 0.3), cStone.b * (1.5 - tier * 0.3), F_NOBOT);
+      if (tier === 0) {
+        gl.box(cx2 - hx, y - 0.16, cz2 - hz, cx2 + hx, y + 0.02, cz2 - hz + 0.28, cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+        gl.box(cx2 - hx, y - 0.16, cz2 + hz - 0.28, cx2 + hx, y + 0.02, cz2 + hz, cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+      }
+    }
+  }
+
+  /* ---- 5. 旗幡: tall banners with lit stripes ---- */
+  for (let s = 5; s < n - 1; s += 7) {
+    const ax = s & 1, L = path.segLen[s], side = ((s / 7) | 0) & 1 ? -1 : 1;
+    palAt(path.segD0[s] / path.totalD);
+    const off = hw + 5.4;
+    const px = path.cx[s] + (ax === 0 ? L * 0.5 : side * off);
+    const pz = path.cz[s] + (ax === 1 ? L * 0.5 : side * off);
+    const wd = 2.4, th = 0.22, h = 9 + (s * 7) % 6;
+    const hx = ax === 0 ? wd * 0.5 : th, hz = ax === 0 ? th : wd * 0.5;
+    if (!pathClear(path, px - hx, px + hx, pz - hz, pz + hz, 0.4)) continue;
+    bt.box(px - hx, 1.4, pz - hz, px + hx, 1.4 + h, pz + hz,
+      cStone.r * 1.3, cStone.g * 1.3, cStone.b * 1.3, F_ALL);
+    for (let b2 = 0; b2 < 3; b2++) {
+      const y = 1.4 + h * (0.24 + b2 * 0.24);
+      gl.box(px - hx * 1.03, y, pz - hz * 1.03, px + hx * 1.03, y + 0.34, pz + hz * 1.03,
+        cAcc.r, cAcc.g, cAcc.b, F_SIDES);
+    }
+  }
+
+  /* ---- 6. 远景尖塔: tapered spires far out, lit tips ---- */
+  for (let i = 0; i < 22; i++) {
+    const s = 4 + ((i * 2.83 * n / 22) | 0) % (n - 6);
+    const ax = s & 1, side = i & 1 ? 1 : -1;
+    const off = hw + 24 + (i % 4) * 12;
+    palAt(path.segD0[s] / path.totalD);
+    const px = path.cx[s] + (ax === 0 ? path.segLen[s] * 0.5 : side * off);
+    const pz = path.cz[s] + (ax === 1 ? path.segLen[s] * 0.5 : side * off);
+    let w = 2.6 + (i % 3) * 0.9;
+    let y = -fh - 6;
+    if (!spotClear(path, px, pz, w, 0.8)) continue;
+    for (let seg = 0; seg < 3; seg++) {
+      const hgt = 9 + (i % 5) * 3 - seg * 1.4;
+      bt.box(px - w, y, pz - w, px + w, y + hgt, pz + w,
+        cStone.r * (1.1 + seg * 0.25), cStone.g * (1.1 + seg * 0.25), cStone.b * (1.1 + seg * 0.25), F_ALL);
+      y += hgt; w *= 0.66;
+    }
+    gl.box(px - w * 1.4, y, pz - w * 1.4, px + w * 1.4, y + 1.5, pz + w * 1.4, cAcc.r, cAcc.g, cAcc.b, F_NOBOT);
+  }
+
+  /* ---- 7. 悬灯 + 光环: two InstancedMeshes, beat-breathing ---- */
+  const LN = 44;
+  const lgeo = new THREE.OctahedronGeometry(0.62, 0);
+  const lmat = new THREE.MeshPhongMaterial({
+    color: 0x2a1a10, emissive: cfg.pal.deco1, emissiveIntensity: 0.9,
+    flatShading: true, shininess: 80, specular: 0xffffff
+  });
+  LV.pulseMats.push(lmat);
+  const lim = new THREE.InstancedMesh(lgeo, lmat, LN);
+  lim.castShadow = false;
+  const ldata = new Float32Array(LN * 5);
+  for (let i = 0; i < LN; i++) {
+    const s = 2 + ((i * 3.13 * n / LN) | 0) % (n - 3);
+    const ax = s & 1, side = (i & 1) ? 1 : -1;
+    ldata[i * 5] = path.cx[s] + (ax === 0 ? path.segLen[s] * 0.5 : side * (hw + 1.9));
+    ldata[i * 5 + 1] = 4.6 + (i % 4) * 1.5;
+    ldata[i * 5 + 2] = path.cz[s] + (ax === 1 ? path.segLen[s] * 0.5 : side * (hw + 1.9));
+    ldata[i * 5 + 3] = rnd() * 6.28318;
+    ldata[i * 5 + 4] = 0.8 + (i % 3) * 0.35;
+    palAt(path.segD0[s] / path.totalD);
+    _col.copy(cAcc);
+    lim.setColorAt(i, _col);
+  }
+  lim.instanceColor.needsUpdate = true;
+  lim.userData.data = ldata; lim.userData.kind = 'float';
+  GFX.level.add(lim); LV.instanced.push(lim);
+
+  const RN = 26;
+  const rgeo = new THREE.TorusGeometry(1.9, 0.12, 3, 16);
+  const rmat = new THREE.MeshPhongMaterial({
+    color: 0x241608, emissive: cfg.pal.deco2, emissiveIntensity: 0.8,
+    flatShading: true, shininess: 90, specular: 0xffffff
+  });
+  LV.pulseMats.push(rmat);
+  const rim2 = new THREE.InstancedMesh(rgeo, rmat, RN);
+  rim2.castShadow = false;
+  const rdata = new Float32Array(RN * 5);
+  for (let i = 0; i < RN; i++) {
+    const s = 3 + ((i * 4.07 * n / RN) | 0) % (n - 4);
+    const ax = s & 1;
+    const off = (rnd() - 0.5) * 2 * (hw + 6 + rnd() * 8);
+    rdata[i * 5] = path.cx[s] + (ax === 0 ? rnd() * path.segLen[s] : off);
+    rdata[i * 5 + 1] = 7 + rnd() * 12;
+    rdata[i * 5 + 2] = path.cz[s] + (ax === 1 ? rnd() * path.segLen[s] : off);
+    rdata[i * 5 + 3] = rnd() * 6.28318;
+    rdata[i * 5 + 4] = 0.8 + rnd() * 1.5;
+    palAt(path.segD0[s] / path.totalD);
+    _col.copy(cAcc);
+    rim2.setColorAt(i, _col);
+  }
+  rim2.instanceColor.needsUpdate = true;
+  rim2.userData.data = rdata; rim2.userData.kind = 'ring';
+  GFX.level.add(rim2); LV.instanced.push(rim2);
+
+  buildGates(cfg, path, rnd, 12, 11, 0x2a1408, cfg.pal.edge);
+  buildDust(cfg, path, rnd, 220, 0.4, 40, 30);
+}
+
+/* ---------------------------------------------- diamonds / crowns (pickups) */
+function crownGeometry() {
+  const bt = new Batch();
+  const band = new THREE.CylinderGeometry(0.62, 0.66, 0.42, 9, 1, true);
+  const spike = new THREE.ConeGeometry(0.2, 0.72, 4, 1);
+  const jewel = new THREE.OctahedronGeometry(0.17, 0);
+  _m4.makeTranslation(0, 0, 0);
+  bt.merge(band, _m4, 1, 0.79, 0.22);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * 6.28318, R = 0.6;
+    _m4.makeTranslation(Math.cos(a) * R, 0.5, Math.sin(a) * R);
+    bt.merge(spike, _m4, 1, 0.86, 0.35);
+    _m4.makeTranslation(Math.cos(a) * R, 0.86, Math.sin(a) * R);
+    bt.merge(jewel, _m4, 1, 1, 0.85);
+  }
+  _m4.makeScale(1, 0.4, 1).setPosition(0, -0.24, 0);
+  bt.merge(band, _m4, 0.9, 0.68, 0.2);
+  band.dispose(); spike.dispose(); jewel.dispose();
+  return bt.geometry();
+}
+function buildCollectibles(cfg, path, rnd) {
+  const n = path.n, pal = cfg.pal;
+  const rate = cfg.diaRate === undefined ? 0.44 : cfg.diaRate;
+  const xs = [], zs = [], ds = [], ty = [];
+  const crownAt = [Math.round(n * 0.22) | 1, Math.round(n * 0.52) | 1, Math.round(n * 0.82) | 1];
+  for (let s = 2; s < n - 2; s++) {
+    let isCrown = false;
+    for (let k = 0; k < 3; k++) if (crownAt[k] === s) isCrown = true;
+    if (isCrown) {
+      const d = path.segD0[s] + path.segLen[s] * 0.5;
+      pathPos(path, d, _tmp3);
+      xs.push(_tmp3[0]); zs.push(_tmp3[1]); ds.push(d); ty.push(1);
+      continue;
+    }
+    if (rnd() > rate) continue;
+    const cnt = path.segLen[s] > 16 && rnd() < 0.5 ? 2 : 1;
+    for (let k = 0; k < cnt; k++) {
+      const f = cnt === 1 ? 0.35 + rnd() * 0.3 : (k === 0 ? 0.26 : 0.7);
+      const d = path.segD0[s] + path.segLen[s] * f;
+      pathPos(path, d, _tmp3);
+      xs.push(_tmp3[0]); zs.push(_tmp3[1]); ds.push(d); ty.push(0);
+    }
+  }
+  const N = xs.length;
+  LV.colN = N;
+  LV.colX = new Float32Array(xs); LV.colZ = new Float32Array(zs);
+  LV.colD = new Float32Array(ds); LV.colType = new Uint8Array(ty);
+  LV.colTaken = new Uint8Array(N); LV.colAnim = new Float32Array(N);
+  LV.colInst = new Int16Array(N);
+  LV.colCur = 0;
+  let dN = 0, cN = 0;
+  for (let i = 0; i < N; i++) { if (ty[i] === 0) LV.colInst[i] = dN++; else LV.colInst[i] = cN++; }
+  LV.diaTotal = dN; LV.crownTotal = cN;
+
+  /* diamonds: single InstancedMesh, matrices refreshed every frame */
+  const dg = new THREE.OctahedronGeometry(0.62, 0);
+  const dm = new THREE.MeshPhongMaterial({
+    color: pal.dia, emissive: pal.dia, emissiveIntensity: 0.42,
+    flatShading: true, shininess: 90, specular: 0xffffff
+  });
+  const im = new THREE.InstancedMesh(dg, dm, Math.max(1, dN));
+  im.castShadow = false; im.frustumCulled = false;
+  GFX.level.add(im);
+  LV.diaMesh = im; LV.diaN = dN;
+
+  /* crowns: individual meshes (own material → real opacity fade) */
+  const cg = crownGeometry();
+  LV.crowns.length = 0;
+  for (let i = 0; i < N; i++) {
+    if (LV.colType[i] !== 1) continue;
+    const mat = new THREE.MeshPhongMaterial({
+      vertexColors: true, flatShading: true, shininess: 80, specular: 0xffffff,
+      emissive: pal.crown, emissiveIntensity: 0.3, transparent: true, opacity: 1
+    });
+    const m = new THREE.Mesh(cg, mat);
+    m.castShadow = false;
+    m.position.set(LV.colX[i], 1.5, LV.colZ[i]);
+    m.userData.ci = i;
+    GFX.level.add(m);
+    LV.crowns.push(m);
+  }
+  if (!LV.crowns.length) cg.dispose();
+}
+
+/* ==========================================================================
+   PLAYER TIP  (persistent objects — never re-created)
+   The ribbon itself IS the line: there is no separate coloured head block.
+   `HEAD.mesh` only appears as the tumbling fragment during the death fall,
+   and it is tinted with the live ribbon colour so it still reads as the line.
+   ========================================================================== */
+const HEAD = { mesh: null, ring: null, mat: null, ringMat: null };
+function headInit() {
+  const g = new THREE.BoxGeometry(1, 1, 1);
+  const m = new THREE.MeshLambertMaterial({ flatShading: true });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.castShadow = true;
+  mesh.visible = false;
+  HEAD.mesh = mesh; HEAD.mat = m;
+  GFX.persist.add(mesh);
+
+  const rg = new THREE.RingGeometry(0.62, 0.95, 26, 1);
+  const rm = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+  });
+  const ring = new THREE.Mesh(rg, rm);
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 4;
+  HEAD.ring = ring; HEAD.ringMat = rm;
+  GFX.persist.add(ring);
+}
+
+/* ==========================================================================
+   GAME STATE
+   ========================================================================== */
+const GM = {
+  state: 'menu', idx: 0,
+  d: 0, hx: 0, hz: 0, axis: 0, segStartD: 0, segStartX: 0, segStartZ: 0,
+  rectCur: 0, cornerCur: 1, gateCur: 0,
+  turns: 0, perfect: 0, good: 0, streak: 0, bestStreak: 0, dia: 0, crown: 0,
+  deathT: 0, headY: 0, headVy: 0, headSpin: 0, winT: 0, deadCause: '', won: false, turnRing: 0,
+  camPos: new THREE.Vector3(), camTgt: new THREE.Vector3(), camReady: false, shake: 0,
+  inputT: new Float64Array(16), inputD: new Float64Array(16), inputN: 0,
+  lastPerf: 0, lastSong: 0, pauseFromBlur: false,
+  hudProg: -1, hudDia: -1, hudCrown: -1
+};
+const CAMOFF = [[-17.5, 21.5, -17.5], [-14.5, 18.0, -14.5], [-13.0, 16.6, -13.0],
+  [-17.5, 21.0, -17.5], [-15.5, 19.5, -15.5], [-16.5, 20.5, -16.5]];
+const CAMCUR = [-17.5, 21.5, -17.5];
+const UPV = new THREE.Vector3(0, 1, 0);
+const TILTV = new THREE.Vector3(0.42, 1, 0.24).normalize();
+const IDQ = new THREE.Quaternion();
+const FX = { flash: 0, vig: 0, lastFlash: -1, lastVig: -1 };
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+function ensureAudio() {
+  if (!AUD.ctx) audioInit();
+  audioResumeCtx();
+}
+function queueInput(ts) {
+  if (GM.inputN >= 16) return;
+  const now = performance.now();
+  if (!(ts > 0) || ts > now + 500) ts = now;
+  GM.inputT[GM.inputN++] = ts;
+}
+function setHead() {
+  const dd = GM.d - GM.segStartD;
+  GM.hx = GM.segStartX + (GM.axis === 0 ? dd : 0);
+  GM.hz = GM.segStartZ + (GM.axis === 1 ? dd : 0);
+}
+function onFloor() {
+  const p = LV.path, r = p.rects, n = p.nRects, g = 0.17;
+  const c = GM.rectCur;
+  const lo = c - 2 < 0 ? 0 : c - 2, hi = c + 6 < n ? c + 6 : n;
+  const x = GM.hx, z = GM.hz;
+  for (let i = lo; i < hi; i++) {
+    const o = i * 4;
+    if (x >= r[o] - g && x <= r[o + 1] + g && z >= r[o + 2] - g && z <= r[o + 3] + g) { GM.rectCur = i; return true; }
+  }
+  return false;
+}
+function gateS(t, passT, period) {
+  let u = (t - passT) / period;
+  u -= Math.floor(u + 0.5);
+  return smoothstep(0.28, 0.5, u < 0 ? -u : u);
+}
+function gateHit(pathTime) {
+  const N = LV.gateN;
+  if (!N) return false;
+  const gd = LV.gates, hw = LV.path.hw + 0.28;
+  while (GM.gateCur < N - 1 && gd[GM.gateCur * 8 + 7] < GM.d - 6) GM.gateCur++;
+  const hi = Math.min(N, GM.gateCur + 3);
+  for (let i = GM.gateCur; i < hi; i++) {
+    const o = i * 8, h = gd[o + 3];
+    const top = lerp(-0.7, h, gateS(pathTime, gd[o + 4], gd[o + 5]));
+    if (top < 0.14) continue;
+    const hl = gd[o + 6], ax = gd[o + 2];
+    const rx = ax === 0 ? hl : hw, rz = ax === 0 ? hw : hl;
+    if (Math.abs(GM.hx - gd[o]) <= rx && Math.abs(GM.hz - gd[o + 1]) <= rz) return true;
+  }
+  return false;
+}
+function checkPickups() {
+  const N = LV.colN;
+  if (!N) return;
+  while (LV.colCur < N && (LV.colTaken[LV.colCur] || LV.colD[LV.colCur] < GM.d - 4)) LV.colCur++;
+  const hi = Math.min(N, LV.colCur + 4);
+  for (let i = LV.colCur; i < hi; i++) {
+    if (LV.colTaken[i]) continue;
+    if (LV.colD[i] > GM.d + 3) break;
+    const dx = GM.hx - LV.colX[i], dz = GM.hz - LV.colZ[i];
+    if (dx * dx + dz * dz > 2.4) continue;
+    LV.colTaken[i] = 1; LV.colAnim[i] = 1;
+    const pal = LV.cfg.pal;
+    if (LV.colType[i] === 0) {
+      GM.dia++;
+      _col.setHex(pal.dia);
+      ptEmit(10, LV.colX[i], 1.25, LV.colZ[i], 5.5, 0.5, 3.2, _col.r, _col.g, _col.b, 0.5, 6, 2.6);
+      sfxPickup(GM.dia);
+      FX.flash = Math.max(FX.flash, 0.06);
+    } else {
+      GM.crown++;
+      _col.setHex(pal.crown);
+      ptEmit(26, LV.colX[i], 1.6, LV.colZ[i], 8.5, 0.8, 5.5, _col.r, _col.g, _col.b, 0.95, 7, 1.9);
+      sfxCrown();
+      FX.flash = Math.max(FX.flash, 0.26);
+      judgeShow('CROWN!', '#ffd479');
+    }
+  }
+}
+function advanceTo(dTarget, pathTime) {
+  const step = LV.path.hw * 0.7;
+  while (GM.d < dTarget - 1e-9) {
+    let nx = GM.d + step;
+    if (nx > dTarget) nx = dTarget;
+    GM.d = nx; setHead();
+    if (!onFloor()) { die('fall'); return false; }
+    if (gateHit(pathTime)) { die('gate'); return false; }
+    checkPickups();
+  }
+  return true;
+}
+function judgeShow(txt, colr) {
+  const e = D.hJudge;
+  e.textContent = txt; e.style.color = colr;
+  e.classList.remove('go');
+  void e.offsetWidth;
+  e.classList.add('go');
+}
+function doTurn(dTurn) {
+  const p = LV.path;
+  GM.d = dTurn; setHead();
+  /* judge against the nearest ideal corner */
+  let k = GM.cornerCur;
+  if (k > p.n) k = p.n;
+  while (k < p.n && Math.abs(p.segD0[k + 1] - dTurn) < Math.abs(p.segD0[k] - dTurn)) k++;
+  const err = Math.abs(p.segD0[k] - dTurn);
+  GM.cornerCur = Math.min(p.n, k + 1);
+  GM.turns++;
+  const pal = LV.cfg.pal;
+  /* ---- DRIFT CONTROL -------------------------------------------------------
+     The head's position is integrated from the player's own turn points, so the
+     coordinate that freezes at a corner keeps that corner's timing error for
+     the rest of the run. Left alone, a small systematic (or random-walk) bias
+     accumulates per axis and eventually walks the line off a perfectly played
+     track — an invisible, unfair death. Rubber-band the freezing coordinate
+     back toward the ideal corner: contracting, so error can never build up,
+     capped so the correction is never a visible kink. */
+  const kc = Math.min(k, p.n);
+  if (GM.axis === 0) {
+    const e = GM.hx - p.cx[kc];
+    GM.hx -= clamp(e * 0.55, -0.30, 0.30);
+  } else {
+    const e = GM.hz - p.cz[kc];
+    GM.hz -= clamp(e * 0.55, -0.30, 0.30);
+  }
+  if (err < 0.34) {
+    GM.perfect++; GM.streak++;
+    _col.setHex(pal.trailB);
+    ptEmit(8, GM.hx, LV.cfg.lh, GM.hz, 4.2, 0.35, 2.6, _col.r * 1.4, _col.g * 1.4, _col.b * 1.4, 0.4, 5, 3.2);
+    if (GM.streak % 10 === 0) judgeShow('PERFECT ×' + GM.streak, '#7ce0ff');
+  } else if (err < 0.95) { GM.good++; GM.streak++; }
+  else { GM.streak = 0; }
+  if (GM.streak > GM.bestStreak) GM.bestStreak = GM.streak;
+  if (GM.streak >= 5) { D.hCombo.textContent = GM.streak + ' STREAK'; D.hCombo.classList.add('on'); }
+  else D.hCombo.classList.remove('on');
+
+  GM.axis ^= 1;
+  GM.segStartD = dTurn; GM.segStartX = GM.hx; GM.segStartZ = GM.hz;
+  trailTurn(GM.hx, GM.hz, GM.axis, dTurn / p.totalD);
+  GM.turnRing = 1;            /* ripple out from the tap itself */
+}
+function die(cause) {
+  if (GM.state !== 'play') return;
+  GM.state = 'dying'; GM.deathT = 0; GM.deadCause = cause;
+  GM.headVy = cause === 'gate' ? 5.5 : 1.2;
+  GM.headSpin = 0;
+  GM.shake = 1;
+  musicStop(0.5);
+  sfxDeath();
+  const pal = LV.cfg.pal;
+  /* the tumbling fragment is the ribbon tip breaking off, in the ribbon colour */
+  const tc = trailProgressColor(GM.d / LV.path.totalD);
+  HEAD.mat.color.copy(tc);
+  HEAD.mesh.visible = true;
+  HEAD.mesh.position.set(GM.hx, LV.cfg.lh * 0.5, GM.hz);
+  _col.setHex(pal.trailB); _col2.copy(tc);
+  ptEmit(34, GM.hx, LV.cfg.lh * 0.6, GM.hz, 11, 0.6, 4.4, _col.r, _col.g, _col.b, 0.95, 17, 1.1);
+  ptEmit(18, GM.hx, LV.cfg.lh * 0.6, GM.hz, 6, 0.4, 6.5, _col2.r, _col2.g, _col2.b, 0.75, 13, 1.6);
+  FX.flash = 0.5; FX.vig = 1;
+  D.hCombo.classList.remove('on');
+  judgeShow(cause === 'gate' ? 'CRUSHED' : 'MISSED', '#ff6f91');
+}
+function winLevel() {
+  if (GM.state !== 'play') return;
+  GM.state = 'win'; GM.winT = 0;
+  GM.hudProg = 100; D.hProg.textContent = '100.0'; D.hFill.style.width = '100%';
+  musicStop(1.6);
+  sfxWin();
+  const pal = LV.cfg.pal;
+  _col.setHex(pal.crown); _col2.setHex(pal.trailB);
+  ptEmit(40, GM.hx, 1.0, GM.hz, 10, 1.4, 8.5, _col.r, _col.g, _col.b, 1.5, 6.5, 1.0);
+  ptEmit(30, GM.hx, 1.0, GM.hz, 7, 1.0, 10.5, _col2.r, _col2.g, _col2.b, 1.7, 5.5, 1.0);
+  FX.flash = 0.62;
+  judgeShow('COMPLETE!', '#a6ff9e');
+}
+
+/* ------------------------------------------------------------ run lifecycle */
+function resetRun() {
+  const cfg = LV.cfg, p = LV.path;
+  GM.d = 0; GM.axis = 0; GM.segStartD = 0; GM.segStartX = 0; GM.segStartZ = 0;
+  GM.hx = 0; GM.hz = 0; GM.rectCur = 0; GM.cornerCur = 1; GM.gateCur = 0;
+  GM.turns = 0; GM.perfect = 0; GM.good = 0; GM.streak = 0; GM.bestStreak = 0;
+  GM.dia = 0; GM.crown = 0; GM.deathT = 0; GM.winT = 0;
+  GM.headY = 0; GM.headVy = 0; GM.headSpin = 0; GM.shake = 0; GM.turnRing = 0;
+  GM.inputN = 0; GM.camReady = false;
+  GM.hudProg = -1; GM.hudDia = -1; GM.hudCrown = -1;
+  p.phCur = 0;
+  LV.colTaken.fill(0); LV.colAnim.fill(1); LV.colCur = 0;
+  for (let i = 0; i < LV.crowns.length; i++) {
+    const m = LV.crowns[i];
+    m.visible = true; m.scale.setScalar(1); m.material.opacity = 1;
+    m.position.y = 1.5;
+  }
+  ptClear();
+  trailReset(cfg, 0, 0, 0);
+  HEAD.mesh.visible = false;
+  HEAD.mesh.scale.set(cfg.lw * 2.0, cfg.lh, cfg.lw * 2.0);
+  HEAD.mat.color.setHex(cfg.pal.trailA);
+  HEAD.mesh.rotation.set(0, 0, 0);
+  HEAD.mesh.position.set(0, cfg.lh * 0.5, 0);
+  HEAD.ringMat.color.setHex(cfg.pal.trailB);
+  HEAD.ringMat.opacity = 0;
+  /* camera framing: zone levels start on their first zone's rig */
+  const off = (cfg.zones ? cfg.zones[0].cam : CAMOFF[LV.idx]) || CAMOFF[0];
+  CAMCUR[0] = off[0]; CAMCUR[1] = off[1]; CAMCUR[2] = off[2];
+  zoneLastPaint = -1;
+  D.hCombo.classList.remove('on');
+  D.hJudge.classList.remove('go');
+  D.hName.textContent = cfg.name;
+  D.hDia.innerHTML = '0<small>/' + LV.diaTotal + '</small>';
+  D.hCrown.innerHTML = '0<small>/' + LV.crownTotal + '</small>';
+  D.hProg.textContent = '0';
+  D.hFill.style.width = '0%';
+  FX.flash = 0; FX.vig = 0;
+  D.flash.style.opacity = '0'; D.vig.style.opacity = '0';
+  FX.lastFlash = 0; FX.lastVig = 0;
+  updateCamera(1, 0, true);
+}
+/** Arm a level and wait for the player: nothing moves and no music plays until
+ *  they tap, so selecting a level never costs a blind count-in. */
+function startLevel(idx) {
+  ensureAudio();
+  const rebuild = (LV.idx !== idx) || !LV.path;
+  GM.idx = idx;
+  if (rebuild) { buildLevel(idx); LV.idx = idx; }
+  LV.leadIn = buildScore(LEVELS[idx], LV.path);
+  musicRestoreBuses();
+  AUD.playing = false;
+  AUD.t0 = nowClock();
+  resetRun();
+  if (LV.cfg.zones) updateZones(0, 1);
+  GM.lastPerf = performance.now();
+  GM.lastSong = 0;
+  GM.state = 'ready';
+  D.hStartLvl.textContent = LV.cfg.name + ' · ' + LV.cfg.en + ' · ' + LV.cfg.stars;
+  showLayer(D.menu, false); showLayer(D.result, false); showLayer(D.pause, false);
+  showLayer(D.hud, true);
+  D.hStart.classList.add('on');
+}
+/** the tap that actually launches the run */
+function beginRun() {
+  if (GM.state !== 'ready') return;
+  D.hStart.classList.remove('on');
+  musicStart();
+  GM.lastPerf = performance.now();
+  GM.lastSong = songTime();
+  GM.inputN = 0;
+  GM.state = 'play';
+}
+function restart() {
+  if (GM.state === 'menu') return;
+  startLevel(GM.idx);
+}
+function toMenu() {
+  if (GM.state === 'menu') return;
+  musicStop(0.25);
+  GM.state = 'menu';
+  D.hStart.classList.remove('on');
+  showLayer(D.hud, false); showLayer(D.result, false); showLayer(D.pause, false);
+  showLayer(D.menu, true);
+  refreshCards();
+  sfxUI(0);
+}
+function pauseGame(fromBlur) {
+  if (GM.state !== 'play') return;
+  GM.state = 'paused'; GM.pauseFromBlur = !!fromBlur;
+  audioPause();
+  showLayer(D.pause, true);
+}
+function resumeGame() {
+  if (GM.state !== 'paused') return;
+  showLayer(D.pause, false);
+  audioUnpause();
+  GM.lastPerf = performance.now();
+  GM.lastSong = songTime();
+  GM.inputN = 0;
+  GM.state = 'play';
+}
+function togglePause() {
+  if (GM.state === 'play') pauseGame(false);
+  else if (GM.state === 'paused') resumeGame();
+}
+function showResult(won) {
+  GM.state = 'result'; GM.won = won;
+  const p = LV.path;
+  const pct = won ? 100 : clamp(GM.d / p.totalD * 100, 0, 99.9);
+  const shown = won ? 100 : Math.floor(pct * 10) / 10;
+  D.rTitle.textContent = won ? 'LEVEL COMPLETE' : 'CRASHED';
+  D.rTitle.style.color = won ? '#a6ff9e' : '#ff8fa3';
+  D.rPct.textContent = won ? '100' : shown.toFixed(1);
+  D.rLvl.textContent = LV.cfg.name + ' · ' + LV.cfg.en;
+  const dT = Math.max(1, LV.diaTotal), cT = Math.max(1, LV.crownTotal);
+  D.rvD.textContent = GM.dia + '/' + LV.diaTotal;
+  D.rfD.style.width = (GM.dia / dT * 100) + '%';
+  D.rvC.textContent = GM.crown + '/' + LV.crownTotal;
+  D.rfC.style.width = (GM.crown / cT * 100) + '%';
+  const acc = GM.turns ? Math.round(GM.perfect / GM.turns * 100) : 0;
+  D.rvP.textContent = acc + '%';
+  D.rfP.style.width = acc + '%';
+  if (pct > BEST[GM.idx]) { BEST[GM.idx] = pct; saveBest(); }
+  D.rBest.textContent = '最佳 ' + BEST[GM.idx].toFixed(1) + '%  ·  转向 ' + GM.turns +
+    '  ·  最长连击 ' + GM.bestStreak;
+  showLayer(D.result, true);
+}
+
+/* ==========================================================================
+   CAMERA / VISUALS
+   ========================================================================== */
+/** Camera framing.
+ *  The look-ahead is a FIXED diagonal, never tied to the current axis, so a tap
+ *  no longer whips the view sideways; and the offset does not breathe with the
+ *  beat. Result: a rock-steady chase view that only glides with the line. */
+function updateCamera(dt, pulse, snap) {
+  const lead = GM.state === 'play' ? 2.6 : 1.2;
+  _v3.set(GM.hx + lead, GM.headY + 1.2, GM.hz + lead);
+  _v3b.set(_v3.x + CAMCUR[0], _v3.y + CAMCUR[1], _v3.z + CAMCUR[2]);
+  if (snap) { GM.camTgt.copy(_v3); GM.camPos.copy(_v3b); GM.camReady = true; }
+  else {
+    GM.camTgt.lerp(_v3, smooth(6.2, dt));
+    GM.camPos.lerp(_v3b, smooth(5.2, dt));
+  }
+  if (GM.shake > 0.001) {
+    const s = GM.shake * 0.75;
+    GFX.camera.position.set(
+      GM.camPos.x + (Math.random() - 0.5) * s,
+      GM.camPos.y + (Math.random() - 0.5) * s,
+      GM.camPos.z + (Math.random() - 0.5) * s);
+  } else GFX.camera.position.copy(GM.camPos);
+  GFX.camera.lookAt(GM.camTgt);
+  /* keep the shadow frustum glued to the action */
+  const dp = LV.cfg ? LV.cfg.pal.dirPos : [-0.5, 1, 0.4];
+  GFX.sunTarget.position.set(GM.hx, 0, GM.hz);
+  GFX.sun.position.set(GM.hx + dp[0] * 52, dp[1] * 52, GM.hz + dp[2] * 52);
+}
+
+/** Scene transitions for zone levels: fog, sky, lights and camera all
+ *  cross-fade with progress, so the world changes character as you travel. */
+let zoneLastPaint = -1;
+function updateZones(prog, dt) {
+  const zones = LV.cfg && LV.cfg.zones;
+  if (!zones) return;
+  zonePick(zones, prog);
+  const a = ZP.a, b = ZP.b, t = ZP.t;
+  ZA.setHex(a.fog).lerp(ZB.setHex(b.fog), t);
+  if (GFX.scene.fog) {
+    GFX.scene.fog.color.copy(ZA);
+    if (GFX.scene.fog.isFogExp2) GFX.scene.fog.density = lerp(a.fogD, b.fogD, t);
+  }
+  BGCOL.copy(ZA);
+  GFX.renderer.setClearColor(ZA, 1);
+  GFX.amb.color.copy(ZC.setHex(a.amb).lerp(ZB.setHex(b.amb), t));
+  GFX.amb.intensity = lerp(a.ambI, b.ambI, t);
+  GFX.sun.color.copy(ZC.setHex(a.dir).lerp(ZB.setHex(b.dir), t));
+  GFX.sun.intensity = lerp(a.dirI, b.dirI, t);
+  /* camera drifts between zone framings — slow enough to feel cinematic */
+  const k = smooth(1.6, dt);
+  CAMCUR[0] += (lerp(a.cam[0], b.cam[0], t) - CAMCUR[0]) * k;
+  CAMCUR[1] += (lerp(a.cam[1], b.cam[1], t) - CAMCUR[1]) * k;
+  CAMCUR[2] += (lerp(a.cam[2], b.cam[2], t) - CAMCUR[2]) * k;
+  /* repaint the sky dome only when the blend has actually moved */
+  const key = (zones.indexOf(a) + t) * 100;
+  if (Math.abs(key - zoneLastPaint) > 0.4) {
+    zoneLastPaint = key;
+    ZC.setHex(a.bgTop).lerp(ZB.setHex(b.bgTop), t);
+    paintBackdropColors(ZA, ZC);
+  }
+}
+function updateDeco(t, pulse, pathTime) {
+  const list = LV.instanced;
+  for (let m = 0; m < list.length; m++) {
+    const im = list[m];
+    if (!im.visible) continue;
+    const data = im.userData.data, kind = im.userData.kind, N = im.count;
+    for (let i = 0; i < N; i++) {
+      const o = i * 5, ph = data[o + 3], sc = data[o + 4];
+      if (kind === 'float') {
+        _q.setFromAxisAngle(TILTV, t * 0.42 + ph);
+        _v3.set(data[o], data[o + 1] + Math.sin(t * 0.75 + ph) * 0.85, data[o + 2]);
+        _v3b.setScalar(sc * (1 + pulse * 0.06));
+      } else if (kind === 'crystal') {
+        _q.setFromAxisAngle(UPV, t * 0.5 + ph);
+        _v3.set(data[o], data[o + 1] + Math.sin(t * 0.9 + ph) * 0.55, data[o + 2]);
+        _v3b.set(sc * 0.62, sc * (1.35 + pulse * 0.22), sc * 0.62);
+      } else if (kind === 'ring') {
+        _q.setFromAxisAngle(TILTV, t * 0.55 + ph);
+        _v3.set(data[o], data[o + 1] + Math.sin(t * 0.6 + ph) * 1.1, data[o + 2]);
+        _v3b.setScalar(sc * (1 + pulse * 0.09));
+      } else { /* pump */
+        const pp = 0.5 + 0.5 * Math.sin(pathTime / AUD.beatDur * 3.14159 + ph);
+        const hy = sc * (2.2 + pp * 7.5);
+        _q.identity();
+        _v3.set(data[o], data[o + 1] + hy * 0.5, data[o + 2]);
+        _v3b.set(sc * 0.9, hy, sc * 0.9);
+      }
+      _m4.compose(_v3, _q, _v3b);
+      im.setMatrixAt(i, _m4);
+    }
+    im.instanceMatrix.needsUpdate = true;
+  }
+  /* gates */
+  if (LV.gateMesh && LV.gateN) {
+    const gd = LV.gates, hw = LV.path.hw + 0.28;
+    for (let i = 0; i < LV.gateN; i++) {
+      const o = i * 8, h = gd[o + 3];
+      const s = gateS(pathTime, gd[o + 4], gd[o + 5]);
+      const top = lerp(-0.7, h, s);
+      const ax = gd[o + 2], hl = gd[o + 6];
+      _v3.set(gd[o], top - h * 0.5, gd[o + 1]);
+      _v3b.set(ax === 0 ? hl * 2 : hw * 2, h, ax === 0 ? hw * 2 : hl * 2);
+      _m4.compose(_v3, IDQ, _v3b);
+      LV.gateMesh.setMatrixAt(i, _m4);
+    }
+    LV.gateMesh.instanceMatrix.needsUpdate = true;
+  }
+  /* emissive breathing */
+  for (let i = 0; i < LV.pulseMats.length; i++) {
+    const mm = LV.pulseMats[i];
+    mm.emissiveIntensity = (LV.decoKind === 'abyss' ? 0.75 : LV.decoKind === 'prism' ? 0.7 :
+      LV.decoKind === 'grand' ? 0.85 : 0.5) * (1 + pulse * 0.75);
+  }
+  /* unlit highlights breathe too — one uniform per material, no geometry work */
+  const gb = LV.decoKind === 'grand' ? 0.26 : 0.42;
+  for (let i = 0; i < LV.pulseBasic.length; i++) LV.pulseBasic[i].color.setScalar(1 + pulse * gb);
+  if (LV.dust) {
+    LV.dust.position.set(GM.hx, 0, GM.hz);
+    LV.dust.rotation.y = t * 0.045;
+  }
+}
+function updateCollectibles(t, dt, pulse) {
+  const im = LV.diaMesh;
+  if (!im) return;
+  const N = LV.colN;
+  for (let i = 0; i < N; i++) {
+    if (LV.colType[i] !== 0) continue;
+    let sc = 1, y = 1.15 + Math.sin(t * 2.6 + i * 1.7) * 0.17;
+    if (LV.colTaken[i]) {
+      const a = LV.colAnim[i];
+      if (a <= 0) { sc = 0; }
+      else { sc = a * a; y += (1 - a) * 2.6; LV.colAnim[i] = a - dt * 3.1; }
+    } else sc = 1 + pulse * 0.12;
+    _q.setFromAxisAngle(UPV, t * 2.1 + i);
+    _v3.set(LV.colX[i], y, LV.colZ[i]);
+    _v3b.setScalar(sc);
+    _m4.compose(_v3, _q, _v3b);
+    im.setMatrixAt(LV.colInst[i], _m4);
+  }
+  im.instanceMatrix.needsUpdate = true;
+  for (let k = 0; k < LV.crowns.length; k++) {
+    const m = LV.crowns[k], i = m.userData.ci;
+    m.rotation.y = t * 1.25;
+    if (LV.colTaken[i]) {
+      const a = LV.colAnim[i];
+      if (a <= 0) { if (m.visible) m.visible = false; continue; }
+      LV.colAnim[i] = a - dt * 1.5;
+      m.scale.setScalar(0.4 + a * 0.9);
+      m.material.opacity = a;
+      m.position.y = 1.5 + (1 - a) * 3.4;
+    } else {
+      m.position.y = 1.5 + Math.sin(t * 1.9 + k) * 0.22;
+      m.scale.setScalar(1 + pulse * 0.09);
+    }
+  }
+}
+function updateFx(dt) {
+  if (FX.flash > 0) {
+    FX.flash -= dt * 2.6;
+    if (FX.flash < 0) FX.flash = 0;
+    const v = Math.round(FX.flash * 100) / 100;
+    if (v !== FX.lastFlash) { D.flash.style.opacity = String(v * 0.85); FX.lastFlash = v; }
+  }
+  const wantVig = (GM.state === 'dying' || (GM.state === 'result' && !GM.won)) ? FX.vig : 0;
+  const v2 = Math.round(wantVig * 20) / 20;
+  if (v2 !== FX.lastVig) { D.vig.style.opacity = String(v2); FX.lastVig = v2; }
+  if (GM.shake > 0) { GM.shake -= dt * 2.2; if (GM.shake < 0) GM.shake = 0; }
+}
+function updateHud() {
+  const p = LV.path;
+  const pct = clamp(GM.d / p.totalD, 0, 1);
+  const shown = Math.floor(pct * 1000) / 10;
+  if (shown !== GM.hudProg) {
+    GM.hudProg = shown;
+    D.hProg.textContent = shown.toFixed(1);
+    D.hFill.style.width = (pct * 100).toFixed(2) + '%';
+  }
+  if (GM.dia !== GM.hudDia) { GM.hudDia = GM.dia; D.hDia.innerHTML = GM.dia + '<small>/' + LV.diaTotal + '</small>'; }
+  if (GM.crown !== GM.hudCrown) { GM.hudCrown = GM.crown; D.hCrown.innerHTML = GM.crown + '<small>/' + LV.crownTotal + '</small>'; }
+}
+
+/* ==========================================================================
+   ADAPTIVE PERFORMANCE — average FPS over 60-frame windows
+   ========================================================================== */
+const PERF = { frames: 0, acc: 0, fps: 60, tier: 0, good: 0, userShadow: true, note: '' };
+function applyTier() {
+  const t = PERF.tier;
+  GFX.renderer.setPixelRatio(t === 0 ? GFX.dpr : t === 1 ? Math.min(GFX.dpr, 1.25) : 1.0);
+  GFX.shadowWanted = PERF.userShadow && t === 0;
+  applyShadowSetting();
+  const show = t < 2;
+  for (let i = 0; i < LV.instanced.length; i++) LV.instanced[i].visible = show;
+  if (LV.dust) LV.dust.visible = show;
+  PERF.note = t === 0 ? '' : (t === 1 ? ' · 性能模式' : ' · 极简模式');
+  D.hFoot.textContent = '点击 / 任意键 转向 · R 重开 · ESC 返回' + PERF.note;
+}
+function applyShadowSetting() {
+  const on = GFX.shadowWanted;
+  GFX.renderer.shadowMap.enabled = on;
+  GFX.sun.castShadow = on;
+  if (TR.mesh) TR.mesh.castShadow = on;
+  if (HEAD.mesh) HEAD.mesh.castShadow = on;
+  for (let i = 0; i < LV.chunks.length; i++) LV.chunks[i].receiveShadow = on;
+  for (let i = 0; i < LV.instanced.length; i++) LV.instanced[i].castShadow = on && LV.decoKind === 'plain';
+}
+function perfSample(dt) {
+  PERF.frames++; PERF.acc += dt;
+  if (PERF.frames < 60) return;
+  PERF.fps = 60 / Math.max(0.0001, PERF.acc);
+  PERF.frames = 0; PERF.acc = 0;
+  if (PERF.fps < 45 && PERF.tier < 2) { PERF.tier++; PERF.good = 0; applyTier(); }
+  else if (PERF.fps > 57) { PERF.good++; if (PERF.good >= 4 && PERF.tier > 0) { PERF.tier--; PERF.good = 0; applyTier(); } }
+  else PERF.good = 0;
+}
+
+/* ==========================================================================
+   MAIN LOOP — the one and only requestAnimationFrame chain
+   ========================================================================== */
+let rafId = 0, lastNow = 0;
+const DBG = { on: false, acc: 0 };
+function frame(now) {
+  rafId = requestAnimationFrame(frame);
+  const raw = (now - lastNow) / 1000;
+  lastNow = now;
+  const dt = clamp(raw, 0.00001, 0.1);
+  perfSample(clamp(raw, 0.0005, 0.5));
+
+  const st = songTime();
+  const ready = GM.state === 'ready';
+  const pathTime = ready ? 0 : st - LV.leadIn;
+  const beat = AUD.beatDur > 0 ? st / AUD.beatDur : 0;
+  const bph = beat - Math.floor(beat);
+  const pulse = (GM.state === 'play' || GM.state === 'win') ? Math.pow(1 - bph, 3.2) : 0;
+
+  if (GM.state === 'play') stepPlay(now, pathTime);
+  else if (GM.state === 'dying') stepDying(dt);
+  else if (GM.state === 'win') stepWin(dt);
+
+  if (LV.path) {
+    const t = now * 0.001;
+    if (GM.state !== 'menu') {
+      trailStretch(GM.hx, GM.hz, GM.d / LV.path.totalD);
+      trailFlush();
+      if (HEAD.mesh.visible) HEAD.mesh.position.set(GM.hx, GM.headY + LV.cfg.lh * 0.5, GM.hz);
+      HEAD.ring.position.set(GM.hx, GM.headY + 0.05, GM.hz);
+      /* the ripple is driven by the TAP, not the metronome, so click / note /
+         visual all land together — especially on charts whose turns sit off-beat */
+      if (GM.turnRing > 0) { GM.turnRing -= dt * 2.9; if (GM.turnRing < 0) GM.turnRing = 0; }
+      const tr = GM.turnRing;
+      const rs = tr > 0 ? 0.42 + (1 - tr) * (1 - tr) * 3.1 : 0.42;
+      HEAD.ring.scale.set(rs, rs, 1);
+      HEAD.ringMat.opacity = GM.state === 'play' ? tr * 0.62 : 0;
+      updateZones(clamp(GM.d / LV.path.totalD, 0, 1), dt);
+      updateDeco(t, pulse, pathTime);
+      updateCollectibles(t, dt, pulse);
+      updateCamera(dt, pulse, !GM.camReady);
+      if (GM.state === 'play') updateHud();
+    }
+  }
+  ptUpdate(dt);
+  updateFx(dt);
+  audioTick();
+
+  if (!GFX.contextLost) GFX.renderer.render(GFX.scene, GFX.camera);
+  if (DBG.on) { DBG.acc += dt; if (DBG.acc > 0.25) { DBG.acc = 0; drawDbg(); } }
+}
+function stepPlay(now, pathTime) {
+  const p = LV.path;
+  let target = distAt(p, pathTime);
+  if (target > p.totalD) target = p.totalD;
+  if (target < GM.d) target = GM.d;
+  /* HITCH GUARD — a stalled frame (GC spike, alt-tab, slow GPU) must never
+     teleport the line across a corner pad. Clamp the advance to 90 % of the
+     pad half-width and push the song origin forward by the exact equivalent
+     time, so picture and music stay locked instead of desynchronising. */
+  const maxAdv = p.hw * 0.9;
+  if (target - GM.d > maxAdv) {
+    const spd = p.phS[p.phCur] || LV.cfg.speed;
+    AUD.t0 += (target - GM.d - maxAdv) / spd;
+    AUD.resync = true;
+    target = GM.d + maxAdv;
+  }
+  const n = GM.inputN;
+  if (n) {
+    for (let i = 0; i < n; i++) {
+      let ts = GM.lastSong + (GM.inputT[i] - GM.lastPerf) * 0.001;
+      if (ts < GM.lastSong) ts = GM.lastSong;
+      let dt2 = distAt(p, ts - LV.leadIn);
+      if (dt2 < GM.d) dt2 = GM.d;
+      if (dt2 > target) dt2 = target;
+      GM.inputD[i] = dt2;
+    }
+    GM.inputN = 0;
+    for (let i = 0; i < n; i++) {
+      if (GM.state !== 'play') break;
+      if (!advanceTo(GM.inputD[i], pathTime)) break;
+      if (GM.d <= 0.0001) continue;               /* ignore taps during the count-in */
+      doTurn(GM.inputD[i]);
+    }
+  }
+  if (GM.state === 'play') advanceTo(target, pathTime);
+  GM.lastPerf = now;
+  GM.lastSong = songTime();
+  if (GM.state === 'play' && GM.d >= p.totalD - 1e-6) winLevel();
+}
+function stepDying(dt) {
+  GM.deathT += dt;
+  GM.headVy -= 26 * dt;
+  GM.headY += GM.headVy * dt;
+  GM.headSpin += dt * 7;
+  HEAD.mesh.rotation.set(GM.headSpin * 0.7, GM.headSpin, GM.headSpin * 0.35);
+  if (GM.deathT > 1.05) { showResult(false); }
+}
+function stepWin(dt) {
+  GM.winT += dt;
+  if (GM.winT > 1.5 && GM.state === 'win') showResult(true);
+}
+
+/* ==========================================================================
+   DEBUG READOUT
+   ========================================================================== */
+function drawDbg() {
+  const inf = GFX.renderer.info;
+  let live = 0;
+  for (let i = 0; i < PT.MAX; i++) if (PT.life[i] > 0) live++;
+  D.dbg.textContent =
+    'fps ' + PERF.fps.toFixed(1) + '   tier ' + PERF.tier + '   dpr ' + GFX.renderer.getPixelRatio().toFixed(2) +
+    '\ncalls ' + inf.render.calls + '  tris ' + inf.render.triangles +
+    '\ngeom ' + inf.memory.geometries + '  tex ' + inf.memory.textures +
+    '\ntrail boxes ' + TR.boxCount + '/' + TR.MAX + '  particles ' + live + '/' + PT.MAX +
+    '\nprogress ' + (LV.path ? (GM.d / LV.path.totalD * 100).toFixed(1) : '0') + '%  state ' + GM.state;
+}
+
+/* ==========================================================================
+   MENU / UI
+   ========================================================================== */
+function refreshCards() {
+  const kids = D.cards.children;
+  for (let i = 0; i < kids.length; i++) {
+    const b = kids[i].querySelector('[data-best]');
+    if (b) b.textContent = BEST[i].toFixed(1) + '%';
+  }
+}
+function buildMenu() {
+  const thumbs = ['t1', 't2', 't3', 't4', 't5', 't6'];
+  const shapes = [
+    [[10, 78, 42, 4], [50, 40, 4, 42], [50, 36, 34, 4]],
+    [[8, 84, 26, 4], [32, 46, 4, 42], [32, 42, 22, 4], [52, 20, 4, 26], [52, 16, 30, 4]],
+    [[6, 86, 18, 3], [22, 60, 3, 30], [22, 57, 14, 3], [34, 34, 3, 26], [34, 31, 16, 3], [48, 14, 3, 20], [48, 11, 26, 3]],
+    [[8, 82, 22, 4], [28, 52, 4, 34], [28, 48, 18, 4], [44, 26, 4, 26], [44, 22, 26, 4], [68, 10, 4, 16]],
+    [[4, 88, 12, 2], [14, 70, 2, 20], [14, 68, 10, 2], [22, 52, 2, 18], [22, 50, 9, 2],
+     [29, 36, 2, 16], [29, 34, 9, 2], [36, 22, 2, 14], [36, 20, 11, 2], [45, 10, 2, 12]],
+    [[3, 90, 9, 3], [11, 76, 3, 15], [11, 74, 7, 3], [17, 62, 3, 13], [17, 60, 6, 3],
+     [22, 50, 3, 11], [22, 48, 6, 3], [27, 38, 3, 11], [27, 36, 7, 3], [33, 26, 3, 11],
+     [33, 24, 8, 3], [40, 14, 3, 11], [40, 12, 22, 3]]
+  ];
+  let html = '';
+  for (let i = 0; i < LEVELS.length; i++) {
+    const L = LEVELS[i];
+    let lines = '';
+    const sp = shapes[i] || shapes[0];
+    for (let k = 0; k < sp.length; k++) {
+      lines += '<i style="left:' + sp[k][0] + '%;top:' + sp[k][1] + '%;width:' + sp[k][2] + '%;height:' + sp[k][3] + 'px"></i>';
+    }
+    html += '<div class="card" data-lv="' + i + '" tabindex="0" role="button">' +
+      '<div class="thumb ' + thumbs[i] + '"><div class="thumbLine">' + lines + '</div></div>' +
+      '<div class="cardBody"><div class="cardTop"><div><div class="cardName">' + L.name +
+      '</div><div class="cardEn">' + L.en + '</div></div><div class="stars">' + L.stars + '</div></div>' +
+      '<div class="cardMeta"><span>BPM <b>' + L.bpm + '</b></span><span>拐点 <b>' + L.segCount +
+      '</b></span><span>最佳 <b data-best>' + BEST[i].toFixed(1) + '%</b></span></div></div></div>';
+  }
+  D.cards.innerHTML = html;
+  const kids = D.cards.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].addEventListener('click', onCardActivate);
+    kids[i].addEventListener('keydown', onCardKey);
+  }
+}
+function onCardActivate(e) {
+  const idx = +e.currentTarget.getAttribute('data-lv');
+  sfxUI(1);
+  startLevel(idx);
+}
+function onCardKey(e) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onCardActivate(e); }
+}
+
+/* ==========================================================================
+   EVENT BINDING — executed exactly once (idempotent guard)
+   ========================================================================== */
+let bound = false;
+function bindEvents() {
+  if (bound) return;
+  bound = true;
+
+  let resizePending = false;
+  const doResize = () => { resizePending = false; gfxResize(); };
+  window.addEventListener('resize', () => {
+    if (resizePending) return;
+    resizePending = true;
+    requestAnimationFrame(doResize);
+  }, { passive: true });
+
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('.card,.btn,.chip')) return;
+    ensureAudio();
+    if (GM.state === 'paused') { resumeGame(); return; }
+    if (GM.state === 'ready') { beginRun(); return; }
+    if (GM.state === 'play') queueInput(e.timeStamp);
+  }, { passive: true });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'F5' || k === 'F11' || k === 'F12' || k === 'Tab') return;
+    ensureAudio();
+    if (k === 'Escape') { toMenu(); return; }
+    if (k === 'r' || k === 'R') { e.preventDefault(); restart(); return; }
+    if (k === 'p' || k === 'P') { e.preventDefault(); togglePause(); return; }
+    if (GM.state === 'menu') {
+      if (k >= '1' && k <= String(LEVELS.length)) { sfxUI(1); startLevel(+k - 1); }
+      return;
+    }
+    if (GM.state === 'paused') { resumeGame(); return; }
+    if (GM.state === 'ready') { e.preventDefault(); beginRun(); return; }
+    if (GM.state === 'play') { e.preventDefault(); queueInput(e.timeStamp); }
+  });
+
+  window.addEventListener('blur', () => { if (GM.state === 'play') pauseGame(true); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && GM.state === 'play') pauseGame(true);
+  });
+  window.addEventListener('contextmenu', (e) => { if (GM.state === 'play') e.preventDefault(); });
+
+  D.bRetry.addEventListener('click', (e) => { e.stopPropagation(); sfxUI(1); restart(); });
+  D.bMenu.addEventListener('click', (e) => { e.stopPropagation(); toMenu(); });
+  D.pause.addEventListener('pointerdown', (e) => { e.stopPropagation(); resumeGame(); });
+  D.cDbg.addEventListener('click', () => {
+    DBG.on = !DBG.on;
+    D.dbg.classList.toggle('hidden', !DBG.on);
+    D.cDbg.textContent = '性能诊断 ' + (DBG.on ? 'ON' : 'OFF');
+    D.cDbg.classList.toggle('act', DBG.on);
+    if (DBG.on) drawDbg();
+  });
+  D.cShadow.addEventListener('click', () => {
+    PERF.userShadow = !PERF.userShadow;
+    GFX.shadowWanted = PERF.userShadow && PERF.tier === 0;
+    applyShadowSetting();
+    D.cShadow.textContent = '阴影 ' + (PERF.userShadow ? 'ON' : 'OFF');
+    D.cShadow.classList.toggle('act', !PERF.userShadow);
+  });
+  D.cReset.addEventListener('click', () => {
+    for (let i = 0; i < BEST.length; i++) BEST[i] = 0;
+    saveBest(); refreshCards(); sfxUI(0);
+  });
+
+  /* WebGL context safety net */
+  D.canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    GFX.contextLost = true;
+    if (GM.state === 'play') pauseGame(true);
+    D.ldTxt.textContent = 'WebGL 上下文丢失，正在恢复…';
+    D.ldSpin.classList.remove('hidden');
+    showLayer(D.load, true);
+  }, false);
+  D.canvas.addEventListener('webglcontextrestored', () => {
+    GFX.contextLost = false;
+    applyShadowSetting();
+    showLayer(D.load, false);
+  }, false);
+
+  /* final teardown — release every GPU + audio resource */
+  window.addEventListener('pagehide', () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    clearLevel();
+    disposeTree(GFX.persist);
+    if (PT.tex) PT.tex.dispose();
+    GFX.renderer.dispose();
+    if (AUD.ctx && AUD.ctx.state !== 'closed') { try { AUD.ctx.close(); } catch (e) {} }
+  });
+}
+
+/* ==========================================================================
+   BOOT
+   ========================================================================== */
+gfxInit();
+trailInit();
+particlesInit();
+headInit();
+buildMenu();
+bindEvents();
+paintBackdrop(LEVELS[0].pal.fog, LEVELS[0].pal.bgTop);
+GFX.camera.position.set(-18, 22, -18);
+GFX.camera.lookAt(0, 0, 0);
+showLayer(D.load, false);
+D.ldSpin.classList.add('hidden');
+lastNow = performance.now();
+rafId = requestAnimationFrame(frame);
+window.__LINE_RHYTHM__ = { GM, LV, GFX, AUD, TR, PT, PERF, LEVELS, startLevel, THREE };
+
+</script>
+</body>
+</html>

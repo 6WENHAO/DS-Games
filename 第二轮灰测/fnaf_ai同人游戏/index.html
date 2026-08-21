@@ -1,0 +1,1816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<title>FIVE NIGHTS 3D · 弗雷德熊披萨店（同人）</title>
+<style>
+  :root{
+    --amber:#ffb347; --red:#e0392b; --dim:#7a7f8c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;
+    font-family:"Consolas","SF Mono",Menlo,"Segoe UI",system-ui,sans-serif;
+    color:#d8dbe2;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  #wrap{position:fixed;inset:0;cursor:crosshair}
+  canvas#gl{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+  /* ---------- 后处理叠层 ---------- */
+  .layer{position:absolute;inset:0;pointer-events:none}
+  #vignette{background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 42%,rgba(0,0,0,.55) 78%,rgba(0,0,0,.92) 100%)}
+  #scanlines{opacity:0;transition:opacity .18s;
+    background:repeating-linear-gradient(to bottom,rgba(0,0,0,.32) 0 1px,rgba(255,255,255,.03) 1px 3px)}
+  #staticCv{position:absolute;inset:0;width:100%;height:100%;opacity:0;
+    mix-blend-mode:screen;image-rendering:pixelated;transition:opacity .18s}
+  #flash{background:#fff;opacity:0}
+  #grain{opacity:.05;background-image:
+    repeating-linear-gradient(45deg,rgba(255,255,255,.4) 0 1px,transparent 1px 2px)}
+
+  /* ---------- HUD ---------- */
+  #hud{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s}
+  #hud.on{opacity:1}
+  .clock{position:absolute;top:18px;right:26px;text-align:right;text-shadow:0 0 12px #000,0 2px 4px #000}
+  .clock b{font-size:40px;letter-spacing:1px;font-weight:700;display:block;line-height:1}
+  .clock span{font-size:13px;color:var(--dim);letter-spacing:3px}
+  #powerBox{position:absolute;left:26px;bottom:22px;text-shadow:0 0 10px #000}
+  #powerBox .lab{font-size:12px;letter-spacing:2px;color:var(--dim)}
+  #powerBox .val{font-size:30px;font-weight:700;line-height:1.1}
+  #bars{display:flex;gap:4px;margin-top:6px;align-items:flex-end;height:20px}
+  #bars i{width:13px;background:#2c2f38;border:1px solid #000;display:block;transition:background .15s}
+  #bars i:nth-child(1){height:9px}#bars i:nth-child(2){height:13px}
+  #bars i:nth-child(3){height:16px}#bars i:nth-child(4){height:19px}#bars i:nth-child(5){height:22px}
+  #bars i.a1{background:#39d353}#bars i.a2{background:#d4d453}
+  #bars i.a3{background:#e08c2b}#bars i.a4{background:var(--red)}
+  #usageLab{font-size:11px;color:var(--dim);letter-spacing:2px;margin-top:4px}
+
+  #ctrls{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;
+    gap:7px;flex-wrap:wrap;padding:0 12px;pointer-events:none}
+  #ctrls .btn{pointer-events:auto}
+  #hud.out #powerBox,#hud.out #ctrls{opacity:0;transition:opacity 1.4s}
+  .btn{background:rgba(14,16,20,.82);border:1px solid #3a3f4b;color:#c8ccd6;
+    padding:9px 13px;font-size:12px;letter-spacing:1px;border-radius:3px;cursor:pointer;
+    font-family:inherit;backdrop-filter:blur(2px);transition:.12s;white-space:nowrap}
+  .btn:hover{border-color:#6b7382;color:#fff}
+  .btn kbd{display:block;font-size:9px;color:#6e767f;margin-top:2px;letter-spacing:1px}
+  .btn.on{background:var(--amber);border-color:#ffd08a;color:#1a1206;font-weight:700;
+    box-shadow:0 0 18px rgba(255,179,71,.55)}
+  .btn.door.on{background:var(--red);border-color:#ff7d70;color:#fff;box-shadow:0 0 18px rgba(224,57,43,.55)}
+  #camBtn{min-width:118px}
+
+  /* ---------- 监控界面 ---------- */
+  #monUI{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .16s}
+  #monUI.on{opacity:1;pointer-events:auto}
+  #monFrame{position:absolute;inset:0;border:14px solid #05060a;border-radius:8px;
+    box-shadow:inset 0 0 90px 22px rgba(0,0,0,.9);pointer-events:none}
+  #camName{position:absolute;top:24px;left:32px;font-size:15px;letter-spacing:3px;
+    color:#e7eaf0;text-shadow:0 0 10px #000}
+  #recDot{position:absolute;top:24px;right:32px;font-size:13px;letter-spacing:2px;color:var(--red)}
+  #recDot b{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);
+    margin-right:7px;animation:blink 1.1s infinite}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+  #camGrid{position:absolute;right:22px;bottom:22px;width:250px;
+    background:rgba(6,8,12,.9);border:1px solid #2c313c;border-radius:4px;padding:9px}
+  #camGrid .t{font-size:10px;color:var(--dim);letter-spacing:2px;margin-bottom:7px}
+  #camGrid .g{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .cb{background:#171a21;border:1px solid #333844;color:#9aa1ae;font-size:11px;padding:7px 2px;
+    border-radius:2px;cursor:pointer;font-family:inherit;letter-spacing:.5px;transition:.1s}
+  .cb:hover{border-color:#69707e;color:#fff}
+  .cb.sel{background:#e7eaf0;color:#0b0d11;border-color:#fff;font-weight:700}
+  .cb small{display:block;font-size:8px;opacity:.6;letter-spacing:0}
+  #noSignal{position:absolute;inset:0;display:none;place-items:center;background:#05060a}
+  #noSignal div{text-align:center;color:#4a505e;letter-spacing:5px;font-size:17px;line-height:2.2}
+
+  /* ---------- 全屏文字层 ---------- */
+  .screen{position:absolute;inset:0;display:none;place-items:center;text-align:center;
+    background:#000;z-index:20}
+  .screen.on{display:grid}
+  .screen.trans{background:rgba(0,0,0,.86)}
+  #menu h1{font-size:min(11vw,80px);letter-spacing:min(2.4vw,16px);font-weight:800;
+    color:#f0f2f6;text-shadow:0 0 40px rgba(255,179,71,.28);line-height:1}
+  #menu .sub{color:#7e8492;letter-spacing:5px;font-size:13px;margin-top:14px}
+  #menu .warn{color:#4c525f;font-size:11px;letter-spacing:2px;margin-top:8px}
+  #menu .mbtns{margin-top:38px;display:flex;flex-direction:column;gap:10px;align-items:center}
+  .mbtn{background:transparent;border:1px solid #454b58;color:#d5d9e1;padding:12px 40px;
+    font-size:14px;letter-spacing:4px;cursor:pointer;font-family:inherit;transition:.15s;min-width:250px}
+  .mbtn:hover{background:#e7eaf0;color:#0b0d11;border-color:#fff}
+  .mbtn.gold{border-color:var(--amber);color:var(--amber)}
+  .mbtn.gold:hover{background:var(--amber);color:#1a1206}
+  #help{max-width:640px;margin:0 auto;font-size:13px;line-height:2.1;color:#9aa1ae;
+    text-align:left;display:none;border:1px solid #262b34;padding:20px 26px;margin-top:26px}
+  #help.on{display:block}
+  #help b{color:var(--amber)}
+  #custom{display:none;margin-top:22px;border:1px solid #262b34;padding:18px 24px}
+  #custom.on{display:block}
+  #custom .row{display:flex;align-items:center;gap:12px;margin:8px 0;font-size:12px;letter-spacing:2px}
+  #custom .row label{width:96px;text-align:right;color:#9aa1ae}
+  #custom input{width:170px;accent-color:var(--amber)}
+  #custom .row output{width:26px;color:var(--amber);font-weight:700}
+  #introTxt b{font-size:min(16vw,110px);letter-spacing:8px;display:block;font-weight:800;color:#e9ecf2}
+  #introTxt span{letter-spacing:12px;color:#7e8492;font-size:15px}
+  #overTxt b{font-size:min(9vw,58px);letter-spacing:10px;color:var(--red);display:block;font-weight:800}
+  #overTxt span{color:#7e8492;letter-spacing:4px;font-size:13px;display:block;margin-top:18px}
+  #winTxt b{font-size:min(16vw,110px);letter-spacing:6px;display:block;font-weight:800;color:#ffdba6}
+  #winTxt em{display:block;font-style:normal;letter-spacing:6px;color:#8b919e;font-size:14px;margin-top:14px}
+  #winTxt .pay{margin-top:26px;color:#39d353;letter-spacing:3px;font-size:15px}
+  .fadeIn{animation:fi .8s both}@keyframes fi{from{opacity:0}to{opacity:1}}
+  #gate{cursor:pointer}
+  #gate div{color:#6a7180;letter-spacing:8px;font-size:14px;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  #err{color:#ff8a7a;font-size:14px;line-height:2;letter-spacing:1px;padding:30px}
+  #hint{position:absolute;left:50%;bottom:88px;transform:translateX(-50%);font-size:11px;
+    color:#5d6472;letter-spacing:3px;pointer-events:none;text-shadow:0 0 8px #000}
+
+  /* ---------- 新手教程面板 ---------- */
+  #tut{position:absolute;top:0;left:50%;transform:translateX(-50%) translateY(-130%);
+    width:min(620px,92vw);background:rgba(8,10,14,.93);
+    border:1px solid #3d4450;border-top:none;border-radius:0 0 6px 6px;padding:16px 24px 18px;
+    pointer-events:none;transition:transform .35s cubic-bezier(.2,.9,.3,1);z-index:15;
+    box-shadow:0 10px 40px rgba(0,0,0,.7)}
+  #tut.on{transform:translateX(-50%) translateY(0)}
+  #tutStep{font-size:10px;letter-spacing:3px;color:var(--amber);margin-bottom:9px}
+  #tutText{font-size:14px;line-height:1.85;color:#dfe3ea}
+  #tutText b{color:var(--amber);font-weight:700}
+  #tutSkip{position:absolute;right:12px;top:12px;font-size:10px;color:#5a616e;letter-spacing:2px}
+
+  /* ---------- 狐狸冲刺预警 ---------- */
+  #foxyWarn{position:absolute;left:0;top:0;bottom:0;width:26vw;opacity:0;pointer-events:none;
+    background:linear-gradient(to right,rgba(224,57,43,.55),rgba(224,57,43,0))}
+  #foxyWarn.on{animation:fw 1.5s ease-out}
+  @keyframes fw{0%{opacity:0}12%{opacity:1}30%{opacity:.25}50%{opacity:.9}100%{opacity:0}}
+  #alert{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);
+    color:#ff6d5c;font-size:15px;letter-spacing:3px;font-weight:700;opacity:0;
+    text-shadow:0 0 16px rgba(224,57,43,.9),0 2px 6px #000;pointer-events:none;
+    transition:opacity .16s;white-space:nowrap}
+  #alert.on{opacity:1;animation:ap .5s infinite}
+  @keyframes ap{0%,100%{opacity:1}50%{opacity:.45}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="gl"></canvas>
+
+  <canvas id="staticCv" class="layer"></canvas>
+  <div id="scanlines" class="layer"></div>
+  <div id="grain" class="layer"></div>
+  <div id="vignette" class="layer"></div>
+  <div id="flash" class="layer"></div>
+  <div id="foxyWarn" class="layer"></div>
+
+  <div id="tut">
+    <div id="tutSkip">ESC 跳过</div>
+    <div id="tutStep">训练 1 / 13</div>
+    <div id="tutText"></div>
+  </div>
+
+  <div id="monUI">
+    <div id="noSignal"><div>[ 摄像头 06 已禁用 ]<br>音 频 监 听 模 式</div></div>
+    <div id="monFrame"></div>
+    <div id="camName">CAM 1A · 表演舞台</div>
+    <div id="recDot"><b></b>REC</div>
+    <div id="camGrid"><div class="t">监 控 列 表</div><div class="g" id="camBtns"></div></div>
+  </div>
+
+  <div id="hud">
+    <div class="clock"><b id="clockH">12 AM</b><span id="nightLab">第 1 夜</span></div>
+    <div id="powerBox">
+      <div class="lab">POWER LEFT</div>
+      <div class="val" id="powerVal">100%</div>
+      <div id="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="usageLab">USAGE</div>
+    </div>
+    <div id="ctrls">
+      <button class="btn door" id="bDoorL">左门 关闭<kbd>A</kbd></button>
+      <button class="btn" id="bLightL">左灯<kbd>Q</kbd></button>
+      <button class="btn" id="camBtn">监控 摄像头<kbd>SPACE</kbd></button>
+      <button class="btn" id="bLightR">右灯<kbd>E</kbd></button>
+      <button class="btn door" id="bDoorR">右门 关闭<kbd>D</kbd></button>
+    </div>
+    <div id="hint">移动鼠标环顾办公室</div>
+    <div id="alert"></div>
+  </div>
+
+  <div class="screen" id="gate"><div>点 击 任 意 处 启 动 系 统</div></div>
+
+  <div class="screen" id="menu">
+    <div>
+      <h1>FIVE NIGHTS<span style="color:var(--amber)">3D</span></h1>
+      <div class="sub">弗 雷 德 熊 披 萨 店 · 夜 班 守 卫</div>
+      <div class="warn">非官方同人作品 / UNOFFICIAL FAN GAME · 无任何外部依赖</div>
+      <div class="mbtns">
+        <button class="mbtn gold" id="mTut">新 手 教 程</button>
+        <button class="mbtn" id="mContinue">继续 · 第 1 夜</button>
+        <button class="mbtn" id="mNew">从第一夜开始</button>
+        <button class="mbtn" id="mCustom" style="display:none">自定义夜</button>
+        <button class="mbtn" id="mMode">视角模式：边缘跟随</button>
+        <button class="mbtn" id="mHelp">操作说明</button>
+      </div>
+      <div id="custom">
+        <div class="row"><label>弗雷德熊</label><input type="range" min="0" max="20" value="20" id="cF"><output id="oF">20</output></div>
+        <div class="row"><label>邦尼兔</label><input type="range" min="0" max="20" value="20" id="cB"><output id="oB">20</output></div>
+        <div class="row"><label>奇卡鸡</label><input type="range" min="0" max="20" value="20" id="cC"><output id="oC">20</output></div>
+        <div class="row"><label>福克斯狐</label><input type="range" min="0" max="20" value="20" id="cX"><output id="oX">20</output></div>
+        <div style="margin-top:14px;text-align:center">
+          <button class="mbtn gold" id="cStart" style="min-width:180px;padding:9px 24px">开始</button>
+        </div>
+      </div>
+      <div id="help">
+        <b>目标</b> — 从 12 AM 活到 6 AM。你被固定在保安室，不能走动。<br>
+        <b>环顾</b> — 两种模式，可在标题界面切换：<br>
+        &nbsp;&nbsp;· <b>边缘跟随</b>：鼠标移向屏幕边缘就转头（原作手感）。<br>
+        &nbsp;&nbsp;· <b>拖拽转头</b>：按住左键拖动才转头，光标平时是自由的，方便点按钮 / 触屏。<br>
+        &nbsp;&nbsp;指针移到下方按钮栏上时视角会<b>自动冻结</b>，不会被带偏。<br>
+        <b>门 / 灯</b> — <b>A</b>/<b>D</b> 关门，<b>Q</b>/<b>E</b> 开门灯。三种操作方式任选：<br>
+        &nbsp;&nbsp;· 键盘；&nbsp;· 下方按钮栏；&nbsp;· <b>直接用鼠标点墙上的按钮面板</b>（往一侧看到底，面板会停住，光标移上去会高亮）。<br>
+        &nbsp;&nbsp;桌上的显示器也能点，等于举起监控平板。<br>
+        <b>监控</b> — <b>空格</b> 举起/放下平板，<b>1–9 / 0</b> 或点按钮切换镜头。<br>
+        <b>电量</b> — 关门、开灯、看监控都耗电。<b>电量归零 = 一切失效</b>，然后……<br>
+        <b>福克斯狐</b> — 藏在 CAM 1C 海盗湾。<u>你越久不看它，它冲得越快</u>。听到跑步声、屏幕左侧闪红光时立刻关左门。<b>第一夜它不会冲出来</b>，可以放心观察。<br>
+        <b>弗雷德熊</b> — 你正盯着它所在的镜头时它不会动。它最后从右门来。
+      </div>
+    </div>
+  </div>
+
+  <div class="screen trans" id="intro"><div id="introTxt"><b>1</b><span>12:00 AM</span></div></div>
+  <div class="screen" id="over">
+    <div id="overTxt"><b>你 被 抓 住 了</b><span id="overSub">弗雷德熊披萨店 · 员工档案已归档</span>
+      <div class="mbtns"><button class="mbtn" id="oRetry">重 试</button>
+      <button class="mbtn" id="oMenu" style="min-width:150px">返回标题</button></div></div>
+  </div>
+  <div class="screen" id="win">
+    <div id="winTxt"><b id="winBig">6 AM</b><em id="winSub">第 1 夜 · 班次结束</em>
+      <div class="pay" id="winPay">+ $4.00</div>
+      <div class="mbtns"><button class="mbtn gold" id="wNext">继续</button></div></div>
+  </div>
+  <div class="screen" id="err"></div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   FIVE NIGHTS 3D — 单文件 FNAF 同人游戏
+   自研极简 WebGL 渲染器（盒体图元 + 点光 + 雾），零外部依赖。
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- 数学 */
+const F32 = Float32Array;
+function m4(){ return new F32(16); }
+function m4ident(o){ o.set([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); return o; }
+function m4mul(a,b,o){
+  for(let i=0;i<4;i++){
+    const b0=b[i*4],b1=b[i*4+1],b2=b[i*4+2],b3=b[i*4+3];
+    o[i*4  ]=a[0]*b0+a[4]*b1+a[ 8]*b2+a[12]*b3;
+    o[i*4+1]=a[1]*b0+a[5]*b1+a[ 9]*b2+a[13]*b3;
+    o[i*4+2]=a[2]*b0+a[6]*b1+a[10]*b2+a[14]*b3;
+    o[i*4+3]=a[3]*b0+a[7]*b1+a[11]*b2+a[15]*b3;
+  }
+  return o;
+}
+function m4persp(fovy,aspect,near,far,o){
+  const f=1/Math.tan(fovy/2), nf=1/(near-far);
+  o.fill(0); o[0]=f/aspect; o[5]=f; o[10]=(far+near)*nf; o[11]=-1; o[14]=2*far*near*nf;
+  return o;
+}
+function m4rotY(a,o){ const c=Math.cos(a),s=Math.sin(a);
+  o.set([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]); return o; }
+function m4rotX(a,o){ const c=Math.cos(a),s=Math.sin(a);
+  o.set([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]); return o; }
+function m4trans(x,y,z,o){ o.set([1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]); return o; }
+/** 视图矩阵：yaw=0/pitch=0 时朝向 -Z */
+function m4view(ex,ey,ez,yaw,pitch,o,t1,t2,t3){
+  m4rotX(-pitch,t1); m4rotY(-yaw,t2); m4mul(t1,t2,t3);
+  m4trans(-ex,-ey,-ez,t1); return m4mul(t3,t1,o);
+}
+/** 由观察点求 yaw / pitch */
+function aimAt(px,py,pz,tx,ty,tz){
+  const dx=tx-px, dy=ty-py, dz=tz-pz;
+  const h=Math.hypot(dx,dz)||1e-4;
+  return { yaw: Math.atan2(-dx,-dz), pitch: Math.atan2(dy,h) };
+}
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+/* ---------------------------------------------------------------- 渲染器 */
+const NL = 8;                       // 点光数量上限
+const cv = document.getElementById('gl');
+let gl = null;
+try{
+  gl = cv.getContext('webgl',{antialias:true,alpha:false,depth:true})
+    || cv.getContext('experimental-webgl',{antialias:true,alpha:false});
+}catch(e){ gl=null; }
+if(!gl){
+  const el=document.getElementById('err');
+  el.classList.add('on');
+  el.innerHTML='<div>无法创建 WebGL 上下文。<br>请用较新的 Chrome / Edge / Firefox 打开，并确认已开启硬件加速。</div>';
+  throw new Error('no webgl');
+}
+
+const VS = `
+attribute vec3 aPos; attribute vec3 aNorm;
+uniform mat4 uProj,uView,uModel; uniform mat3 uNMat;
+varying vec3 vW, vN;
+void main(){
+  vec4 w = uModel*vec4(aPos,1.0);
+  vW = w.xyz; vN = uNMat*aNorm;
+  gl_Position = uProj*uView*w;
+}`;
+const FS = `
+precision mediump float;
+uniform vec3 uColor,uAmb,uFogCol,uCam;
+uniform float uEm,uFogD;
+uniform vec3 uLP[${NL}]; uniform vec3 uLC[${NL}]; uniform float uLR[${NL}];
+varying vec3 vW,vN;
+void main(){
+  vec3 N=normalize(vN);
+  vec3 lit=uAmb;
+  for(int i=0;i<${NL};i++){
+    vec3 d=uLP[i]-vW;
+    float dist=length(d)+0.0001;
+    float att=max(0.0,1.0-dist/uLR[i]); att*=att;
+    float diff=max(dot(N,d/dist),0.0);
+    lit+=uLC[i]*(0.30+0.70*diff)*att;
+  }
+  vec3 col=uColor*lit;
+  col=mix(col,uColor*1.25,uEm);
+  float f=1.0-exp(-uFogD*length(uCam-vW));
+  f*=(1.0-uEm*0.9);
+  gl_FragColor=vec4(mix(col,uFogCol,clamp(f,0.0,1.0)),1.0);
+}`;
+function shader(type,src){
+  const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const U={};
+['uProj','uView','uModel','uNMat','uColor','uAmb','uFogCol','uCam','uEm','uFogD','uLP','uLC','uLR']
+  .forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const A_POS=gl.getAttribLocation(prog,'aPos'), A_NRM=gl.getAttribLocation(prog,'aNorm');
+
+/* 单位立方体 */
+(function buildCube(){
+  const F=[
+    [[0,0,1 ],[-.5,-.5, .5],[ .5,-.5, .5],[ .5, .5, .5],[-.5, .5, .5]],
+    [[0,0,-1],[ .5,-.5,-.5],[-.5,-.5,-.5],[-.5, .5,-.5],[ .5, .5,-.5]],
+    [[1,0,0 ],[ .5,-.5, .5],[ .5,-.5,-.5],[ .5, .5,-.5],[ .5, .5, .5]],
+    [[-1,0,0],[-.5,-.5,-.5],[-.5,-.5, .5],[-.5, .5, .5],[-.5, .5,-.5]],
+    [[0,1,0 ],[-.5, .5, .5],[ .5, .5, .5],[ .5, .5,-.5],[-.5, .5,-.5]],
+    [[0,-1,0],[-.5,-.5,-.5],[ .5,-.5,-.5],[ .5,-.5, .5],[-.5,-.5, .5]],
+  ];
+  const v=[], idx=[];
+  F.forEach((f,fi)=>{
+    const n=f[0];
+    for(let k=1;k<=4;k++) v.push(f[k][0],f[k][1],f[k][2], n[0],n[1],n[2]);
+    const b=fi*4; idx.push(b,b+1,b+2, b,b+2,b+3);
+  });
+  const vb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+  gl.bufferData(gl.ARRAY_BUFFER,new F32(v),gl.STATIC_DRAW);
+  const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(idx),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(A_POS); gl.vertexAttribPointer(A_POS,3,gl.FLOAT,false,24,0);
+  gl.enableVertexAttribArray(A_NRM); gl.vertexAttribPointer(A_NRM,3,gl.FLOAT,false,24,12);
+})();
+gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+
+/* 视图状态 */
+const _proj=m4(), _view=m4(), _t1=m4(), _t2=m4(), _t3=m4();
+const _model=new F32(16), _nmat=new F32(9);
+const VIEW={x:0,y:0,z:0,fx:0,fy:0,fz:-1,cull:52};
+const LP=new F32(NL*3), LC=new F32(NL*3), LR=new F32(NL).fill(1);
+let _lastCol=-1, _lastEm=-1;
+
+function beginView(px,py,pz,yaw,pitch,fov,fogCol,fogD,amb,lights){
+  const w=cv.width,h=cv.height;
+  gl.viewport(0,0,w,h);
+  gl.clearColor(fogCol[0],fogCol[1],fogCol[2],1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  m4persp(fov,w/h,.06,120,_proj);
+  m4view(px,py,pz,yaw,pitch,_view,_t1,_t2,_t3);
+  gl.uniformMatrix4fv(U.uProj,false,_proj);
+  gl.uniformMatrix4fv(U.uView,false,_view);
+  gl.uniform3f(U.uCam,px,py,pz);
+  gl.uniform3fv(U.uFogCol,fogCol);
+  gl.uniform1f(U.uFogD,fogD);
+  gl.uniform3fv(U.uAmb,amb);
+  LP.fill(0); LC.fill(0); LR.fill(1);
+  const n=Math.min(lights.length,NL);
+  for(let i=0;i<n;i++){ const L=lights[i];
+    LP[i*3]=L.p[0]; LP[i*3+1]=L.p[1]; LP[i*3+2]=L.p[2];
+    const k=L.i===undefined?1:L.i;
+    LC[i*3]=L.c[0]*k; LC[i*3+1]=L.c[1]*k; LC[i*3+2]=L.c[2]*k;
+    LR[i]=L.r;
+  }
+  gl.uniform3fv(U.uLP,LP); gl.uniform3fv(U.uLC,LC); gl.uniform1fv(U.uLR,LR);
+  VIEW.x=px; VIEW.y=py; VIEW.z=pz;
+  const cp=Math.cos(pitch);
+  VIEW.fx=-Math.sin(yaw)*cp; VIEW.fy=Math.sin(pitch); VIEW.fz=-Math.cos(yaw)*cp;
+  _lastCol=-1; _lastEm=-1;
+}
+function drawBox(x,y,z,sx,sy,sz,col,yaw,em){
+  const dx=x-VIEW.x, dy=y-VIEW.y, dz=z-VIEW.z;
+  const rad=.5*Math.hypot(sx,sy,sz);
+  const dist=Math.hypot(dx,dy,dz);
+  if(dist-rad>VIEW.cull) return;
+  if(dx*VIEW.fx+dy*VIEW.fy+dz*VIEW.fz < -rad-.35) return;
+  yaw=yaw||0; em=em||0;
+  const c=Math.cos(yaw), s=Math.sin(yaw);
+  _model[0]=c*sx; _model[1]=0; _model[2]=-s*sx; _model[3]=0;
+  _model[4]=0;    _model[5]=sy;_model[6]=0;     _model[7]=0;
+  _model[8]=s*sz; _model[9]=0; _model[10]=c*sz; _model[11]=0;
+  _model[12]=x;   _model[13]=y;_model[14]=z;    _model[15]=1;
+  _nmat[0]=c/sx; _nmat[1]=0; _nmat[2]=-s/sx;
+  _nmat[3]=0;    _nmat[4]=1/sy; _nmat[5]=0;
+  _nmat[6]=s/sz; _nmat[7]=0; _nmat[8]=c/sz;
+  gl.uniformMatrix4fv(U.uModel,false,_model);
+  gl.uniformMatrix3fv(U.uNMat,false,_nmat);
+  const ck=col[0]*65536+col[1]*256+col[2];
+  if(ck!==_lastCol){ gl.uniform3fv(U.uColor,col); _lastCol=ck; }
+  if(em!==_lastEm){ gl.uniform1f(U.uEm,em); _lastEm=em; }
+  gl.drawElements(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0);
+}
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,1.6);
+  cv.width=Math.max(320,Math.floor(innerWidth*dpr));
+  cv.height=Math.max(240,Math.floor(innerHeight*dpr));
+}
+addEventListener('resize',resize); resize();
+
+/* ---------------------------------------------------------------- 调色 */
+const C={
+  wall:[.157,.165,.196], wall2:[.196,.180,.169], trim:[.106,.114,.141],
+  floorA:[.255,.239,.216], floorB:[.129,.125,.118], floorH:[.180,.169,.157],
+  ceil:[.086,.090,.110], stage:[.176,.078,.086], curtain:[.353,.078,.106],
+  desk:[.220,.176,.129], metal:[.294,.310,.345], dark:[.055,.059,.071],
+  screen:[.478,.784,.706], neon:[1,.702,.278], red:[.878,.224,.176],
+  freddy:[.373,.243,.153], freddyD:[.267,.169,.106], bonnie:[.400,.294,.573],
+  bonnieD:[.290,.208,.427], chica:[.898,.780,.239], chicaD:[.796,.667,.176],
+  foxy:[.639,.212,.145], foxyD:[.478,.153,.102],
+  belly:[.796,.667,.478], teeth:[.941,.941,.918], eye:[1,.984,.878],
+  pupil:[.055,.043,.031], hat:[.086,.078,.075], bow:[.769,.145,.114],
+  paper:[.878,.867,.827], plate:[.855,.847,.816], white:[.92,.93,.95],
+  tableTop:[.741,.729,.694], hookMetal:[.612,.635,.686], purple:[.310,.239,.400],
+};
+
+/* ---------------------------------------------------------------- 场景 */
+const STATIC=[];                     // {x,y,z,sx,sy,sz,c,yaw,em,m:房间位掩码}
+function S(x,y,z,sx,sy,sz,c,yaw,em){ STATIC.push({x,y,z,sx,sy,sz,c,yaw:yaw||0,em:em||0,m:0}); }
+const T=.16;                         // 墙厚
+
+function floorTiles(x0,z0,x1,z1,tile,ca,cb){
+  const nx=Math.max(1,Math.round((x1-x0)/tile)), nz=Math.max(1,Math.round((z1-z0)/tile));
+  const w=(x1-x0)/nx, d=(z1-z0)/nz;
+  for(let i=0;i<nx;i++) for(let j=0;j<nz;j++)
+    S(x0+w*(i+.5), -.05, z0+d*(j+.5), w, .1, d, ((i+j)&1)?cb:ca);
+}
+function ceiling(x0,z0,x1,z1,h){ S((x0+x1)/2,h+.06,(z0+z1)/2,x1-x0,.12,z1-z0,C.ceil); }
+/** 沿 X 的墙，openings=[[x0,x1,高度?]] */
+function wallX(x0,x1,z,h,col,ops){
+  ops=(ops||[]).slice().sort((a,b)=>a[0]-b[0]); let cur=x0;
+  for(const o of ops){
+    const a=o[0], b=o[1], oh=o[2]||2.3;
+    if(a>cur+.001) S((cur+a)/2,h/2,z,a-cur,h,T,col);
+    if(h>oh+.001) S((a+b)/2,(oh+h)/2,z,b-a,h-oh,T,col);
+    cur=b;
+  }
+  if(x1>cur+.001) S((cur+x1)/2,h/2,z,x1-cur,h,T,col);
+}
+/** 沿 Z 的墙，openings=[[z0,z1,高度?]] */
+function wallZ(z0,z1,x,h,col,ops){
+  ops=(ops||[]).slice().sort((a,b)=>a[0]-b[0]); let cur=z0;
+  for(const o of ops){
+    const a=o[0], b=o[1], oh=o[2]||2.3;
+    if(a>cur+.001) S(x,h/2,(cur+a)/2,T,h,a-cur,col);
+    if(h>oh+.001) S(x,(oh+h)/2,(a+b)/2,T,h-oh,b-a,col);
+    cur=b;
+  }
+  if(z1>cur+.001) S(x,h/2,(cur+z1)/2,T,h,z1-cur,col);
+}
+function poster(x,y,z,w,hh,col,yaw){ S(x,y,z,w,hh,.04,col,yaw,.12); }
+function table(x,z,r){
+  r=r||1.0;
+  S(x,.74,z,r*2,.09,r*2,C.tableTop);
+  for(const dx of [-1,1]) for(const dz of [-1,1])
+    S(x+dx*(r-.14),.37,z+dz*(r-.14),.11,.74,.11,C.metal);
+  S(x,.80,z,.42,.03,.42,C.plate,0,.05);            // 盘子
+  S(x+.5,.86,z-.35,.2,.22,.2,C.neon,rnd(0,3),.25); // 派对帽
+  for(const s of [[-1.55,0,Math.PI/2],[1.55,0,-Math.PI/2],[0,-1.55,0],[0,1.55,Math.PI]]){
+    const cx=x+s[0]*r*.95, cz=z+s[1]*r*.95;
+    S(cx,.44,cz,.5,.07,.5,C.wall2,s[2]);
+    S(cx-Math.sin(s[2])*.22,.72,cz-Math.cos(s[2])*.22,.5,.56,.07,C.wall2,s[2]);
+  }
+}
+
+const H_ROOM=3.5, H_HALL=2.9;
+const PANEL_Z=1.98;                  // 按钮面板的 z（见 buildLevel 里的推导注释）
+const ROOMS={};
+function buildLevel(){
+  /* ---- 保安办公室 : x -3.2..3.2, z -3.0..2.4 ---- */
+  ROOMS.OFFICE=[-3.2,-3.0,3.2,2.4];
+  floorTiles(-3.2,-3.0,3.2,2.4,1.6,C.floorH,[.157,.149,.141]);
+  ceiling(-3.2,-3.0,3.2,2.4,H_HALL);
+  wallX(-3.2,3.2,-3.0,H_HALL,C.wall);                       // 前墙
+  wallX(-3.2,3.2, 2.4,H_HALL,C.wall);                       // 后墙
+  wallZ(-3.0,2.4,-3.2,H_HALL,C.wall,[[-1.5,.4]]);           // 左门洞
+  wallZ(-3.0,2.4, 3.2,H_HALL,C.wall,[[-1.5,.4]]);           // 右门洞
+  // 通风口
+  S(-1.9,2.45,-3.02,1.1,.55,.06,C.metal,0,.05);
+  for(let i=0;i<6;i++) S(-2.4+i*.2,2.45,-3.06,.06,.5,.05,C.dark);
+  // 办公桌
+  S(0,.96,.55,4.5,.1,1.5,C.desk); S(0,.48,1.26,4.5,.86,.09,C.desk);
+  for(const dx of [-2.1,2.1]) S(dx,.48,.0,.12,.96,1.3,C.metal);
+  // 两台显示器
+  S(-1.0,1.34,.16,.96,.62,.07,C.dark); S(-1.0,1.34,.12,.86,.52,.03,C.screen,0,.85);
+  S(-1.0,1.02,.2,.28,.1,.24,C.dark);
+  S(1.35,1.28,.2,.7,.5,.07,C.dark);  S(1.35,1.28,.16,.6,.4,.03,[.35,.55,.5],0,.6);
+  // 纸张 / 杯子 / 蛋糕
+  for(let i=0;i<5;i++) S(rnd(-.3,.55),1.015,rnd(.3,1.0),.34,.008,.24,C.paper,rnd(-.6,.6),.1);
+  S(2.0,1.09,.75,.17,.16,.17,C.white,0,.05);
+  S(-2.4,1.12,.62,.34,.22,.34,C.chica,0,.1); S(-2.4,1.27,.62,.1,.12,.1,C.red,0,.35);
+  // 座椅
+  S(0,.5,2.0,.72,.09,.66,C.trim); S(0,.92,2.32,.72,.76,.1,C.trim);
+  // 风扇底座（叶片是动态的）
+  S(1.95,1.06,.15,.34,.06,.34,C.metal); S(1.95,1.3,.15,.07,.45,.07,C.metal);
+  // 墙上海报
+  poster(-1.2,1.95,-2.96,1.3,.9,[.29,.14,.16],0);
+  poster(.6,1.9,-2.96,.8,.62,[.20,.22,.28],0);
+  poster(2.2,1.85,-2.96,.7,.9,C.neon,0);
+  // 门框灯（关灯时不亮，动态灯提供照明）
+  S(-3.05,2.5,-.55,.1,.16,1.7,C.metal); S(3.05,2.5,-.55,.1,.16,1.7,C.metal);
+  // 按钮面板底板（按钮本体是动态的，见 PANELS / drawPanels）
+  // PANEL_Z=1.98 是算出来的：满平移时面板正好落在光标饱和区所在的屏幕位置（9%~18% 宽），
+  // 而且视线只偏离面板法线 10°，几乎正对，好看也好点。
+  for(const s of [-1,1]){
+    const x=s*3.05;
+    S(x,1.52,PANEL_Z,.07,.98,.62,C.trim);
+    S(x-s*.02,1.52,PANEL_Z,.03,.88,.52,[.055,.059,.071]);
+    S(x-s*.02,1.02,PANEL_Z,.03,.05,.46,C.metal,0,.06);   // 下沿装饰条
+  }
+
+  /* ---- 左右门厅短段 ---- */
+  ROOMS.W_STUB=[-6.6,-2.0,-3.2,1.0];
+  floorTiles(-6.6,-2.0,-3.2,1.0,1.7,C.floorH,[.15,.145,.137]);
+  ceiling(-6.6,-2.0,-3.2,1.0,H_HALL);
+  wallX(-6.6,-3.2,1.0,H_HALL,C.wall);
+  wallX(-6.6,-3.2,-2.0,H_HALL,C.wall,[[-6.6,-3.6,H_HALL]]);
+  wallZ(-2.0,1.0,-6.6,H_HALL,C.wall);
+  poster(-5.2,1.8,.92,1.5,1.0,[.24,.16,.12],0);
+  S(-6.4,1.1,-.4,.3,2.2,.3,C.metal);
+
+  ROOMS.E_STUB=[3.2,-2.0,6.6,1.0];
+  floorTiles(3.2,-2.0,6.6,1.0,1.7,C.floorH,[.15,.145,.137]);
+  ceiling(3.2,-2.0,6.6,1.0,H_HALL);
+  wallX(3.2,6.6,1.0,H_HALL,C.wall);
+  wallX(3.2,6.6,-2.0,H_HALL,C.wall,[[3.6,6.6,H_HALL]]);
+  wallZ(-2.0,1.0,6.6,H_HALL,C.wall);
+  poster(5.2,1.8,.92,1.4,1.0,[.16,.2,.26],0);
+
+  /* ---- 长走廊 ---- */
+  ROOMS.W_HALL=[-6.6,-14,-3.6,-2.0];
+  floorTiles(-6.6,-14,-3.6,-2.0,1.5,C.floorA,C.floorB);
+  ceiling(-6.6,-14,-3.6,-2.0,H_HALL);
+  wallZ(-14,-2.0,-6.6,H_HALL,C.wall);
+  wallZ(-14,-2.0,-3.6,H_HALL,C.wall);
+  for(let i=0;i<4;i++){ poster(-6.5,1.85,-4.2-i*2.4,.04,.9,i%2?C.neon:[.28,.16,.18],Math.PI/2); }
+  S(-4.0,1.0,-11.5,.5,2.0,1.2,[.18,.14,.22]);           // 街机
+  S(-3.75,1.55,-11.5,.06,.5,.8,C.screen,0,.5);
+
+  ROOMS.E_HALL=[3.6,-14,6.6,-2.0];
+  floorTiles(3.6,-14,6.6,-2.0,1.5,C.floorA,C.floorB);
+  ceiling(3.6,-14,6.6,-2.0,H_HALL);
+  wallZ(-14,-2.0,3.6,H_HALL,C.wall);
+  wallZ(-14,-2.0,6.6,H_HALL,C.wall);
+  for(let i=0;i<4;i++){ poster(6.5,1.85,-4.2-i*2.4,.04,.9,i%2?[.2,.26,.3]:C.neon,-Math.PI/2); }
+  S(6.2,.9,-9.0,.6,1.8,1.0,[.2,.16,.14]);               // 纸箱堆
+  S(6.1,1.95,-9.2,.5,.3,.7,[.24,.2,.16]);
+
+  /* ---- 餐厅 ---- */
+  ROOMS.DINING=[-8,-22,10,-14];
+  floorTiles(-8,-22,10,-14,3.0,C.floorA,C.floorB);
+  ceiling(-8,-22,10,-14,H_ROOM);
+  wallX(-8,10,-14,H_ROOM,C.wall,[[-6.6,-3.6,2.5],[3.6,6.6,2.5]]);
+  wallX(-8,10,-22,H_ROOM,C.wall,[[-4,6,3.0]]);
+  wallZ(-22,-14,-8,H_ROOM,C.wall,[[-20,-16,2.6]]);
+  wallZ(-22,-14,10,H_ROOM,C.wall,[[-20,-16,2.6]]);
+  for(const p of [[-5,-17],[-1,-19.5],[3,-16.5],[7,-19.5],[1,-15.5],[7,-15.6]]) table(p[0],p[1],1.0);
+  poster(-7.85,2.2,-18,.05,1.5,[.30,.16,.18],Math.PI/2);
+  poster(2,2.6,-21.9,4.2,1.1,[.22,.18,.30],0);
+  S(9.6,1.2,-15.2,.7,2.4,.7,C.wall2);                    // 立柱
+  S(-7.6,1.2,-21.2,.7,2.4,.7,C.wall2);
+
+  /* ---- 表演舞台 ---- */
+  ROOMS.STAGE=[-6,-30,8,-22];
+  floorTiles(-6,-30,8,-22,3.0,C.floorA,C.floorB);
+  ceiling(-6,-30,8,-22,H_ROOM);
+  wallX(-6,8,-30,H_ROOM,C.wall2);
+  wallX(-6,8,-22,H_ROOM,C.wall,[[-4,6,3.0]]);
+  wallZ(-30,-22,-6,H_ROOM,C.wall2);
+  wallZ(-30,-22,8,H_ROOM,C.wall2,[[-28,-24.5,2.5]]);
+  S(1,.28,-27.6,10,.56,3.4,C.stage);                     // 舞台
+  S(1,.6,-25.86,10,.09,.12,[.42,.16,.16]);
+  S(1,2.2,-29.5,10.5,3.0,.2,C.curtain);                  // 幕布
+  for(let i=0;i<9;i++) S(-3.6+i*1.15,2.2,-29.35,.4,3.0,.16,[.28,.06,.09]);
+  poster(1,2.9,-29.2,3.4,.7,C.neon,0);
+  for(const x of [-2.6,1,4.6]){ S(x,3.3,-27.0,.4,.3,.4,C.metal); S(x,3.05,-27.0,.28,.2,.28,C.neon,0,.9); }
+
+  /* ---- 海盗湾 ---- */
+  ROOMS.COVE=[-16,-22,-8,-14];
+  floorTiles(-16,-22,-8,-14,2.7,[.20,.18,.16],[.12,.11,.10]);
+  ceiling(-16,-22,-8,-14,H_ROOM);
+  wallX(-16,-8,-14,H_ROOM,C.wall2);
+  wallX(-16,-8,-22,H_ROOM,C.wall2,[[-13,-10,2.4]]);
+  wallZ(-22,-14,-16,H_ROOM,C.wall2);
+  wallZ(-22,-14,-8,H_ROOM,C.wall2,[[-20,-16,2.6]]);
+  S(-13,.2,-19,5.4,.4,4.4,[.22,.12,.10]);                // 小舞台
+  poster(-13,2.7,-21.85,3.6,.8,[.85,.55,.18],0);         // "海盗湾" 招牌
+  for(let i=0;i<7;i++) S(-15.6+i*.9,2.05,-21.6,.34,.34,.1,C.neon,rnd(0,1),.5);  // 星星
+
+  /* ---- 洗手间 ---- */
+  ROOMS.RESTROOMS=[-16,-30,-8,-22];
+  floorTiles(-16,-30,-8,-22,2.0,[.24,.24,.25],[.14,.14,.15]);
+  ceiling(-16,-30,-8,-22,H_ROOM);
+  wallX(-16,-8,-30,H_ROOM,C.wall);
+  wallX(-16,-8,-22,H_ROOM,C.wall,[[-13,-10,2.4]]);
+  wallZ(-30,-22,-16,H_ROOM,C.wall);
+  wallZ(-30,-22,-8,H_ROOM,C.wall);
+  for(let i=0;i<4;i++){ const x=-15.2+i*1.9;
+    S(x,1.1,-28.0,.1,2.2,2.6,[.20,.24,.26]);
+    S(x+.95,1.1,-26.8,1.9,2.2,.1,[.20,.24,.26]);
+  }
+  S(-9.6,1.15,-24.0,1.2,.2,1.6,C.plate,0,.05);           // 洗手台
+  poster(-9.5,1.95,-24.0,.05,1.0,[.5,.6,.65],Math.PI/2);
+
+  /* ---- 后台（备用玩偶头，气氛担当） ---- */
+  ROOMS.BACKSTAGE=[8,-30,15,-22];
+  floorTiles(8,-30,15,-22,2.3,[.18,.17,.16],[.11,.10,.10]);
+  ceiling(8,-30,15,-22,H_ROOM);
+  wallX(8,15,-30,H_ROOM,C.wall2);
+  wallX(8,15,-22,H_ROOM,C.wall2);
+  wallZ(-30,-22,8,H_ROOM,C.wall2,[[-28,-24.5,2.5]]);
+  wallZ(-30,-22,15,H_ROOM,C.wall2);
+  for(const y of [1.0,1.9]){
+    S(11.5,y,-29.2,6.4,.1,1.2,C.desk);
+    const heads=[C.freddy,C.bonnie,C.chica,C.foxy,C.freddy];
+    for(let i=0;i<5;i++){ const x=9.1+i*1.2, hc=heads[(i+(y>1.5?2:0))%5];
+      S(x,y+.33,-29.2,.56,.56,.52,hc,rnd(-.5,.5));
+      S(x-.13,y+.38,-29.46,.13,.13,.06,C.eye,0,.55);
+      S(x+.13,y+.38,-29.46,.13,.13,.06,C.eye,0,.55);
+    }
+  }
+  S(9.2,1.0,-23.5,1.1,2.0,.7,C.metal);                   // 空躯壳
+  S(9.2,2.25,-23.5,.6,.6,.6,C.bonnieD);
+  poster(14.85,2.1,-26,.05,1.2,[.3,.3,.32],-Math.PI/2);
+
+  /* ---- 厨房（只有音频） ---- */
+  ROOMS.KITCHEN=[10,-22,17,-14];
+  floorTiles(10,-22,17,-14,2.0,[.22,.23,.24],[.13,.13,.14]);
+  ceiling(10,-22,17,-14,H_ROOM);
+  wallX(10,17,-14,H_ROOM,C.wall);
+  wallX(10,17,-22,H_ROOM,C.wall);
+  wallZ(-22,-14,10,H_ROOM,C.wall,[[-20,-16,2.6]]);
+  wallZ(-22,-14,17,H_ROOM,C.wall);
+  S(16.2,.9,-18,1.4,1.8,7.4,C.metal);
+  S(13.5,.5,-21.2,5.6,1.0,1.2,C.metal);
+  for(let i=0;i<5;i++) S(11.4+i*1.1,1.4,-21.2,.4,.44,.4,C.hookMetal);
+}
+buildLevel();
+
+/* --- 房间可见性掩码：每个盒体归属所有与之相交的房间（共享墙自然归两边） --- */
+const ROOM_KEYS=Object.keys(ROOMS), ROOM_BIT={}, ALL_ROOMS=(1<<ROOM_KEYS.length)-1;
+ROOM_KEYS.forEach((k,i)=>ROOM_BIT[k]=1<<i);
+(function tagStatic(){
+  // 严格相交（无膨胀）：跨界的墙自然同属两室，仅相切的地板/天花不会互相泄漏
+  for(const b of STATIC){
+    let m=0;
+    const hx=b.sx/2, hz=b.sz/2;
+    for(const k of ROOM_KEYS){
+      const r=ROOMS[k];
+      if(b.x+hx>r[0] && b.x-hx<r[2] && b.z+hz>r[1] && b.z-hz<r[3]) m|=ROOM_BIT[k];
+    }
+    b.m=m||ALL_ROOMS;
+  }
+})();
+function maskOf(rooms){ let m=0; for(let i=0;i<rooms.length;i++) m|=ROOM_BIT[rooms[i]]||0; return m; }
+
+/* ---------------------------------------------------------------- 房间灯 */
+const ROOM_LIGHTS=[
+  {room:'OFFICE',   p:[ .2,2.7,  .4], c:[1,.80,.55], r:8.0, i:.55},
+  {room:'OFFICE',   p:[-1.0,1.6, .1], c:[.45,.85,.80],r:3.2, i:.35},
+  {room:'W_HALL',   p:[-5.1,2.7,-6.0],c:[.62,.70,.85],r:9.0, i:.5, flick:1},
+  {room:'W_HALL',   p:[-5.1,2.7,-12.0],c:[.62,.70,.85],r:8.0,i:.42,flick:1},
+  {room:'E_HALL',   p:[ 5.1,2.7,-6.0],c:[.62,.70,.85],r:9.0, i:.5, flick:1},
+  {room:'E_HALL',   p:[ 5.1,2.7,-12.0],c:[.62,.70,.85],r:8.0,i:.42,flick:1},
+  {room:'DINING',   p:[-2.0,3.2,-17.0],c:[1,.85,.62], r:13., i:.45},
+  {room:'DINING',   p:[ 6.0,3.2,-19.5],c:[1,.85,.62], r:13., i:.40},
+  {room:'STAGE',    p:[-2.6,3.0,-27.0],c:[1,.62,.42], r:9.,  i:.55},
+  {room:'STAGE',    p:[ 1.0,3.0,-27.0],c:[1,.72,.50], r:9.,  i:.60},
+  {room:'STAGE',    p:[ 4.6,3.0,-27.0],c:[1,.62,.42], r:9.,  i:.55},
+  {room:'COVE',     p:[-13.,3.0,-19.],c:[.90,.50,.30],r:9.,  i:.34},
+  {room:'RESTROOMS',p:[-12.,3.2,-26.],c:[.70,.78,.88],r:12., i:.34,flick:1},
+  {room:'BACKSTAGE',p:[11.5,3.2,-26.],c:[.80,.72,.60],r:12., i:.30,flick:1},
+  {room:'KITCHEN',  p:[13.5,3.2,-18.],c:[.72,.82,.88],r:12., i:.30},
+  {room:'W_STUB',   p:[-4.9,2.6,-0.5],c:[.70,.72,.85],r:6.,  i:.30},
+  {room:'E_STUB',   p:[ 4.9,2.6,-0.5],c:[.70,.72,.85],r:6.,  i:.30},
+];
+
+/* ---------------------------------------------------------------- 摄像头 */
+const CAMS=[
+  {id:'1A',name:'表演舞台',   room:'STAGE',    p:[ 6.6,3.05,-22.7], t:[ .5,1.3,-27.6], fov:1.30},
+  {id:'1B',name:'餐厅大厅',   room:'DINING',   p:[ 9.3,3.20,-14.8], t:[-2.0,1.0,-19.0],fov:1.34},
+  {id:'1C',name:'海盗湾',     room:'COVE',     p:[-8.6,2.95,-14.9], t:[-13.,1.1,-19.6],fov:1.26},
+  {id:'2A',name:'西走廊',     room:'W_HALL',   p:[-5.1,2.55,-2.6],  t:[-5.1,1.0,-13.5],fov:1.20},
+  {id:'2B',name:'西走廊转角', room:'W_STUB',   p:[-6.35,2.45,-1.75],t:[-3.3,1.05,-.4], fov:1.30},
+  {id:'3', name:'洗手间',     room:'RESTROOMS',p:[-8.7,3.05,-29.4], t:[-13.,1.0,-25.2],fov:1.28},
+  {id:'4A',name:'东走廊',     room:'E_HALL',   p:[ 5.1,2.55,-2.6],  t:[ 5.1,1.0,-13.5],fov:1.20},
+  {id:'4B',name:'东走廊转角', room:'E_STUB',   p:[ 6.35,2.45,-1.75],t:[ 3.3,1.05,-.4], fov:1.30},
+  {id:'5', name:'后台',       room:'BACKSTAGE',p:[14.4,3.05,-22.6], t:[ 9.6,1.3,-27.2],fov:1.30},
+  {id:'6', name:'厨房',       room:'KITCHEN',  p:[16.4,3.05,-14.8], t:[11.,1.0,-19.],  fov:1.30, dead:true},
+];
+CAMS.forEach(c=>{ const a=aimAt(c.p[0],c.p[1],c.p[2],c.t[0],c.t[1],c.t[2]); c.yaw=a.yaw; c.pitch=a.pitch; });
+
+/* ---------------------------------------------------------------- 站位 */
+const SPOTS={
+  STAGE:    [[ 1.0,-27.3,Math.PI],[-2.6,-27.3,Math.PI],[ 4.6,-27.3,Math.PI]],
+  DINING:   [[-1.5,-18.4, .45],[ 3.2,-19.6,-.7],[-5.0,-16.2, 1.1],[ 6.6,-17.4,-1.4]],
+  KITCHEN:  [[13.2,-18.0,-1.3],[14.4,-20.0,-.6]],
+  RESTROOMS:[[-11.8,-25.6, .3],[-13.6,-27.0,-.4]],
+  BACKSTAGE:[[11.0,-25.6,-.5],[12.6,-27.2, .4]],
+  COVE:     [[-10.4,-16.4, .55],[-15.0,-16.2,-.7]],
+  W_HALL:   [[-5.1,-8.0,Math.PI],[-5.1,-11.5,Math.PI]],
+  E_HALL:   [[ 5.1,-8.0,Math.PI],[ 5.1,-11.5,Math.PI]],
+  W_STUB:   [[-5.3,-.5,-Math.PI/2]],
+  E_STUB:   [[ 5.3,-.5, Math.PI/2]],
+  DOOR_L:   [[-3.95,-.55,-Math.PI/2]],
+  DOOR_R:   [[ 3.95,-.55, Math.PI/2]],
+};
+const STAGE_SLOT={freddy:0,bonnie:1,chica:2};
+
+/* ---------------------------------------------------------------- 玩偶模型 */
+function drawChar(k,x,z,yaw,t,opt){
+  opt=opt||{};
+  const sc=opt.scale||1, dark=!!opt.dark, mouth=opt.mouth||0;
+  const walk=opt.walk?Math.sin(t*7.5):0;
+  const bob=opt.walk?Math.abs(Math.sin(t*7.5))*.05:Math.sin(t*1.4)*.012;
+  const y0=(opt.y||0)+bob;
+  const P={
+    freddy:{b:C.freddy,d:C.freddyD,belly:C.belly,ear:.30,hat:1,bow:1,snout:1},
+    bonnie:{b:C.bonnie,d:C.bonnieD,belly:C.purple,ear:1.15,bow:1,snout:1},
+    chica: {b:C.chica, d:C.chicaD, belly:[.94,.86,.42],beak:1},
+    foxy:  {b:C.foxy,  d:C.foxyD,  belly:[.80,.72,.62],ear:.42,snout:1,hook:1},
+  }[k];
+  const B=(px,py,pz,sx,sy,sz,col,em)=>{
+    const c=Math.cos(yaw), s=Math.sin(yaw);
+    drawBox(x + px*c*sc + pz*s*sc, y0+py*sc, z - px*s*sc + pz*c*sc,
+            sx*sc, sy*sc, sz*sc, col, yaw, em||0);
+  };
+  const eyeC = dark ? [1,.30,.18] : C.eye;
+  const eyeE = dark ? 1 : .55;
+  // 腿
+  B(-.20,.28+walk*.03,0, .26,.58,.28,P.d); B(.20,.28-walk*.03,0, .26,.58,.28,P.d);
+  B(-.20,.05,.10, .30,.14,.44,P.d);        B(.20,.05,.10, .30,.14,.44,P.d);
+  // 躯干
+  B(0,.98,0, .76,.86,.56,P.b);
+  B(0,.92,-.24, .52,.62,.14,P.belly);
+  if(P.bow){ B(0,1.34,-.30,.30,.14,.10,C.bow,.15); B(0,1.20,-.30,.07,.30,.07,C.bow,.15); }
+  if(k==='chica'){ B(0,.92,-.30,.46,.60,.05,[.92,.90,.86],.08); B(0,1.10,-.33,.34,.14,.03,C.red,.15); }
+  // 手臂
+  const sw=walk*.28;
+  B(-.50,1.00+sw*.1,sw*.5, .22,.80,.24,P.b);  B(.50,1.00-sw*.1,-sw*.5, .22,.80,.24,P.b);
+  B(-.52,.56+sw*.12,sw*.55, .24,.24,.26,P.d); B(.52,.56-sw*.12,-sw*.55, .24,.24,.26,P.d);
+  if(P.hook){ B(.56,.34,-.06,.07,.34,.07,C.hookMetal,.1); B(.56,.18,-.18,.07,.09,.30,C.hookMetal,.1); }
+  // 头
+  const hy=1.60;
+  B(0,hy,0, .70,.62,.62,P.b);
+  B(0,hy+.30,0, .60,.10,.56,P.b);
+  if(P.ear){ B(-.30,hy+.30+P.ear*.28,0, .18,P.ear*.62,.20,P.b);
+             B( .30,hy+.30+P.ear*.28,0, .18,P.ear*.62,.20,P.b);
+             B(-.30,hy+.30+P.ear*.28,-.06,.10,P.ear*.44,.10,P.d);
+             B( .30,hy+.30+P.ear*.28,-.06,.10,P.ear*.44,.10,P.d); }
+  if(P.snout){ B(0,hy-.10,-.34, .40,.28,.22,P.d);
+               B(0,hy+.02,-.44, .14,.10,.08,C.pupil); }
+  if(P.beak){ B(0,hy-.06,-.36, .40,.16,.26,[.95,.66,.20]);
+              B(0,hy-.20-mouth*.16,-.34, .36,.12,.22,[.85,.55,.14]); }
+  if(P.hat){ B(0,hy+.44,0, .52,.10,.50,C.hat); B(0,hy+.62,0, .38,.30,.36,C.hat);
+             B(0,hy+.56,-.16,.40,.09,.06,C.bow,.1); }
+  // 眼睛
+  B(-.17,hy+.10,-.30, .19,.19,.06,eyeC,eyeE);
+  B( .17,hy+.10,-.30, .19,.19,.06,eyeC,eyeE);
+  if(!dark){ B(-.17,hy+.10,-.34,.09,.11,.04,C.pupil); B(.17,hy+.10,-.34,.09,.11,.04,C.pupil); }
+  if(k==='foxy'){ B(.19,hy+.12,-.33,.26,.24,.05,C.foxyD); B(.19,hy+.30,-.30,.05,.22,.04,C.foxyD); }
+  // 牙（张嘴时露出）
+  if(mouth>0.01){
+    const my=hy-.22-mouth*.30;
+    B(0,my+.14,-.30, .40,.10,.16,C.pupil);
+    for(let i=0;i<5;i++){ B(-.16+i*.08,my+.20,-.34,.055,.11,.05,C.teeth,.1);
+                          B(-.16+i*.08,my+.02,-.34,.055,.10,.05,C.teeth,.1); }
+    B(0,my-.06,-.24,.36,.16,.24,[.30,.10,.10]);
+  }
+}
+
+/* ---------------------------------------------------------------- 音频 */
+const Snd={
+  ctx:null, master:null, noiseBuf:null, fan:null, amb:null, ok:false,
+  init(){
+    if(this.ctx) return;
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    this.ctx=new AC();
+    this.master=this.ctx.createGain(); this.master.gain.value=.85;
+    this.master.connect(this.ctx.destination);
+    const sr=this.ctx.sampleRate, len=sr*2;
+    const b=this.ctx.createBuffer(1,len,sr), d=b.getChannelData(0);
+    let last=0;
+    for(let i=0;i<len;i++){ const w=Math.random()*2-1; last=(last+.02*w)/1.02; d[i]=last*3.2; }
+    this.noiseBuf=b; this.ok=true;
+  },
+  now(){ return this.ctx?this.ctx.currentTime:0; },
+  noise(dest,gainV,filter,freq,q){
+    const s=this.ctx.createBufferSource(); s.buffer=this.noiseBuf; s.loop=true;
+    let node=s;
+    if(filter){ const f=this.ctx.createBiquadFilter(); f.type=filter; f.frequency.value=freq;
+      if(q) f.Q.value=q; s.connect(f); node=f; }
+    const g=this.ctx.createGain(); g.gain.value=gainV; node.connect(g); g.connect(dest||this.master);
+    s.start(); return {src:s,gain:g};
+  },
+  startAmb(){
+    if(!this.ok||this.fan) return;
+    this.fan=this.noise(null,.030,'bandpass',260,1.1);
+    const lfo=this.ctx.createOscillator(), lg=this.ctx.createGain();
+    lfo.frequency.value=7.4; lg.gain.value=.014; lfo.connect(lg); lg.connect(this.fan.gain.gain);
+    lfo.start(); this.fanLfo=lfo;
+    const o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    o.type='sine'; o.frequency.value=54; g.gain.value=.05; o.connect(g); g.connect(this.master);
+    o.start(); this.amb={o,g};
+  },
+  stopAmb(){
+    if(this.fan){ try{this.fan.src.stop();}catch(e){} try{this.fanLfo.stop();}catch(e){} this.fan=null; }
+    if(this.amb){ try{this.amb.o.stop();}catch(e){} this.amb=null; }
+  },
+  fanSpeed(v){ if(this.fan) this.fan.gain.gain.value=.030*v; },
+  tone(f,dur,type,vol,slideTo){
+    if(!this.ok) return;
+    const t=this.now(), o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20,slideTo),t+dur);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol||.2,t+.012);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t+dur+.03);
+  },
+  burst(dur,vol,type,freq,q){
+    if(!this.ok) return;
+    const t=this.now(), s=this.ctx.createBufferSource(); s.buffer=this.noiseBuf;
+    s.playbackRate.value=rnd(.8,1.2);
+    let node=s;
+    if(type){ const f=this.ctx.createBiquadFilter(); f.type=type; f.frequency.value=freq;
+      if(q)f.Q.value=q; s.connect(f); node=f; }
+    const g=this.ctx.createGain();
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    node.connect(g); g.connect(this.master);
+    s.start(t,rnd(0,1)); s.stop(t+dur+.02);
+  },
+  door(closing){ this.burst(.16,.28,'lowpass',700); this.tone(closing?110:150,.28,'sine',.3,closing?46:70); },
+  light(){ this.burst(.05,.10,'highpass',2800); this.tone(1400,.05,'square',.04); },
+  camSwitch(){ this.burst(.20,.20,'highpass',1400); this.tone(700,.05,'square',.05); },
+  step(){ this.burst(.13,.16,'lowpass',420); this.tone(70,.16,'sine',.14,45); },
+  knock(){ for(let i=0;i<3;i++) setTimeout(()=>{ this.burst(.11,.30,'lowpass',380); this.tone(84,.2,'sine',.3,50); },i*150); },
+  laugh(){ if(!this.ok) return;
+    const base=[392,349,330,294,262];
+    base.forEach((f,i)=>setTimeout(()=>this.tone(f,.20,'triangle',.10),i*135)); },
+  run(){ if(!this.ok) return;
+    for(let i=0;i<11;i++) setTimeout(()=>{ this.burst(.08,.26,'lowpass',560);
+      this.tone(rnd(70,110),.1,'sine',.16,48); },i*115); },
+  scream(){
+    if(!this.ok) return;
+    const t=this.now();
+    this.burst(1.05,.85,'highpass',260);
+    for(const f of [880,660,440,300]){
+      const o=this.ctx.createOscillator(), g=this.ctx.createGain();
+      o.type='sawtooth'; o.frequency.setValueAtTime(f*rnd(.95,1.06),t);
+      o.frequency.exponentialRampToValueAtTime(48,t+.85);
+      g.gain.setValueAtTime(.20,t); g.gain.exponentialRampToValueAtTime(.0001,t+1.0);
+      o.connect(g); g.connect(this.master); o.start(t); o.stop(t+1.05);
+    }
+  },
+  powerDown(){ this.tone(220,1.6,'sine',.22,40); this.burst(.7,.16,'lowpass',300); },
+  musicBox(){
+    if(!this.ok) return [];
+    // 《斗牛士之歌》动机（Bizet，公有领域）
+    const mel=[76,76,77,79,79,77,76,74,72,72,74,76,76,74,74,
+               76,76,77,79,79,77,76,74,72,74,76,72];
+    const ids=[];
+    mel.forEach((n,i)=>ids.push(setTimeout(()=>{
+      const f=440*Math.pow(2,(n-69)/12);
+      this.tone(f,.55,'triangle',.11); this.tone(f*2,.30,'sine',.035);
+    },i*300)));
+    return ids;
+  },
+  chime6(){
+    if(!this.ok) return;
+    for(let i=0;i<6;i++) setTimeout(()=>{ this.tone(1046,.9,'sine',.16); this.tone(1568,.7,'sine',.08); },i*330);
+    [523,659,784,1046].forEach((f,i)=>setTimeout(()=>this.tone(f,.8,'triangle',.10),2100+i*130));
+  },
+  cheer(){ this.burst(1.6,.10,'bandpass',1600,.7); },
+};
+
+/* ---------------------------------------------------------------- 游戏状态 */
+const HOUR=44;                       // 每个游戏小时的真实秒数
+/* foxy 单独调过：他的杀伤来自"反应窗口极短"，等级同为 N 时比其他三只危险得多 */
+const AI_TABLE={
+  1:{freddy:1, bonnie:2, chica:1, foxy:0},
+  2:{freddy:2, bonnie:4, chica:3, foxy:2},
+  3:{freddy:4, bonnie:7, chica:6, foxy:5},
+  4:{freddy:7, bonnie:10,chica:9, foxy:8},
+  5:{freddy:10,bonnie:13,chica:12,foxy:11},
+  6:{freddy:14,bonnie:16,chica:15,foxy:15},
+};
+/* 狐狸的"仁慈参数"：最早可冲刺的钟点 + 冲刺反应窗口（秒） */
+const FOXY_TUNE={
+  1:{minHour:6, win:3.2}, 2:{minHour:2, win:3.0}, 3:{minHour:1, win:2.6},
+  4:{minHour:0, win:2.3}, 5:{minHour:0, win:2.1}, 6:{minHour:0, win:1.9},
+};
+const ROUTES={
+  freddy:['STAGE','BACKSTAGE','STAGE','DINING','E_HALL','E_STUB','DOOR_R'],
+  bonnie:['STAGE','DINING','COVE','DINING','W_HALL','W_STUB','DOOR_L'],
+  chica: ['STAGE','DINING','KITCHEN','DINING','E_HALL','E_STUB','DOOR_R'],
+};
+const NAMES={freddy:'弗雷德熊',bonnie:'邦尼兔',chica:'奇卡鸡',foxy:'福克斯狐'};
+
+/* 视角上限。1.02 rad 不是随手取的：水平半 FOV 为 49.4°，在这个上限下满平移时
+   墙上按钮面板正好渲染在屏幕 6.7%~16.7% 宽处，与光标饱和区(<=15%)重叠约 130px，
+   于是"视角已停住 + 光标正落在按钮上"同时成立 —— 3D 按钮才真的点得到。
+   同时左门洞落在画面 46.5%（接近正中），构图也更好。 */
+const YAW_MAX=1.02, PITCH_MAX=0.20;
+const G={
+  state:'gate', night:1, custom:null,
+  clock:0, power:100, usage:1,
+  doorL:false, doorR:false, lightL:false, lightR:false,
+  animL:0, animR:0,
+  monitor:false, cam:0, camIdle:0, staticT:0,
+  hover:null,
+  yaw:0, pitch:0, tyaw:0, tpitch:0,
+  chars:[], t:0, dt:0,
+  out:false, outT:0, outPhase:0, boxIds:[],
+  jumpT:0, attacker:null, shake:0,
+  introT:0, flash:0, hintT:6,
+  lastStepT:0, hallStepT:0,
+};
+
+function mkChars(levels,night){
+  const list=[];
+  for(const k of ['freddy','bonnie','chica']){
+    list.push({key:k, route:ROUTES[k], idx:0, level:levels[k],
+      timer:rnd(3,6), interval:k==='freddy'?5.4:4.4,
+      grace:k==='freddy'?9:6.2, waitT:0, closedT:0, walk:0});
+  }
+  const ft=FOXY_TUNE[clamp(night||1,1,6)];
+  list.push({key:'foxy', route:['COVE'], idx:0, level:levels.foxy,
+    timer:rnd(6,10), interval:5.6, stage:0, runT:0, waitT:0, closedT:0, walk:0,
+    minHour:ft.minHour, win:ft.win});
+  return list;
+}
+function roomOf(c){ return c.key==='foxy' ? (c.stage>=4?'W_HALL':'COVE') : c.route[c.idx]; }
+function charsIn(room){ return G.chars.filter(c=>roomOf(c)===room); }
+const FREE_ROOMS={DINING:1,STAGE:1,COVE:1};   // 宽敞房间不互斥
+function occupied(room,self){
+  if(FREE_ROOMS[room]) return false;
+  // 福克斯狐待在自己的海盗湾舞台，不占用寻路点
+  return G.chars.some(c=>c!==self && c.key!=='foxy' && roomOf(c)===room);
+}
+function spotFor(c){
+  const room=roomOf(c);
+  const arr=SPOTS[room]||SPOTS.DINING;
+  let i;
+  if(room==='STAGE' && STAGE_SLOT[c.key]!==undefined) i=STAGE_SLOT[c.key];
+  else { const l=charsIn(room).filter(x=>x.key!=='foxy'); i=Math.max(0,l.indexOf(c)); }
+  return arr[i%arr.length];
+}
+
+/* ---------------------------------------------------------------- DOM */
+const $=id=>document.getElementById(id);
+const elHud=$('hud'), elMon=$('monUI'), elStatic=$('staticCv'), elScan=$('scanlines');
+const elFlash=$('flash'), elCamName=$('camName'), elNoSig=$('noSignal');
+const sctx=elStatic.getContext('2d');
+elStatic.width=200; elStatic.height=115;
+const simg=sctx.createImageData(200,115);
+function drawStatic(alpha){
+  const d=simg.data;
+  for(let i=0;i<d.length;i+=4){
+    const v=Math.random()*255|0;
+    d[i]=v; d[i+1]=v; d[i+2]=v; d[i+3]=alpha*(Math.random()<.5?255:120);
+  }
+  sctx.putImageData(simg,0,0);
+}
+function screenOn(id){
+  ['gate','menu','intro','over','win'].forEach(s=>$(s).classList.toggle('on',s===id));
+}
+(function buildCamBtns(){
+  const g=$('camBtns');
+  CAMS.forEach((c,i)=>{
+    const b=document.createElement('button');
+    b.className='cb'; b.dataset.i=i;
+    b.innerHTML='CAM '+c.id+'<small>'+c.name+'</small>';
+    b.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation(); setCam(i); });
+    g.appendChild(b);
+  });
+})();
+function syncCamBtns(){
+  const bs=$('camBtns').children;
+  for(let i=0;i<bs.length;i++) bs[i].classList.toggle('sel',i===G.cam);
+}
+function syncHud(){
+  const h=Math.floor(G.clock/HOUR);
+  $('clockH').textContent=(h===0?12:h)+' AM';
+  $('nightLab').textContent=G.custom?'自定义夜':'第 '+G.night+' 夜';
+  $('powerVal').textContent=Math.max(0,Math.ceil(G.power))+'%';
+  $('powerVal').style.color=G.power<25?'#e0392b':(G.power<50?'#e0a92b':'#d8dbe2');
+  const u=G.usage, bars=$('bars').children;
+  for(let i=0;i<5;i++){
+    bars[i].className = i<u ? ('a'+Math.min(4,u)) : '';
+  }
+  $('bDoorL').classList.toggle('on',G.doorL);
+  $('bDoorR').classList.toggle('on',G.doorR);
+  $('bLightL').classList.toggle('on',G.lightL);
+  $('bLightR').classList.toggle('on',G.lightR);
+  $('bDoorL').innerHTML=(G.doorL?'左门 已关':'左门 关闭')+'<kbd>A</kbd>';
+  $('bDoorR').innerHTML=(G.doorR?'右门 已关':'右门 关闭')+'<kbd>D</kbd>';
+  $('camBtn').innerHTML=(G.monitor?'放下 平板':'监控 摄像头')+'<kbd>SPACE</kbd>';
+}
+
+/* ---------------------------------------------------------------- 操作 */
+function toggleDoor(s){
+  if(G.state!=='play'||G.out) return;
+  if(s<0) G.doorL=!G.doorL; else G.doorR=!G.doorR;
+  Snd.door(s<0?G.doorL:G.doorR); syncHud();
+}
+function toggleLight(s){
+  if(G.state!=='play'||G.out) return;
+  if(s<0){ G.lightL=!G.lightL; if(G.lightL) G.lightR=false; }
+  else    { G.lightR=!G.lightR; if(G.lightR) G.lightL=false; }
+  Snd.light(); syncHud();
+  // 门口有玩偶时开灯 → 惊呼
+  const room=s<0?'DOOR_L':'DOOR_R';
+  if((s<0?G.lightL:G.lightR) && charsIn(room).length){ Snd.burst(.5,.16,'bandpass',900,1.2); }
+}
+function setMonitor(v){
+  if(G.state!=='play'||G.out) return;
+  if(G.monitor===v) return;
+  G.monitor=v;
+  elMon.classList.toggle('on',v);
+  elScan.style.opacity=v?'1':'0';
+  elStatic.style.opacity=v?'.30':'0';
+  Snd.camSwitch(); Snd.fanSpeed(v?.4:1);
+  if(v){ G.lightL=G.lightR=false; G.staticT=.35; }
+  elNoSig.style.display=(v&&CAMS[G.cam].dead)?'grid':'none';
+  const cc=CAMS[G.cam];
+  elCamName.textContent='CAM '+cc.id+' · '+cc.name;
+  $('hint').textContent=v?'1–9 / 0 切换镜头 · 空格放下平板':'移动鼠标环顾办公室';
+  syncHud(); syncCamBtns();
+}
+function setCam(i){
+  if(!G.monitor) return;
+  if(i===G.cam) return;
+  G.cam=i; G.staticT=.3; G.camIdle=0;
+  const c=CAMS[i];
+  elCamName.textContent='CAM '+c.id+' · '+c.name;
+  elNoSig.style.display=c.dead?'grid':'none';
+  Snd.camSwitch(); syncCamBtns();
+  if(c.room==='KITCHEN'){ Snd.burst(1.2,.10,'bandpass',1200,.8); }
+}
+
+/* 鼠标环顾 */
+let mnx=0, mny=0;
+function onPointer(cx,cy){
+  const w=innerWidth,h=innerHeight;
+  let tx=(cx/w)*2-1, ty=(cy/h)*2-1;
+  // 横向：内死区 14% + 外饱和区 —— |tx|>=SAT 后视角停在极限不再动，
+  // 墙上的 3D 按钮因此变成静止靶子，光标能稳稳落上去点击。
+  const DZ=.14, SAT=.70;
+  mnx=Math.sign(tx)*clamp((Math.abs(tx)-DZ)/(SAT-DZ),0,1);
+  // 纵向死区放大到 30%，鼠标下移去点按钮时几乎不抬头低头
+  mny=clamp(Math.sign(ty)*Math.max(0,Math.abs(ty)-.30)/.70,-1,1);
+}
+/* ---- 视角输入：边缘跟随 / 拖拽转头 两种模式 + UI 悬停冻结 ---- */
+const LOOKSAVE='fnaf3d_look';
+const LOOK={ mode:'edge', drag:false, ui:false, px:0, py:0, has:false, band:.78,
+             moved:0, downPick:null };
+LOOK.mode = localStorage.getItem(LOOKSAVE)
+  || (('ontouchstart' in window)||navigator.maxTouchPoints>0 ? 'drag' : 'edge');
+function setLookMode(m){
+  LOOK.mode=m; LOOK.drag=false;
+  try{ localStorage.setItem(LOOKSAVE,m); }catch(e){}
+  const b=$('mMode');
+  if(b) b.textContent='视角模式：'+(m==='drag'?'拖拽转头':'边缘跟随');
+  $('wrap').style.cursor = m==='drag'?'grab':'crosshair';
+}
+/** 指针在 HUD 控件上时冻结视角，这样"移过去点按钮"不会把头转飞 */
+function uiHover(on){ LOOK.ui=on; }
+['ctrls','camGrid','powerBox'].forEach(id=>{
+  const el=$(id); if(!el) return;
+  el.addEventListener('pointerenter',()=>uiHover(true));
+  el.addEventListener('pointerleave',()=>uiHover(false));
+});
+function movePointer(cx,cy){
+  const dx=LOOK.has?cx-LOOK.px:0, dy=LOOK.has?cy-LOOK.py:0;
+  LOOK.px=cx; LOOK.py=cy; LOOK.has=true;
+  LOOK.moved+=Math.abs(dx)+Math.abs(dy);
+  if(LOOK.ui) return;                                   // UI 上：保持当前朝向
+  if(LOOK.mode==='drag'){
+    if(!LOOK.drag) return;                              // 只有在画面上按住拖动才转头
+    mnx=clamp(mnx+dx/(innerWidth*.28),-1,1);
+    mny=clamp(mny+dy/(innerHeight*.55),-1,1);
+  } else {
+    // 底部控件带整条冻结：光标"去点按钮"的路径上视角也不会被带偏
+    if(cy>innerHeight*LOOK.band) return;
+    onPointer(cx,cy);
+  }
+}
+addEventListener('mousemove',e=>movePointer(e.clientX,e.clientY));
+addEventListener('mousedown',e=>{
+  if(e.target.id!=='gl') return;
+  LOOK.drag=true; LOOK.has=false; LOOK.moved=0;
+  LOOK.downPick=pickPanel(e.clientX,e.clientY);         // 记下按下时命中的 3D 控件
+});
+addEventListener('mouseup',e=>{
+  LOOK.drag=false;
+  // 点击 / 拖拽判别：位移很小才算"点了那个控件"，否则视为拖拽转头
+  if(LOOK.downPick && LOOK.moved<10 && pickPanel(e.clientX,e.clientY)===LOOK.downPick){
+    activatePanel(LOOK.downPick);
+  }
+  LOOK.downPick=null;
+});
+addEventListener('touchstart',e=>{
+  LOOK.has=false; LOOK.moved=0; LOOK.downPick=null;
+  if(e.target.id==='gl'){
+    LOOK.drag=true;
+    if(e.touches[0]) LOOK.downPick=pickPanel(e.touches[0].clientX,e.touches[0].clientY);
+  } else uiHover(true);
+},{passive:true});
+addEventListener('touchend',e=>{
+  LOOK.drag=false; LOOK.has=false; uiHover(false);
+  if(LOOK.downPick && LOOK.moved<14) activatePanel(LOOK.downPick);
+  LOOK.downPick=null;
+},{passive:true});
+addEventListener('touchmove',e=>{
+  if(e.touches[0]) movePointer(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:true});
+addEventListener('keydown',e=>{
+  if(e.repeat) return;
+  const k=e.key.toLowerCase();
+  if(G.state==='play'){
+    if(k===' '){ e.preventDefault(); setMonitor(!G.monitor); }
+    else if(k==='a') toggleDoor(-1);
+    else if(k==='d') toggleDoor(1);
+    else if(k==='q') toggleLight(-1);
+    else if(k==='e') toggleLight(1);
+    else if(k==='escape'&&G.tut){ finishTut(); }
+    else if(G.monitor && /^[0-9]$/.test(k)){ const n=k==='0'?9:(+k-1); if(n<CAMS.length) setCam(n); }
+  } else if(G.state==='over'&&k==='r'){ startNight(G.night,G.custom); }
+});
+/* 用 pointerdown 而不是 click：手感更即时，且不受视角漂移影响 */
+function tap(id,fn){
+  const el=$(id);
+  el.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation(); fn(); });
+}
+tap('bDoorL',()=>toggleDoor(-1));  tap('bDoorR',()=>toggleDoor(1));
+tap('bLightL',()=>toggleLight(-1)); tap('bLightR',()=>toggleLight(1));
+tap('camBtn',()=>setMonitor(!G.monitor));
+$('wrap').addEventListener('click',e=>{
+  if(G.state==='gate'){ Snd.init(); toMenu(); }
+});
+
+/* ---------------------------------------------------------------- 新手教程 */
+/* 训练夜：不耗电、时钟不走、AI 全禁用；只在指定步骤脚本化放人，且永远不会杀死玩家。
+   每步 fn 返回 true 即通过；auto 表示纯阅读步骤，停留 N 秒自动过。 */
+function tutBonnie(on){
+  const b=G.chars.find(c=>c.key==='bonnie'); if(!b) return;
+  b.idx = on ? b.route.indexOf('DOOR_L') : 0;
+  b.waitT=0; b.closedT=0; b.walk=on?.5:0;
+  if(on){ Snd.step(); Snd.step(); }
+}
+function tutFoxyGo(){
+  const f=G.chars.find(c=>c.key==='foxy'); if(!f) return;
+  f.stage=4; f.runT=5.0; Snd.run(); foxyWarn();
+}
+/** 教程里的狐狸永不致死：门关上就算过，跑到头没关门就重跑一次 */
+function tutFoxyTick(dt){
+  const f=G.chars.find(c=>c.key==='foxy'); if(!f||f.stage<4) return;
+  if(G.doorL){ if(f.stage===4){ Snd.knock(); f.stage=0; } return; }
+  f.runT-=dt;
+  if(f.runT<=0){ f.runT=4.2; Snd.run(); foxyWarn(); }
+}
+const TUT=[
+  {t:'欢迎来到弗雷德熊披萨店。你是夜班保安 —— 被固定在这张椅子上，<b>不能走动</b>。<br><br>先移动鼠标向<b>左</b>看，再向<b>右</b>看。',
+   fn(s){ if(G.yaw>0.70) s.L=1; if(G.yaw<-0.70) s.R=1; return s.L&&s.R; }},
+  {t:'你两侧各有一扇卷帘门。<br><br>按 <b>A</b> 关上左门 —— 也可以往左看到底，<b>直接用鼠标点墙上那个红色按钮</b>。', fn:()=>G.doorL},
+  {t:'门关上了 —— 任何东西都进不来。<br><br>但关门会持续耗电，不能一直关着。再按一次 <b>A</b> 打开它。', fn:()=>!G.doorL},
+  {t:'想知道门外有没有东西，用门灯。<br><br>按 <b>Q</b> 点亮左侧走廊。', fn:()=>G.lightL},
+  {t:'门灯左右互斥，一次只能亮一侧。<br><br>现在按 <b>空格</b> 举起监控平板。', fn:()=>G.monitor},
+  {t:'这是全店 10 路监控。<b>CAM 1A</b> 是表演舞台 —— 三只玩偶现在都在台上。<br><br>按 <b>3</b> 切到 <b>CAM 1C 海盗湾</b>。', fn:()=>G.cam===2},
+  {t:'幕布后面是<b>福克斯狐</b>。它不像其他三只那样慢慢走 —— 它会突然沿西走廊<b>冲</b>过来。<br><br>你越久不看这个镜头，它准备得越快。', auto:5.5},
+  {t:'但注意：举着平板时你<b>看不到办公室</b>，玩偶正是趁这时候移动的。<br><br>按 <b>空格</b> 放下平板。', fn:()=>!G.monitor},
+  {t:'看左下角：<b>电量</b>和 <b>USAGE</b> 格子。关门、开灯、看监控都会增加耗电。<br><br>电量归零 → 门全开、灯全灭、监控失效。你就只能等着了。', auto:6.5},
+  {enter:()=>tutBonnie(true),
+   t:'有东西站在你的<b>左门口</b>了。<br><br>先用 <b>Q</b> 照一下确认，然后按 <b>A</b> 关门赶走它。', fn:()=>G.doorL},
+  {enter:()=>tutBonnie(false),
+   t:'它敲了两下门就走了。<br><br>这就是全部的防守手段：<b>确认位置 → 关门 → 它离开 → 立刻开门省电</b>。<br><br>现在按 <b>A</b> 把左门打开。', fn:()=>!G.doorL},
+  {enter:tutFoxyGo,
+   t:'听！左侧走廊传来跑步声。<br><br><b>立刻关上左门！</b>', fn:()=>G.doorL},
+  {t:'挡住了 —— 狐狸砸门会扣一点电，但比被抓好。<br><br>训练结束。真正的班次里，你要从 <b>12 AM</b> 撑到 <b>6 AM</b>。祝你好运。', auto:7.5, last:1},
+];
+function startTut(){
+  startNight(1);
+  G.tut={i:0, t:0, s:{}, entered:false};
+  G.chars.forEach(c=>{ c.level=0; c.stage=0; });
+  G.introT=1.4;
+  $('introTxt').innerHTML='<b>训练</b><span>TRAINING NIGHT</span>';
+}
+function showTutStep(st,i){
+  const p=$('tut');
+  $('tutStep').textContent='训练 '+(i+1)+' / '+TUT.length;
+  $('tutText').innerHTML=st.t;
+  p.classList.add('on');
+}
+function updateTut(dt){
+  const T=G.tut, st=TUT[T.i];
+  if(!st) return;
+  if(!T.entered){ T.entered=true; T.t=0; T.s={}; if(st.enter) st.enter(); showTutStep(st,T.i); }
+  T.t+=dt;
+  tutFoxyTick(dt);
+  const ok = st.auto ? T.t>=st.auto : (st.fn?!!st.fn(T.s):false);
+  if(!ok) return;
+  if(st.last){ finishTut(); return; }
+  T.i++; T.entered=false;
+  Snd.tone(880,.16,'sine',.09); Snd.tone(1320,.20,'sine',.05);
+}
+function finishTut(){
+  G.tut=null; $('tut').classList.remove('on');
+  G.state='win'; screenOn('win'); elHud.classList.remove('on');
+  setMonitorHard(false); Snd.stopAmb(); clearBox(); Snd.cheer();
+  $('winBig').textContent='训练完成';
+  $('winBig').style.fontSize='min(11vw,68px)';
+  $('winSub').textContent='现在你知道该怎么活下来了';
+  $('winPay').textContent='';
+  $('wNext').textContent='开始第 1 夜';
+  G.fromTut=true;
+}
+
+/* ---------------------------------------------------------------- 菜单 */
+const SAVE='fnaf3d_progress';
+function loadProg(){ const v=+(localStorage.getItem(SAVE)||1); return clamp(v||1,1,7); }
+function saveProg(n){ try{ localStorage.setItem(SAVE,String(n)); }catch(e){} }
+function toMenu(){
+  G.state='menu'; screenOn('menu'); elHud.classList.remove('on');
+  G.tut=null; G.fromTut=false; $('tut').classList.remove('on');
+  $('alert').classList.remove('on'); $('foxyWarn').classList.remove('on');
+  setMonitorHard(false); Snd.stopAmb(); clearBox();
+  const p=loadProg();
+  $('mContinue').textContent='继续 · '+(p>6?'自定义夜':'第 '+Math.min(p,6)+' 夜');
+  $('mCustom').style.display=p>6?'block':'none';
+  // 还没打过任何一夜时，教程是主推按钮；打过了就让「继续」当主推
+  const first=p<=1;
+  $('mTut').classList.toggle('gold',first);
+  $('mContinue').classList.toggle('gold',!first);
+  setLookMode(LOOK.mode);
+  G.chars=mkChars(AI_TABLE[1],1); G.yaw=0; G.pitch=0;
+}
+function setMonitorHard(v){
+  G.monitor=v; elMon.classList.toggle('on',v);
+  elScan.style.opacity=v?'1':'0'; elStatic.style.opacity=v?'.30':'0';
+}
+$('mTut').onclick=e=>{ e.stopPropagation(); Snd.init(); startTut(); };
+$('mMode').onclick=e=>{ e.stopPropagation();
+  setLookMode(LOOK.mode==='edge'?'drag':'edge'); };
+$('mContinue').onclick=e=>{ e.stopPropagation(); const p=loadProg();
+  if(p>6){ $('custom').classList.add('on'); } else startNight(p); };
+$('mNew').onclick=e=>{ e.stopPropagation(); startNight(1); };
+$('mHelp').onclick=e=>{ e.stopPropagation(); $('help').classList.toggle('on'); };
+$('mCustom').onclick=e=>{ e.stopPropagation(); $('custom').classList.toggle('on'); };
+['F','B','C','X'].forEach(k=>{
+  const inp=$('c'+k), out=$('o'+k);
+  inp.oninput=()=>out.textContent=inp.value;
+});
+$('cStart').onclick=e=>{ e.stopPropagation();
+  startNight(6,{freddy:+$('cF').value,bonnie:+$('cB').value,chica:+$('cC').value,foxy:+$('cX').value}); };
+$('oRetry').onclick=e=>{ e.stopPropagation(); startNight(G.night,G.custom); };
+$('oMenu').onclick=e=>{ e.stopPropagation(); toMenu(); };
+$('wNext').onclick=e=>{ e.stopPropagation();
+  if(G.fromTut){ G.fromTut=false; startNight(1); }
+  else if(G.custom||G.night>=6) toMenu();
+  else startNight(G.night+1); };
+
+function clearBox(){ G.boxIds.forEach(clearTimeout); G.boxIds=[]; }
+function startNight(n,custom){
+  clearBox();
+  G.custom=custom||null; G.night=clamp(n,1,6);
+  G.tut=null; G.fromTut=false; $('tut').classList.remove('on');
+  $('winBig').textContent='6 AM'; $('winBig').style.fontSize='';
+  G.clock=0; G.power=100; G.usage=1;
+  G.doorL=G.doorR=G.lightL=G.lightR=false; G.animL=G.animR=0;
+  G.out=false; G.outT=0; G.outPhase=0; G.attacker=null; G.jumpT=0; G.shake=0;
+  G.yaw=G.tyaw=0; G.pitch=G.tpitch=0; G.cam=0; G.camIdle=0; G.hintT=5;
+  mnx=0; mny=0; LOOK.has=false; LOOK.drag=false; LOOK.ui=false;
+  LOOK.moved=0; LOOK.downPick=null; G.hover=null;
+  G.chars=mkChars(G.custom||AI_TABLE[G.night], G.custom?6:G.night);
+  setMonitorHard(false); elNoSig.style.display='none';
+  elCamName.textContent='CAM 1A · '+CAMS[0].name;
+  elHud.classList.remove('out'); $('hint').style.opacity='1';
+  $('custom').classList.remove('on'); $('help').classList.remove('on');
+  Snd.init(); Snd.startAmb(); Snd.fanSpeed(1);
+  G.introT=2.4; G.state='intro';
+  $('introTxt').innerHTML='<b>'+(G.custom?'?':G.night)+'</b><span>12:00 AM</span>';
+  screenOn('intro'); $('intro').firstElementChild.classList.remove('fadeIn');
+  void $('intro').offsetWidth; $('intro').firstElementChild.classList.add('fadeIn');
+  elHud.classList.remove('on'); syncHud(); syncCamBtns();
+}
+function beginPlay(){
+  G.state='play'; screenOn(null); elHud.classList.add('on');
+  $('hint').textContent='移动鼠标环顾办公室 · 墙上的按钮面板可以直接点';
+}
+function gameOver(who){
+  G.state='over'; screenOn('over'); elHud.classList.remove('on');
+  setMonitorHard(false); Snd.stopAmb(); clearBox();
+  const h=Math.floor(G.clock/HOUR);
+  $('overSub').textContent=(who?NAMES[who]+' 逮到了你':'电力耗尽')+' · 停在 '+(h===0?12:h)+' AM';
+}
+function nightWin(){
+  G.state='win'; screenOn('win'); elHud.classList.remove('on');
+  setMonitorHard(false); Snd.stopAmb(); clearBox(); Snd.chime6(); Snd.cheer();
+  $('winSub').textContent=(G.custom?'自定义夜':'第 '+G.night+' 夜')+' · 班次结束';
+  const pay=[4.00,4.00,4.00,4.00,4.00,20.00][G.night-1]||120.00;
+  $('winPay').textContent='+ $'+pay.toFixed(2);
+  if(!G.custom){ const nx=Math.min(7,G.night+1); if(nx>loadProg()) saveProg(nx); }
+  $('wNext').textContent=(G.custom||G.night>=6)?'返回标题':'继续 · 第 '+(G.night+1)+' 夜';
+}
+function attack(c){
+  if(G.state!=='play') return;
+  G.state='jump'; G.attacker=c.key; G.jumpT=0; G.shake=1;
+  setMonitorHard(false); Snd.stopAmb(); Snd.scream(); clearBox();
+  elFlash.style.opacity='1';
+}
+
+/* ---------------------------------------------------------------- AI */
+function moveChar(c,ni){
+  const from=roomOf(c);
+  c.idx=clamp(ni,0,c.route.length-1);
+  c.waitT=0; c.closedT=0; c.walk=.55;
+  const to=roomOf(c);
+  if(to!==from){
+    Snd.step();
+    if(to==='W_HALL'||to==='E_HALL'||to==='W_STUB'||to==='E_STUB') Snd.step();
+    if(c.key==='freddy'&&Math.random()<.55) Snd.laugh();
+  }
+}
+function updateAI(dt){
+  for(const c of G.chars){
+    if(c.walk>0) c.walk=Math.max(0,c.walk-dt);
+    if(c.key==='foxy'){ updateFoxy(c,dt); continue; }
+    const room=roomOf(c);
+    const atDoor=(room==='DOOR_L'||room==='DOOR_R');
+    if(!atDoor){
+      c.timer-=dt;
+      if(c.timer<=0){
+        c.timer=c.interval*rnd(.75,1.35);
+        const watched = G.monitor && CAMS[G.cam].room===room && !CAMS[G.cam].dead;
+        const shy = (c.key==='freddy' && watched);
+        if(!shy && Math.random()*20 < c.level){
+          let ni=c.idx+1;
+          if(c.idx>0 && Math.random()<.13) ni=c.idx-1;
+          const target=c.route[clamp(ni,0,c.route.length-1)];
+          if(!occupied(target,c)) moveChar(c,ni);
+        }
+      }
+    } else {
+      const closed = room==='DOOR_L' ? G.doorL : G.doorR;
+      if(closed){
+        c.waitT=0; c.closedT+=dt;
+        if(c.closedT>0.9){ Snd.knock(); moveChar(c,c.idx-2); }
+      } else {
+        c.closedT=0; c.waitT+=dt;
+        if(c.waitT>c.grace) attack(c);
+        else if(c.waitT>c.grace*.5 && G.t-G.lastStepT>1.1){
+          G.lastStepT=G.t; Snd.burst(.3,.07,'bandpass',300,1.4);   // 门口呼吸声
+        }
+      }
+    }
+  }
+}
+/* 狐狸阶段：0 幕布关 / 1 露眼 / 2 完全探身（危险信号）/ 4 冲刺中
+   露头推进有概率下限（保证新手能在监控里看到他动），但"冲刺"只受 level 控制，
+   并且不早于 minHour 点 —— 第一夜 minHour=6，等于整夜只会瞪着你，不会冲出来。 */
+function updateFoxy(c,dt){
+  if(c.stage>=4){                              // 冲刺中
+    c.runT-=dt;
+    if(c.runT<=0){
+      if(G.doorL){ Snd.knock(); G.power=Math.max(0,G.power-(2+G.night*.6)); c.stage=0; c.timer=rnd(11,19); }
+      else attack(c);
+    }
+    return;
+  }
+  const watched = G.monitor && CAMS[G.cam].room==='COVE';
+  if(watched){ c.timer=Math.max(c.timer,2.6); return; }   // 盯着他 = 冻结
+  const rush = G.camIdle>11 ? 1.45 : 1.0;                 // 久不看监控才加速
+  c.timer-=dt*rush;
+  if(c.timer>0) return;
+  c.timer=c.interval*rnd(.8,1.3);
+  if(c.stage<2){
+    if(Math.random()*20 < Math.max(c.level,3)){ c.stage++; Snd.burst(.25,.12,'bandpass',700,1.0); }
+    return;
+  }
+  if(G.clock < HOUR*c.minHour) return;                    // 还没到他敢动的钟点
+  if(Math.random()*20 < c.level){
+    c.stage=4; c.runT=c.win; Snd.run(); foxyWarn();
+  }
+}
+/** 冲刺预警：左侧红光脉冲 + 前两夜给一行明确文字 */
+function foxyWarn(){
+  const w=$('foxyWarn');
+  w.classList.remove('on'); void w.offsetWidth; w.classList.add('on');
+  if(G.night<=2||G.tut){
+    const h=$('alert');
+    h.textContent='左侧走廊传来跑步声 —— 立刻关左门！';
+    h.classList.add('on');
+    setTimeout(()=>h.classList.remove('on'),2600);
+  }
+}
+
+/* ---------------------------------------------------------------- 每帧更新 */
+function update(dt){
+  G.t+=dt;
+  // 门动画
+  G.animL=lerp(G.animL,G.doorL?1:0,Math.min(1,dt*7));
+  G.animR=lerp(G.animR,G.doorR?1:0,Math.min(1,dt*7));
+
+  if(G.state==='intro'){
+    G.introT-=dt;
+    if(G.introT<=0) beginPlay();
+    return;
+  }
+  if(G.state==='jump'){
+    G.jumpT+=dt; G.shake=Math.max(0,1-G.jumpT*.7);
+    elFlash.style.opacity=String(Math.max(0,.9-G.jumpT*3.2));
+    if(G.jumpT>1.15){ elFlash.style.opacity='0'; gameOver(G.attacker); }
+    return;
+  }
+  if(G.state!=='play') return;
+
+  // 视角
+  if(!G.monitor){
+    G.tyaw=-mnx*YAW_MAX; G.tpitch=-mny*PITCH_MAX;
+  } else { G.tyaw=lerp(G.tyaw,0,.2); G.tpitch=lerp(G.tpitch,0,.2); }
+  G.yaw=lerp(G.yaw,G.tyaw,Math.min(1,dt*5.0));
+  G.pitch=lerp(G.pitch,G.tpitch,Math.min(1,dt*5.0));
+
+  // 3D 控件悬停检测（视角在动，所以必须每帧重算，不能只在 mousemove 里算）
+  const hv = LOOK.has ? pickPanel(LOOK.px,LOOK.py) : null;
+  if(hv!==G.hover){
+    G.hover=hv;
+    $('wrap').style.cursor = hv ? 'pointer' : (LOOK.mode==='drag'?'grab':'crosshair');
+    if(hv) Snd.burst(.04,.045,'highpass',3200);          // 轻微的悬停"咔"
+  }
+
+  // 时间 / 电量 / AI —— 训练夜全部替换为教程驱动
+  if(G.tut){
+    G.power=100;
+    G.usage=1+(G.doorL?1:0)+(G.doorR?1:0)+((G.lightL||G.lightR)?1:0)+(G.monitor?1:0);
+    G.camIdle = G.monitor ? 0 : G.camIdle+dt;
+    if(G.staticT>0) G.staticT-=dt;
+    if(G.monitor) drawStatic(G.staticT>0?.85:.34);
+    elStatic.style.opacity=G.monitor?(G.staticT>0?'.85':'.28'):'0';
+    for(const c of G.chars) if(c.walk>0) c.walk=Math.max(0,c.walk-dt);
+    updateTut(dt);
+    syncHud();
+    return;
+  }
+
+  // 时间
+  G.clock+=dt;
+  if(G.clock>=HOUR*6){ nightWin(); return; }
+
+  // 电量
+  if(!G.out){
+    G.usage=1+(G.doorL?1:0)+(G.doorR?1:0)+((G.lightL||G.lightR)?1:0)+(G.monitor?1:0);
+    const mul=1+(G.night-1)*.055;
+    G.power-=dt*0.075*G.usage*mul;
+    if(G.power<=0){ G.power=0; powerOut(); }
+  }
+
+  // 监控静电 / 空闲计时
+  G.camIdle = G.monitor ? 0 : G.camIdle+dt;
+  if(G.staticT>0) G.staticT-=dt;
+  if(G.monitor) drawStatic(G.staticT>0?.85:.34);
+  elStatic.style.opacity=G.monitor?(G.staticT>0?'.85':'.28'):'0';
+
+  // AI
+  if(!G.out) updateAI(dt);
+  else updateOut(dt);
+
+  // 走廊脚步氛围
+  const near=G.chars.some(c=>['W_STUB','E_STUB','DOOR_L','DOOR_R'].indexOf(roomOf(c))>=0);
+  if(near && G.t-G.hallStepT>rnd(1.6,3.2)){ G.hallStepT=G.t; Snd.burst(.2,.05,'lowpass',400); }
+
+  if(G.hintT>0){ G.hintT-=dt; if(G.hintT<=0) $('hint').style.opacity='0'; }
+  syncHud();
+}
+function powerOut(){
+  G.out=true; G.outT=0; G.outPhase=0;
+  G.doorL=G.doorR=false; G.lightL=G.lightR=false;
+  setMonitorHard(false);
+  Snd.stopAmb(); Snd.powerDown();
+  elHud.classList.add('out');
+  $('hint').style.opacity='0';
+  syncHud();
+}
+function updateOut(dt){
+  G.outT+=dt;
+  if(G.outPhase===0 && G.outT>rnd(4,6)){
+    G.outPhase=1; G.outT=0; G.boxIds=Snd.musicBox();
+  } else if(G.outPhase===1 && G.outT>9.5){
+    G.outPhase=2; G.outT=0; clearBox();
+  } else if(G.outPhase===2 && G.outT>rnd(2.2,4.5)){
+    attack({key:'freddy'});
+  }
+}
+
+/* ---------------------------------------------------------------- 绘制 */
+const OFFICE_EYE=[0,1.52,1.45];
+const OFFICE_FOV=1.16;
+const ROOM_Y={STAGE:.56, COVE:.40};     // 房间内的台面高度
+
+/* ---- 可点击的 3D 控件：射线拾取 ---- */
+/* box 是拾取用的 AABB（比视觉体积略大一圈，点起来宽容）；side 用于取状态和朝向 */
+const PANELS=[
+  {id:'doorL', kind:'door',   side:-1, x:-3.00, y:1.72, z:PANEL_Z, sx:.26,sy:.40,sz:.40},
+  {id:'lightL',kind:'light',  side:-1, x:-3.00, y:1.30, z:PANEL_Z, sx:.26,sy:.40,sz:.40},
+  {id:'doorR', kind:'door',   side: 1, x: 3.00, y:1.72, z:PANEL_Z, sx:.26,sy:.40,sz:.40},
+  {id:'lightR',kind:'light',  side: 1, x: 3.00, y:1.30, z:PANEL_Z, sx:.26,sy:.40,sz:.40},
+  {id:'mon',   kind:'monitor',side: 0, x:-1.00, y:1.34, z:.14,     sx:.98,sy:.64,sz:.16},
+];
+function panelState(p){
+  if(p.kind==='door')  return p.side<0?G.doorL:G.doorR;
+  if(p.kind==='light') return p.side<0?G.lightL:G.lightR;
+  return G.monitor;
+}
+function activatePanel(id){
+  const p=PANELS.find(q=>q.id===id); if(!p) return false;
+  if(p.kind==='door')  { toggleDoor(p.side); return true; }
+  if(p.kind==='light') { toggleLight(p.side); return true; }
+  if(p.kind==='monitor'){ setMonitor(!G.monitor); return true; }
+  return false;
+}
+/** 屏幕坐标 → 世界射线（与 renderOffice 用同一套 eye/fov/yaw/pitch） */
+function screenRay(cx,cy){
+  const w=innerWidth,h=innerHeight;
+  const tf=Math.tan(OFFICE_FOV/2);
+  const dx0=((cx/w)*2-1)*tf*(w/h), dy0=(1-(cy/h)*2)*tf, dz0=-1;
+  const cp=Math.cos(G.pitch), sp=Math.sin(G.pitch);
+  const y1=dy0*cp - dz0*sp, z1=dy0*sp + dz0*cp;      // Rx(pitch)
+  const cyw=Math.cos(G.yaw), syw=Math.sin(G.yaw);
+  return { ox:OFFICE_EYE[0], oy:OFFICE_EYE[1], oz:OFFICE_EYE[2],
+           dx:cyw*dx0 + syw*z1, dy:y1, dz:-syw*dx0 + cyw*z1 };   // Ry(yaw)
+}
+/** 射线 vs 轴对齐盒（slab 法），返回入射距离，未命中返回 -1 */
+function rayBox(r,b){
+  let t0=-1e9, t1=1e9;
+  for(let a=0;a<3;a++){
+    const o = a===0?r.ox:a===1?r.oy:r.oz;
+    const d = a===0?r.dx:a===1?r.dy:r.dz;
+    const c = a===0?b.x :a===1?b.y :b.z;
+    const hf=(a===0?b.sx:a===1?b.sy:b.sz)/2;
+    if(Math.abs(d)<1e-9){ if(o<c-hf||o>c+hf) return -1; continue; }
+    let ta=(c-hf-o)/d, tb=(c+hf-o)/d;
+    if(ta>tb){ const s=ta; ta=tb; tb=s; }
+    if(ta>t0) t0=ta;
+    if(tb<t1) t1=tb;
+    if(t0>t1) return -1;
+  }
+  return t0>0?t0:(t1>0?t1:-1);
+}
+/** 返回光标下最近的可点控件 id（不可点时返回 null） */
+function pickPanel(cx,cy){
+  if(G.state!=='play'||G.monitor||G.out) return null;   // 举着平板或断电时面板不可点
+  const r=screenRay(cx,cy);
+  let best=null, bt=1e9;
+  for(const p of PANELS){
+    if(p.kind==='monitor'&&G.monitor) continue;
+    const t=rayBox(r,p);
+    if(t>0&&t<bt){ bt=t; best=p.id; }
+  }
+  return best;
+}
+function lightsFor(rooms,extra){
+  const out=[];
+  if(extra) for(const e of extra) out.push(e);     // 关键光优先，避免被裁掉
+  for(const L of ROOM_LIGHTS){
+    if(rooms.indexOf(L.room)<0) continue;
+    let i=L.i;
+    if(L.flick){
+      const sp=8+Math.abs((L.p[0]*13.7+L.p[2]*3.1)%5);
+      i*= .70+.30*Math.abs(Math.sin(G.t*sp+L.p[2]));
+      if(Math.random()<.006) i*=.15;                // 偶发骤暗
+    }
+    out.push({p:L.p,c:L.c,r:L.r,i});
+  }
+  return out.slice(0,NL);
+}
+function drawStaticScene(mask){
+  for(let i=0;i<STATIC.length;i++){
+    const b=STATIC[i];
+    if(!(b.m&mask)) continue;
+    drawBox(b.x,b.y,b.z,b.sx,b.sy,b.sz,b.c,b.yaw,b.em);
+  }
+}
+function drawDoors(){
+  // 卷帘门（关门时落下）
+  const yL=1.15+(1-G.animL)*2.45, yR=1.15+(1-G.animR)*2.45;
+  drawBox(-3.22,yL,-.55,.13,2.32,1.94,C.metal,0,0);
+  drawBox( 3.22,yR,-.55,.13,2.32,1.94,C.metal,0,0);
+  // 门上的横向加强筋
+  for(let i=0;i<6;i++){
+    drawBox(-3.15,yL-1.0+i*.4,-.55,.03,.06,1.9,C.trim);
+    drawBox( 3.15,yR-1.0+i*.4,-.55,.03,.06,1.9,C.trim);
+  }
+}
+/** 墙上的按钮本体：三态（灭 / 悬停 / 点亮），可用鼠标直接点 */
+function drawPanels(){
+  const dead=G.out;
+  for(const p of PANELS){
+    if(p.kind==='monitor'){
+      // 桌面显示器：本体是静态几何，这里只在悬停时画一圈发光边框做提示
+      if(G.hover===p.id&&!dead){
+        drawBox(p.x,p.y,p.z+.02,1.04,.70,.02,[1,.94,.76],0,.55);
+        drawBox(p.x,p.y,p.z+.03,.90,.56,.02,[.12,.20,.19],0,.10);
+      }
+      continue;
+    }
+    const on=panelState(p), hov=(G.hover===p.id)&&!dead;
+    const isDoor=p.kind==='door';
+    const base=isDoor?[.30,.11,.09]:[.30,.27,.09];
+    const lit =isDoor?C.red:C.neon;
+    const xo=p.x - p.side*.03;
+    if(hov){                                     // 悬停：按钮外圈亮一圈描边
+      drawBox(p.x - p.side*.012, p.y, p.z, .02, .40, .40, [1,.94,.76], 0, .60);
+    }
+    const col = dead?[.09,.09,.10] : on?lit : hov?[base[0]*2.3,base[1]*2.3,base[2]*2.3] : base;
+    const em  = dead?0 : on?.95 : hov?.50 : .10;
+    drawBox(xo, p.y, p.z, .045, .30, .30, col, 0, em);
+    // 按钮上的小图标：门=横杠（卷帘），灯=竖条（灯管）
+    const ic=dead?[.14,.14,.15]:on?[.05,.04,.03]:[.55,.55,.58];
+    if(isDoor) for(let i=0;i<3;i++) drawBox(xo-p.side*.026,p.y-.07+i*.07,p.z,.01,.028,.19,ic,0,.15);
+    else { drawBox(xo-p.side*.026,p.y,p.z,.01,.20,.05,ic,0,.15);
+           drawBox(xo-p.side*.026,p.y+.12,p.z,.01,.04,.13,ic,0,.15); }
+  }
+}
+function drawFan(){
+  const a=G.t*(G.out?.6:14);
+  drawBox(1.95,1.52,.15,.11,.11,.11,C.metal);
+  for(let i=0;i<3;i++){
+    const th=a+i*Math.PI*2/3;
+    drawBox(1.95+Math.cos(th)*.16,1.52+Math.sin(th)*.16,.15,.30,.30,.025,C.hookMetal,0,.05);
+  }
+  for(let i=0;i<12;i++){                   // 护网圆环
+    const th=i*Math.PI/6;
+    drawBox(1.95+Math.cos(th)*.32,1.52+Math.sin(th)*.32,.15,.09,.09,.30,C.metal);
+  }
+  drawBox(1.95,1.52,.30,.66,.03,.03,C.metal);
+  drawBox(1.95,1.52,.30,.03,.66,.03,C.metal);
+}
+function drawCove(c){
+  // 幕布随 stage 向两侧拉开（0 关 / 1 露眼 / 2 完全探身 / 4 已离场）
+  const open=[0,.45,1,1,1][Math.min(4,c.stage)];
+  const w=2.8*(1-open*.86);
+  drawBox(-15.8+w/2,1.6,-21.4,w,3.2,.18,C.curtain);
+  drawBox(-10.2-w/2,1.6,-21.4,w,3.2,.18,C.curtain);
+  drawBox(-13.0,3.28,-21.4,5.8,.2,.3,C.metal);
+  if(c.stage>=1&&c.stage<4){
+    const lean=[0,.28,.62][Math.min(2,c.stage)];
+    drawChar('foxy',-13.0,-20.2+lean*1.9,Math.PI*(1-lean*.05),G.t,
+      {y:ROOM_Y.COVE,dark:c.stage<2,mouth:c.stage>=2?.35:0});
+  }
+  if(c.stage>=4) drawBox(-13.0,.95,-19.4,1.05,1.35,.09,C.paper,.15,.35);  // 只剩牌子
+}
+const CHAR_GEO_ROOM={DOOR_L:'W_STUB', DOOR_R:'E_STUB'};   // 门口玩偶实际站在门厅里
+function drawChars(inOffice,rooms){
+  for(const c of G.chars){
+    const room=roomOf(c);
+    // 无遮挡剔除：不在可见房间集里的玩偶直接跳过（否则会隔墙绘制并浪费 draw call）
+    if(rooms.indexOf(CHAR_GEO_ROOM[room]||room)<0) continue;
+    if(c.key==='foxy'){
+      if(c.stage<4){ drawCove(c); continue; }
+      const prog=1-clamp(c.runT/1.7,0,1);            // 冲刺：沿西走廊逼近
+      drawChar('foxy', SPOTS.W_HALL[0][0], lerp(-13.0,-2.4,prog), Math.PI, G.t,
+        {walk:true, mouth:.55});
+      continue;
+    }
+    const sp=spotFor(c);
+    const dark = (room==='DOOR_L' && !G.lightL) || (room==='DOOR_R' && !G.lightR);
+    drawChar(c.key, sp[0], sp[1], sp[2], G.t, {
+      y: ROOM_Y[room]||0,
+      walk: c.walk>0,
+      dark: inOffice && dark,
+      mouth: (room==='DOOR_L'||room==='DOOR_R') ? .15 : 0,
+    });
+  }
+}
+function renderOffice(){
+  let amb, fogC, fogD;
+  const extra=[];
+  if(G.out){
+    amb=[.012,.013,.018]; fogC=[.004,.004,.006]; fogD=.075;
+    if(G.outPhase===1){
+      extra.push({p:[-3.9,1.75,-.55],c:[1,.30,.16],r:3.4,i:.9});
+    }
+  } else {
+    amb=[.030,.032,.042]; fogC=[.012,.013,.018]; fogD=.048;
+    extra.push({p:[.2,2.72,.4],c:[1,.80,.55],r:8.2,i:.60});
+    extra.push({p:[-1.0,1.6,.1],c:[.45,.85,.80],r:3.4,i:.40});
+    if(G.lightL) extra.push({p:[-4.6,2.3,-.55],c:[1,.96,.82],r:7.5,i:1.15});
+    if(G.lightR) extra.push({p:[ 4.6,2.3,-.55],c:[1,.96,.82],r:7.5,i:1.15});
+  }
+  let yaw=G.yaw, pitch=G.pitch, ex=OFFICE_EYE[0], ey=OFFICE_EYE[1], ez=OFFICE_EYE[2];
+  if(G.state==='jump'){
+    const s=G.shake;
+    yaw += Math.sin(G.t*47)*.10*s; pitch += .12+Math.sin(G.t*61)*.08*s;
+    ex += Math.sin(G.t*53)*.06*s; ey += Math.sin(G.t*67)*.05*s;
+    amb=[.10,.05,.045]; fogC=[.03,.005,.005]; fogD=.05;
+    extra.length=0;
+    extra.push({p:[0,1.7,.4],c:[1,.42,.32],r:5.0,i:1.6});
+  }
+  // 门外走廊默认全黑：只有按门灯才照亮（W_STUB / E_STUB 不列入常亮）
+  const lights=lightsFor(['OFFICE','W_HALL','E_HALL'],extra);
+  beginView(ex,ey,ez,yaw,pitch,1.16,fogC,fogD,amb,lights);
+  VIEW.cull = G.out?20:33;      // 走廊尽头已被雾吃掉，无需再画餐厅纵深
+  drawStaticScene(OFFICE_VIS);
+  drawDoors(); drawPanels(); drawFan();
+  if(G.state==='jump'){
+    drawChar(G.attacker||'freddy',0,-.15,Math.PI,G.t,
+      {y:-.16,scale:1.22,mouth:.85+Math.sin(G.t*40)*.12});
+  } else {
+    drawChars(true,OFFICE_ROOMS);
+    if(G.out && G.outPhase===1) drawChar('freddy',-3.95,-.55,-Math.PI/2,G.t,{dark:true});
+  }
+}
+/* 每个摄像头的可见房间集（含相邻房间，保证透过门洞能看到纵深） */
+const CAM_VIS={
+  STAGE:['STAGE','DINING','BACKSTAGE'],
+  DINING:['DINING','STAGE','COVE','KITCHEN'],
+  COVE:['COVE','DINING','RESTROOMS'],
+  W_HALL:['W_HALL','DINING','W_STUB'],
+  E_HALL:['E_HALL','DINING','E_STUB'],
+  W_STUB:['W_STUB','OFFICE','W_HALL'],
+  E_STUB:['E_STUB','OFFICE','E_HALL'],
+  RESTROOMS:['RESTROOMS','COVE'],
+  BACKSTAGE:['BACKSTAGE','STAGE'],
+  KITCHEN:['KITCHEN','DINING'],
+};
+const OFFICE_ROOMS=['OFFICE','W_STUB','E_STUB','W_HALL','E_HALL'];
+const OFFICE_VIS=maskOf(OFFICE_ROOMS);
+const MENU_VIS=maskOf(['STAGE','DINING','BACKSTAGE']);
+CAMS.forEach(c=>{ c.vis=maskOf(CAM_VIS[c.room]||[c.room]); c.rooms=CAM_VIS[c.room]||[c.room]; });
+
+function renderCam(){
+  const c=CAMS[G.cam];
+  if(c.dead){
+    beginView(c.p[0],c.p[1],c.p[2],c.yaw,c.pitch,c.fov,[.004,.004,.006],.30,[.002,.002,.003],[]);
+    return;
+  }
+  const jx=(Math.random()-.5)*.004, jy=(Math.random()-.5)*.004;
+  beginView(c.p[0],c.p[1],c.p[2],c.yaw+jx,c.pitch+jy,c.fov,
+    [.010,.011,.016],.036,[.030,.033,.040],lightsFor(c.rooms,null));
+  VIEW.cull=52;
+  drawStaticScene(c.vis); drawDoors(); drawChars(false,c.rooms);
+}
+function renderMenu(){
+  const a=G.t*.10;
+  const ex=1+Math.cos(a)*7.5, ez=-24+Math.sin(a)*6.0;
+  const aim=aimAt(ex,2.2,ez,1,1.6,-27.4);
+  beginView(ex,2.2,ez,aim.yaw,aim.pitch,1.15,[.010,.011,.016],.032,[.028,.030,.038],
+    lightsFor(['STAGE','DINING','BACKSTAGE'],null));
+  VIEW.cull=48;
+  drawStaticScene(MENU_VIS);
+  drawChar('freddy',1.0,-27.3,Math.PI,G.t,{y:.56});
+  drawChar('bonnie',-2.6,-27.3,Math.PI,G.t,{y:.56});
+  drawChar('chica', 4.6,-27.3,Math.PI,G.t,{y:.56});
+}
+function render(){
+  if(G.state==='play'||G.state==='jump'||G.state==='intro'){
+    if(G.monitor && G.state==='play') renderCam(); else renderOffice();
+  } else renderMenu();
+}
+
+/* ---------------------------------------------------------------- 主循环 */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  try{ update(dt); render(); }
+  catch(err){ console.error(err); }
+  requestAnimationFrame(frame);
+}
+screenOn('gate');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

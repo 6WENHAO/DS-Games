@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蚀 · ECLIPSE BLADE</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 3D 主画面（WebGL，低分辨率放大 → 像素风） -->
+  <canvas id="glcanvas"></canvas>
+  <!-- 2D 叠加层：屏幕血污 / 受击闪光 / 剑气涂层 -->
+  <canvas id="fxcanvas"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+
+    <div id="hud-top">
+      <div id="floor-label">深度 I</div>
+      <div id="objective-label">寻找猩红烙印</div>
+      <div id="run-stats"><span id="kill-count">0</span> 屠戮 · <span id="soul-count">0</span> 魂</div>
+    </div>
+
+    <div id="boss-bar" class="hidden">
+      <div id="boss-name">使徒</div>
+      <div id="boss-track"><div id="boss-fill"></div></div>
+    </div>
+
+    <div id="hud-bottom">
+      <div id="vitals">
+        <div class="bar bar-hp"><div class="bar-fill" id="hp-fill"></div><span class="bar-txt" id="hp-text">100/100</span></div>
+        <div class="bar bar-rage"><div class="bar-fill" id="rage-fill"></div><span class="bar-txt" id="rage-text">狂气</span></div>
+        <div class="bar bar-stam"><div class="bar-fill" id="stam-fill"></div></div>
+      </div>
+      <div id="combo-box" class="hidden"><span id="combo-n">0</span><em>连斩</em></div>
+    </div>
+
+    <div id="relic-list"></div>
+    <div id="toast-wrap"></div>
+    <div id="berserk-vig" class="hidden"></div>
+    <div id="hitmark" class="hidden"></div>
+  </div>
+
+  <!-- ===== 标题 ===== -->
+  <section class="screen" id="scr-title">
+    <div class="title-art">
+      <h1>蚀</h1>
+      <h2>ECLIPSE&nbsp;BLADE</h2>
+      <p class="tagline">一把不该被人类挥动的铁块，与永不停歇的祭品之夜。</p>
+    </div>
+    <div class="menu">
+      <button class="btn btn-major" data-act="start">开 始 献 祭</button>
+      <button class="btn" data-act="help">操 作 说 明</button>
+      <button class="btn" data-act="creed">遗 物 图 鉴</button>
+    </div>
+    <div class="meta-line">
+      最深抵达：<b id="meta-depth">—</b> · 累计屠戮：<b id="meta-kills">0</b> · 胜利次数：<b id="meta-wins">0</b>
+    </div>
+    <div class="hint-line">点击画面锁定鼠标 · 建议全屏（F11）</div>
+  </section>
+
+  <!-- ===== 操作说明 ===== -->
+  <section class="screen hidden" id="scr-help">
+    <h3 class="scr-title">操 作 说 明</h3>
+    <div class="help-grid">
+      <div><kbd>W A S D</kbd><span>移动</span></div>
+      <div><kbd>鼠标</kbd><span>视角（真 3D，可自由俯仰）</span></div>
+      <div><kbd>左键</kbd><span>横扫斩 —— 巨剑扇形范围伤害，可一刀多杀</span></div>
+      <div><kbd>右键 / 长按左键</kbd><span>蓄力重斩 —— 上举劈落，震荡波、必定肢解</span></div>
+      <div><kbd>Shift</kbd><span>冲刺（消耗体力，冲刺中挥剑=突进斩）</span></div>
+      <div><kbd>空格</kbd><span>跳跃 —— 空中挥剑可发动落体斩</span></div>
+      <div><kbd>F</kbd><span>狂气解放（狂气满时）：无痛觉、攻速暴涨</span></div>
+      <div><kbd>E</kbd><span>交互（血祭坛 / 传送门 / 拾取）</span></div>
+      <div><kbd>Esc</kbd><span>暂停 / 释放鼠标</span></div>
+      <div><kbd>R</kbd><span>快速重开（仅死亡后）</span></div>
+    </div>
+    <div class="help-note">
+      战斗要诀：<b>命中会产生顿帧</b>，趁顿帧继续按左键接出连斩；<b>连斩层数越高剑速越快</b>。<br>
+      斩杀会喷出血肉与骨块并染红地面；<b>踩过血泊可回复少量生命</b>（若持有相应遗物）。<br>
+      每层结束选择 1 件<b>遗物</b>，累积构筑；深度 4 / 8 / 12 为 Boss 层。
+    </div>
+    <button class="btn" data-act="back">返 回</button>
+  </section>
+
+  <!-- ===== 遗物图鉴 ===== -->
+  <section class="screen hidden" id="scr-creed">
+    <h3 class="scr-title">遗 物 图 鉴</h3>
+    <div id="creed-list" class="creed-list"></div>
+    <button class="btn" data-act="back">返 回</button>
+  </section>
+
+  <!-- ===== 层间简报 ===== -->
+  <section class="screen hidden" id="scr-brief">
+    <div class="brief">
+      <h3 id="brief-depth">深 度 I</h3>
+      <h4 id="brief-name">腐尸回廊</h4>
+      <p id="brief-desc">被遗弃的地下墓道，肉块还在墙上抽动。</p>
+      <div id="brief-obj" class="brief-obj">目标：击杀持有猩红烙印的精英，打开传送门</div>
+    </div>
+    <button class="btn btn-major" data-act="descend">踏 入</button>
+  </section>
+
+  <!-- ===== 遗物选择 ===== -->
+  <section class="screen hidden" id="scr-upgrade">
+    <h3 class="scr-title">祭 品 的 报 偿</h3>
+    <p class="scr-sub">选择一件遗物 —— 力量总要用血肉来换。</p>
+    <div id="card-row" class="card-row"></div>
+    <div class="upgrade-foot">
+      <button class="btn btn-small" id="btn-reroll">刷新（<b id="reroll-cost">15</b> 魂）</button>
+      <span class="foot-info">当前魂：<b id="upgrade-souls">0</b></span>
+    </div>
+  </section>
+
+  <!-- ===== 死亡 ===== -->
+  <section class="screen hidden" id="scr-dead">
+    <h3 class="scr-title dead-title">你 成 了 祭 品</h3>
+    <div id="dead-stats" class="stat-block"></div>
+    <p class="epitaph" id="dead-epitaph"></p>
+    <div class="menu">
+      <button class="btn btn-major" data-act="restart">再 次 挥 剑（R）</button>
+      <button class="btn" data-act="title">回 到 标 题</button>
+    </div>
+  </section>
+
+  <!-- ===== 胜利 ===== -->
+  <section class="screen hidden" id="scr-win">
+    <h3 class="scr-title win-title">蚀 · 终 结</h3>
+    <p class="scr-sub">使徒之王的头颅滚落在你脚边。铁块仍在渴血。</p>
+    <div id="win-stats" class="stat-block"></div>
+    <div class="menu">
+      <button class="btn btn-major" data-act="restart">再 战 一 轮</button>
+      <button class="btn" data-act="title">回 到 标 题</button>
+    </div>
+  </section>
+
+  <!-- ===== 暂停 ===== -->
+  <section class="screen hidden" id="scr-pause">
+    <h3 class="scr-title">暂 停</h3>
+    <div id="pause-relics" class="pause-relics"></div>
+    <div class="menu">
+      <button class="btn btn-major" data-act="resume">继 续</button>
+      <button class="btn" data-act="help">操 作 说 明</button>
+      <button class="btn" data-act="abandon">放 弃 本 轮</button>
+    </div>
+    <div class="opt-row">
+      <label><input type="checkbox" id="opt-shake" checked> 屏幕震动</label>
+      <label><input type="checkbox" id="opt-blood" checked> 屏幕血污</label>
+      <label><input type="checkbox" id="opt-hitstop" checked> 命中顿帧</label>
+      <label>鼠标灵敏度 <input type="range" id="opt-sens" min="20" max="300" value="100"></label>
+      <label>像素粗细 <input type="range" id="opt-pix" min="1" max="5" value="3"></label>
+    </div>
+  </section>
+
+  <div id="loading">正在锻造巨剑…</div>
+  <div id="click-lock" class="hidden">点击以锁定鼠标</div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/gl.js"></script>
+<script src="js/art.js"></script>
+<script src="js/mapgen.js"></script>
+<script src="js/gore.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/player.js"></script>
+<script src="js/relics.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

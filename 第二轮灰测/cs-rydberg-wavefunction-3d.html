@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>铯 (¹³³Cs) 里德堡原子跃迁 · 电子云 3D 实时演化</title>
+
+<!--
+================================================================================
+  铯里德堡原子跃迁 · 电子云波函数 3D 实时演化
+================================================================================
+  本页面不使用任何"艺术近似"的假轨道形状，全部电子云形态都来自对真实波动方程
+  的数值求解：
+
+  1) 径向方程（原子单位 ħ = m_e = e = 1，u = r·R）：
+         u''(r) = [ l(l+1)/r² + 2 V_l(r) − 2E ] u(r)
+     为兼顾原点附近与 r ~ 2n² 的巨大跨度，做变量替换 x = √r，w = r^{3/4} R：
+         d²w/dx² = [ (4l(l+1) + 3/4)/x² − 8x²( E − V_l(x²) ) ] w
+     由 x_max = √(2ν(ν+15)) 处的渐近解 w ∝ exp(−r/ν) 出发，用 Numerov 六阶公式向内积分
+     （含防溢出重标定 + 自动发散判定截断），再按 2∫x²w²dx = 1 归一化。
+
+  2) 能量由铯的 Rydberg–Ritz 量子缺陷给出（实验值，非氢近似）：
+         E_{nlj}/hc = − R_Cs / (n − δ_{lj})²,
+         δ_{lj} = δ₀ + δ₂/(n−δ₀)² + δ₄/(n−δ₀)⁴ + δ₆/(n−δ₀)⁶ + δ₈/(n−δ₀)⁸
+     R_Cs = 109736.8626 cm⁻¹（¹³³Cs 折合质量修正后的 Rydberg 常数）。
+
+  3) 芯势采用 Marinescu–Sadeghpour–Dalgarno 模型势（PRA 49, 982 (1994)）：
+         V_l(r) = − Z_l(r)/r − α_c/(2r⁴)·[1 − e^{−(r/r_c)⁶}]
+         Z_l(r) = 1 + (Z−1)e^{−a₁r} − r(a₃ + a₄r)e^{−a₂r}
+
+  4) 角向部分为严格球谐函数 Y_lm = Θ_lm(cosθ)·e^{imφ}（连带 Legendre 递推 +
+     Condon–Shortley 相位）。
+
+  5) 时间演化为真实的时间依赖薛定谔方程解（两态叠加 + 旋转坐标系下的二能级
+     Rabi 解析解）：
+         Ψ(r,t) = c_A(t) R_A Y_A e^{−iE_A t/ħ} + c_B(t) R_B Y_B e^{−iE_B t/ħ}
+         i ħ ċ = (ħ/2)[[−Δ, Ω],[Ω, Δ]] c        （Ω: Rabi 频率, Δ: 失谐）
+     |Ψ|² 的干涉项 ∝ 2|c_A c_B| R_A R_B Θ_A Θ_B cos(Δm·φ − ω_AB t + φ₀)
+     正是以 ω_AB = (E_B−E_A)/ħ 振荡、并向外辐射的振荡偶极。
+
+  渲染：按混合态密度 ½(|A_A|²+|A_B|²) 做重要性抽样撒点（点密度本身即概率密度），
+  逐帧在 GPU 顶点着色器里精确重算 |Ψ(r,t)|²，亮度 ∝ |Ψ|²/包络，因此"点密度 ×
+  亮度"始终等比于真实概率密度。
+
+  依赖（在线 CDN）：three.js r160 + OrbitControls（ES module importmap）。
+================================================================================
+-->
+
+<style>
+  :root{
+    --bg:#04060d; --panel:rgba(10,16,30,.78); --edge:rgba(120,170,255,.20);
+    --txt:#dbe6ff; --dim:#8fa2c8; --acc:#57b6ff; --acc2:#ff7ac2; --ok:#57e08f; --warn:#ffcc55;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:13px}
+  #gl{position:fixed;inset:0;display:block}
+  #vignette{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 45%,transparent 40%,rgba(0,0,0,.55) 100%)}
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+    backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);box-shadow:0 8px 34px rgba(0,0,0,.55)}
+  #left{top:10px;left:10px;width:280px;padding:10px 11px;max-height:calc(100vh - 330px);overflow-y:auto}
+  #right{top:10px;right:10px;width:290px;padding:10px 11px;max-height:calc(100vh - 20px);overflow-y:auto}
+  #plots{bottom:10px;left:10px;width:280px;padding:8px 9px}
+  #foot{bottom:10px;left:50%;transform:translateX(-50%);padding:6px 12px;color:var(--dim);font-size:11px;
+    white-space:nowrap}
+  #preset{width:100%;margin-bottom:2px}
+  h1{font-size:13.5px;margin:0 0 2px;letter-spacing:.3px;font-weight:650}
+  h1 small{display:block;font-size:10.5px;color:var(--dim);font-weight:400;letter-spacing:0;margin-top:2px}
+  .sec{margin:9px 0 4px;font-size:10.5px;letter-spacing:1.2px;color:var(--acc);text-transform:uppercase;
+    border-top:1px solid var(--edge);padding-top:7px}
+  .sec:first-of-type{border-top:0}
+  .row{display:flex;align-items:center;gap:6px;margin:5px 0}
+  .row label{flex:0 0 74px;color:var(--dim);font-size:11.5px}
+  .row.wide label{flex:0 0 92px}
+  select,input[type=number]{background:#0b1426;color:var(--txt);border:1px solid var(--edge);
+    border-radius:5px;padding:3px 4px;font-family:var(--mono);font-size:11.5px;min-width:0;flex:1}
+  input[type=range]{flex:1;accent-color:var(--acc);height:16px;min-width:0}
+  .val{flex:0 0 56px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--acc)}
+  button{background:#132340;color:var(--txt);border:1px solid var(--edge);border-radius:6px;
+    padding:5px 8px;cursor:pointer;font-size:11.5px;transition:.15s}
+  button:hover{background:#1d3560;border-color:var(--acc)}
+  button.on{background:#1d4a7a;border-color:var(--acc);color:#fff}
+  .btns{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+  .btns button{flex:1;min-width:56px}
+  .stateCard{border:1px solid var(--edge);border-radius:8px;padding:6px 7px 2px;margin:5px 0;
+    background:rgba(20,32,58,.4)}
+  .stateCard .tag{font-family:var(--mono);font-size:11px;font-weight:700;margin-bottom:3px}
+  .tagA{color:#7fd8ff}.tagB{color:#ff9ed2}
+  table.kv{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+  table.kv td{padding:1.5px 0;vertical-align:top}
+  table.kv td:first-child{color:var(--dim);white-space:nowrap;padding-right:6px}
+  table.kv td:last-child{text-align:right;color:var(--txt)}
+  .big{font-family:var(--mono);font-size:15px;color:var(--acc);text-align:center;margin:3px 0 1px}
+  .sub{text-align:center;color:var(--dim);font-size:10.5px;margin-bottom:4px}
+  canvas.plot{width:100%;height:78px;display:block;border-radius:6px;background:rgba(4,10,22,.75);
+    border:1px solid var(--edge);margin-bottom:6px}
+  .plotTitle{font-size:10px;color:var(--dim);margin:0 0 2px;font-family:var(--mono)}
+  .chk{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:11.5px;color:var(--dim)}
+  .chk input{accent-color:var(--acc)}
+  #help{position:fixed;inset:0;background:rgba(2,5,12,.9);backdrop-filter:blur(5px);z-index:50;
+    display:none;overflow-y:auto;padding:34px 20px}
+  #help.show{display:block}
+  #helpInner{max-width:880px;margin:0 auto;line-height:1.68;font-size:13px}
+  #helpInner h2{color:var(--acc);font-size:17px;margin:22px 0 8px}
+  #helpInner code,.eq{font-family:var(--mono);background:rgba(90,140,220,.13);padding:1px 5px;border-radius:4px}
+  .eq{display:block;padding:8px 11px;margin:7px 0;color:#bfe0ff;overflow-x:auto;white-space:pre;font-size:12px}
+  #helpInner ul{padding-left:20px}
+  #closeHelp{position:fixed;top:14px;right:18px;font-size:14px;z-index:51}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:40;
+    background:var(--bg);color:var(--acc);font-family:var(--mono);font-size:14px;flex-direction:column;gap:10px;
+    text-align:center;padding:20px;line-height:1.7}
+  #loading.hide{display:none}
+  .spin{width:34px;height:34px;border:3px solid rgba(87,182,255,.25);border-top-color:var(--acc);
+    border-radius:50%;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .warnBox{color:var(--warn);font-size:10.5px;font-family:var(--mono);margin:4px 0 0;line-height:1.4}
+  ::-webkit-scrollbar{width:7px;height:7px}
+  ::-webkit-scrollbar-thumb{background:rgba(120,170,255,.28);border-radius:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  @media (max-height:820px){ #plots canvas.plot{height:60px} #left{max-height:calc(100vh - 280px)} }
+  @media (max-width:1180px){ #plots{display:none} #left{max-height:calc(100vh - 20px)} }
+  @media (max-width:900px){ #right{display:none} #foot{display:none} }
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<div id="vignette"></div>
+
+<!-- ══════════════ 左侧：量子态与驱动控制 ══════════════ -->
+<div id="left" class="panel">
+  <h1>¹³³Cs 里德堡跃迁 · 电子云演化
+    <small>Numerov 数值求解真实径向薛定谔方程 + 球谐函数 + 时间依赖两态演化</small></h1>
+
+  <div class="sec">预设跃迁</div>
+  <select id="preset"></select>
+
+  <div class="stateCard">
+    <div class="tag tagA">态 A（下能级）</div>
+    <div class="row"><label>主量子数 n</label><input type="number" id="An" min="12" max="100" step="1"></div>
+    <div class="row"><label>角动量 l</label><select id="Al"></select></div>
+    <div class="row"><label>总角动量 j</label><select id="Aj"></select></div>
+    <div class="row"><label>磁量子数 m</label><select id="Am"></select></div>
+  </div>
+
+  <div class="stateCard">
+    <div class="tag tagB">态 B（上能级）</div>
+    <div class="row"><label>主量子数 n</label><input type="number" id="Bn" min="12" max="100" step="1"></div>
+    <div class="row"><label>角动量 l</label><select id="Bl"></select></div>
+    <div class="row"><label>总角动量 j</label><select id="Bj"></select></div>
+    <div class="row"><label>磁量子数 m</label><select id="Bm"></select></div>
+  </div>
+  <div class="warnBox" id="selRule"></div>
+
+  <div class="sec">驱动 / 时间演化</div>
+  <div class="btns">
+    <button id="mRabi" class="on">Rabi 驱动</button>
+    <button id="mFixed">固定叠加</button>
+  </div>
+  <div class="row wide"><label>Rabi 频率 Ω/2π</label><input type="range" id="rabiMHz" min="0.1" max="50" step="0.1"><span class="val" id="rabiMHzV"></span></div>
+  <div class="row wide"><label>失谐 Δ/Ω</label><input type="range" id="detune" min="-3" max="3" step="0.05"><span class="val" id="detuneV"></span></div>
+  <div class="row wide"><label>布居周期(屏)</label><input type="range" id="rabiT" min="4" max="60" step="1"><span class="val" id="rabiTV"></span></div>
+  <div class="row wide"><label>拍频周期(屏)</label><input type="range" id="beatT" min="0.6" max="14" step="0.1"><span class="val" id="beatTV"></span></div>
+  <div id="fixedCtl" style="display:none">
+    <div class="row wide"><label>混合角 θ</label><input type="range" id="mixA" min="0" max="90" step="0.5"><span class="val" id="mixAV"></span></div>
+    <div class="row wide"><label>相对相位 φ₀</label><input type="range" id="mixP" min="0" max="360" step="1"><span class="val" id="mixPV"></span></div>
+  </div>
+  <div class="btns">
+    <button id="play">⏸ 暂停</button>
+    <button id="reset">↺ t=0</button>
+    <button id="p2">π/2 脉冲</button>
+    <button id="pi">π 脉冲</button>
+  </div>
+
+  <div class="sec">渲染</div>
+  <div class="row wide"><label>采样点数</label><input type="range" id="npts" min="20000" max="400000" step="10000"><span class="val" id="nptsV"></span></div>
+  <div class="row wide"><label>曝光</label><input type="range" id="expo" min="0.05" max="3" step="0.01"><span class="val" id="expoV"></span></div>
+  <div class="row wide"><label>亮度 γ</label><input type="range" id="gam" min="0.25" max="1.6" step="0.01"><span class="val" id="gamV"></span></div>
+  <div class="row wide"><label>点尺寸</label><input type="range" id="psz" min="0.6" max="6" step="0.1"><span class="val" id="pszV"></span></div>
+  <div class="row wide"><label>剖切面 y</label><input type="range" id="clipY" min="-1" max="1" step="0.01"><span class="val" id="clipYV"></span></div>
+  <div class="chk"><input type="checkbox" id="clipOn"><label for="clipOn" style="flex:none">半剖视图（看内部壳层结构）</label></div>
+  <div class="chk"><input type="checkbox" id="modelOn" checked><label for="modelOn" style="flex:none">Marinescu 芯模型势（否则纯库仑）</label></div>
+  <div class="chk"><input type="checkbox" id="spinOn"><label for="spinOn" style="flex:none">自动旋转</label></div>
+  <div class="btns">
+    <button id="cm0" class="on">相位着色</button>
+    <button id="cm1">密度着色</button>
+    <button id="cm2">态分辨</button>
+  </div>
+  <div class="btns"><button id="helpBtn">📖 物理与数值方法说明</button></div>
+</div>
+
+<!-- ══════════════ 右侧：物理量读数 ══════════════ -->
+<div id="right" class="panel">
+  <div class="sec">跃迁</div>
+  <div class="big" id="fBig">—</div>
+  <div class="sub" id="fSub">跃迁频率 ν_AB</div>
+  <table class="kv" id="trTab"></table>
+
+  <div class="sec">态 A</div>
+  <table class="kv" id="aTab"></table>
+  <div class="sec">态 B</div>
+  <table class="kv" id="bTab"></table>
+
+  <div class="sec">实时状态 (t)</div>
+  <table class="kv" id="dynTab"></table>
+
+  <div class="sec">数值方法</div>
+  <table class="kv" id="numTab"></table>
+</div>
+
+<!-- ══════════════ 左下：2D 图表 ══════════════ -->
+<div id="plots" class="panel">
+  <p class="plotTitle">径向波函数 u(r)=r·R(r)　[Numerov 解]</p>
+  <canvas class="plot" id="pRad"></canvas>
+  <p class="plotTitle">布居 |c_A|²(蓝) |c_B|²(粉)　Rabi 振荡</p>
+  <canvas class="plot" id="pPop"></canvas>
+  <p class="plotTitle" id="pDipTitle">跃迁偶极 ⟨z⟩(t)　[a₀]　辐射源</p>
+  <canvas class="plot" id="pDip"></canvas>
+</div>
+
+<div id="foot" class="panel">鼠标拖拽=旋转　滚轮=缩放　右键拖拽=平移　|　空格=暂停/播放　H=说明　C=剖切</div>
+
+<!-- ══════════════ 说明 ══════════════ -->
+<div id="help">
+  <button id="closeHelp">✕ 关闭 (Esc)</button>
+  <div id="helpInner">
+    <h1 style="color:#7fd8ff;font-size:22px">铯里德堡原子跃迁电子云演化 —— 物理与数值方法</h1>
+    <p style="color:#8fa2c8">本演示中所有形状都不是"画"出来的，而是逐点求解真实波动方程得到的。下面是完整的方程与算法链条。</p>
+
+    <h2>1. 能量：铯的量子缺陷（Rydberg–Ritz）</h2>
+    <p>碱金属价电子在离原子实较远处感受到近似 −1/r 的库仑势，但穿透/极化原子实会使能量偏离氢原子。用实验拟合的量子缺陷 δ 精确描述：</p>
+    <div class="eq">E_{nlj}/hc = − R_Cs / (n − δ_{lj})²   ,   R_Cs = 109736.8626 cm⁻¹
+δ_{lj}(n) = δ₀ + δ₂/(n−δ₀)² + δ₄/(n−δ₀)⁴ + δ₆/(n−δ₀)⁶ + δ₈/(n−δ₀)⁸</div>
+    <p>¹³³Cs 的 δ₀：nS<sub>1/2</sub> 4.0493532，nP<sub>1/2</sub> 3.5915871，nP<sub>3/2</sub> 3.5590676，nD<sub>3/2</sub> 2.475365，nD<sub>5/2</sub> 2.4663144，nF 0.03339，nG 0.00704。有效主量子数 ν = n − δ 是所有尺度的核心：轨道半径 ~ 2ν² a₀，能级间距 ~ 1/ν³。</p>
+
+    <h2>2. 径向波函数：Numerov 数值积分</h2>
+    <div class="eq">u''(r) = [ l(l+1)/r² + 2V_l(r) − 2E ] u(r) ,  u(r) = r·R(r)   （原子单位 ħ=m_e=e=1）</div>
+    <p>里德堡态的空间尺度横跨 5 个数量级（原子实 ~1 a₀，外壳 ~10⁴ a₀），均匀网格极不经济。做变量替换 x=√r、w = r^{3/4}R（消去一阶导数项）：</p>
+    <div class="eq">d²w/dx² = g(x)·w ,  g(x) = (4l(l+1) + 3/4)/x² − 8x²·[ E − V_l(x²) ]</div>
+    <p>从 x_max=√(2ν(ν+15)) 处的渐近解 w ∝ exp(−r/ν) 出发，用 Numerov 六阶递推</p>
+    <div class="eq">(1 − h²g₊/12)w₊ − (2 + 5h²g₀/6)w₀ + (1 − h²g₋/12)w₋ = 0</div>
+    <p>向内积分（积分过程中按需整体重标定以防指数溢出），再按 2∫x²w²dx = 1 归一化。反变换得
+       R(r)=w·r^{−3/4}，u(r)=w·r^{1/4}。左下图中可以直接数出径向节点。</p>
+    <p><b>关于内区截断：</b>向内积分对"非本征解"（∝x^{−1/2}）天生不稳定，必须截断。本程序不是简单地砍在固定半径，而是自动判定：
+      在 w 变量下经典允许区的振荡包络近似为常数（因 u 的振幅 ∝ r^{1/4}，而 w = u·r^{−1/4}），于是
+      <b>(a)</b> 若某处 |w| 超过外部已确立包络的 25 倍 → 判定已被污染；
+      <b>(b)</b> 离心屏障内侧的禁戒区中物理解必须单调衰减，一旦包络回升即截断于极小点。
+      此外使用模型势时以 α_c^{1/3} ≈ 2.5 a₀ 为下界（模型势在更内区不再可信，这也是 ARC 的惯例）。
+      因此对 50S 这类穿透态，约 5 个位于原子实内部的节点会被截掉（右栏会明确标注"N 个在芯区"）——
+      它们对里德堡态的半径、偶极矩与可视化的贡献均可忽略。用纯库仑势时程序会一直积到 ~10⁻³ a₀，
+      此时氢原子的节点数与解析解逐一吻合。</p>
+
+    <h2>3. 原子实：Marinescu 模型势</h2>
+    <div class="eq">V_l(r) = − Z_l(r)/r − α_c/(2r⁴)·[1 − e^{−(r/r_c)⁶}]
+Z_l(r) = 1 + (Z−1)e^{−a₁r} − r(a₃ + a₄r)e^{−a₂r}    (Z=55, α_c=15.6440 a₀³)</div>
+    <p>参数取自 Marinescu, Sadeghpour &amp; Dalgarno, <i>Phys. Rev. A</i> <b>49</b>, 982 (1994)，对 l=0,1,2,≥3 各一组。可在左栏关闭该势退化为纯库仑，对比高 l 态几乎不变、低 l（穿透）态内区差别明显。</p>
+
+    <h2>4. 角向：严格球谐函数</h2>
+    <div class="eq">Y_lm(θ,φ) = Θ_lm(cosθ)·e^{imφ} ,  Θ_lm = √[ (2l+1)(l−m)! / (4π(l+m)!) ] · P_l^m(cosθ)</div>
+    <p>P_l^m 用标准连带 Legendre 递推（含 Condon–Shortley 相位 (−1)^m）计算，非任何解析拟合。</p>
+
+    <h2>5. 时间演化：两态时间依赖薛定谔方程</h2>
+    <div class="eq">Ψ(r,θ,φ,t) = c_A(t)·R_A(r)Y_{l_A m_A}·e^{−iE_A t/ħ} + c_B(t)·R_B(r)Y_{l_B m_B}·e^{−iE_B t/ħ}</div>
+    <div class="eq">|Ψ|² = |c_A A_A|² + |c_B A_B|² + 2|c_A c_B| A_A A_B · cos( Δm·φ − ω_AB t + φ₀ )
+ω_AB = (E_B − E_A)/ħ ,  A = R(r)Θ(cosθ)</div>
+    <p>第三项（干涉项）就是以跃迁频率振荡的<b>振荡偶极</b>，也正是原子辐射/吸收光子的经典对应。Δm=0（π 跃迁）时电子云沿 z 轴来回"晃动"；|Δm|=1（σ 跃迁）时干涉项含 e^{±iφ}，电子云绕 z 轴<b>旋转</b>——直接看到角动量与光子自旋的交换。</p>
+    <p>包络 c_A, c_B 由旋转坐标系中的二能级方程精确求解：</p>
+    <div class="eq">i·d/dt (c_A, c_B)ᵗ = ½ [ [−Δ, Ω], [Ω, Δ] ] (c_A, c_B)ᵗ
+c_A(t) = cos(Ω_R t/2) + i(Δ/Ω_R)sin(Ω_R t/2) ,  c_B(t) = −i(Ω/Ω_R)sin(Ω_R t/2) ,  Ω_R=√(Ω²+Δ²)</div>
+    <p>于是 |c_B|² = (Ω²/Ω_R²)sin²(Ω_R t/2)：共振时完全反转（π 脉冲），失谐时反转不完全——这就是右下角布居图上看到的行为。</p>
+
+    <h2>6. 可观测的偶极矩</h2>
+    <div class="eq">⟨z⟩(t) = 2·d_z·Re[ c_A* c_B e^{−iω_AB t} ] ,  d_z = ⟨A|z|B⟩ = (∫u_A u_B r dr)·⟨l_A m|cosθ|l_B m⟩
+⟨l+1,m|cosθ|l,m⟩ = √[ ((l+1)²−m²) / ((2l+1)(2l+3)) ]</div>
+    <p>径向积分用与波函数同一套网格上的 2∫x⁴w_Aw_B dx 计算。里德堡态的 d 可达 10³ a₀ e（比基态大 4~5 个数量级），这正是里德堡原子对微波场极端敏感、以及里德堡阻塞效应的根源。</p>
+
+    <h2>7. 渲染如何保持"概率密度"的诚实性</h2>
+    <ul>
+      <li>点位置按混合密度 p = ½(|A_A|² + |A_B|²) <b>重要性抽样</b>：径向从 x 网格上的精确 CDF 反变换抽样（无拒绝损失），角向按 |Θ_lm|² 拒绝抽样，φ 均匀。因此<b>点的空间密度本身就是概率密度</b>。</li>
+      <li>每帧在 GPU 顶点着色器中用该点预存的 (A_A, A_B, φ, 包络) 精确重算 |Ψ(t)|²，亮度 ∝ |Ψ|²/(2p) ∈ [0,1]。于是"点密度 × 亮度"始终 ∝ 真实 |Ψ(r,t)|²。</li>
+      <li>相位着色模式：色相 = arg Ψ（循环色环），可直接看到节点面处的 π 相位跳变与 σ 跃迁的相位绕数。</li>
+    </ul>
+
+    <h2>8. 时间尺度说明（唯一的"艺术处理"）</h2>
+    <p>n≈50 的 S→P 微波跃迁频率约 10¹⁰–10¹¹ Hz（周期 ~10 ps），而实验 Rabi 频率约 10⁶–10⁷ Hz（周期 ~100 ns），两者相差约 10⁴。若用同一慢放倍率，一个 Rabi 周期需要几个小时。因此本演示对<b>光学拍频</b>与<b>Rabi 包络</b>使用两个独立的慢放倍率，二者的真实值与各自倍率都在右栏明确列出。其余一切（能量、波函数、节点、半径、偶极矩、失谐依赖）均为真实数值结果。</p>
+    <p style="color:#8fa2c8;font-size:11.5px;margin-top:22px">参考：Gallagher, <i>Rydberg Atoms</i> (CUP 1994)；Marinescu et al., PRA 49, 982 (1994)；Weber &amp; Sansonetti, PRA 35, 4650 (1987)；Šibalić et al., <i>ARC</i>, Comput. Phys. Commun. 220, 319 (2017)。</p>
+  </div>
+</div>
+
+<div id="loading"><div class="spin"></div><div id="loadTxt">正在从 CDN 加载 three.js …</div></div>
+
+<script>
+/* CDN 超时提示（非模块脚本，即使 importmap/模块加载失败也会执行） */
+window.__cdnTimer = setTimeout(function(){
+  if(window.__ready) return;
+  var el = document.getElementById('loadTxt');
+  if(el) el.innerHTML = '⚠ three.js CDN 加载超时或被拦截。<br><br>'
+    + '本页面需要联网加载：<br>cdn.jsdelivr.net/npm/three@0.160.1<br><br>'
+    + '可将 importmap 中的 jsdelivr 换成 unpkg.com 或本地文件后重试。';
+}, 10000);
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHYSICS-CORE-BEGIN   （此区块不依赖任何浏览器 API，可独立在 Node 中校验）
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const PC = {
+  // 单位与常数
+  HARTREE_CM1 : 219474.6313632,     // 1 Hartree = ... cm^-1
+  GHZ_PER_CM1 : 29.9792458,         // 1 cm^-1 = ... GHz
+  A0_NM       : 0.0529177210903,    // Bohr 半径 [nm]
+  AU_TIME_S   : 2.4188843265857e-17,// 原子时间单位 [s]
+  RY_CS       : 109736.8625686,     // 133Cs 折合质量修正 Rydberg 常数 [cm^-1]
+                                    //   = R∞/(1+mₑ/M),  R∞=109737.3156816, mₑ/M=4.12909e-6
+  EA0_DEBYE   : 2.541746473,        // 1 e·a0 = ... Debye
+  Z_CS        : 55,
+  ALPHA_C_CS  : 15.6440,            // Cs+ 偶极极化率 [a0^3]
+};
+
+// ── Rydberg–Ritz 量子缺陷 (133Cs)，δ0..δ8 ────────────────────────────────
+const CS_DEFECT = {
+  '0_0.5': [4.0493532, 0.2391,   0.06,   11,    -209 ],  // nS_1/2
+  '1_0.5': [3.5915871, 0.36273                        ],  // nP_1/2
+  '1_1.5': [3.5590676, 0.37469                        ],  // nP_3/2
+  '2_1.5': [2.4753500, 0.5554                         ],  // nD_3/2
+  '2_2.5': [2.4663144, 0.01381, -0.392, -1.9          ],  // nD_5/2
+  '3_2.5': [0.0334000,-0.191,   -0.234,  0.53         ],  // nF_5/2
+  '3_3.5': [0.0335000,-0.191,   -0.235,  0.53         ],  // nF_7/2
+  '4_3.5': [0.0070386,-0.049252, 0.0129               ],  // nG_7/2
+  '4_4.5': [0.0070386,-0.049252, 0.0129               ],  // nG_9/2
+};
+
+// ── Marinescu-Sadeghpour-Dalgarno 模型势参数 (Cs)，index = l (>=3 用 l=3) ──
+const CS_MODEL = [
+  { a1:3.49546309, a2:1.47533800, a3: -9.72143084, a4: 0.02629242, rc:1.92046930 }, // l=0
+  { a1:4.69366096, a2:1.71398344, a3:-24.65624280, a4:-0.09543125, rc:2.13383095 }, // l=1
+  { a1:4.32466196, a2:1.61365288, a3: -6.70128850, a4:-0.74095193, rc:0.93007296 }, // l=2
+  { a1:3.01048361, a2:1.40000001, a3: -3.20036138, a4: 0.00034538, rc:1.99969677 }, // l>=3
+];
+
+/** 量子缺陷 δ_{lj}(n)（Rydberg–Ritz 展开） */
+function quantumDefect(n, l, j){
+  const key = l + '_' + j;
+  const d = CS_DEFECT[key];
+  if(!d) return 0;                                  // 高 l：氢化，δ≈0
+  const m = n - d[0];
+  let s = d[0], p = m*m;
+  for(let k=1;k<d.length;k++){ s += d[k]/p; p *= m*m; }
+  return s;
+}
+/** 有效主量子数 ν = n − δ */
+function effectiveN(n,l,j){ return n - quantumDefect(n,l,j); }
+/** 能量 [cm^-1]（相对电离阈） */
+function energyCm(n,l,j){ const v = effectiveN(n,l,j); return -PC.RY_CS/(v*v); }
+/** 能量 [Hartree] */
+function energyAu(n,l,j){ return energyCm(n,l,j)/PC.HARTREE_CM1; }
+
+/** 电子感受到的有效势 [Hartree]，r in a0 */
+function potential(l, r, useModel){
+  if(!useModel) return -1/r;
+  const p = CS_MODEL[Math.min(l,3)];
+  const Zl = 1 + (PC.Z_CS-1)*Math.exp(-p.a1*r) - r*(p.a3 + p.a4*r)*Math.exp(-p.a2*r);
+  const t  = r/p.rc, t6 = t*t*t*t*t*t;
+  const r4 = r*r*r*r;
+  return -Zl/r - PC.ALPHA_C_CS/(2*r4)*(1 - Math.exp(-t6));
+}
+
+/** 共享网格：x = √r 均匀网格 */
+function makeGrid(rMax, h){
+  const xMax = Math.sqrt(rMax);
+  const N = Math.max(64, Math.ceil(xMax/h) + 1);
+  const x = new Float64Array(N);
+  for(let i=0;i<N;i++) x[i] = i*h;
+  return { x, h, N, xMax:x[N-1], rMax:x[N-1]*x[N-1] };
+}
+
+/**
+ * Numerov 向内积分求径向波函数。
+ *   d²w/dx² = g(x) w ,  g = (4l(l+1)+3/4)/x² − 8x²(E − V_l(x²))
+ *   w = r^{3/4} R ,  归一化 2∫x²w²dx = 1
+ * 返回 { w, R, u, nodes, rExp, rMaxUsed, iInner }
+ */
+function numerovRadial(grid, n, l, j, useModel, EauOverride){
+  const { x, h, N } = grid;
+  const E  = (EauOverride !== undefined) ? EauOverride : energyAu(n,l,j);
+  const nu = Math.sqrt(-0.5/E);
+  const cen = 4*l*(l+1) + 0.75;
+
+  // g(x)
+  const g = new Float64Array(N);
+  for(let i=1;i<N;i++){
+    const xi = x[i], r = xi*xi;
+    g[i] = cen/(xi*xi) - 8*r*(E - potential(l, r, useModel));
+  }
+  g[0] = g[1];
+
+  // 积分下界：模型势只在 r ≳ α_c^{1/3} 可信（ARC 惯例）；纯库仑可一直积到原点附近
+  const rFloor = useModel ? Math.cbrt(PC.ALPHA_C_CS) : 1e-3;
+  let iFloor = Math.max(2, Math.ceil(Math.sqrt(rFloor)/h));
+
+  // 由 x_max 处渐近解 w ∝ exp(−r/ν) 起步（向内积分对起始条件不敏感）
+  const w = new Float64Array(N);
+  w[N-1] = 1e-10;
+  w[N-2] = 1e-10*Math.exp((x[N-1]*x[N-1] - x[N-2]*x[N-2])/nu);
+
+  const h2 = h*h/12;
+  for(let i=N-2;i>=iFloor+1;i--){
+    const num = (2 + 10*h2*g[i])*w[i] - (1 - h2*g[i+1])*w[i+1];
+    const den = (1 - h2*g[i-1]);
+    w[i-1] = num/den;
+    const a = Math.abs(w[i-1]);
+    if(!isFinite(a)){ iFloor = i; break; }
+    // 动态重标定：两态 ν 相差很大时（共用网格 r_max 由大 ν 决定），
+    // 小 ν 态从 r_max 向内要经历 exp(Δr/ν) 的巨量增长，必须防溢出。
+    // 整体乘常数不改变解，归一化在最后统一进行。
+    if(a > 1e60){ for(let k=i-1;k<N;k++) w[k] *= 1e-60; }
+  }
+
+  /* 自动发散检测（向内积分的固有不稳定性）：
+     用 w 变量时，经典允许区内 w 的振荡包络近似为常数（∵ u_amp∝r^{1/4}, w=u·r^{-1/4}），
+     因此 (a) 若某处 |w| 超过外部已确立包络的 25 倍 → 已被非本征解（∝x^{-1/2}）污染；
+          (b) 离心屏障内侧禁戒区中物理解应单调衰减，一旦包络回升即截断于极小点。      */
+  let iOut = iFloor, iIn = N-1;
+  for(let i=N-1;i>iFloor;i--)   if(g[i]<0){ iOut = i; break; }
+  for(let i=iFloor;i<=iOut;i++) if(g[i]<0){ iIn  = i; break; }
+  let Mref = 0;
+  for(let i=iOut;i>=Math.max(iIn, Math.floor(0.55*iOut));i--) Mref = Math.max(Mref, Math.abs(w[i]));
+  if(!(Mref>0)) Mref = 1;
+  let cut = iFloor;
+  for(let i=iFloor;i<=iOut;i++) if(Math.abs(w[i]) <= 25*Mref){ cut = i; break; }
+  if(iIn > cut+3){                              // 存在内侧禁戒区
+    let jmin = iIn, vmin = Math.abs(w[iIn]);
+    for(let i=iIn;i>=cut;i--){
+      const a = Math.abs(w[i]);
+      if(a <= vmin){ vmin = a; jmin = i; } else if(a > 3*vmin) break;
+    }
+    cut = Math.max(cut, jmin);
+  }
+  const iInner = cut;
+  for(let i=0;i<=iInner;i++) w[i]=0;
+
+  // 归一化 2∫x²w²dx = 1（梯形）
+  let s = 0;
+  for(let i=1;i<N;i++){
+    const f0 = x[i-1]*x[i-1]*w[i-1]*w[i-1], f1 = x[i]*x[i]*w[i]*w[i];
+    s += 0.5*(f0+f1)*h;
+  }
+  const norm = Math.sqrt(2*s);
+  if(norm>0) for(let i=0;i<N;i++) w[i] /= norm;
+  let resid = 0;                                  // 归一化残差校验
+  for(let i=1;i<N;i++) resid += (x[i-1]**2*w[i-1]**2 + x[i]**2*w[i]**2)*h;
+  resid = Math.abs(resid - 1);
+
+  // R(r) = w·r^{−3/4} = w·x^{−3/2} ;  u(r) = rR = w·r^{1/4} = w·x^{1/2}
+  const R = new Float64Array(N), u = new Float64Array(N);
+  for(let i=1;i<N;i++){
+    const xi = x[i];
+    R[i] = w[i]/(xi*Math.sqrt(xi));
+    u[i] = w[i]*Math.sqrt(xi);
+  }
+
+  // 节点数（截断半径以外的符号变化）、⟨r⟩ = 2∫x⁴w²dx、√⟨r²⟩ = 2∫x⁶w²dx
+  let nodes=0, rExp=0, rr=0;
+  for(let i=iInner+1;i<N-1;i++) if(w[i]!==0 && w[i]*w[i+1]<0) nodes++;
+  for(let i=1;i<N;i++){
+    const x2=x[i]*x[i], ww=w[i]*w[i], x4=x2*x2;
+    rExp += 2*x4*ww*h;
+    rr   += 2*x4*x2*ww*h;
+  }
+  // 99.7% 概率半径（决定显示尺度）
+  let acc=0, r997=grid.rMax, tot=0;
+  for(let i=1;i<N;i++) tot += x[i]*x[i]*w[i]*w[i]*h;
+  for(let i=1;i<N;i++){
+    acc += x[i]*x[i]*w[i]*w[i]*h;
+    if(acc >= 0.997*tot){ r997 = x[i]*x[i]; break; }
+  }
+  return { w, R, u, E, nu, nodes, nodesTheory:n-l-1, rExp, rRms:Math.sqrt(rr), r997, resid,
+           iInner, rInner:x[iInner]*x[iInner] };
+}
+
+/* ── 连带 Legendre / 球谐角向部分 ───────────────────────────────────────── */
+function plm(l,m,xx){                       // 含 Condon–Shortley 相位 (−1)^m
+  if(m<0||m>l) return 0;
+  let pmm = 1;
+  if(m>0){
+    const somx2 = Math.sqrt(Math.max(0,1-xx*xx));
+    let fact = 1;
+    for(let i=1;i<=m;i++){ pmm *= -fact*somx2; fact += 2; }
+  }
+  if(l===m) return pmm;
+  let pmmp1 = xx*(2*m+1)*pmm;
+  if(l===m+1) return pmmp1;
+  let pll = 0;
+  for(let ll=m+2; ll<=l; ll++){
+    pll = (xx*(2*ll-1)*pmmp1 - (ll+m-1)*pmm)/(ll-m);
+    pmm = pmmp1; pmmp1 = pll;
+  }
+  return pll;
+}
+function sphNorm(l,m){                      // √[(2l+1)(l−m)!/(4π(l+m)!)]
+  m = Math.abs(m);
+  let ratio = 1;                            // (l−m)!/(l+m)!
+  for(let k=l-m+1;k<=l+m;k++) ratio /= k;
+  return Math.sqrt((2*l+1)/(4*Math.PI)*ratio);
+}
+/** Θ_lm(cosθ)：Y_lm = Θ_lm·e^{imφ}，实数 */
+function thetaLM(l,m,ct){
+  const am = Math.abs(m);
+  let v = sphNorm(l,am)*plm(l,am,ct);
+  if(m<0 && (am%2)) v = -v;                 // Y_{l,-m} = (−1)^m Y*_{lm}
+  return v;
+}
+function thetaMax2(l,m,samples=4001){
+  let mx=0;
+  for(let i=0;i<samples;i++){
+    const ct = -1 + 2*i/(samples-1);
+    const v = thetaLM(l,m,ct); const v2=v*v;
+    if(v2>mx) mx=v2;
+  }
+  return mx;
+}
+
+/* ── 跃迁偶极矩 ────────────────────────────────────────────────────────── */
+/** 径向偶极积分 ∫u_A u_B r dr = 2∫x⁴ w_A w_B dx  [a0] */
+function radialDipole(grid, wA, wB){
+  const { x, h, N } = grid; let s = 0;
+  for(let i=1;i<N;i++){
+    const f0 = Math.pow(x[i-1],4)*wA[i-1]*wB[i-1];
+    const f1 = Math.pow(x[i],4)*wA[i]*wB[i];
+    s += 0.5*(f0+f1)*h;
+  }
+  return 2*s;
+}
+/** 角向因子；返回 {factor, comp:'z'|'x'|null} */
+function angularDipole(lA,mA,lB,mB){
+  const dl = lB-lA, dm = mB-mA;
+  if(Math.abs(dl)!==1) return {factor:0, comp:null};
+  if(dm===0){
+    if(dl===1){ const l=lA,m=mA; return {factor:Math.sqrt(((l+1)*(l+1)-m*m)/((2*l+1)*(2*l+3))), comp:'z'}; }
+    else      { const l=lA,m=mA; return {factor:Math.sqrt((l*l-m*m)/((2*l-1)*(2*l+1))), comp:'z'}; }
+  }
+  if(Math.abs(dm)===1){                     // |⟨l±1,m±1|x|l,m⟩|（σ 圆偏振）
+    const l = lA, mm = (dm>0)? mA : -mA;
+    const f = (dl===1)
+      ? 0.5*Math.sqrt(Math.max(0,(l+mm+1)*(l+mm+2))/((2*l+1)*(2*l+3)))
+      : 0.5*Math.sqrt(Math.max(0,(l-mm-1)*(l-mm))/((2*l-1)*(2*l+1)));
+    return {factor:f, comp:'x'};
+  }
+  return {factor:0, comp:null};
+}
+
+/* ── 二能级 Rabi 精确解（旋转坐标系）───────────────────────────────────── */
+/** H/ħ = ½[[−Δ,Ω],[Ω,Δ]] ; 返回 {cA:[re,im], cB:[re,im]} , 初态 (1,0) */
+function rabiSolve(Om, Det, t){
+  const OR = Math.hypot(Om, Det);
+  if(OR === 0) return {cA:[1,0], cB:[0,0]};
+  const s = Math.sin(OR*t/2), c = Math.cos(OR*t/2);
+  return { cA:[c, (Det/OR)*s], cB:[0, -(Om/OR)*s] };
+}
+
+/* ── 按混合密度重要性抽样（径向精确 CDF + 角向拒绝抽样）───────────────── */
+/**
+ * 生成点云。返回填充好的 typed arrays（长度 count）。
+ * sA/sB : numerovRadial 结果； 抽样密度 p = ½(|R_A Θ_A|² + |R_B Θ_B|²)
+ */
+function samplePoints(grid, sA, sB, qA, qB, count, out, rng){
+  const { x, h, N } = grid;
+  const rand = rng || Math.random;
+
+  // 径向 CDF：p(x) = x²(w_A² + w_B²)，∫p dx = 1
+  const cdf = new Float64Array(N);
+  let acc = 0;
+  for(let i=1;i<N;i++){
+    const x2 = x[i]*x[i];
+    acc += x2*(sA.w[i]*sA.w[i] + sB.w[i]*sB.w[i])*h;
+    cdf[i] = acc;
+  }
+  const total = acc;
+  for(let i=1;i<N;i++) cdf[i] /= total;
+
+  const maxA = thetaMax2(qA.l, qA.m), maxB = thetaMax2(qB.l, qB.m);
+  let envMax = 0;
+
+  for(let p=0;p<count;p++){
+    // ① 径向：CDF 反变换 + 单元内线性插值
+    const U = rand();
+    let lo=1, hi=N-1;
+    while(lo<hi){ const mid=(lo+hi)>>1; if(cdf[mid]<U) lo=mid+1; else hi=mid; }
+    const i1 = lo, i0 = Math.max(1,lo-1);
+    const c0 = cdf[i0], c1 = cdf[i1];
+    const f  = (c1>c0)? (U-c0)/(c1-c0) : 0;
+    const xs = x[i0] + f*h;
+    const r  = xs*xs;
+
+    // 网格插值得 w
+    const wA = sA.w[i0] + f*(sA.w[i1]-sA.w[i0]);
+    const wB = sB.w[i0] + f*(sB.w[i1]-sB.w[i0]);
+    const x15 = Math.pow(xs,1.5);
+    const RA = wA/x15, RB = wB/x15;
+
+    // ② 选择混合分支（条件角分布）
+    const pa = wA*wA, pb = wB*wB;
+    const useA = rand()*(pa+pb+1e-300) < pa;
+    const l = useA? qA.l : qB.l, m = useA? qA.m : qB.m;
+    const mx = useA? maxA : maxB;
+
+    // ③ 角向：|Θ_lm|² 拒绝抽样
+    let ct = 0;
+    for(let k=0;k<400;k++){
+      const c = 2*rand()-1;
+      const v = thetaLM(l,m,c);
+      if(rand()*mx <= v*v){ ct = c; break; }
+      if(k===399) ct = c;
+    }
+    const st = Math.sqrt(Math.max(0,1-ct*ct));
+    const ph = 2*Math.PI*rand();
+
+    // ④ 两个态在该点的实振幅
+    const aA = RA*thetaLM(qA.l,qA.m,ct);
+    const aB = RB*thetaLM(qB.l,qB.m,ct);
+    const env = 0.5*(aA*aA + aB*aB);
+    if(env>envMax) envMax = env;
+
+    const o3 = p*3;
+    out.pos[o3  ] = r*st*Math.cos(ph);
+    out.pos[o3+1] = r*st*Math.sin(ph);
+    out.pos[o3+2] = r*ct;                 // z = 量子化轴
+    out.aA[p] = aA; out.aB[p] = aB; out.phi[p] = ph; out.env[p] = env;
+  }
+  return { envMax };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHYSICS-CORE-END
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────── 全局状态 ─────────────────────────── */
+const MAXP = 400000;
+const S = {
+  A:{n:50,l:0,j:0.5,m:0},
+  B:{n:50,l:1,j:1.5,m:0},
+  count:150000, useModel:true,
+  expo:0.42, gamma:0.62, psize:2.2,
+  clipOn:false, clipY:0.0, colorMode:0, spin:false,
+  mode:'rabi', rabiMHz:6.0, detune:0.0, rabiT:24.0, beatT:3.2,
+  mixA:45, mixP:0,
+  running:true, t:0,
+};
+const buf = {
+  pos:new Float32Array(MAXP*3), aA:new Float32Array(MAXP),
+  aB:new Float32Array(MAXP), phi:new Float32Array(MAXP), env:new Float32Array(MAXP),
+};
+let grid=null, sA=null, sB=null, phys=null;
+
+/* ─────────────────────────── three.js 场景 ─────────────────────────── */
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:false, alpha:false,
+  powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.setClearColor(0x04060d, 1);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.01, 100);
+camera.up.set(0,0,1);                    // 让物理 z 轴（量子化轴）竖直
+camera.position.set(2.1, -2.4, 1.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.minDistance = 0.4; controls.maxDistance = 14;
+
+/* ── 点云着色器：逐帧精确重算 |Ψ(r,t)|² ── */
+const uniforms = {
+  cA:{value:new THREE.Vector2(1,0)}, cB:{value:new THREE.Vector2(0,0)},
+  wPhase:{value:0}, dm:{value:0},
+  pointSize:{value:S.psize}, pixelRatio:{value:renderer.getPixelRatio()},
+  expo:{value:S.expo}, gam:{value:S.gamma},
+  clipOn:{value:0}, clipY:{value:0}, colorMode:{value:0},
+};
+const vert = /* glsl */`
+  precision highp float;
+  attribute float aA; attribute float aB; attribute float phi; attribute float env;
+  uniform vec2 cA; uniform vec2 cB; uniform float wPhase; uniform float dm;
+  uniform float pointSize; uniform float pixelRatio; uniform float expo; uniform float gam;
+  uniform float clipOn; uniform float clipY;
+  varying float vI; varying float vPh; varying float vMix; varying float vClip;
+  void main(){
+    // Ψ = cA·aA + cB·e^{i(Δm·φ − ω t)}·aB   （整体相位 e^{−iE_A t} 已约去）
+    float ang = dm*phi + wPhase;
+    vec2 e = vec2(cos(ang), sin(ang));
+    vec2 z2 = vec2(cB.x*e.x - cB.y*e.y, cB.x*e.y + cB.y*e.x);
+    vec2 psi = cA*aA + z2*aB;
+    float dens = dot(psi,psi);
+    float rel  = dens/(2.0*env + 1e-30);            // ∈[0,1] 相对包络的真实密度
+    vI  = pow(clamp(rel,0.0,1.0), gam)*expo;
+    vPh = atan(psi.y, psi.x);
+    float wa = (cA.x*cA.x+cA.y*cA.y)*aA*aA, wb = (cB.x*cB.x+cB.y*cB.y)*aB*aB;
+    vMix = wb/(wa+wb+1e-30);
+    vClip = (clipOn > 0.5) ? (position.y - clipY) : -1.0;
+    vec4 mv = modelViewMatrix*vec4(position,1.0);
+    // 场景已把 r₉₉.₇ 归一化到 1，参考距离取默认相机距离 3.5：
+    // 于是 pointSize 滑块的数值即"默认视距下的 CSS 像素尺寸"
+    gl_PointSize = pointSize*pixelRatio*(3.5/max(0.05,-mv.z));
+    gl_Position = projectionMatrix*mv;
+  }`;
+const frag = /* glsl */`
+  precision highp float;
+  varying float vI; varying float vPh; varying float vMix; varying float vClip;
+  uniform float colorMode;
+  vec3 hsv(float h,float s,float v){
+    vec3 p = abs(fract(vec3(h)+vec3(1.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+    return v*mix(vec3(1.0), clamp(p-1.0,0.0,1.0), s);
+  }
+  void main(){
+    if(vClip > 0.0) discard;
+    vec2 d = gl_PointCoord - 0.5;
+    float r2 = dot(d,d);
+    if(r2 > 0.25) discard;
+    float soft = exp(-r2*7.0);
+    vec3 col;
+    if(colorMode < 0.5){                       // 相位着色
+      col = hsv(vPh/6.2831853 + 0.5, 0.78, 1.0);
+    } else if(colorMode < 1.5){                // 密度着色（冷→热）
+      float t = clamp(vI,0.0,1.0);
+      col = mix(vec3(0.06,0.24,0.85), vec3(0.35,0.95,1.0), smoothstep(0.0,0.55,t));
+      col = mix(col, vec3(1.0,1.0,0.92), smoothstep(0.55,1.0,t));
+    } else {                                   // 态分辨：A 青 / B 粉
+      col = mix(vec3(0.35,0.85,1.0), vec3(1.0,0.42,0.78), clamp(vMix,0.0,1.0));
+    }
+    gl_FragColor = vec4(col*vI*soft, 1.0);
+  }`;
+const mat = new THREE.ShaderMaterial({
+  uniforms, vertexShader:vert, fragmentShader:frag,
+  blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true, transparent:true,
+});
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(buf.pos,3));
+geo.setAttribute('aA', new THREE.BufferAttribute(buf.aA,1));
+geo.setAttribute('aB', new THREE.BufferAttribute(buf.aB,1));
+geo.setAttribute('phi',new THREE.BufferAttribute(buf.phi,1));
+geo.setAttribute('env',new THREE.BufferAttribute(buf.env,1));
+const cloud = new THREE.Points(geo, mat);
+cloud.frustumCulled = false;
+scene.add(cloud);
+
+// 参考几何：量子化轴 + ⟨r⟩ 处的赤道圈（不写深度，避免遮挡点云）
+const axisMat = new THREE.LineBasicMaterial({color:0x3a5f9a, transparent:true, opacity:0.5, depthWrite:false});
+const axis = new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+  [new THREE.Vector3(0,0,-1.35), new THREE.Vector3(0,0,1.35)]), axisMat);
+scene.add(axis);
+function ringGeom(rad, seg=180){
+  const pts=[]; for(let i=0;i<=seg;i++){const a=2*Math.PI*i/seg; pts.push(new THREE.Vector3(rad*Math.cos(a),rad*Math.sin(a),0));}
+  return new THREE.BufferGeometry().setFromPoints(pts);
+}
+const ringA = new THREE.LineLoop(ringGeom(1), new THREE.LineBasicMaterial({color:0x2f7fbf,transparent:true,opacity:0.30,depthWrite:false}));
+const ringB = new THREE.LineLoop(ringGeom(1), new THREE.LineBasicMaterial({color:0xbf4f8f,transparent:true,opacity:0.30,depthWrite:false}));
+scene.add(ringA, ringB);
+
+/* ─────────────────────────── UI 构建 ─────────────────────────── */
+const L_NAMES = ['s','p','d','f','g'];
+const PRESETS = [
+  {t:'50S₁ᐟ₂ → 50P₃ᐟ₂　π 跃迁 · 微波 · 振荡偶极（推荐）', A:{n:50,l:0,j:0.5,m:0}, B:{n:50,l:1,j:1.5,m:0}},
+  {t:'50S₁ᐟ₂ → 50P₃ᐟ₂ (m=1)　σ⁺ 跃迁 · 旋转电子云', A:{n:50,l:0,j:0.5,m:0}, B:{n:50,l:1,j:1.5,m:1}},
+  {t:'40S₁ᐟ₂ → 41P₃ᐟ₂　Δn=1 · 双壳层干涉', A:{n:40,l:0,j:0.5,m:0}, B:{n:41,l:1,j:1.5,m:0}},
+  {t:'30S₁ᐟ₂ → 30P₃ᐟ₂　较紧凑 · 细节清晰', A:{n:30,l:0,j:0.5,m:0}, B:{n:30,l:1,j:1.5,m:0}},
+  {t:'46P₃ᐟ₂ → 45D₅ᐟ₂　p↔d · 复杂角向结构', A:{n:46,l:1,j:1.5,m:0}, B:{n:45,l:2,j:2.5,m:0}},
+  {t:'50P₃ᐟ₂ → 50D₅ᐟ₂ (m=2)　高 m · 环形云', A:{n:50,l:1,j:1.5,m:1}, B:{n:50,l:2,j:2.5,m:2}},
+  {t:'60S₁ᐟ₂ → 60P₃ᐟ₂　超大轨道 ~0.6 μm', A:{n:60,l:0,j:0.5,m:0}, B:{n:60,l:1,j:1.5,m:0}},
+  {t:'52F₇ᐟ₂ → 52G₉ᐟ₂　近氢化 · 高 l', A:{n:52,l:3,j:3.5,m:0}, B:{n:52,l:4,j:4.5,m:1}},
+];
+const $ = id => document.getElementById(id);
+
+$('preset').innerHTML = PRESETS.map((p,i)=>`<option value="${i}">${p.t}</option>`).join('');
+for(const k of ['Al','Bl']) $(k).innerHTML = L_NAMES.map((s,i)=>`<option value="${i}">${i} (${s})</option>`).join('');
+
+function fillJ(sel, l){
+  const opts = l===0 ? [0.5] : [l-0.5, l+0.5];
+  sel.innerHTML = opts.map(v=>`<option value="${v}">${v===0.5?'1/2':(v*2)+'/2'}</option>`).join('');
+}
+function fillM(sel, l){
+  let h=''; for(let m=-l;m<=l;m++) h += `<option value="${m}">${m>0?'+':''}${m}</option>`;
+  sel.innerHTML = h;
+}
+function syncStateUI(tag){
+  const st = S[tag];
+  $(tag+'n').value = st.n;
+  fillJ($(tag+'j'), st.l); fillM($(tag+'m'), st.l);
+  $(tag+'l').value = st.l;
+  const jOpts=[...$(tag+'j').options].map(o=>+o.value);
+  if(!jOpts.includes(st.j)) st.j = jOpts[jOpts.length-1];
+  $(tag+'j').value = st.j;
+  if(Math.abs(st.m)>st.l) st.m = 0;
+  $(tag+'m').value = st.m;
+}
+function readStateUI(tag){
+  const st = S[tag];
+  st.n = Math.min(100, Math.max(12, Math.round(+$(tag+'n').value||30)));
+  st.l = +$(tag+'l').value;
+  const jOpts=[...$(tag+'j').options].map(o=>+o.value);
+  st.j = jOpts.includes(+$(tag+'j').value)? +$(tag+'j').value : jOpts[jOpts.length-1];
+  st.m = Math.max(-st.l, Math.min(st.l, +$(tag+'m').value||0));
+}
+
+const sliders = [
+  ['rabiMHz','rabiMHz','rabiMHzV', v=>v.toFixed(1)+' MHz'],
+  ['detune','detune','detuneV',    v=>v.toFixed(2)],
+  ['rabiT','rabiT','rabiTV',       v=>v.toFixed(0)+' s'],
+  ['beatT','beatT','beatTV',       v=>v.toFixed(1)+' s'],
+  ['mixA','mixA','mixAV',          v=>v.toFixed(1)+'°'],
+  ['mixP','mixP','mixPV',          v=>v.toFixed(0)+'°'],
+  ['npts','count','nptsV',         v=>(v/1000).toFixed(0)+'k'],
+  ['expo','expo','expoV',          v=>v.toFixed(2)],
+  ['gam','gamma','gamV',           v=>v.toFixed(2)],
+  ['psz','psize','pszV',           v=>v.toFixed(1)],
+  ['clipY','clipY','clipYV',       v=>v.toFixed(2)],
+];
+for(const [id,key,vid,fmt] of sliders){
+  const el = $(id); el.value = S[key]; $(vid).textContent = fmt(S[key]);
+  el.addEventListener('input', ()=>{
+    S[key] = +el.value; $(vid).textContent = fmt(S[key]);
+    if(key==='expo') uniforms.expo.value = S.expo;
+    if(key==='gamma') uniforms.gam.value = S.gamma;
+    if(key==='psize') uniforms.pointSize.value = S.psize;
+    if(key==='clipY') uniforms.clipY.value = S.clipY;
+  });
+  if(id==='npts') el.addEventListener('change', ()=>{ S.count = +el.value; rebuild(false); });
+}
+$('clipOn').addEventListener('change', e=>{ S.clipOn=e.target.checked; uniforms.clipOn.value = S.clipOn?1:0; });
+$('modelOn').addEventListener('change', e=>{ S.useModel=e.target.checked; rebuild(true); });
+$('spinOn').addEventListener('change', e=>{ S.spin=e.target.checked; });
+for(const [i,id] of ['cm0','cm1','cm2'].entries())
+  $(id).addEventListener('click', ()=>{ S.colorMode=i; uniforms.colorMode.value=i;
+    ['cm0','cm1','cm2'].forEach((x,k)=>$(x).classList.toggle('on',k===i)); });
+$('mRabi').addEventListener('click', ()=>setMode('rabi'));
+$('mFixed').addEventListener('click', ()=>setMode('fixed'));
+function setMode(m){
+  S.mode=m; $('mRabi').classList.toggle('on',m==='rabi'); $('mFixed').classList.toggle('on',m==='fixed');
+  $('fixedCtl').style.display = m==='fixed'?'block':'none';
+}
+$('play').addEventListener('click', togglePlay);
+function togglePlay(){ S.running=!S.running; $('play').textContent = S.running?'⏸ 暂停':'▶ 播放'; }
+$('reset').addEventListener('click', ()=>{ S.t=0; popHist.length=0; dipHist.length=0; });
+$('p2').addEventListener('click', ()=>{ setMode('fixed'); $('mixA').value=45; S.mixA=45; $('mixAV').textContent='45.0°';
+  $('mixP').value=90; S.mixP=90; $('mixPV').textContent='90°'; });
+$('pi').addEventListener('click', ()=>{ setMode('fixed'); $('mixA').value=90; S.mixA=90; $('mixAV').textContent='90.0°'; });
+$('helpBtn').addEventListener('click', ()=>$('help').classList.add('show'));
+$('closeHelp').addEventListener('click', ()=>$('help').classList.remove('show'));
+$('preset').addEventListener('change', ()=>{
+  const p = PRESETS[+$('preset').value];
+  S.A = {...p.A}; S.B = {...p.B};
+  syncStateUI('A'); syncStateUI('B'); rebuild(true);
+});
+for(const tag of ['A','B']){
+  $(tag+'l').addEventListener('change', ()=>{ readStateUI(tag); syncStateUI(tag); rebuild(true); });
+  for(const f of ['n','j','m']) $(tag+f).addEventListener('change', ()=>{ readStateUI(tag); syncStateUI(tag); rebuild(true); });
+}
+addEventListener('keydown', e=>{
+  if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+  else if(e.key==='h'||e.key==='H') $('help').classList.toggle('show');
+  else if(e.key==='Escape') $('help').classList.remove('show');
+  else if(e.key==='c'||e.key==='C'){ $('clipOn').checked=!$('clipOn').checked;
+    $('clipOn').dispatchEvent(new Event('change')); }
+});
+addEventListener('resize', ()=>{
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  uniforms.pixelRatio.value = renderer.getPixelRatio();
+  sizePlots();
+});
+
+/* ─────────────────────────── 重建（求解 + 抽样）─────────────────────────── */
+const sceneScaleRef = {r:1};
+const J_SUB = {0.5:'₁ᐟ₂', 1.5:'₃ᐟ₂', 2.5:'₅ᐟ₂', 3.5:'₇ᐟ₂', 4.5:'₉ᐟ₂'};
+function term(st){ return `${st.n}${L_NAMES[st.l].toUpperCase()}${J_SUB[st.j]||''}`; }
+function sup(n){
+  const map={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+  return String(n).split('').map(c=>map[c]||c).join('');
+}
+function fmtSci(v, sig=4){
+  if(!isFinite(v)) return '∞';
+  if(v===0) return '0';
+  const e = Math.floor(Math.log10(Math.abs(v)));
+  if(e>=-3 && e<5) return String(Number(v.toPrecision(sig)));
+  return (v/Math.pow(10,e)).toFixed(sig-1)+'×10'+sup(e);
+}
+
+function fmtLambda(fGHz){                       // 真空波长，自动选单位
+  if(!(Math.abs(fGHz)>0)) return '∞';
+  const um = 299792.458/Math.abs(fGHz);         // c[μm·GHz] / f
+  if(um < 1e3)  return fmtSci(um,4)+' μm';
+  if(um < 1e6)  return fmtSci(um/1e3,4)+' mm';
+  return fmtSci(um/1e6,4)+' m';
+}
+
+function rebuild(resolve){
+  const t0 = performance.now();
+  if(resolve || !grid){
+    const nuA = effectiveN(S.A.n,S.A.l,S.A.j), nuB = effectiveN(S.B.n,S.B.l,S.B.j);
+    const nuMax = Math.max(nuA,nuB);
+    const rMax = 2*nuMax*(nuMax+15);
+    const h = Math.min(0.02, Math.max(0.004, 0.6/Math.sqrt(rMax)*1.0));  // ~ 3000-20000 点
+    grid = makeGrid(rMax, h);
+    sA = numerovRadial(grid, S.A.n, S.A.l, S.A.j, S.useModel);
+    sB = numerovRadial(grid, S.B.n, S.B.l, S.B.j, S.useModel);
+
+    // 物理量
+    const EA = energyCm(S.A.n,S.A.l,S.A.j), EB = energyCm(S.B.n,S.B.l,S.B.j);
+    const dCm = EB-EA, fGHz = dCm*PC.GHZ_PER_CM1;
+    const rInt = radialDipole(grid, sA.w, sB.w);
+    const ang  = angularDipole(S.A.l,S.A.m,S.B.l,S.B.m);
+    phys = {
+      EA, EB, dCm, fGHz, nuA, nuB,
+      dA:quantumDefect(S.A.n,S.A.l,S.A.j), dB:quantumDefect(S.B.n,S.B.l,S.B.j),
+      rInt, ang, dip:rInt*ang.factor,
+      omegaAu:(EB-EA)/PC.HARTREE_CM1,                 // rad / a.u.time
+      beatPs: Math.abs(fGHz)>0 ? 1000/Math.abs(fGHz) : Infinity,   // ps
+      h:grid.h, N:grid.N, rMax:grid.rMax,
+    };
+    updateReadouts();
+    drawRadial();
+  }
+  // 抽样
+  const n = Math.min(MAXP, Math.round(S.count));
+  const {envMax} = samplePoints(grid, sA, sB, S.A, S.B, n, buf);
+
+  // 归一化振幅与位置尺度（float32 友好）
+  const aScale = 1/Math.sqrt(Math.max(1e-300, envMax));
+  for(let i=0;i<n;i++){ buf.aA[i]*=aScale; buf.aB[i]*=aScale; buf.env[i]*=aScale*aScale; }
+  const rDisp = Math.max(sA.r997, sB.r997);
+  sceneScaleRef.r = 1;
+  const ps = 1/rDisp;
+  for(let i=0;i<n*3;i++) buf.pos[i] *= ps;
+  phys.rDisp = rDisp;
+
+  geo.setDrawRange(0,n);
+  for(const k of ['position','aA','aB','phi','env']) geo.getAttribute(k).needsUpdate = true;
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), 3);
+
+  ringA.scale.setScalar(sA.rExp/rDisp); ringB.scale.setScalar(sB.rExp/rDisp);
+  uniforms.dm.value = S.B.m - S.A.m;
+  uniforms.clipY.value = S.clipY;
+
+  const dl = Math.abs(S.B.l-S.A.l), dm = Math.abs(S.B.m-S.A.m);
+  $('selRule').innerHTML = (dl===1 && dm<=1)
+    ? `<span style="color:var(--ok)">✓ 电偶极允许 (Δl=±1, Δm=${S.B.m-S.A.m}) — ${phys.ang.comp==='z'?'π 线偏振':'σ 圆偏振'}</span>`
+    : `⚠ 该对 (Δl=${S.B.l-S.A.l}, Δm=${S.B.m-S.A.m}) 电偶极禁戒：仍可看到 |Ψ|² 干涉演化，但 ⟨r⟩ 矩为 0（不辐射）。`;
+  $('numTab').innerHTML = kv([
+    ['x=√r 网格步长 h', grid.h.toFixed(4)],
+    ['网格点数 N', grid.N.toLocaleString()],
+    ['积分外边界 r_max', fmtSci(grid.rMax,4)+' a₀'],
+    ['内截断 r_in (A/B)', sA.rInner.toFixed(2)+' / '+sB.rInner.toFixed(2)+' a₀'],
+    ['归一化残差 |1−∫|', fmtSci(Math.max(sA.resid,sB.resid),2)],
+    ['采样点数', n.toLocaleString()],
+    ['求解+抽样耗时', (performance.now()-t0).toFixed(0)+' ms'],
+    ['芯势', S.useModel?'Marinescu 模型势':'纯库仑 −1/r'],
+  ]);
+  drawRadial();
+}
+
+function kv(rows){ return rows.map(([a,b])=>`<tr><td>${a}</td><td>${b}</td></tr>`).join(''); }
+
+function updateReadouts(){
+  const p = phys;
+  const fAbs = Math.abs(p.fGHz);
+  $('fBig').textContent = fAbs>1000 ? (fAbs/1000).toFixed(4)+' THz' : fAbs.toFixed(4)+' GHz';
+  $('fSub').textContent = `${term(S.A)}(m=${S.A.m}) → ${term(S.B)}(m=${S.B.m})　λ = ${fmtLambda(p.fGHz)}`;
+  $('trTab').innerHTML = kv([
+    ['能量差 ΔE', fmtSci(p.dCm,5)+' cm⁻¹'],
+    ['ΔE (μeV)', fmtSci(p.dCm*123.9841984,4)],
+    ['拍频周期 T=1/ν', fmtSci(p.beatPs,4)+' ps'],
+    ['径向偶极 ∫u_Au_B r dr', fmtSci(p.rInt,4)+' a₀'],
+    ['角向因子', p.ang.factor.toFixed(5)+(p.ang.comp?` (${p.ang.comp})`:'')],
+    ['跃迁偶极 d', fmtSci(Math.abs(p.dip),4)+' e·a₀'],
+    ['d (Debye)', fmtSci(Math.abs(p.dip)*PC.EA0_DEBYE,4)],
+  ]);
+  const one = (st,s)=>kv([
+    ['项符号', term(st)+`, m=${st.m}`],
+    ['量子缺陷 δ', (st===S.A?p.dA:p.dB).toFixed(5)],
+    ['有效主量子数 ν', (st===S.A?p.nuA:p.nuB).toFixed(4)],
+    ['能量 E/hc', fmtSci(st===S.A?p.EA:p.EB,6)+' cm⁻¹'],
+    ['结合能', fmtSci(Math.abs(st===S.A?p.EA:p.EB)*PC.GHZ_PER_CM1,5)+' GHz'],
+    ['径向节点数 (r>r_in)', s.nodes + (s.nodes<s.nodesTheory
+        ? ` <span style="color:var(--dim)">/ ${s.nodesTheory} (${s.nodesTheory-s.nodes} 个在芯区)</span>`
+        : ` / ${s.nodesTheory} ✓`)],
+    ['⟨r⟩', fmtSci(s.rExp,5)+' a₀'],
+    ['⟨r⟩ (物理尺度)', fmtSci(s.rExp*PC.A0_NM,4)+' nm'],
+    ['√⟨r²⟩', fmtSci(s.rRms,5)+' a₀'],
+    ['99.7% 半径', fmtSci(s.r997,4)+' a₀'],
+  ]);
+  $('aTab').innerHTML = one(S.A,sA);
+  $('bTab').innerHTML = one(S.B,sB);
+}
+
+/* ─────────────────────────── 2D 图表 ─────────────────────────── */
+const plots = {rad:$('pRad'), pop:$('pPop'), dip:$('pDip')};
+function sizePlots(){
+  for(const c of Object.values(plots)){
+    const r = c.getBoundingClientRect();
+    c.width = Math.max(80, Math.round(r.width*devicePixelRatio));
+    c.height= Math.max(40, Math.round(r.height*devicePixelRatio));
+  }
+  drawRadial();
+}
+function drawRadial(){
+  const c = plots.rad, g = c.getContext('2d');
+  g.clearRect(0,0,c.width,c.height);
+  if(!grid) return;
+  const W=c.width,H=c.height, pad=2*devicePixelRatio;
+  const rMaxPlot = Math.max(sA.r997, sB.r997)*1.02;
+  let amp=0;
+  for(let i=1;i<grid.N;i++){ amp=Math.max(amp, Math.abs(sA.u[i]), Math.abs(sB.u[i])); }
+  amp = amp||1;
+  g.strokeStyle='rgba(120,170,255,.16)'; g.lineWidth=1*devicePixelRatio;
+  g.beginPath(); g.moveTo(0,H/2); g.lineTo(W,H/2); g.stroke();
+  const draw=(s,col)=>{
+    g.strokeStyle=col; g.lineWidth=1.15*devicePixelRatio; g.beginPath();
+    let started=false;
+    for(let i=1;i<grid.N;i++){
+      const r = grid.x[i]*grid.x[i]; if(r>rMaxPlot) break;
+      const X = pad + (W-2*pad)*r/rMaxPlot;
+      const Y = H/2 - (H/2-pad)*s.u[i]/amp;
+      started? g.lineTo(X,Y) : (g.moveTo(X,Y), started=true);
+    }
+    g.stroke();
+  };
+  draw(sA,'#5fc8ff'); draw(sB,'#ff86c8');
+  g.fillStyle='rgba(143,162,200,.85)'; g.font=(9*devicePixelRatio)+'px monospace';
+  g.fillText('0', pad+1, H-2*devicePixelRatio);
+  g.fillText(Math.round(rMaxPlot)+' a₀', W-38*devicePixelRatio, H-2*devicePixelRatio);
+}
+const popHist=[], dipHist=[], HIST=460;
+function drawTrace(c, series, yRange, labels){
+  const g=c.getContext('2d'), W=c.width,H=c.height, pad=2*devicePixelRatio;
+  g.clearRect(0,0,W,H);
+  g.strokeStyle='rgba(120,170,255,.14)'; g.lineWidth=1*devicePixelRatio;
+  g.beginPath(); const y0 = yRange[0]<0 ? H/2 : H-pad; g.moveTo(0,y0); g.lineTo(W,y0); g.stroke();
+  const n = series[0].data.length; if(n<2) return;
+  for(const s of series){
+    g.strokeStyle=s.color; g.lineWidth=1.2*devicePixelRatio; g.beginPath();
+    for(let i=0;i<n;i++){
+      const X = pad + (W-2*pad)*i/(HIST-1);
+      const v = (s.data[i]-yRange[0])/(yRange[1]-yRange[0]);
+      const Y = H-pad - (H-2*pad)*Math.max(0,Math.min(1,v));
+      i? g.lineTo(X,Y) : g.moveTo(X,Y);
+    }
+    g.stroke();
+  }
+  if(labels){ g.fillStyle='rgba(143,162,200,.8)'; g.font=(9*devicePixelRatio)+'px monospace';
+    g.fillText(labels, pad+2, 10*devicePixelRatio); }
+}
+
+/* ─────────────────────────── 主循环 ─────────────────────────── */
+/* ─────────────────────────── 主循环 ─────────────────────────── */
+let last = performance.now(), fps=60, frames=0, fpsT=0, tPlot=0, tText=0;
+function amplitudes(t){
+  if(S.mode==='fixed'){
+    const th = S.mixA*Math.PI/180, ph = S.mixP*Math.PI/180;
+    return { cA:[Math.cos(th),0], cB:[Math.sin(th)*Math.cos(ph), Math.sin(th)*Math.sin(ph)] };
+  }
+  // 屏幕时间下的等效 Rabi 参数：广义 Rabi 周期（布居振荡周期）= S.rabiT 秒
+  const OR = 2*Math.PI/S.rabiT;
+  const Om = OR/Math.sqrt(1+S.detune*S.detune);
+  const Det= S.detune*Om;
+  return rabiSolve(Om, Det, t);
+}
+function animate(now){
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05,(now-last)/1000); last=now;
+  if(S.running) S.t += dt;
+  frames++; fpsT+=dt; tPlot+=dt; tText+=dt;
+  if(fpsT>0.5){ fps=frames/fpsT; frames=0; fpsT=0; }
+
+  const {cA,cB} = amplitudes(S.t);
+  uniforms.cA.value.set(cA[0],cA[1]);
+  uniforms.cB.value.set(cB[0],cB[1]);
+  // 光学拍相位：屏幕上一个拍周期 = S.beatT 秒（真实周期 phys.beatPs ps）
+  const wPhase = -2*Math.PI*S.t/S.beatT*Math.sign(phys.fGHz||1);
+  uniforms.wPhase.value = wPhase;
+
+  if(S.spin){ cloud.rotation.z += dt*0.12; axis.rotation.z=cloud.rotation.z;
+              ringA.rotation.z=cloud.rotation.z; ringB.rotation.z=cloud.rotation.z; }
+
+  controls.update();
+  renderer.render(scene,camera);
+
+  // ── 时间轨迹（每帧采样）──
+  const pA = cA[0]*cA[0]+cA[1]*cA[1], pB = cB[0]*cB[0]+cB[1]*cB[1];
+  // ⟨z⟩(t) = 2·d·Re[ c_A* · c_B e^{−iω_AB t} ]
+  const cw = Math.cos(wPhase), sw = Math.sin(wPhase);
+  const reCB = cB[0]*cw - cB[1]*sw, imCB = cB[0]*sw + cB[1]*cw;
+  const dipole = 2*phys.dip*(cA[0]*reCB + cA[1]*imCB);
+  if(S.running){
+    popHist.push([pA,pB]); if(popHist.length>HIST) popHist.shift();
+    dipHist.push(dipole);  if(dipHist.length>HIST) dipHist.shift();
+  }
+  if(tPlot>0.08){          // 图表 ~12 Hz
+    tPlot = 0;
+    const dScale = Math.max(1e-30, Math.abs(phys.dip))*2.1;
+    drawTrace(plots.pop, [
+      {data:popHist.map(p=>p[0]), color:'#5fc8ff'},
+      {data:popHist.map(p=>p[1]), color:'#ff86c8'}], [0,1], `|c_B|²=${pB.toFixed(3)}`);
+    drawTrace(plots.dip, [{data:dipHist, color:'#ffd166'}], [-dScale,dScale],
+      `⟨${phys.ang.comp||'r'}⟩=${dipole.toFixed(1)} a₀`);
+  }
+  if(tText>0.4){           // 文字读数 ~2.5 Hz
+    tText = 0;
+    $('pDipTitle').textContent = `跃迁偶极 ⟨${phys.ang.comp||'r'}⟩(t)　[a₀]　辐射源`;
+    const beatSlow  = (phys.beatPs*1e-12)/S.beatT;      // 真实秒 / 屏幕秒
+    const rabiRealT = 1/(S.rabiMHz*1e6);
+    const rabiSlow  = rabiRealT/S.rabiT;
+    $('dynTab').innerHTML = kv([
+      ['屏幕时间 t', S.t.toFixed(2)+' s'],
+      ['真实时间 (拍频尺度)', fmtSci(S.t*phys.beatPs/S.beatT,4)+' ps'],
+      ['布居 |c_A|² / |c_B|²', pA.toFixed(4)+' / '+pB.toFixed(4)],
+      ['当前 ⟨'+(phys.ang.comp||'r')+'⟩', dipole.toFixed(2)+' a₀'],
+      ['偶极振幅上限 2d', (2*Math.abs(phys.dip)).toFixed(1)+' a₀'],
+      ['拍频慢放倍率', fmtSci(beatSlow,3)+'×'],
+      ['1 屏幕秒 ≙', fmtSci(phys.beatPs/S.beatT,3)+' ps'],
+      ['Rabi 真实周期', fmtSci(rabiRealT*1e9,3)+' ns'],
+      ['Rabi 慢放倍率', fmtSci(rabiSlow,3)+'×'],
+      ['π 脉冲时刻 (屏)', (S.rabiT/2).toFixed(1)+' s'],
+      ['FPS', fps.toFixed(0)],
+    ]);
+  }
+}
+
+/* ─────────────────────────── 启动 ─────────────────────────── */
+function boot(){
+  syncStateUI('A'); syncStateUI('B'); setMode('rabi');
+  sizePlots();
+  rebuild(true);
+  window.__ready = true; clearTimeout(window.__cdnTimer);
+  $('loading').classList.add('hide');
+  last = performance.now();
+  requestAnimationFrame(animate);
+}
+try{ boot(); }
+catch(err){
+  $('loadTxt').innerHTML = '初始化失败：<br>'+err.message;
+  console.error(err);
+}
+</script>
+</body>
+</html>

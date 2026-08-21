@@ -1,0 +1,3222 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  基于外周血 cfDNA 全基因组甲基化图谱的泛癌种早期筛查模型
+  ——方法学与验证性能演示（单文件 HTML / 无后端 / 无构建）
+  ----------------------------------------------------------------------------
+  文档性质：科研演示（非注册临床试验数据）。所有交互输出均为模拟数据。
+  审校提示：全部可替换数据集中在 <head> 内的 MODEL_DATA 与 REFERENCES 两个常量中。
+            标注约定  【任务给定】= 由任务书原样给定、禁止改动的数字
+                      【演示假设】= 为演示可视化而设定的假设值，不可作为证据引用
+                      【文献原文】= 取自参考文献原文的定性表述
+  ============================================================================
+-->
+<html lang="zh-CN" data-theme="light" data-lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="cfDNA 甲基化泛癌种早期筛查模型演示：分子机制、技术路线、算法建模、性能验证、方法学局限与指南关系。科研演示用，非诊断依据。">
+<title>cfDNA 甲基化泛癌种早筛模型 · 方法学与验证性能演示 v2.1</title>
+
+<!-- ===== 允许的 CDN 依赖（离线时页面仍可阅读，图表/公式将降级为提示） ===== -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+
+<!-- ============================================================================
+     数据层 1/2：MODEL_DATA —— 全部文字与数值口径
+     ============================================================================ -->
+<script id="dsh-model-data">
+const MODEL_DATA = {
+
+  /* ---------------------------------------------------------------- 元信息 */
+  meta: {
+    title: '基于外周血 cfDNA 全基因组甲基化图谱的泛癌种早期筛查模型——方法学与验证性能演示',
+    titleEn: 'A Plasma cfDNA Genome-wide Methylation Model for Multi-Cancer Early Detection: Methodology and Validation Performance Demonstration',
+    version: 'v2.1（演示版）',
+    sampleType: '外周血血浆 cfDNA',
+    platform: 'NGS 靶向甲基化测序',
+    nature: '科研演示（非注册临床试验数据）',
+    banner: '本系统为医学模型演示，所有交互输出均为模拟数据，不构成诊断依据。',
+    bannerEn: 'This is a methodological demonstration. All interactive outputs are simulated data and must not be used for diagnosis.',
+    updated: '2026-02 修订',
+    reportingStandard: '性能呈现口径参照 STARD 2015 与 TRIPOD 报告规范（见参考文献）'
+  },
+
+  /* ------------------------------------------- 第 2 区块：背景与临床需求 */
+  /* 全部数值【任务给定】，来源见 refs 字段 */
+  epidemiology: {
+    cards: [
+      { k: '4 824 700', unit: '例', label: '2022 年中国癌症新发病例', sub: '占全球新发癌症 24.2%（482.47 万例）', tag: 'epi', refs: 'nccChina2022' },
+      { k: '2 574 200', unit: '例', label: '2022 年中国癌症死亡病例', sub: '占全球癌症死亡 26.4%（257.42 万例）', tag: 'epi', refs: 'nccChina2022' },
+      { k: '43.7', unit: '%', label: '中国癌症总体 5 年生存率（2019–2021）', sub: '同期美国约 70%', tag: 'epi', refs: 'nccChina2022,acs2026' },
+      { k: '52.8', unit: '%', label: '确诊时已为 III–IV 期的患者比例', sub: '晚期确诊是生存率差距的主因', tag: 'epi', refs: 'nccChina2022' },
+      { k: '≈70', unit: '%', label: '无标准筛查手段的新发癌种占比', sub: '未筛查癌种约占癌症死亡 2/3', tag: 'epi', refs: 'consensusLB2025' },
+      { k: '27.6', unit: '% vs 51.2%', label: '乳腺癌 I 期确诊占比（中国 vs 美国）', sub: 'I 期确诊比例显著低于美国', tag: 'epi', refs: 'nccChina2022,acs2026' }
+    ],
+    question: '能否在出现临床症状 / 影像学改变之前，从外周血中检出癌症信号？',
+    questionEn: 'Can a cancer signal be detected in peripheral blood before symptoms or imaging changes appear?'
+  },
+
+  /* --------------------------------------------- 第 3 区块：分子机制 */
+  mechanism: {
+    epigenome: [
+      { key: 'hypo', title: '全基因组低甲基化', text: '重复序列与基因间区整体去甲基化，伴随染色体不稳定与转座子（LINE-1 等）去抑制激活，是癌基因组最广泛的表观遗传改变。', tag: 'mech', refs: 'baylinJones2016' },
+      { key: 'hyper', title: 'CpG 岛启动子局灶高甲基化', text: '抑癌基因启动子 CpG 岛获得性高甲基化导致转录沉默，典型基因如 MLH1、p16（CDKN2A）、BRCA1，构成「表观遗传学二次打击」。', tag: 'mech', refs: 'baylinJones2016' },
+      { key: 'shore', title: '差异甲基化富集于 CpG shores', text: '多数肿瘤差异甲基化位点并不落在 CpG 岛核心，而位于 CpG 岛两侧 ±2 kb 的 CpG shores，且与正常组织特异性甲基化区域高度重叠。', tag: 'mech', refs: 'irizarry2009' },
+      { key: 'early', title: '最早期分子事件之一', text: '甲基化异常先于形态学改变发生；PanSeer 研究在临床确诊前 1–4 年即可从血液样本中检出癌症信号，支持「甲基化信号早于诊断窗口」假设。', tag: 'cc', refs: 'chen2020panseer' }
+    ],
+    cfdna: [
+      { key: 'origin', title: '组织来源', text: '健康人血浆 cfDNA > 80% 来源于造血系统（粒细胞、淋巴细胞等），因此非造血来源的甲基化模式是肿瘤信号的判别基础。', refs: 'sun2015' },
+      { key: 'halflife', title: '半衰期', text: '循环 cfDNA / ctDNA 半衰期约 2 小时，决定了「采血—离心」时限的严格性，也使其成为实时性较好的动态标志物。', refs: 'diehl2008' },
+      { key: 'fragment', title: '片段长度', text: 'ctDNA 片段较正常 cfDNA 短约 20–50 bp（峰值 ~143 bp vs ~167 bp），片段组学可作为甲基化信号的正交增强特征。', refs: 'mouliere2018,cristiano2019' }
+    ],
+    bottleneck: {
+      title: '采样瓶颈：早期灵敏度的生物学上限',
+      text: '按肿瘤细胞数与 cfDNA 释放率估算，1 cm³ 肿瘤在 15 mL 全血中平均仅贡献约 1.7 个基因组当量，对应肿瘤分数约 0.022%。这意味着 I 期病灶的信号量常低于测序噪声与生物学背景，是全行业早期灵敏度受限的根源，而非某一算法的缺陷。',
+      genomeEq: 1.7,        /* 【任务给定】基因组当量 */
+      tumorFraction: 0.022, /* 【任务给定】% */
+      bloodVolume: 15,      /* 【任务给定】mL 全血 */
+      refs: 'fiala2018,bettegowda2014'
+    },
+    interference: {
+      title: '主要干扰因素：克隆性造血（CHIP）',
+      text: '克隆性造血（CHIP）在 70 岁以上人群中携带率约 10%，其体细胞突变会进入血浆并被突变型检测误判为肿瘤来源，是突变类 MCED 假阳性的主要来源。甲基化检测依赖组织特异性甲基化模式识别而非单点突变，受 CHIP 干扰相对较小——这是本模型选择甲基化作为主标志物的方法学理由之一。',
+      chipPrev: 10,  /* 【任务给定】% (>70 岁) */
+      refs: 'jaiswal2014,consensusLB2025'
+    }
+  },
+
+  /* ------------------------------ 第 4 区块 (a)：样本前处理 SOP 时间线 */
+  sop: [
+    { t: 'T0', title: '外周血采集', detail: 'EDTA-K2 抗凝管采集外周血 10 mL（最低 5 mL），无需空腹。',
+      qc: ['禁用肝素抗凝管（抑制后续酶反应）', '优先选择游离 DNA 专用保存管或 EDTA-K2；不得使用促凝管', '采集量不足 5 mL 视为不合格样本，需重新采集'], flag: 'given' },
+    { t: 'T0 + 0 min', title: '即刻混匀', detail: '采血后立即上下颠倒混匀 10–12 次，使抗凝剂充分作用。',
+      qc: ['禁止剧烈振荡，避免机械性溶血', '溶血样本会释放大量基因组 DNA，稀释 ctDNA 比例，导致假阴性'], flag: 'given' },
+    { t: 'T0 + 1–4 h', title: '离心分离血浆', detail: '1–4 小时内完成离心（1500 rpm × 20 min，推荐 4 ℃）；时限上限 8 小时。',
+      qc: ['超过 8 小时的样本不得进入建库流程', '推荐二次离心去除残余细胞碎片（演示建议）', '记录采血—离心实际间隔，作为样本可溯源质控项'], flag: 'given' },
+    { t: 'T0 + ~4 h', title: '血浆分装', detail: '血浆分装 3 支 1.5 mL 冻存管，每管 ≥ 1.2 mL；使用无酶、无菌耗材；不得混入红细胞层。',
+      qc: ['吸取血浆时距红细胞层保留 ≥ 5 mm 安全距离（演示建议）', '肉眼可见红色或浑浊者判为不合格', '分装管需标注唯一样本编号与分装时间'], flag: 'given' },
+    { t: '储运', title: '冻存与冷链', detail: '−20 ℃ 保存（推荐 −80 ℃），全程干冰冷链运输。',
+      qc: ['避免反复冻融，冻融次数 > 1 次需在报告中标注', '运输过程温度记录随样本归档', '到达实验室后核对干冰余量与管体完整性'], flag: 'given' }
+  ],
+
+  /* ------------------------------ 第 4 区块 (b)：湿实验与测序流程 */
+  wetlab: [
+    { id: 'W1', title: 'cfDNA 提取', params: ['10 mL 全血约可获得 4–6 mL 血浆【任务给定】', '磁珠法 / 柱式法均可，需固定同一批次试剂'], qc: ['提取阴性对照不得出现可检信号'] },
+    { id: 'W2', title: '定量与片段质控', params: ['Qubit 荧光定量（总量）', 'Bioanalyzer / 片段分析（长度分布）'], qc: ['最低 DNA 投入量 1 ng【任务给定】', '出现 ~10 kb 高分子量峰提示基因组 DNA 污染（白细胞裂解）'] },
+    { id: 'W3', title: '亚硫酸氢盐 / 酶法转化', params: ['亚硫酸氢盐转化或酶法转化（EM-seq）', '转化率要求 ≥ 99%【任务给定】'], qc: ['以 λDNA / 全甲基化与非甲基化对照监控转化率', '酶法转化对片段损伤小，更适配低投入量 cfDNA'] },
+    { id: 'W4', title: '靶向甲基化文库构建', params: ['接头连接 → 扩增 → 靶向捕获（甲基化 panel）'], qc: ['文库复杂度（unique molecule 数）是低肿瘤分数检出的关键限制项', 'UMI / 双端分子标签用于去重与去噪（演示建议）'] },
+    { id: 'W5', title: 'NGS 高通量测序', params: ['双端测序，目标区域高深度'], qc: ['同批次纳入阳性 / 阴性质控样本'] },
+    { id: 'W6', title: '下机数据质控', params: ['Q30、目标区域中位覆盖深度、文库复杂度、重复率'], qc: ['任一质控项不达标即判「本样本检测结果无效」并触发重采', '质控阈值随批次漂移需持续监测（SPC 控制图，演示建议）'] }
+  ],
+
+  /* ------------------------------------ 第 5 区块：算法与建模 */
+  algorithm: {
+    pipeline: [
+      { id: 'A1', title: '原始读段（FASTQ）', desc: '去接头、低质量碱基修剪、UMI 提取。' },
+      { id: 'A2', title: '比对至参考基因组', desc: '甲基化感知比对（三字母基因组），保留唯一比对读段。' },
+      { id: 'A3', title: '甲基化位点 calling', desc: '逐 CpG 位点计算甲基化比例，输出单读段级甲基化状态串。' },
+      { id: 'A4', title: '完整高甲基化单倍型（fHMH）特征提取', desc: '以「单条读段上所有 CpG 均为甲基化」的完整单倍型为特征单元，相比位点平均甲基化率显著抑制背景噪声，适合极低肿瘤分数场景。' },
+      { id: 'A5', title: '二元分类鉴别（BCD 算法）', desc: '对每个特征单元做「肿瘤来源 / 非肿瘤来源」二元判别，输出区域级判别统计量。' },
+      { id: 'A6', title: '4 个标志物基因区域加权评分', desc: '对 4 个标志物区域的判别统计量做加权线性合成（权重由训练集交叉验证确定）。' },
+      { id: 'A7', title: '总分输出（0–2 量表）', desc: '输出「是否存在癌症信号」的二分类结果与风险提示。' }
+    ],
+    training: {
+      totalSamples: 18752,   /* 【任务给定】训练与验证样本总数 */
+      tcgaTumor: 8906,       /* 【任务给定】TCGA 肿瘤组织样本 */
+      source: '公开数据库（TCGA 等）',
+      design: '回顾性 · 病例-对照',
+      refs: 'tcga2013'
+    },
+    threshold: {
+      value: 0.99,           /* 【任务给定】总分阈值 */
+      rule: '阈值定义为健康人群评分的第 95 百分位（即特异性预设 95%）',
+      note: '阈值为「特异性优先」的先验设定，而非由灵敏度反推；在筛查场景中特异性直接决定 PPV 与假阳性负担。'
+    },
+    positioning: {
+      title: '模型定位',
+      text: '输出为「是否存在癌症信号」的二分类结果 + 风险提示，不做组织溯源（tissue of origin）。与 Galleri 的 CSO（cancer signal origin）功能不同：本模型不预测信号来源器官，阳性后的定位完全依赖后续影像学 / 内镜的诊断性分辨路径。',
+      refs: 'liu2020'
+    },
+    /* 演示用双正态评分模型：参数由三条【任务给定】约束反解，保证图表与报告数字自洽
+       (1) Sp(0.99)=95%  →  μ0 = 0.99 − 1.6449·σ0 ，取 σ0 = 0.20 → μ0 = 0.6610
+       (2) Se(0.99)=87%  →  μ1 = 0.99 + 1.1264·σ1
+       (3) AUC = Φ((μ1−μ0)/√(σ0²+σ1²)) = 0.9581 → σ1 = 0.4152 ，μ1 = 1.4577
+       用途：仅用于「阈值—敏感性/特异性权衡」可视化，属【演示假设】分布 */
+    scoreModel: {
+      healthy: { mu: 0.6610, sd: 0.2000, label: '健康对照' },
+      cancer:  { mu: 1.4577, sd: 0.4152, label: '癌症样本' },
+      threshold: 0.99, min: 0, max: 2, bin: 0.05
+    }
+  },
+
+  /* ------------------------------------ 第 6 区块：性能验证 */
+  performance: {
+    /* Figure 1 */
+    roc: {
+      auc: 0.9581,          /* 【任务给定】 */
+      n: 18752,             /* 【任务给定】 */
+      design: '公开样本回顾性验证（病例-对照）',
+      tag: 'cc',
+      workPoint: { sp: 95.0, se: 87.0, label: '本模型工作点（Sp 95% → Se 87%）' },
+      benchmark: { name: 'Galleri CCGA3', sp: 99.5, se: 51.5, design: '前瞻性独立验证集（病例-对照设计）', tag: 'cc', refs: 'klein2021' }
+    },
+
+    /* Figure 2：分癌种灵敏度。sens 为【任务给定】；n 除肝癌 402 例外均为【演示假设】，
+       仅用于按二项分布估算 95% CI（Wilson 区间），图注已注明「演示估算」 */
+    byCancer: [
+      { zh: '肺腺癌',        en: 'Lung adenocarcinoma',  sens: 100, n: 512, nSrc: 'demo',  group: 'high' },
+      { zh: '结直肠癌',      en: 'Colorectal cancer',    sens: 100, n: 468, nSrc: 'demo',  group: 'high' },
+      { zh: '胃癌',          en: 'Gastric cancer',       sens: 100, n: 375, nSrc: 'demo',  group: 'high' },
+      { zh: '子宫内膜癌',    en: 'Endometrial cancer',   sens: 100, n: 176, nSrc: 'demo',  group: 'high' },
+      { zh: '胰腺癌',        en: 'Pancreatic cancer',    sens: 99,  n: 182, nSrc: 'demo',  group: 'high' },
+      { zh: '宫颈癌',        en: 'Cervical cancer',      sens: 99,  n: 254, nSrc: 'demo',  group: 'high' },
+      { zh: '胶质母细胞瘤',  en: 'Glioblastoma',         sens: 99,  n: 132, nSrc: 'demo',  group: 'high' },
+      { zh: '肝癌',          en: 'Hepatocellular carc.', sens: 96,  n: 402, nSrc: 'given', group: 'high' },
+      { zh: '甲状腺癌',      en: 'Thyroid cancer',       sens: 33,  n: 501, nSrc: 'demo',  group: 'low' },
+      { zh: '睾丸癌',        en: 'Testicular cancer',    sens: 17,  n: 132, nSrc: 'demo',  group: 'low' },
+      { zh: '嗜铬细胞瘤',    en: 'Pheochromocytoma',     sens: 10,  n: 79,  nSrc: 'demo',  group: 'low' }
+    ],
+    byCancerNote: '低敏癌种（甲状腺、睾丸、嗜铬细胞瘤）与 ctDNA 脱落量低的已知规律一致：脑、肾、甲状腺、前列腺等解剖学低脱落部位肿瘤的血浆 ctDNA 检出率系统性偏低。',
+
+    /* Figure 3：分期灵敏度 */
+    byStage: {
+      axis: ['I 期 / BCLC A', 'II 期', 'III 期', 'IV 期 / BCLC D'],
+      series: [
+        { name: 'Galleri CCGA3（行业基准）', design: '病例-对照 · 独立验证', tag: 'cc',
+          data: [16.8, 40.4, 77.0, 90.1], refs: 'klein2021' },   /* 【任务给定】 */
+        { name: '本模型 · 肝癌专项队列（402 例血浆）', design: '回顾性专项队列', tag: 'cc',
+          data: [88.0, null, null, 94.5], refs: '' }              /* 【任务给定】BCLC A 88%、D 94.5% */
+      ],
+      caveat: 'BCLC A/D 为肝癌专用分期，与 TNM I/IV 期不能直接等同，并列仅示意「分期越早灵敏度越低」的方向一致性。'
+    },
+    stageNote: '「分期越早、灵敏度越低」是全行业共性约束，源于早期病灶 ctDNA 释放量的生物学下限，而非单一算法差异。',
+
+    /* Figure 4：多模型横向对比。仅收录任务书给定的数值；未给定者标注「本演示未给定」 */
+    comparison: [
+      { model: '本模型（演示 v2.1）', study: '公开数据库回顾性验证', cohort: '回顾性 · 病例-对照', tag: 'cc',
+        n: '18 752', sp: '95.0%', se: '87.0%', se1: '本演示未给定',
+        note: 'AUC 0.9581；阈值 = 健康人评分第 95 百分位；不含组织溯源', refs: 'tcga2013' },
+      { model: 'Galleri（GRAIL）', study: 'CCGA 子研究 3', cohort: '病例-对照 · 独立验证集', tag: 'cc',
+        n: '4 077', sp: '99.5%', se: '51.5%', se1: '16.8%',
+        note: '含 CSO 组织溯源；多癌种', refs: 'klein2021' },
+      { model: 'Shield（Guardant Health）', study: 'ECLIPSE（NEJM 2024）', cohort: '前瞻 · 筛查队列（结直肠癌）', tag: 'prosp',
+        n: '本演示未给定', sp: '89.9%', se: '83.1%', se1: 'I 期约 55%',
+        note: '晚期腺瘤灵敏度仅 13.2%——癌前病变检出是血检的结构性短板', refs: 'chung2024' },
+      { model: 'CancerSEEK', study: 'Science 2018', cohort: '病例-对照', tag: 'cc',
+        n: '本演示未给定', sp: '> 99%', se: '中位 70%', se1: '43%',
+        note: '突变 + 蛋白多组学联合；受 CHIP 干扰风险较高', refs: 'cohen2018' },
+      { model: '燃石 OverC', study: 'THUNDER 独立验证', cohort: '病例-对照 · 独立验证', tag: 'cc',
+        n: '1 010', sp: '98.9%', se: '69.1%', se1: '本演示未给定',
+        note: '中国人群多癌种甲基化 panel', refs: 'gao2023thunder' },
+      { model: '世和 MERCURY', study: 'Nat Med 2025', cohort: '验证集（回顾）+ 金陵队列（前瞻）', tag: 'ind',
+        n: '本演示未给定', sp: '97.8% / 98.1%', se: '87.4% / 53.8%', se1: '本演示未给定',
+        note: '同一模型：验证集 87.4% → 前瞻金陵队列 53.8%，单研究内部即复现回顾—前瞻性能落差', refs: 'mercury2025' }
+    ],
+    comparisonFootnote: '回顾性病例-对照数据系统性高估前瞻性筛查场景性能约 30 个百分点，跨研究横向比较仅供参考（队列构成、癌种谱、分期分布、特异性设定均不可比）。',
+    comparisonDataNote: '本表仅收录任务书明确给定的数值；标注「本演示未给定」者请回溯原文，避免二次引用误差。',
+
+    /* Figure 5（加分项）：特异性—灵敏度坐标散点 */
+    scatter: [
+      { name: '本模型（回顾）',        sp: 95.0, se: 87.0, type: 'retro' },
+      { name: 'Galleri CCGA3（回顾）', sp: 99.5, se: 51.5, type: 'retro' },
+      { name: 'Shield ECLIPSE（前瞻）',sp: 89.9, se: 83.1, type: 'prosp' },
+      { name: 'CancerSEEK（回顾）',    sp: 99.0, se: 70.0, type: 'retro', spNote: '原文口径 > 99%' },
+      { name: 'OverC THUNDER（回顾）', sp: 98.9, se: 69.1, type: 'retro' },
+      { name: 'MERCURY 验证集（回顾）',sp: 97.8, se: 87.4, type: 'retro' },
+      { name: 'MERCURY 金陵（前瞻）',  sp: 98.1, se: 53.8, type: 'prosp' }
+    ]
+  },
+
+  /* ------------------------------------ 第 7 区块：交互工具预设 */
+  tools: {
+    ppvPresets: [
+      { key: 'avg',  label: '无症状平均风险人群', p: 0.5,  note: '一般人群筛查场景（P = 0.5%）' },
+      { key: 'high', label: '高危人群',           p: 2.0,  note: '吸烟、家族史、慢性感染等富集人群（P = 2%）' },
+      { key: 'symp', label: '有症状就诊人群',     p: 10.0, note: '门诊有症状人群（P = 10%）——已非筛查场景' }
+    ],
+    cohortPreset: {
+      key: 'pathfinder',
+      label: 'PATHFINDER 实测参数',
+      sp: 99.5,      /* 【任务给定】 */
+      se: 29.0,      /* 【任务给定】一年随访灵敏度约 29% */
+      ppv: 43.1,     /* 【任务给定】实测 PPV */
+      nns: 189,      /* 【任务给定】NNS ≈ 189 */
+      fpShare: 62,   /* 【任务给定】62% 阳性结果为假阳性 */
+      note: 'PATHFINDER（前瞻队列，Lancet 2023）：特异性 99.5%、一年随访灵敏度约 29%、PPV 43.1%、NNS ≈ 189。载入后请注意：本工具用简单贝叶斯模型反算的 PPV 与实测 43.1% 不必然一致——实测 PPV 还受入组人群真实患病率、随访完整度与确诊路径影响，这一差异本身即是重要的方法学教学点。',
+      refs: 'schrag2023'
+    }
+  },
+
+  /* ------------------------------------ 第 8 区块：模拟检测报告 */
+  report: {
+    markers: [
+      { id: 'M1', name: '标志物区域 M1', desc: 'CpG 岛 shore 区域（演示占位，具体坐标未公开）' },
+      { id: 'M2', name: '标志物区域 M2', desc: 'CpG 岛 shore 区域（演示占位）' },
+      { id: 'M3', name: '标志物区域 M3', desc: 'CpG 岛启动子区域（演示占位）' },
+      { id: 'M4', name: '标志物区域 M4', desc: '基因间区差异甲基化区域（演示占位）' }
+    ],
+    markerNote: '4 个标志物区域的基因身份与基因组坐标在本演示中不披露，以 M1–M4 占位表示，避免虚构基因名称。',
+    qcSpec: [
+      { key: 'input',  name: 'cfDNA 投入量',        spec: '≥ 1 ng',        src: 'given' },
+      { key: 'conv',   name: '转化率',              spec: '≥ 99%',         src: 'given' },
+      { key: 'depth',  name: '目标区域中位覆盖深度',spec: '≥ 1 000 ×',     src: 'demo'  },
+      { key: 'lib',    name: '文库复杂度（unique）',spec: '≥ 5.0 × 10⁶',   src: 'demo'  },
+      { key: 'q30',    name: 'Q30 比例',            spec: '≥ 85%',         src: 'demo'  }
+    ],
+    samples: {
+      negative: {
+        tabLabel: '阴性样本', conclusion: 'negative',
+        subject: { name: '演示 · 张某（男 / 52 岁）', pid: 'DEMO-0001', barcode: 'MCED-2026-000137' },
+        dates: { collect: '2026-01-12', receive: '2026-01-13', report: '2026-01-19' },
+        qc: { input: '12.6 ng', conv: '99.6%', depth: '1 850 ×', lib: '1.2 × 10⁷', q30: '93.8%' },
+        qcPass: { input: true, conv: true, depth: true, lib: true, q30: true },
+        score: 0.41,
+        z: { M1: -0.3, M2: 0.2, M3: -0.6, M4: 0.1 }
+      },
+      positive: {
+        tabLabel: '阳性样本', conclusion: 'positive',
+        subject: { name: '演示 · 李某（女 / 61 岁）', pid: 'DEMO-0002', barcode: 'MCED-2026-000482' },
+        dates: { collect: '2026-01-15', receive: '2026-01-15', report: '2026-01-22' },
+        qc: { input: '18.4 ng', conv: '99.4%', depth: '2 140 ×', lib: '1.6 × 10⁷', q30: '94.1%' },
+        qcPass: { input: true, conv: true, depth: true, lib: true, q30: true },
+        score: 1.62,
+        z: { M1: 3.8, M2: 2.6, M3: 4.9, M4: 1.4 }
+      },
+      invalid: {
+        tabLabel: '质控不合格样本', conclusion: 'invalid',
+        subject: { name: '演示 · 王某（男 / 47 岁）', pid: 'DEMO-0003', barcode: 'MCED-2026-000915' },
+        dates: { collect: '2026-01-18', receive: '2026-01-21', report: '2026-01-24' },
+        qc: { input: '0.7 ng', conv: '96.4%', depth: '640 ×', lib: '2.1 × 10⁶', q30: '81.2%' },
+        qcPass: { input: false, conv: false, depth: false, lib: false, q30: false },
+        score: null,
+        z: null,
+        reason: '采血至离心间隔 62 小时（超出 8 小时上限），伴溶血；cfDNA 投入量、转化率、Q30 与文库复杂度均未达标。'
+      }
+    },
+    conclusions: {
+      negative: { head: '未检出癌症相关异常甲基化信号', advice: '建议 12 个月周期随访；继续按年龄与风险因素执行指南推荐的常规单癌种筛查（如肺 LDCT、结直肠内镜、乳腺影像等）。阴性结果不排除本检测未覆盖癌种或低脱落癌种的存在。' },
+      positive: { head: '检出异常甲基化信号，提示患癌风险升高', advice: '本结果非临床诊断。建议 3–6 个月复查确认，并行针对性影像学 / 内镜检查；应在多学科团队框架下执行诊断性分辨（diagnostic resolution）路径，避免无节制的全身影像检查。' },
+      invalid: { head: '本样本检测结果无效', advice: '建议重新采样。请复核采血管类型、采血—离心间隔、溶血情况与冷链记录。' }
+    },
+    footerStatements: [
+      '检测范围：本检测基于 4 个标志物区域的 cfDNA 甲基化信号，输出「是否存在癌症信号」的二分类结果，不做组织溯源、不定位病灶器官。',
+      '不覆盖癌种说明：对甲状腺癌、睾丸癌、嗜铬细胞瘤等 ctDNA 低脱落癌种灵敏度显著偏低（本演示分别为 33% / 17% / 10%），阴性结果对上述癌种的排除价值有限。',
+      '假阴性可能性：早期（I 期）病灶肿瘤分数常低于检测下限，阴性结果不能排除癌症；不得以本检测阴性替代指南推荐的常规筛查。',
+      '假阳性可能性：阳性结果中相当比例为假阳性（前瞻队列 PATHFINDER 中 62% 的阳性为假阳性），阳性后须经影像 / 内镜 / 病理确认。',
+      '筛查 ≠ 诊断：本检测为风险分层工具，任何癌症诊断均须以组织病理学为金标准。',
+      '本报告为方法学演示数据（模拟数据），不具备临床效力，不构成诊断或治疗依据。'
+    ]
+  },
+
+  /* ------------------------------------ 第 9 区块：局限与阴性证据 */
+  limitations: [
+    { n: 1, title: '性能来源于回顾性设计，前瞻性场景预期显著降低', tag: 'cc',
+      text: '本模型全部性能数据来自公开数据库的回顾性病例-对照样本（n = 18 752）。病例-对照设计中癌症样本比例远高于真实筛查人群、且常富集晚期与高肿瘤负荷病例，系统性高估性能。行业规律显示回顾性到前瞻性筛查场景总灵敏度下降约 30 个百分点（如 MERCURY 87.4% → 53.8%）。',
+      refs: 'mercury2025,klein2021' },
+    { n: 2, title: '灵敏度不等于临床获益：尚无 MCED 证明降低癌症死亡率', tag: 'guide',
+      text: '截至本演示修订时，全球尚无任何 MCED 检测在随机对照试验中证明能降低癌症死亡率。NHS-Galleri 试验（14.2 万人 RCT）于 2026 年 2 月公布主要终点未达成。诊断性能（AUC、灵敏度）属于替代终点，与死亡率下降之间并非等价关系——这是本领域当前最重要的阴性证据。',
+      refs: 'neal2022,nhsGalleri2026' },
+    { n: 3, title: '三大筛查偏倚：领先时间、病程长短、过度诊断', tag: 'guide',
+      text: '任何「筛查组生存期更长」的观察性结果都必须先排除三类偏倚：领先时间偏倚（lead-time bias，提前诊断本身延长了「带病生存期」而未推迟死亡）、病程长短偏倚（length bias，筛查优先捕获生长缓慢、预后本就更好的肿瘤）、过度诊断（overdiagnosis，检出终生不会引起症状或死亡的病变，带来纯粹的治疗伤害）。唯有以死亡率为终点的 RCT 可同时规避三者。',
+      refs: 'welchBlack2010' },
+    { n: 4, title: '低脱落癌种灵敏度受限是生物学瓶颈，非算法缺陷', tag: 'mech',
+      text: '甲状腺、肾、脑、前列腺等部位肿瘤的 ctDNA 入血量低（血脑屏障、包膜限制、低血供、低细胞更新率等），血浆信号量常低于任何现有方法的检出下限。1 cm³ 肿瘤在 15 mL 全血中仅约 1.7 个基因组当量（肿瘤分数 ~0.022%），提示改进方向在于采样量、分子回收率与正交特征（片段组学），而不仅是分类器。',
+      refs: 'bettegowda2014,fiala2018' },
+    { n: 5, title: '假阳性的临床后果与阳性确诊路径缺口', tag: 'prosp',
+      text: 'PATHFINDER 研究中 62% 的阳性结果为假阳性，受检者经历了不必要的影像学与侵入性检查、显著的心理负担与医疗支出。MCED 落地的前提不是检测本身，而是配套的诊断性分辨（diagnostic resolution）路径：谁负责随访、用何种影像序列、多长时间内闭环、假阳性如何解除标签。缺少该路径的筛查项目会把成本转移给受检者与医疗系统。',
+      refs: 'schrag2023' },
+    { n: 6, title: '本演示自身的方法学边界', tag: 'ind',
+      text: '本页面第 5、7、8 区块中的评分分布、置信区间与全部交互输出均为演示模拟数据：评分分布采用双正态模型（参数由 AUC 0.9581 与工作点 Sp 95%/Se 87% 反解），分癌种 95% CI 按假设样本量以 Wilson 区间估算。这些数字用于演示统计学规律，不可作为产品性能证据引用。',
+      refs: 'bossuyt2015stard,collins2015tripod' }
+  ],
+
+  /* ------------------------------------ 第 10 区块：指南与共识 */
+  guidelines: {
+    consensus: {
+      title: '《基于液体活检技术的多种癌种联合筛查专家共识》（2025）',
+      cite: '中华肿瘤杂志 2025;47(7):558-574',
+      points: [
+        { k: '核心标志物', v: 'cfDNA 甲基化为目前最成熟的核心标志物（2 级证据、强推荐）', level: '2 级证据 · 强推荐' },
+        { k: '样本类型', v: '血浆为主要样本类型', level: '共识推荐' },
+        { k: '适用人群', v: '40 岁以上人群及高危人群', level: '共识推荐' }
+      ],
+      refs: 'consensusLB2025'
+    },
+    positioning: {
+      title: '定位：补充而非替代',
+      textA: '《基于液体活检技术的多种癌种联合筛查专家共识》将 MCED 定位为标准筛查手段的「补充而非替代」；',
+      textB: '同期《常见恶性肿瘤联合筛查共识》明确「不推荐一般风险人群以 MCED 作为初筛」。',
+      note: '两条须并呈：前者承认技术价值，后者限定使用场景。任何仅引用其一的宣传都是选择性引用。',
+      refs: 'consensusLB2025,consensusCombined2025,shanghai2026'
+    },
+    regulatory: [
+      { region: '中国', status: '截至 2026 年，无泛癌种早筛产品获批', tag: 'guide' },
+      { region: '美国', status: '截至 2026 年，无泛癌种早筛产品获批；Guardant Shield、Freenome 为单癌种（结直肠癌）血检获批', tag: 'guide' },
+      { region: 'GRAIL / Galleri', status: '已提交 PMA，FDA 咨询委员会定于 2026 年 9 月审评', tag: 'ind' }
+    ],
+    pathway: [
+      { id: 'P1', title: '异常信号', desc: '甲基化总分 ≥ 阈值 0.99，报告「检出异常甲基化信号」' },
+      { id: 'P2', title: '复查确认', desc: '3–6 个月内重复采样检测，排除分析前误差与偶发波动' },
+      { id: 'P3', title: '定向影像 / 内镜', desc: '按年龄、性别、危险因素与症状定向检查；避免无节制全身扫描' },
+      { id: 'P4', title: '病理确诊', desc: '组织病理学为唯一诊断金标准；未确诊者进入结构化随访并明确解除标签条件' }
+    ]
+  },
+
+  /* ------------------------------------ 第 12 区块：页脚 */
+  footer: {
+    version: 'v2.1（演示版）',
+    updated: '2026 年 2 月',
+    statement: '仅供科研演示，不构成医疗建议。所有交互输出均为模拟数据。',
+    contact: { org: '（联系方式占位）转化医学研究中心 · 分子诊断平台', mail: 'demo@example.org', tel: '+86-000-0000-0000' }
+  },
+
+  /* 证据分级标签字典：前四类为任务要求的证据等级，后两类为辅助描述性标签 */
+  tags: {
+    guide: { zh: '指南/RCT',    en: 'Guideline/RCT',   desc: '来自指南、专家共识或随机对照试验' },
+    prosp: { zh: '前瞻队列',    en: 'Prospective',     desc: '前瞻性队列或前瞻性筛查人群研究' },
+    cc:    { zh: '病例-对照',   en: 'Case-control',    desc: '回顾性病例-对照 / 独立验证集设计' },
+    ind:   { zh: '企业/会议数据',en: 'Industry/Abstract', desc: '企业公告、会议摘要或尚待同行评议的数据' },
+    epi:   { zh: '登记/流行病学',en: 'Registry/Epi',    desc: '肿瘤登记数据与流行病学统计' },
+    mech:  { zh: '机制/基础研究',en: 'Mechanistic',     desc: '基础研究、机制或方法学综述' }
+  }
+};
+</script>
+<!-- ============================================================================
+     数据层 2/2：REFERENCES —— 真实文献，数组顺序 = 正文上标编号
+     正文上标写法：<sup class="cite" data-ref="klein2021"></sup>（按 id 引用，编号自动生成）
+     字段：id / tag 证据标签 / authors / title / journal / year / loc 卷期页 /
+           study 研究名 / abstract 中文摘要（点击展开）/ note 校订说明 / link 检索链接
+     ============================================================================ -->
+<script id="dsh-references">
+const REFERENCES = [
+  { id:'nccChina2022', tag:'epi',
+    authors:'郑荣寿, 陈茹, 韩冰峰, 等（国家癌症中心）',
+    title:'2022 年中国恶性肿瘤流行情况分析',
+    journal:'中华肿瘤杂志', year:2024, loc:'46(3):221-231',
+    study:'中国肿瘤登记年报',
+    abstract:'基于全国肿瘤登记中心数据估算，2022 年中国恶性肿瘤新发约 482.47 万例、死亡约 257.42 万例。本演示中的中国流行病学数值（新发 / 死亡例数、5 年生存率 43.7%、III–IV 期占比 52.8%、分癌种 I 期确诊占比）均以本文及国家癌症中心同源发布为口径。',
+    note:'英文同源发表：Han B, Zheng R, Zeng H, et al. Cancer incidence and mortality in China, 2022. J Natl Cancer Cent. 2024;4(1):47-53.' },
+
+  { id:'acs2026', tag:'epi',
+    authors:'American Cancer Society',
+    title:'Cancer Facts & Figures 2026',
+    journal:'Atlanta: American Cancer Society', year:2026, loc:'',
+    study:'美国癌症统计年报',
+    abstract:'美国癌症发病、死亡与生存的年度统计报告。本演示中「美国总体 5 年生存率约 70%」「乳腺癌 I 期确诊占比 51.2%」等对照数值以该系列报告口径引用。' },
+
+  { id:'consensusLB2025', tag:'guide',
+    authors:'中国抗癌协会等（专家组）',
+    title:'基于液体活检技术的多种癌种联合筛查专家共识',
+    journal:'中华肿瘤杂志', year:2025, loc:'47(7):558-574',
+    study:'中国专家共识（2025）',
+    abstract:'系统评价液体活检用于多癌种联合筛查的证据，认定 cfDNA 甲基化为目前最成熟的核心标志物（2 级证据、强推荐），血浆为主要样本类型，适用人群为 40 岁以上及高危人群；同时明确 MCED 属标准筛查的补充而非替代。' },
+
+  { id:'consensusCombined2025', tag:'guide',
+    authors:'（专家组）',
+    title:'常见恶性肿瘤联合筛查共识',
+    journal:'—', year:2025, loc:'',
+    study:'中国专家共识（同期）',
+    abstract:'与液体活检共识同期发布，明确不推荐一般风险人群以 MCED 作为初筛手段，强调以指南推荐的单癌种筛查为主干。',
+    note:'本演示未收录该文的确切卷期页码；引用前请核对期刊官方记录。' },
+
+  { id:'shanghai2026', tag:'guide',
+    authors:'上海市抗癌协会',
+    title:'居民常见恶性肿瘤筛查和预防推荐（2026 版）',
+    journal:'上海市抗癌协会', year:2026, loc:'',
+    study:'区域筛查推荐',
+    abstract:'面向居民的常见恶性肿瘤筛查与预防推荐，按年龄与风险分层给出单癌种筛查建议，可作为 MCED「补充定位」的对照基线。' },
+
+  { id:'klein2021', tag:'cc',
+    authors:'Klein EA, Richards D, Cohn A, et al.',
+    title:'Clinical validation of a targeted methylation-based multi-cancer early detection test using an independent validation set',
+    journal:'Annals of Oncology', year:2021, loc:'32(9):1167-1177',
+    study:'CCGA 子研究 3（Galleri 独立验证）',
+    abstract:'在独立验证集中评估靶向甲基化 MCED 检测：特异性 99.5%，跨癌种总灵敏度 51.5%；分期灵敏度 I 期 16.8%、II 期 40.4%、III 期 77%、IV 期 90.1%；组织溯源（CSO）准确率约 89%。本演示 Figure 1/3/4 的 Galleri 基准数值取自本文。' },
+
+  { id:'liu2020', tag:'cc',
+    authors:'Liu MC, Oxnard GR, Klein EA, et al.',
+    title:'Sensitive and specific multi-cancer detection and localization using methylation signatures in cell-free DNA',
+    journal:'Annals of Oncology', year:2020, loc:'31(6):745-759',
+    study:'CCGA 组织溯源（CSO）',
+    abstract:'证明血浆 cfDNA 甲基化特征既可用于癌症检出，也可用于组织溯源定位。本演示引用其以说明本模型「不做组织溯源」与 Galleri CSO 的功能差异。' },
+
+  { id:'schrag2023', tag:'prosp',
+    authors:'Schrag D, Beer TM, McDonnell CH 3rd, et al.',
+    title:'Blood-based tests for multicancer early detection (PATHFINDER): a prospective cohort study',
+    journal:'The Lancet', year:2023, loc:'402(10409):1251-1260',
+    study:'PATHFINDER（前瞻队列）',
+    abstract:'在无症状成人中前瞻性评估 MCED：特异性 99.5%，阳性预测值 43.1%，一年随访灵敏度约 29%；阳性者中 62% 最终为假阳性，需经影像与侵入性检查解除。本演示工具 B 的「PATHFINDER 实测参数」与第 9 区块假阳性论断均引自本文。' },
+
+  { id:'neal2022', tag:'guide',
+    authors:'Neal RD, Johnson P, Clarke CA, et al.',
+    title:'Cell-Free DNA-Based Multi-cancer Early Detection Test in an Asymptomatic Screening Population (NHS-Galleri): Design of a Pragmatic, Prospective Randomised Controlled Trial',
+    journal:'Cancers (Basel)', year:2022, loc:'14(19):4818',
+    study:'NHS-Galleri RCT（试验设计）',
+    abstract:'NHS-Galleri 是纳入约 14 万名无症状成人的实用型随机对照试验，主要终点为晚期（III/IV 期）癌症发病率的降低，是 MCED 领域首个以人群硬终点为目标的 RCT 设计。' },
+
+  { id:'nhsGalleri2026', tag:'ind',
+    authors:'NHS England / GRAIL（试验方公告）',
+    title:'NHS-Galleri 试验主要终点结果公告',
+    journal:'试验方公开公告', year:2026, loc:'2026 年 2 月',
+    study:'NHS-Galleri（主要终点）',
+    abstract:'公告 NHS-Galleri 试验主要终点未达成。该结果构成本领域当前最关键的阴性证据：高诊断性能未能自动转化为人群层面的晚期癌症发病率下降。',
+    note:'公告类信息，非同行评议论文；请以最终同行评议发表为准。' },
+
+  { id:'chung2024', tag:'prosp',
+    authors:'Chung DC, Gray DM 2nd, Singh H, et al.',
+    title:'A cell-free DNA blood-based test for colorectal cancer screening',
+    journal:'New England Journal of Medicine', year:2024, loc:'390(11):973-983',
+    study:'ECLIPSE（Shield，前瞻筛查队列）',
+    abstract:'在平均风险筛查人群中前瞻性评估 cfDNA 结直肠癌血检：结直肠癌灵敏度 83.1%，特异性 89.9%；但晚期腺瘤（癌前病变）灵敏度仅 13.2%，提示血检对癌前病变检出能力有限。' },
+
+  { id:'cohen2018', tag:'cc',
+    authors:'Cohen JD, Li L, Wang Y, et al.',
+    title:'Detection and localization of surgically resectable cancers with a multi-analyte blood test',
+    journal:'Science', year:2018, loc:'359(6378):926-930',
+    study:'CancerSEEK（病例-对照）',
+    abstract:'联合 ctDNA 突变与血浆蛋白标志物检测 8 种可手术切除癌症：特异性 > 99%，中位灵敏度约 70%，I 期灵敏度 43%。为多分析物联合策略的奠基研究之一。' },
+
+  { id:'lennon2020', tag:'prosp',
+    authors:'Lennon AM, Buchanan AH, Kinde I, et al.',
+    title:'Feasibility of blood testing combined with PET-CT to screen for cancer and guide intervention',
+    journal:'Science', year:2020, loc:'369(6499):eabb9601',
+    study:'DETECT-A（前瞻可行性研究）',
+    abstract:'首个前瞻性 MCED 可行性研究（约 1 万名女性），血检联合 PET-CT 用于筛查并指导干预，同时报告了阳性后诊断路径的实际负担与假阳性处置成本，是「诊断性分辨路径」概念的重要实证来源。' },
+
+  { id:'bettegowda2014', tag:'cc',
+    authors:'Bettegowda C, Sausen M, Leary RJ, et al.',
+    title:'Detection of circulating tumor DNA in early- and late-stage human malignancies',
+    journal:'Science Translational Medicine', year:2014, loc:'6(224):224ra24',
+    study:'ctDNA 检出率与分期 / 瘤种谱',
+    abstract:'系统描述 ctDNA 检出率随分期升高而升高，并首次量化不同瘤种间的巨大差异：胶质瘤、肾癌、甲状腺癌、前列腺癌等低脱落瘤种检出率显著偏低。本演示第 6、9 区块的「低脱落癌种」论断以此为依据。' },
+
+  { id:'gao2023thunder', tag:'cc',
+    authors:'Gao Q, Lin YP, Li BS, et al.',
+    title:'Unintrusive multi-cancer detection by circulating cell-free DNA methylation sequencing (THUNDER): development and independent validation studies',
+    journal:'Annals of Oncology', year:2023, loc:'34(6):486-495',
+    study:'THUNDER（燃石 OverC）',
+    abstract:'中国人群多癌种 cfDNA 甲基化检测的开发与独立验证：独立验证集（n = 1 010）特异性 98.9%、总灵敏度 69.1%。',
+    note:'校订说明：任务书原列为「Jamshidi A, et al. Ann Oncol 2023」，THUNDER 研究的通讯 / 首位作者应为 Gao Q 等；Jamshidi A 等（Cancer Cell 2022）为 GRAIL 的另一项方法学比较研究。本演示按文献准确性优先原则更正。' },
+
+  { id:'mercury2025', tag:'ind',
+    authors:'（作者列表待核）',
+    title:'MERCURY：多癌种 cfDNA 甲基化早筛模型的开发与前瞻验证',
+    journal:'Nature Medicine', year:2025, loc:'',
+    study:'MERCURY（世和基因）/ 金陵前瞻队列',
+    abstract:'报告验证集特异性 97.8%、总灵敏度 87.4%；前瞻性金陵队列特异性 98.1%、总灵敏度 53.8%。同一模型在回顾性验证集与前瞻性队列间出现约 30 个百分点的灵敏度落差，是「回顾性高估」规律的单研究内部证据。',
+    note:'本演示未收录该文的确切作者列表与卷期页码；引用前请核对期刊官方记录。' },
+
+  { id:'chen2020panseer', tag:'cc',
+    authors:'Chen X, Gole J, Gore A, et al.',
+    title:'Non-invasive early detection of cancer four years before conventional diagnosis using a blood test',
+    journal:'Nature Communications', year:2020, loc:'11(1):3475',
+    study:'PanSeer（泰州纵向队列嵌套设计）',
+    abstract:'基于泰州纵向队列的存档血样，PanSeer 检测在临床常规确诊前 1–4 年即可检出 5 种癌症的甲基化信号，为「甲基化异常先于形态学改变」提供人群层面的直接证据。' },
+
+  { id:'cristiano2019', tag:'cc',
+    authors:'Cristiano S, Leal A, Phallen J, et al.',
+    title:'Genome-wide cell-free DNA fragmentation in patients with cancer',
+    journal:'Nature', year:2019, loc:'570(7761):385-389',
+    study:'DELFI（片段组学）',
+    abstract:'提出全基因组 cfDNA 片段化模式（fragmentome）作为独立于突变与甲基化的正交特征，可用于癌症检出与组织溯源，支持多特征融合以突破单一特征的检出下限。' },
+
+  { id:'irizarry2009', tag:'mech',
+    authors:'Irizarry RA, Ladd-Acosta C, Wen B, et al.',
+    title:'The human colon cancer methylome shows similar hypo- and hypermethylation at conserved tissue-specific CpG island shores',
+    journal:'Nature Genetics', year:2009, loc:'41(2):178-186',
+    study:'CpG shores 概念来源',
+    abstract:'发现结肠癌甲基化组的差异甲基化主要集中在 CpG 岛两侧约 ±2 kb 的 shore 区域，且与组织特异性甲基化区域高度重叠——这是靶向 panel 选点位于 shore 而非岛核心的原始依据。' },
+
+  { id:'baylinJones2016', tag:'mech',
+    authors:'Baylin SB, Jones PA.',
+    title:'Epigenetic Determinants of Cancer',
+    journal:'Cold Spring Harbor Perspectives in Biology', year:2016, loc:'8(9):a019505',
+    study:'表观遗传学与肿瘤（权威综述）',
+    abstract:'系统综述癌症表观基因组的双重特征：全基因组低甲基化伴染色体不稳定与转座子激活，叠加 CpG 岛启动子局灶高甲基化导致抑癌基因沉默（MLH1、CDKN2A/p16、BRCA1 等）。' },
+
+  { id:'sun2015', tag:'mech',
+    authors:'Sun K, Jiang P, Chan KCA, et al.',
+    title:'Plasma DNA tissue mapping by genome-wide methylation sequencing for noninvasive prenatal, cancer, and transplantation assessments',
+    journal:'PNAS', year:2015, loc:'112(40):E5503-E5512',
+    study:'血浆 DNA 组织甲基化图谱',
+    abstract:'以全基因组甲基化测序反演血浆 cfDNA 的组织来源构成，证明健康个体血浆 cfDNA 主要（> 80%）来自造血系统，构成肿瘤信号识别的背景基线。' },
+
+  { id:'mouliere2018', tag:'mech',
+    authors:'Mouliere F, Chandrananda D, Piskorz AM, et al.',
+    title:'Enhanced detection of circulating tumor DNA by fragment size analysis',
+    journal:'Science Translational Medicine', year:2018, loc:'10(466):eaat4921',
+    study:'片段长度选择富集 ctDNA',
+    abstract:'量化 ctDNA 片段较非肿瘤 cfDNA 更短的现象（峰值约 143 bp vs 167 bp），并证明按片段长度做体外 / 体内选择可提升 ctDNA 检出灵敏度。' },
+
+  { id:'diehl2008', tag:'mech',
+    authors:'Diehl F, Schmidt K, Choti MA, et al.',
+    title:'Circulating mutant DNA to assess tumor dynamics',
+    journal:'Nature Medicine', year:2008, loc:'14(9):985-990',
+    study:'ctDNA 动力学与半衰期',
+    abstract:'术后 ctDNA 清除动力学研究，测得循环肿瘤 DNA 半衰期约 114 分钟（≈2 小时），为「采血后须在数小时内离心」的分析前时限提供生物学依据。' },
+
+  { id:'fiala2018', tag:'mech',
+    authors:'Fiala C, Diamandis EP.',
+    title:'Utility of circulating tumor DNA in cancer diagnostics with emphasis on early detection',
+    journal:'BMC Medicine', year:2018, loc:'16(1):166',
+    study:'早筛检测限的量级分析（方法学评论）',
+    abstract:'从物理量级出发论证早筛的采样瓶颈：小体积（约 1 cm³）肿瘤在常规采血量中仅贡献极少量基因组当量（约 1.7 个 / 15 mL，肿瘤分数约 0.02%），指出早期灵敏度上限首先由采样与分子计数决定，其次才是算法。' },
+
+  { id:'jaiswal2014', tag:'prosp',
+    authors:'Jaiswal S, Fontanillas P, Flannick J, et al.',
+    title:'Age-related clonal hematopoiesis associated with adverse outcomes',
+    journal:'New England Journal of Medicine', year:2014, loc:'371(26):2488-2498',
+    study:'克隆性造血（CHIP）人群研究',
+    abstract:'在大规模人群测序中确立年龄相关克隆性造血现象：随年龄显著上升，高龄人群携带率达约 10% 量级。CHIP 来源的体细胞突变会进入血浆，是突变型液体活检假阳性的主要生物学来源。' },
+
+  { id:'welchBlack2010', tag:'guide',
+    authors:'Welch HG, Black WC.',
+    title:'Overdiagnosis in cancer',
+    journal:'Journal of the National Cancer Institute', year:2010, loc:'102(9):605-613',
+    study:'过度诊断与筛查偏倚（方法学经典）',
+    abstract:'系统阐述癌症筛查中的过度诊断机制及其与领先时间偏倚、病程长短偏倚的关系，论证仅以生存率提升作为筛查有效性证据的逻辑缺陷。' },
+
+  { id:'tcga2013', tag:'mech',
+    authors:'Weinstein JN, Collisson EA, Mills GB, et al. (TCGA Research Network)',
+    title:'The Cancer Genome Atlas Pan-Cancer analysis project',
+    journal:'Nature Genetics', year:2013, loc:'45(10):1113-1120',
+    study:'TCGA 泛癌数据资源',
+    abstract:'TCGA 泛癌分析项目的资源与方法学介绍。本演示模型的训练与验证样本（n = 18 752，其中肿瘤组织样本 8 906 例）来源于 TCGA 等公开数据库，属回顾性二次利用设计。' },
+
+  { id:'bossuyt2015stard', tag:'guide',
+    authors:'Bossuyt PM, Reitsma JB, Bruns DE, et al.',
+    title:'STARD 2015: an updated list of essential items for reporting diagnostic accuracy studies',
+    journal:'BMJ', year:2015, loc:'351:h5527',
+    study:'STARD 2015 报告规范',
+    abstract:'诊断准确性研究报告规范，要求明确报告队列来源、参照标准、样本量、缺失数据与不确定度（置信区间）。本演示的性能呈现口径（队列类型 + 样本量 + 95% CI）依此组织。' },
+
+  { id:'collins2015tripod', tag:'guide',
+    authors:'Collins GS, Reitsma JB, Altman DG, Moons KGM.',
+    title:'Transparent reporting of a multivariable prediction model for individual prognosis or diagnosis (TRIPOD): the TRIPOD statement',
+    journal:'Annals of Internal Medicine', year:2015, loc:'162(1):55-63',
+    study:'TRIPOD 报告规范',
+    abstract:'多变量预测模型的报告规范，要求区分开发集与验证集、报告阈值设定依据与模型校准度。本演示第 5 区块的阈值定义与「回顾性 / 前瞻性」标注依此组织。' }
+];
+</script>
+<style>
+/* ============================================================================
+   视觉系统：学术浅色风（Nature / NEJM 期刊感），深色为可选模式
+   ============================================================================ */
+:root{
+  --bg:#FAFBFC; --surface:#FFFFFF; --surface2:#F4F7FA;
+  --ink:#1F2937; --ink2:#374151; --muted:#64748B; --faint:#94A3B8;
+  --line:#E2E8F0; --line2:#CBD5E1; --rule:#1F2937;
+  --blue:#1D4ED8; --blue2:#2563EB; --blue-bg:#EFF4FF; --blue-line:#BFD3FF;
+  --risk:#DC2626; --risk-bg:#FEF2F2; --ok:#059669; --ok-bg:#ECFDF5;
+  --amber:#B45309; --amber-bg:#FFFBEB; --violet:#6D28D9;
+  --serif:Georgia,"Times New Roman","Noto Serif SC","Songti SC","SimSun",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","Noto Sans SC","Helvetica Neue",Arial,sans-serif;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  --shadow:0 1px 2px rgba(15,23,42,.05),0 1px 8px rgba(15,23,42,.04);
+  --navh:58px; --bannerh:34px;
+}
+html[data-theme="dark"]{
+  --bg:#0B1220; --surface:#111A2B; --surface2:#162033;
+  --ink:#E5E7EB; --ink2:#CBD5E1; --muted:#94A3B8; --faint:#64748B;
+  --line:#243044; --line2:#33415A; --rule:#94A3B8;
+  --blue:#60A5FA; --blue2:#93C5FD; --blue-bg:#13233F; --blue-line:#2A4570;
+  --risk:#F87171; --risk-bg:#2A1618; --ok:#34D399; --ok-bg:#0F2A22;
+  --amber:#FBBF24; --amber-bg:#2A2210; --violet:#A78BFA;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 1px 10px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:15px; line-height:1.78;
+  -webkit-font-smoothing:antialiased; padding-top:calc(var(--navh) + var(--bannerh));
+  text-rendering:optimizeLegibility;
+}
+a{color:var(--blue); text-decoration:none}
+a:hover{text-decoration:underline}
+h1,h2,h3,h4,.serif{font-family:var(--serif)}
+
+/* ---------------------------------------------------------------- 顶部导航 */
+.topbar{position:fixed; top:0; left:0; right:0; z-index:60}
+.nav{
+  height:var(--navh); background:color-mix(in srgb,var(--surface) 92%,transparent);
+  backdrop-filter:saturate(150%) blur(8px); border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:18px; padding:0 20px;
+}
+.nav .brand{font-family:var(--serif); font-weight:700; font-size:15.5px; letter-spacing:.2px; white-space:nowrap}
+.nav .brand em{font-style:normal; color:var(--blue); font-weight:700}
+.nav .vtag{font-family:var(--mono); font-size:11px; color:var(--muted); border:1px solid var(--line2); border-radius:3px; padding:1px 5px}
+.navlinks{display:flex; gap:2px; margin-left:auto; overflow-x:auto; scrollbar-width:none}
+.navlinks::-webkit-scrollbar{display:none}
+.navlinks a{
+  font-size:13px; color:var(--ink2); padding:5px 9px; border-radius:4px; white-space:nowrap;
+}
+.navlinks a:hover{background:var(--blue-bg); color:var(--blue); text-decoration:none}
+.navtools{display:flex; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line)}
+.iconbtn{
+  font-size:12px; font-family:var(--sans); color:var(--ink2); background:var(--surface);
+  border:1px solid var(--line2); border-radius:4px; padding:4px 8px; cursor:pointer; line-height:1.4;
+}
+.iconbtn:hover{border-color:var(--blue); color:var(--blue)}
+.banner{
+  height:var(--bannerh); background:var(--amber-bg); border-bottom:1px solid var(--line);
+  color:var(--amber); font-size:12.5px; display:flex; align-items:center; justify-content:center;
+  gap:8px; padding:0 14px; text-align:center;
+}
+.banner b{font-weight:700}
+#progress{position:fixed; top:calc(var(--navh) + var(--bannerh)); left:0; height:2px; background:var(--blue); z-index:61; width:0}
+
+/* ---------------------------------------------------------------- 布局 */
+.shell{
+  display:grid; grid-template-columns:246px minmax(0,1fr); gap:34px;
+  max-width:1420px; margin:0 auto; padding:26px 26px 90px;
+}
+.toc{position:sticky; top:calc(var(--navh) + var(--bannerh) + 22px); align-self:start; max-height:calc(100vh - 140px); overflow:auto}
+.toc h5{font-family:var(--sans); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin:0 0 10px 10px}
+.toc ol{list-style:none; margin:0; padding:0; border-left:1px solid var(--line)}
+.toc li a{
+  display:flex; gap:8px; font-size:13px; color:var(--muted); padding:5.5px 10px; border-left:2px solid transparent;
+  margin-left:-1px; line-height:1.45;
+}
+.toc li a span.num{font-family:var(--mono); font-size:11px; color:var(--faint); flex:none; padding-top:2px}
+.toc li a:hover{color:var(--blue); text-decoration:none; background:var(--blue-bg)}
+.toc li a.active{color:var(--blue); border-left-color:var(--blue); font-weight:600; background:var(--blue-bg)}
+.toc li a.active span.num{color:var(--blue)}
+.toc .tocfoot{margin-top:14px; padding:10px; font-size:11.5px; color:var(--faint); border:1px dashed var(--line2); border-radius:5px; line-height:1.6}
+main{min-width:0}
+
+/* ---------------------------------------------------------------- 区块 */
+section{scroll-margin-top:calc(var(--navh) + var(--bannerh) + 18px); margin-bottom:56px}
+.sec-head{border-bottom:2px solid var(--rule); padding-bottom:9px; margin-bottom:22px; display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap}
+.sec-num{
+  font-family:var(--mono); font-size:12px; color:var(--blue); border:1px solid var(--blue-line);
+  background:var(--blue-bg); border-radius:3px; padding:2px 7px; flex:none; margin-bottom:4px;
+}
+.sec-head h2{margin:0; font-size:25px; line-height:1.35; letter-spacing:-.2px}
+.sec-head .sub{font-size:12.5px; color:var(--muted); margin-left:auto; margin-bottom:4px; font-family:var(--sans)}
+h3.sub-head{font-size:17.5px; margin:30px 0 12px; padding-left:10px; border-left:3px solid var(--blue)}
+h4.mini-head{font-size:14.5px; margin:20px 0 8px; color:var(--ink); font-family:var(--sans); font-weight:700}
+p{margin:0 0 13px}
+.lead{font-size:16px; color:var(--ink2)}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.tiny{font-size:11.5px; line-height:1.6}
+.mono{font-family:var(--mono)}
+.center{text-align:center}
+
+/* ---------------------------------------------------------------- 卡片 / 面板 */
+.card{background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:16px 18px; box-shadow:var(--shadow)}
+.grid{display:grid; gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g23{grid-template-columns:minmax(0,2fr) minmax(0,3fr)}
+.g32{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
+@media (max-width:1100px){.g3,.g4,.g23,.g32{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){.grid{grid-template-columns:1fr !important}}
+.statcard{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--blue); border-radius:5px; padding:13px 15px}
+.statcard .k{font-family:var(--serif); font-size:27px; font-weight:700; line-height:1.15; letter-spacing:-.5px}
+.statcard .k small{font-size:14px; font-weight:400; color:var(--muted); margin-left:3px; font-family:var(--sans)}
+.statcard .lb{font-size:13px; font-weight:600; margin-top:5px}
+.statcard .sb{font-size:12px; color:var(--muted); margin-top:3px; line-height:1.55}
+.callout{border:1px solid var(--blue-line); background:var(--blue-bg); border-radius:6px; padding:14px 16px}
+.callout.warn{border-color:#F5D9A8; background:var(--amber-bg)}
+.callout.risk{border-color:#F6C7C7; background:var(--risk-bg)}
+.callout.ok{border-color:#A7E3CB; background:var(--ok-bg)}
+.callout h4{margin:0 0 6px; font-size:14.5px; font-family:var(--sans); font-weight:700}
+.callout p:last-child{margin-bottom:0}
+.qbox{
+  border:none; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
+  padding:18px 0; margin:24px 0 0; text-align:center;
+}
+.qbox .q{font-family:var(--serif); font-size:20px; font-style:italic; color:var(--blue)}
+.qbox .qen{font-size:12.5px; color:var(--muted); margin-top:6px}
+
+/* ---------------------------------------------------------------- 证据标签 */
+.etag{
+  display:inline-block; font-size:10.5px; font-family:var(--sans); font-weight:600; line-height:1.5;
+  padding:1px 6px; border-radius:3px; border:1px solid currentColor; vertical-align:2px; white-space:nowrap;
+}
+.etag::before{content:"【"} .etag::after{content:"】"}
+.et-guide{color:var(--blue)} .et-prosp{color:var(--ok)} .et-cc{color:var(--amber)}
+.et-ind{color:var(--muted)} .et-epi{color:#0E7490} .et-mech{color:var(--violet)}
+.etag.plain::before,.etag.plain::after{content:""}
+.taglegend{display:flex; flex-wrap:wrap; gap:8px 16px; font-size:11.5px; color:var(--muted); align-items:center}
+
+/* ---------------------------------------------------------------- 上标引用 */
+sup.cite{font-size:0; vertical-align:super}
+sup.cite a{
+  font-size:11px; font-family:var(--sans); color:var(--blue2); font-weight:600;
+  padding:0 .5px; cursor:pointer; letter-spacing:0;
+}
+sup.cite a:hover{text-decoration:underline}
+sup.cite::before{content:"["; font-size:11px; color:var(--blue2)}
+sup.cite::after{content:"]"; font-size:11px; color:var(--blue2)}
+sup.cite .sep{font-size:11px; color:var(--blue2)}
+
+/* ---------------------------------------------------------------- 三线表 */
+.tbl-wrap{overflow-x:auto; margin:6px 0 4px}
+table.rule3{width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums}
+table.rule3 caption{caption-side:top; text-align:left; font-size:12.5px; color:var(--muted); padding-bottom:7px}
+table.rule3 thead th{
+  border-top:1.6px solid var(--rule); border-bottom:1px solid var(--rule);
+  padding:9px 10px; text-align:left; font-weight:700; font-size:12.5px; white-space:nowrap; background:transparent;
+}
+table.rule3 tbody td{border-bottom:1px solid var(--line); padding:8px 10px; vertical-align:top}
+table.rule3 tbody tr:last-child td{border-bottom:1.6px solid var(--rule)}
+table.rule3 tbody tr:hover{background:var(--surface2)}
+table.rule3 td.num,table.rule3 th.num{text-align:right; font-family:var(--mono); font-size:12.5px}
+table.rule3 .rowname{font-weight:600}
+.tfoot-note{font-size:11.5px; color:var(--muted); margin-top:8px; padding-left:1.6em; text-indent:-1.6em}
+
+/* ---------------------------------------------------------------- 图 / Figure */
+figure{margin:0 0 6px; background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:14px 16px 12px; box-shadow:var(--shadow)}
+.fig-head{display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap}
+.fig-head .ftitle{font-family:var(--sans); font-size:13.5px; font-weight:700}
+.fig-head .ftools{margin-left:auto; display:flex; gap:6px}
+.chart{width:100%; height:380px}
+figcaption{font-size:12px; color:var(--muted); line-height:1.68; border-top:1px solid var(--line); margin-top:9px; padding-top:8px}
+figcaption b{color:var(--ink2); font-family:var(--sans)}
+.nochart{padding:30px; text-align:center; color:var(--muted); border:1px dashed var(--line2); border-radius:6px; font-size:12.5px}
+
+/* ---------------------------------------------------------------- 标题页 */
+.hero{background:var(--surface); border:1px solid var(--line); border-top:4px solid var(--blue); border-radius:8px; padding:38px 40px 30px; box-shadow:var(--shadow)}
+.hero .kicker{font-size:11.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--blue); font-weight:700; margin-bottom:14px}
+.hero h1{font-size:32px; line-height:1.4; margin:0 0 12px; letter-spacing:-.4px}
+.hero .h1en{font-family:var(--serif); font-size:14px; font-style:italic; color:var(--muted); line-height:1.6; margin-bottom:20px}
+.metaline{display:flex; flex-wrap:wrap; gap:0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); margin:18px 0}
+.metaline div{padding:10px 18px 10px 0; margin-right:18px; border-right:1px solid var(--line); font-size:12.5px; color:var(--muted)}
+.metaline div:last-child{border-right:none}
+.metaline div b{display:block; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); font-weight:700; margin-bottom:2px}
+.metaline div span{color:var(--ink2); font-weight:600}
+.btnrow{display:flex; gap:10px; flex-wrap:wrap; margin-top:20px}
+.btn{
+  display:inline-flex; align-items:center; gap:7px; font-size:13.5px; font-weight:600; cursor:pointer;
+  padding:9px 17px; border-radius:5px; border:1px solid var(--blue); color:#fff; background:var(--blue); font-family:var(--sans);
+}
+.btn:hover{background:var(--blue2); text-decoration:none; color:#fff}
+.btn.ghost{background:transparent; color:var(--blue)}
+.btn.ghost:hover{background:var(--blue-bg); color:var(--blue)}
+.btn.sm{font-size:12px; padding:5px 11px}
+.hero .disclaim{margin-top:22px; font-size:12px; color:var(--muted); border-left:2px solid var(--amber); padding-left:12px; line-height:1.7}
+
+/* ---------------------------------------------------------------- 机制 SVG */
+.svgbox{background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:10px; box-shadow:var(--shadow); position:relative}
+.svgbox svg{width:100%; height:auto; display:block; touch-action:none; cursor:grab}
+.svgbox svg.dragging{cursor:grabbing}
+.svgctl{position:absolute; right:14px; top:14px; display:flex; gap:5px; z-index:2}
+.svg-label{font-family:var(--sans); font-size:12px; fill:var(--ink2)}
+.svg-title{font-family:var(--serif); font-size:15px; font-weight:700; fill:var(--ink)}
+.svg-tiny{font-family:var(--sans); font-size:10px; fill:var(--muted)}
+.svg-mono{font-family:var(--mono); font-size:10.5px; fill:var(--muted)}
+.hot{cursor:pointer}
+.hot rect.hit{fill:transparent}
+.hot:hover rect.hit{fill:var(--blue2); opacity:.07}
+.hot.on rect.hit{fill:var(--blue2); opacity:.12}
+.mech-detail{min-height:112px}
+
+/* ---------------------------------------------------------------- 时间线 / 流程 */
+.timeline{position:relative; padding-left:26px}
+.timeline::before{content:""; position:absolute; left:7px; top:6px; bottom:6px; width:1px; background:var(--line2)}
+.tl-item{position:relative; margin-bottom:10px}
+.tl-item .dot{position:absolute; left:-23px; top:12px; width:9px; height:9px; border-radius:50%; background:var(--surface); border:2px solid var(--blue)}
+.tl-item.open .dot{background:var(--blue)}
+.tl-btn{
+  width:100%; text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:11px 14px; cursor:pointer; font-family:var(--sans); color:var(--ink); display:flex; gap:12px; align-items:baseline;
+}
+.tl-btn:hover{border-color:var(--blue-line); background:var(--blue-bg)}
+.tl-btn .tt{font-family:var(--mono); font-size:11px; color:var(--blue); flex:none; min-width:74px}
+.tl-btn .th{font-weight:700; font-size:14px}
+.tl-btn .td{font-size:12.5px; color:var(--muted); margin-top:2px}
+.tl-btn .caret{margin-left:auto; color:var(--faint); font-size:11px; flex:none}
+.tl-qc{display:none; padding:10px 14px 12px 14px; border:1px solid var(--blue-line); border-top:none; border-radius:0 0 6px 6px; background:var(--blue-bg); margin:-1px 0 0}
+.tl-item.open .tl-qc{display:block}
+.tl-item.open .tl-btn{border-radius:6px 6px 0 0; border-color:var(--blue-line)}
+.tl-qc ul{margin:4px 0 0; padding-left:18px; font-size:12.5px; color:var(--ink2)}
+.tl-qc ul li{margin-bottom:3px}
+.tl-qc .qch{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--blue); font-weight:700}
+.flow{display:flex; flex-wrap:wrap; gap:8px; align-items:stretch}
+.flow .node{
+  flex:1 1 150px; min-width:140px; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:10px 12px; position:relative;
+}
+.flow .node .nid{font-family:var(--mono); font-size:10.5px; color:var(--blue)}
+.flow .node .nt{font-weight:700; font-size:13px; margin:2px 0 4px; line-height:1.4}
+.flow .node ul{margin:0; padding-left:15px; font-size:11.5px; color:var(--muted); line-height:1.6}
+.flow .arrow{display:flex; align-items:center; color:var(--line2); font-size:16px; flex:none}
+.pipe{display:flex; flex-direction:column; gap:0}
+.pipe .step{display:flex; gap:12px; align-items:flex-start; padding:11px 0; border-bottom:1px dashed var(--line)}
+.pipe .step:last-child{border-bottom:none}
+.pipe .sid{font-family:var(--mono); font-size:11px; color:#fff; background:var(--blue); border-radius:3px; padding:2px 6px; flex:none; margin-top:3px}
+.pipe .st{font-weight:700; font-size:14px}
+.pipe .sd{font-size:12.5px; color:var(--muted); line-height:1.65}
+.pathway{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+.pathway .pnode{flex:1 1 170px; border:1px solid var(--blue-line); background:var(--blue-bg); border-radius:6px; padding:11px 13px}
+.pathway .pnode .pt{font-weight:700; font-size:13.5px; color:var(--blue)}
+.pathway .pnode .pd{font-size:12px; color:var(--ink2); margin-top:3px; line-height:1.6}
+.pathway .pa{color:var(--blue-line); font-size:18px; flex:none}
+
+/* ---------------------------------------------------------------- 交互工具 */
+.tool{border:1px solid var(--line2); border-radius:8px; background:var(--surface); box-shadow:var(--shadow); overflow:hidden; margin-bottom:22px}
+.tool-hd{display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--surface2); flex-wrap:wrap}
+.tool-hd .tno{font-family:var(--mono); font-size:11px; color:#fff; background:var(--ink); border-radius:3px; padding:2px 7px}
+.tool-hd h4{margin:0; font-size:15.5px; font-family:var(--serif)}
+.tool-hd .th-note{font-size:11.5px; color:var(--muted); margin-left:auto}
+.tool-bd{padding:16px}
+.ctrl{margin-bottom:16px}
+.ctrl label{display:flex; align-items:baseline; gap:8px; font-size:12.5px; font-weight:600; margin-bottom:5px}
+.ctrl label .val{margin-left:auto; font-family:var(--mono); font-size:13px; color:var(--blue); font-weight:700}
+.ctrl .hint{font-size:11px; color:var(--faint); margin-top:3px}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:4px; background:var(--line2);
+  border-radius:2px; outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:var(--blue);
+  border:2px solid var(--surface); box-shadow:0 0 0 1px var(--blue); cursor:pointer;
+}
+input[type=range]::-moz-range-thumb{width:13px; height:13px; border-radius:50%; background:var(--blue); border:2px solid var(--surface); cursor:pointer}
+select,input[type=number]{
+  font-family:var(--sans); font-size:13px; color:var(--ink); background:var(--surface);
+  border:1px solid var(--line2); border-radius:4px; padding:5px 8px;
+}
+.presetrow{display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px}
+.chip{
+  font-size:12px; padding:5px 11px; border-radius:14px; border:1px solid var(--line2);
+  background:var(--surface); color:var(--ink2); cursor:pointer; font-family:var(--sans);
+}
+.chip:hover{border-color:var(--blue); color:var(--blue)}
+.chip.on{background:var(--blue); border-color:var(--blue); color:#fff}
+.readout{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px}
+.ro{border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:var(--surface2)}
+.ro .rk{font-size:11px; color:var(--muted); letter-spacing:.04em}
+.ro .rv{font-family:var(--serif); font-size:23px; font-weight:700; line-height:1.25; margin-top:2px}
+.ro .rn{font-size:11px; color:var(--faint); margin-top:2px}
+.ro.hi{border-color:var(--blue-line); background:var(--blue-bg)}
+.ro.hi .rv{color:var(--blue)}
+.ro.bad .rv{color:var(--risk)}
+.ro.good .rv{color:var(--ok)}
+.matrix{display:grid; grid-template-columns:repeat(40,1fr); gap:1.5px; margin-top:6px}
+.matrix i{display:block; width:100%; aspect-ratio:1/1; border-radius:1px; background:var(--line)}
+.matrix i.tp{background:var(--risk)}
+.matrix i.fp{background:#F9A8A8}
+.matrix i.fn{background:var(--amber)}
+.matrix i.tn{background:#DDE5EE}
+html[data-theme="dark"] .matrix i.tn{background:#243044}
+html[data-theme="dark"] .matrix i.fp{background:#7F3A3A}
+.mlegend{display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-top:9px}
+.mlegend b{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px}
+.formula{background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin-bottom:14px; overflow-x:auto}
+.formula .fl{font-size:11px; color:var(--muted); margin-bottom:6px}
+.katex-fallback{font-family:var(--mono); font-size:12.5px; color:var(--ink2)}
+
+/* ---------------------------------------------------------------- 模拟报告 */
+.tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:0; flex-wrap:wrap}
+.tab{
+  font-size:13px; padding:8px 14px; border:1px solid transparent; border-bottom:none; cursor:pointer;
+  color:var(--muted); background:transparent; border-radius:5px 5px 0 0; font-family:var(--sans); margin-bottom:-1px;
+}
+.tab:hover{color:var(--blue)}
+.tab.on{background:var(--surface); border-color:var(--line); color:var(--blue); font-weight:700}
+.rep{
+  border:1px solid var(--line2); border-top:none; background:var(--surface); padding:0; position:relative; overflow:hidden;
+  border-radius:0 0 7px 7px;
+}
+.rep-wm{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
+  font-family:var(--serif); font-size:74px; font-weight:700; color:var(--ink); opacity:.045;
+  transform:rotate(-22deg); letter-spacing:.15em; z-index:1;
+}
+.rep-inner{position:relative; z-index:2; padding:22px 26px 26px}
+.rep-hd{display:flex; align-items:flex-start; gap:16px; border-bottom:2px solid var(--rule); padding-bottom:12px}
+.rep-hd .rt{font-family:var(--serif); font-size:19px; font-weight:700; line-height:1.4}
+.rep-hd .rs{font-size:11.5px; color:var(--muted); margin-top:3px}
+.rep-hd .rbadge{margin-left:auto; text-align:right; flex:none}
+.repsec{margin-top:18px}
+.repsec > .rh{
+  font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--blue); font-weight:700;
+  border-bottom:1px solid var(--blue-line); padding-bottom:4px; margin-bottom:10px; font-family:var(--sans);
+}
+.kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:6px 20px; font-size:12.5px}
+.kv .kvi{display:flex; gap:8px; border-bottom:1px dotted var(--line); padding:4px 0}
+.kv .kvi span:first-child{color:var(--muted); min-width:88px; flex:none}
+.kv .kvi span:last-child{font-weight:600}
+.badge{display:inline-block; font-size:12px; font-weight:700; padding:4px 11px; border-radius:4px; border:1px solid}
+.badge.neg{color:var(--ok); border-color:var(--ok); background:var(--ok-bg)}
+.badge.pos{color:var(--risk); border-color:var(--risk); background:var(--risk-bg)}
+.badge.inv{color:var(--muted); border-color:var(--line2); background:var(--surface2)}
+.pass{color:var(--ok); font-weight:700}
+.fail{color:var(--risk); font-weight:700}
+.scorebar{position:relative; height:44px; margin:14px 0 6px; border:1px solid var(--line); border-radius:5px; background:linear-gradient(90deg,var(--surface2),var(--surface2))}
+.scorebar .zone{position:absolute; top:0; bottom:0; opacity:.35}
+.scorebar .zn{left:0; background:#C9E7DA}
+.scorebar .zp{right:0; background:#F6C7C7}
+html[data-theme="dark"] .scorebar .zn{background:#14392E}
+html[data-theme="dark"] .scorebar .zp{background:#3A1D1D}
+.scorebar .thr{position:absolute; top:-6px; bottom:-6px; width:2px; background:var(--ink)}
+.scorebar .thr span{position:absolute; top:-17px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10px; color:var(--ink); white-space:nowrap}
+.scorebar .mk{position:absolute; top:50%; transform:translate(-50%,-50%); width:15px; height:15px; border-radius:50%; border:2px solid var(--surface); box-shadow:0 0 0 1.5px currentColor}
+.scorebar .axis{position:absolute; bottom:-17px; font-family:var(--mono); font-size:10px; color:var(--faint)}
+.rep-foot{margin-top:20px; border-top:1px solid var(--line); padding-top:12px}
+.rep-foot ol{margin:6px 0 0; padding-left:20px; font-size:11.5px; color:var(--muted); line-height:1.7}
+.rep-sign{display:flex; gap:30px; margin-top:16px; font-size:11.5px; color:var(--muted); flex-wrap:wrap}
+.rep-sign div{border-top:1px solid var(--line2); padding-top:5px; min-width:150px}
+
+/* ---------------------------------------------------------------- 局限 / 偏倚 */
+.limlist{list-style:none; margin:0; padding:0; counter-reset:lim}
+.limlist li{position:relative; padding:15px 0 15px 46px; border-bottom:1px solid var(--line)}
+.limlist li:last-child{border-bottom:none}
+.limlist li .ln{
+  position:absolute; left:0; top:16px; font-family:var(--serif); font-size:15px; font-weight:700; color:#fff;
+  background:var(--risk); width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+}
+.limlist li h4{margin:0 0 5px; font-size:15px; font-family:var(--sans); display:flex; gap:9px; align-items:baseline; flex-wrap:wrap}
+.limlist li p{margin:0; font-size:13.5px; color:var(--ink2)}
+.biasgrid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px}
+@media (max-width:960px){.biasgrid{grid-template-columns:1fr}}
+.biascard{border:1px solid var(--line); border-radius:6px; background:var(--surface); padding:12px}
+.biascard h5{margin:0 0 2px; font-size:13.5px; font-family:var(--sans)}
+.biascard .en{font-size:11px; color:var(--faint); font-family:var(--serif); font-style:italic; margin-bottom:8px}
+.biascard p{font-size:12px; color:var(--muted); margin:8px 0 0; line-height:1.65}
+.biascard svg{width:100%; height:auto; display:block}
+
+/* ---------------------------------------------------------------- 参考文献 */
+.reflist{list-style:none; counter-reset:r; margin:0; padding:0}
+.refitem{
+  display:grid; grid-template-columns:38px minmax(0,1fr); gap:10px; padding:11px 10px; border-bottom:1px solid var(--line);
+  border-radius:5px; transition:background .35s;
+}
+.refitem:target,.refitem.flash{background:var(--blue-bg); box-shadow:inset 0 0 0 1px var(--blue-line)}
+.refitem .rnum{font-family:var(--mono); font-size:12.5px; color:var(--blue); text-align:right; padding-top:2px}
+.refitem .rmain{font-size:13px; line-height:1.7}
+.refitem .rt{font-weight:600}
+.refitem .rj{color:var(--muted)}
+.refitem .rj i{font-style:italic}
+.refitem .rmeta{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:4px}
+.refitem .rabs{
+  display:none; margin-top:8px; font-size:12px; color:var(--ink2); background:var(--surface2);
+  border-left:2px solid var(--blue-line); padding:9px 12px; border-radius:0 4px 4px 0; line-height:1.72;
+}
+.refitem.open .rabs{display:block}
+.refitem .rnote{margin-top:6px; font-size:11.5px; color:var(--amber); background:var(--amber-bg); border:1px dashed #F5D9A8; padding:6px 9px; border-radius:4px}
+.linkbtn{background:none; border:none; color:var(--blue); font-size:11.5px; cursor:pointer; padding:0; font-family:var(--sans); text-decoration:underline}
+
+/* ---------------------------------------------------------------- 页脚 */
+.pagefoot{border-top:2px solid var(--rule); padding:24px 0 0; margin-top:20px; font-size:12.5px; color:var(--muted)}
+.pagefoot .fgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:18px}
+.pagefoot h5{margin:0 0 6px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); font-family:var(--sans)}
+.pagefoot .fdecl{margin-top:18px; border-top:1px solid var(--line); padding-top:12px; font-size:11.5px; line-height:1.75}
+#toTop{
+  position:fixed; right:20px; bottom:22px; z-index:50; width:38px; height:38px; border-radius:50%;
+  border:1px solid var(--line2); background:var(--surface); color:var(--ink2); cursor:pointer;
+  box-shadow:var(--shadow); display:none; font-size:15px;
+}
+#toTop.show{display:block}
+
+/* ---------------------------------------------------------------- 动效（克制） */
+.reveal{opacity:0; transform:translateY(14px)}
+.reveal.in{opacity:1; transform:none; transition:opacity .55s ease, transform .55s ease}
+@media (prefers-reduced-motion:reduce){.reveal,.reveal.in{opacity:1; transform:none; transition:none} html{scroll-behavior:auto}}
+
+/* ---------------------------------------------------------------- 打印 */
+@media print{
+  :root{--navh:0px; --bannerh:0px}
+  html[data-theme="dark"]{--bg:#fff; --surface:#fff; --ink:#111; --ink2:#222; --muted:#555; --line:#ddd; --line2:#bbb; --rule:#000}
+  body{padding-top:0; background:#fff; font-size:10.5pt; line-height:1.6}
+  .no-print,.topbar,.toc,#toTop,#progress,.ftools,.svgctl,.presetrow,input[type=range],.tabs,.iconbtn,.navtools{display:none !important}
+  .shell{display:block; max-width:none; padding:0}
+  section{page-break-inside:avoid; margin-bottom:20pt}
+  figure,.tool,.card,.rep,.svgbox{break-inside:avoid; box-shadow:none; border-color:#ccc}
+  .chart{height:300px !important}
+  .refitem .rabs{display:block !important}
+  .hero{border-top-width:2px; padding:0 0 12pt}
+  a{color:#000; text-decoration:none}
+  sup.cite a{color:#000}
+  .rep-wm{opacity:.08}
+  .print-only{display:block !important}
+}
+.print-only{display:none}
+</style>
+<!--@@-->
+</head>
+<body>
+
+<!-- ======================= 顶部固定导航 + 横幅声明 ======================= -->
+<div class="topbar no-print">
+  <nav class="nav">
+    <div class="brand">cfDNA 甲基化 · <em>泛癌种早筛模型</em></div>
+    <span class="vtag">v2.1 DEMO</span>
+    <div class="navlinks" id="navlinks"></div>
+    <div class="navtools">
+      <button class="iconbtn" id="btnLang" title="中英文切换（英文为标题/图注/控件节选）">EN</button>
+      <button class="iconbtn" id="btnTheme" title="浅色 / 深色切换">◐ 深色</button>
+      <button class="iconbtn" id="btnPrint" title="打印 / 导出 PDF">打印</button>
+    </div>
+  </nav>
+  <div class="banner" id="banner">
+    <b>声明</b><span id="bannerText"></span>
+  </div>
+</div>
+<div id="progress" class="no-print"></div>
+
+<div class="shell">
+  <!-- ======================= 左侧锚点目录 ======================= -->
+  <aside class="toc no-print">
+    <h5 data-zh="目录 Contents" data-en="Contents">目录 Contents</h5>
+    <ol id="tocList"></ol>
+    <div class="tocfoot">
+      <b>阅读约定</b><br>
+      上标 <sup class="cite" style="pointer-events:none"><a>n</a></sup> 为参考文献编号，点击可跳转并高亮。
+      证据标签见第 6 区块图注与文末说明。
+    </div>
+  </aside>
+
+  <main id="main">
+
+  <!-- ==================================================================== -->
+  <!-- 第 1 区块 · 标题页                                                    -->
+  <!-- ==================================================================== -->
+  <section id="s1">
+    <div class="hero reveal">
+      <div class="kicker" data-zh="Methodological Demonstration · 方法学演示" data-en="Methodological Demonstration">Methodological Demonstration · 方法学演示</div>
+      <h1 id="heroTitle"></h1>
+      <div class="h1en" id="heroTitleEn"></div>
+      <div class="metaline" id="heroMeta"></div>
+      <p class="small muted" style="max-width:78ch">
+        本演示系统完整呈现一个泛癌种早筛模型的证据链条：<b>分子机制 → 实验技术路线 → 算法建模 → 性能验证 → 方法学局限 → 与现行指南的关系</b>。
+        性能呈现口径参照 STARD 2015<sup class="cite" data-ref="bossuyt2015stard"></sup> 与 TRIPOD<sup class="cite" data-ref="collins2015tripod"></sup> 报告规范：
+        每一项性能数字均同时标注<b>队列类型</b>（回顾性 / 前瞻性）与<b>样本量</b>。
+      </p>
+      <div class="btnrow">
+        <a class="btn" href="#s6">① 模型性能</a>
+        <a class="btn ghost" href="#s3">② 方法学（机制 · 技术 · 算法）</a>
+        <a class="btn ghost" href="#s7">③ 交互验证工具</a>
+      </div>
+      <div class="disclaim">
+        <b>关于本文档的性质：</b>本文档为<b>科研演示</b>，非注册临床试验数据，未经任何药监机构审评。
+        第 5、7、8 区块中的评分分布、置信区间、模拟队列与模拟报告<b>全部为模拟数据</b>；
+        第 2、6、9、10 区块中的流行病学与已发表研究数值按原文口径引用并标注文献编号。
+        本文档不得用于产品宣称、诊疗决策或患者沟通。
+      </div>
+    </div>
+
+    <div class="grid g3 reveal" style="margin-top:18px">
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">本演示回答什么</h4>
+        <p class="small muted" style="margin:0">
+          一个 MCED 模型的性能数字应当如何被<b>解读</b>：AUC 0.9581 意味着什么、不意味着什么；
+          为什么同一个模型在筛查人群中的 PPV 可以低到个位数；为什么「灵敏度高」不等于「有临床获益」。
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">本演示不回避什么</h4>
+        <p class="small muted" style="margin:0">
+          行业 I 期灵敏度瓶颈（Galleri CCGA3 I 期 16.8%）、低脱落癌种的生物学上限、
+          PATHFINDER 中 62% 阳性为假阳性、以及 <b>NHS-Galleri 14.2 万人 RCT 主要终点未达成</b>。
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">证据标签体系</h4>
+        <div class="taglegend" id="tagLegend" style="margin-top:2px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 2 区块 · 研究背景与临床需求                                        -->
+  <!-- ==================================================================== -->
+  <section id="s2">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 data-zh="研究背景与临床需求" data-en="Background and Clinical Need">研究背景与临床需求</h2>
+      <span class="sub">Epidemiological rationale</span>
+    </div>
+
+    <p class="lead reveal">
+      中国癌症负担的核心矛盾并非发病率本身，而是<b>确诊分期分布</b>：在发病率与美国相近或更低的若干癌种上，
+      中国的生存率差距主要由「确诊时已属晚期」的比例差异所解释<sup class="cite" data-ref="nccChina2022,acs2026"></sup>。
+      这决定了早筛技术的价值命题不是「发现更多癌症」，而是「把确诊分期分布左移」。
+    </p>
+
+    <div class="grid g3 reveal" id="epiCards"></div>
+
+    <div class="grid g2 reveal" style="margin-top:16px">
+      <div class="callout">
+        <h4>筛查覆盖缺口 <span class="etag et-guide">指南/RCT</span></h4>
+        <p class="small" style="margin:0">
+          现行指南推荐的单癌种筛查手段仅覆盖少数癌种（肺、结直肠、乳腺、宫颈、肝、胃、食管、前列腺等）。
+          约 <b>70%</b> 的新发癌症没有任何标准筛查手段，这些「未筛查癌种」合计贡献约 <b>2/3</b> 的癌症死亡<sup class="cite" data-ref="consensusLB2025"></sup>。
+          这是多癌种早期检测（MCED, multi-cancer early detection）被提出的直接动因。
+        </p>
+      </div>
+      <div class="callout warn">
+        <h4>但缺口的存在不等于技术已可填补 <span class="etag et-guide">指南/RCT</span></h4>
+        <p class="small" style="margin:0">
+          临床需求的迫切性常被用来论证技术的成熟度，这是一种论证跳跃。第 6 区块给出性能上界，
+          第 9 区块给出为什么这些性能<b>尚不足以</b>支撑一般风险人群初筛的结论<sup class="cite" data-ref="consensusCombined2025,nhsGalleri2026"></sup>。
+        </p>
+      </div>
+    </div>
+
+    <div class="qbox reveal">
+      <div class="q" id="sciQuestion"></div>
+      <div class="qen" id="sciQuestionEn"></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 3 区块 · 分子机制                                                  -->
+  <!-- ==================================================================== -->
+  <section id="s3">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 data-zh="分子机制：癌症表观基因组与 cfDNA 生物学" data-en="Molecular Basis: Cancer Epigenome and cfDNA Biology">分子机制：癌症表观基因组与 cfDNA 生物学</h2>
+      <span class="sub">Mechanistic schematic</span>
+    </div>
+
+    <p class="reveal">
+      甲基化早筛的科学前提由两条独立的生物学事实拼接而成：<b>（i）</b>癌细胞的 DNA 甲基化图谱与正常细胞存在系统性、可重复的差异，
+      且该差异出现在形态学改变之前<sup class="cite" data-ref="baylinJones2016,chen2020panseer"></sup>；<b>（ii）</b>肿瘤细胞的 DNA 会以片段形式进入循环血，
+      与造血来源的背景 cfDNA 混合<sup class="cite" data-ref="sun2015"></sup>。第一条决定了<b>可区分性</b>，第二条决定了<b>可及性</b>——
+      而后者的量级，正是早期灵敏度的天花板。
+    </p>
+
+    <div class="svgbox reveal">
+      <div class="svgctl no-print">
+        <button class="iconbtn" data-svgzoom="in" title="放大">＋</button>
+        <button class="iconbtn" data-svgzoom="out" title="缩小">－</button>
+        <button class="iconbtn" data-svgzoom="reset" title="复位">复位</button>
+      </div>
+      <svg id="mechSvg" viewBox="0 0 980 664" preserveAspectRatio="xMidYMid meet" role="img"
+           aria-label="正常细胞与癌细胞的 DNA 甲基化图谱对照示意图">
+        <defs>
+          <marker id="mkArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"></path>
+          </marker>
+        </defs>
+        <!-- 全部图形内容由 JS（buildMechanismFigure）生成，便于统一坐标与主题色 -->
+        <g id="mechRoot"></g>
+      </svg>
+    </div>
+    <div class="card mech-detail reveal" id="mechDetail" style="margin-top:12px">
+      <div class="small muted">点击上图中带下划线的标注，或下方任一机制条目，查看该机制的专业解说与文献依据。</div>
+    </div>
+
+    <h3 class="sub-head reveal">3.1 癌症表观基因组的两个方向性改变</h3>
+    <div class="grid g2 reveal" id="mechEpi"></div>
+
+    <h3 class="sub-head reveal">3.2 cfDNA 生物学参数</h3>
+    <div class="grid g3 reveal" id="mechCfdna"></div>
+
+    <h3 class="sub-head reveal">3.3 采样瓶颈：为什么 I 期灵敏度不可能很高</h3>
+    <div class="grid g32 reveal">
+      <div class="callout risk" id="mechBottleneck"></div>
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">量级直觉 <span class="etag et-mech plain">机制/基础研究</span></h4>
+        <p class="small muted" style="margin:0 0 8px">
+          若某样本肿瘤分数为 0.022%，则在 10 000 个 cfDNA 分子中平均仅约 <b>2 个</b>来自肿瘤。
+          任何单点特征（单个 CpG、单个突变）在此浓度下都不可能稳定区分信号与噪声——
+          这解释了为什么本模型采用<b>完整高甲基化单倍型（fHMH）</b>这类「多位点联合、单分子级」的特征形式（见第 5 区块）。
+        </p>
+        <div class="tiny muted">推论：提升早期灵敏度的可行方向依次为 —— 增加采血量与分子回收率 &gt; 增加正交特征（片段组学<sup class="cite" data-ref="cristiano2019,mouliere2018"></sup>）&gt; 优化分类器。</div>
+      </div>
+    </div>
+
+    <h3 class="sub-head reveal">3.4 主要干扰因素与甲基化标志物的相对优势</h3>
+    <div class="callout warn reveal" id="mechInterference"></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 4 区块 · 技术路线与实验流程                                        -->
+  <!-- ==================================================================== -->
+  <section id="s4">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 data-zh="技术路线与实验流程" data-en="Technical Workflow and Laboratory Procedures">技术路线与实验流程</h2>
+      <span class="sub">Pre-analytical SOP &amp; wet-lab pipeline</span>
+    </div>
+
+    <p class="reveal">
+      在低肿瘤分数场景下，<b>分析前变异（pre-analytical variability）常大于算法差异</b>。
+      溶血、离心延迟、反复冻融都会引入白细胞基因组 DNA，把本已 ~0.02% 的肿瘤分数进一步稀释，
+      直接表现为假阴性。因此 SOP 的每一条时限都是灵敏度约束，而非管理规定。
+    </p>
+
+    <h3 class="sub-head reveal">4.1 样本前处理 SOP 时间线<span class="small muted" style="font-weight:400; margin-left:8px">（点击每步查看质控要点）</span></h3>
+    <div class="timeline reveal" id="sopTimeline"></div>
+    <p class="tiny muted reveal" style="margin-top:10px">
+      注：标注为「演示建议」的条目为本演示补充的一般性实验室良好实践，不属于任务书给定参数；
+      其余参数（采血量、混匀次数、离心条件与时限、分装规格、储运温度）为给定 SOP 参数。
+    </p>
+
+    <h3 class="sub-head reveal">4.2 实验室与湿实验流程</h3>
+    <div class="flow reveal" id="wetlabFlow"></div>
+    <div class="grid g3 reveal" style="margin-top:14px">
+      <div class="statcard"><div class="k">1<small>ng</small></div><div class="lb">最低 DNA 投入量</div><div class="sb">低于此量不建议进入建库；投入量不足时文库复杂度不可恢复</div></div>
+      <div class="statcard"><div class="k">≥99<small>%</small></div><div class="lb">转化率要求（EM-seq / 亚硫酸氢盐）</div><div class="sb">转化不完全会把未甲基化 C 误读为甲基化，系统性抬高信号</div></div>
+      <div class="statcard"><div class="k">4–6<small>mL</small></div><div class="lb">10 mL 全血可获血浆量</div><div class="sb">血浆体积直接决定可获得的 cfDNA 分子总数（采样上限）</div></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 5 区块 · 算法与建模                                                -->
+  <!-- ==================================================================== -->
+  <section id="s5">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 data-zh="算法与建模" data-en="Algorithm and Model Development">算法与建模</h2>
+      <span class="sub">Feature engineering · classifier · threshold</span>
+    </div>
+
+    <h3 class="sub-head reveal">5.1 分析流程</h3>
+    <div class="card pipe reveal" id="algoPipe"></div>
+
+    <div class="grid g2 reveal" style="margin-top:16px">
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">建模数据 <span class="etag et-cc">病例-对照</span></h4>
+        <div class="kv" id="algoTraining"></div>
+        <p class="tiny muted" style="margin:10px 0 0">
+          公开数据库二次利用属<b>回顾性设计</b>：样本已按「已确诊癌症 / 已知健康」分组，
+          癌症样本的分期与肿瘤负荷分布不代表筛查人群。这一点是理解第 6 区块所有数字的前提<sup class="cite" data-ref="tcga2013,collins2015tripod"></sup>。
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="mini-head" style="margin-top:0">阈值设定逻辑</h4>
+        <div class="formula" style="margin-bottom:10px">
+          <div class="fl">阈值定义（特异性优先）</div>
+          <div data-tex="t^{*}=Q_{0.95}\left(S_{\text{healthy}}\right)=0.99\quad\Longrightarrow\quad \mathrm{Sp}=95\%" data-display="1"></div>
+        </div>
+        <p class="small" style="margin:0">
+          总分阈值 <b class="mono">0.99</b> 定义为健康人群评分的<b>第 95 百分位</b>，即特异性被<b>预先设定</b>为 95%，
+          灵敏度是该设定下的结果（87%）而非优化目标。
+        </p>
+        <p class="tiny muted" style="margin:8px 0 0">
+          方法学要点：筛查场景中特异性直接决定假阳性绝对数与 PPV。95% 特异性意味着每 100 名健康受检者产生 5 例假阳性——
+          在 P = 0.5% 的人群中，这会把 PPV 压到个位数（第 7 区块工具 A 可实测）。
+        </p>
+      </div>
+    </div>
+
+    <h3 class="sub-head reveal">5.2 评分分布与「阈值—敏感性/特异性」权衡</h3>
+    <figure class="reveal" id="figScoreWrap">
+      <div class="fig-head">
+        <span class="ftitle">Figure 5.1 · 健康与癌症样本的总分分布（演示模拟）及阈值权衡</span>
+        <div class="ftools no-print"><button class="iconbtn" data-export="chScore">导出 PNG</button></div>
+      </div>
+      <div id="chScore" class="chart" style="height:330px"></div>
+      <div class="no-print" style="margin-top:6px">
+        <div class="ctrl" style="margin-bottom:8px">
+          <label for="thrSlider">阈值 t（总分 0–2 量表）<span class="val" id="thrVal">0.99</span></label>
+          <input type="range" id="thrSlider" min="0.30" max="1.80" step="0.01" value="0.99">
+          <div class="hint">拖动阈值实时联动：特异性、灵敏度、ROC 工作点（Figure 1）与 PPV/NPV（第 7 区块工具 C）。</div>
+        </div>
+        <div class="readout" id="thrReadout"></div>
+        <div class="presetrow" style="margin-top:10px; margin-bottom:0">
+          <button class="chip on" data-thr="0.99">模型出厂阈值 0.99（Sp 95%）</button>
+          <button class="chip" data-thr="1.28">高特异性 Sp≈99.9%</button>
+          <button class="chip" data-thr="1.18">Galleri 式 Sp≈99.5%</button>
+          <button class="chip" data-thr="0.80">高灵敏 Sp≈76%</button>
+        </div>
+      </div>
+      <figcaption>
+        <b>Figure 5.1｜</b>横轴为模型输出总分（0–2 量表，≥2.0 归入末档），纵轴为该组内样本占比（%）。
+        <b>数据性质：</b>本图为<b>演示模拟分布</b>——采用双正态模型，其参数由三条给定约束反解得到，
+        使图形与本演示报告的三个关键数字严格自洽：Sp(0.99) = 95%、Se(0.99) = 87%、AUC = 0.9581
+        （健康组 μ=0.661, σ=0.200；癌症组 μ=1.458, σ=0.415）。
+        <b>口径说明：</b>真实评分分布通常右偏且随分期分层，本图不代表实测直方图，仅用于演示阈值移动对 Se/Sp 的权衡关系。
+        <span class="etag et-cc">病例-对照</span> <span class="etag et-mech">机制/基础研究</span>
+      </figcaption>
+    </figure>
+
+    <div class="callout reveal" style="margin-top:16px" id="algoPositioning"></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 6 区块 · 模型性能验证                                              -->
+  <!-- ==================================================================== -->
+  <section id="s6">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2 data-zh="模型性能验证" data-en="Validation Performance">模型性能验证</h2>
+      <span class="sub">Figures 1–5 · 学术图表规范</span>
+    </div>
+
+    <div class="callout warn reveal" style="margin-bottom:18px">
+      <h4>阅读本区块前必须明确的三件事</h4>
+      <ol class="small" style="margin:0; padding-left:20px">
+        <li><b>队列类型决定数字的含义。</b>回顾性病例-对照的灵敏度与前瞻性筛查队列的灵敏度不是同一个量，不可直接比较。</li>
+        <li><b>特异性设定不同则灵敏度不可比。</b>本模型在 Sp 95% 下报告 Se 87%；Galleri 在 Sp 99.5% 下报告 Se 51.5%。把两个数字并列而不说明特异性是误导。</li>
+        <li><b>本模型性能全部来自回顾性公开样本</b>（n = 18 752），尚无前瞻性筛查队列数据，因此下述数字应视为<b>性能上界</b>。</li>
+      </ol>
+    </div>
+
+    <!-- Figure 1 -->
+    <figure class="reveal">
+      <div class="fig-head">
+        <span class="ftitle">Figure 1 · ROC 曲线与跨研究工作点对照</span>
+        <div class="ftools no-print"><button class="iconbtn" data-export="chRoc">导出 PNG</button></div>
+      </div>
+      <div id="chRoc" class="chart" style="height:420px"></div>
+      <figcaption>
+        <b>Figure 1｜</b>本模型受试者工作特征（ROC）曲线，<b>AUC = 0.9581</b>；样本量 <b>n = 18 752</b>（公开数据库回顾性验证，病例-对照设计）<sup class="cite" data-ref="tcga2013"></sup>。
+        实心方点为出厂工作点（<b>特异性 95% → 灵敏度 87%</b>），随第 5 区块阈值滑块实时移动。
+        空心菱形为行业对照坐标：<b>Galleri CCGA3</b>（独立验证集，特异性 99.5%、总灵敏度 51.5%）<sup class="cite" data-ref="klein2021"></sup>——
+        注意该点位于本模型 ROC 曲线<b>之下</b>并不意味着模型更优：两者的癌种谱、分期分布、对照人群与验证设计均不同，
+        且 Galleri 数值来自独立验证集，本模型曲线来自与训练同源的公开样本回顾性验证。
+        <b>口径说明：</b>ROC 曲线由与 Figure 5.1 同一双正态模型生成，以保证 AUC 与工作点自洽；曲线形状为演示重构，非逐样本实测曲线。
+        <span class="etag et-cc">病例-对照</span>
+      </figcaption>
+    </figure>
+
+    <!-- Figure 2 -->
+    <figure class="reveal" style="margin-top:20px">
+      <div class="fig-head">
+        <span class="ftitle">Figure 2 · 分癌种灵敏度森林图（95% CI）</span>
+        <div class="ftools no-print"><button class="iconbtn" data-export="chForest">导出 PNG</button></div>
+      </div>
+      <div id="chForest" class="chart" style="height:470px"></div>
+      <figcaption>
+        <b>Figure 2｜</b>各癌种在出厂工作点（Sp 95%）下的灵敏度点估计与 <b>95% 置信区间</b>（Wilson 得分区间）。
+        <b>口径说明（重要）：</b>灵敏度点估计为给定值；<b>各癌种样本量除肝癌（402 例血浆）外均为「演示估算」假设值</b>，
+        因此误差棒宽度仅示意「样本量越小、区间越宽」的统计学规律，<b>不可作为该癌种精度证据引用</b>。
+        <b>分组：</b>蓝色为高敏组，红色为低敏组。<b>图注：</b>低敏癌种（甲状腺癌 33%、睾丸癌 17%、嗜铬细胞瘤 10%）
+        与 ctDNA 脱落量低的已知规律一致——脑、肾、甲状腺、前列腺等解剖学低脱落部位肿瘤的血浆 ctDNA 检出率系统性偏低<sup class="cite" data-ref="bettegowda2014"></sup>。
+        <span class="etag et-cc">病例-对照</span>
+      </figcaption>
+    </figure>
+
+    <div class="tbl-wrap reveal" style="margin-top:14px">
+      <table class="rule3" id="tblCancer">
+        <caption><b>Table 1｜</b>分癌种灵敏度三线表（与 Figure 2 同源）。CI = 置信区间；n 列标注数据来源性质。</caption>
+      </table>
+    </div>
+
+    <!-- Figure 3 -->
+    <figure class="reveal" style="margin-top:24px">
+      <div class="fig-head">
+        <span class="ftitle">Figure 3 · 分期灵敏度：行业基准与本模型专项队列</span>
+        <div class="ftools no-print"><button class="iconbtn" data-export="chStage">导出 PNG</button></div>
+      </div>
+      <div id="chStage" class="chart" style="height:400px"></div>
+      <figcaption>
+        <b>Figure 3｜</b>灵敏度随分期递增。<b>Galleri CCGA3</b>（病例-对照独立验证）：I 期 16.8%、II 期 40.4%、III 期 77%、IV 期 90.1%<sup class="cite" data-ref="klein2021"></sup>；
+        <b>本模型肝癌专项队列</b>（402 例血浆，回顾性）：BCLC <b>A 期 88%</b>、<b>D 期 94.5%</b>。
+        <b>口径说明：</b>BCLC A/D 为肝癌专用分期系统，与 TNM I/IV 期<b>不能直接等同</b>，并列仅示意方向一致性；
+        单癌种专项队列（尤其是肝癌这类高脱落、且常伴肝炎/肝硬化背景的癌种）灵敏度显著高于泛癌种平均水平，不可外推至泛癌场景。
+        <b>结论：</b>「分期越早、灵敏度越低」是全行业共性约束，源于早期病灶 ctDNA 释放量的生物学下限<sup class="cite" data-ref="bettegowda2014,fiala2018"></sup>，而非单一算法差异。
+        <span class="etag et-cc">病例-对照</span>
+      </figcaption>
+    </figure>
+
+    <!-- Figure 4：三线表 -->
+    <h3 class="sub-head reveal">Figure 4 · 多模型横向对比（三线表）</h3>
+    <div class="tbl-wrap reveal">
+      <table class="rule3" id="tblCompare">
+        <caption><b>Figure 4 / Table 2｜</b>代表性 MCED 与单癌种血检研究的性能横向对比。每行同时标注队列类型与样本量（STARD 2015 要求）<sup class="cite" data-ref="bossuyt2015stard"></sup>。</caption>
+      </table>
+    </div>
+    <div class="callout risk reveal" style="margin-top:12px">
+      <h4>表下固定注释（不可省略）</h4>
+      <p class="small" style="margin:0" id="cmpFootnote"></p>
+      <p class="tiny" style="margin:8px 0 0" id="cmpDataNote"></p>
+    </div>
+
+    <!-- Figure 5：散点 -->
+    <figure class="reveal" style="margin-top:24px">
+      <div class="fig-head">
+        <span class="ftitle">Figure 5 · 特异性—灵敏度坐标：回顾性 vs 前瞻性</span>
+        <div class="ftools no-print"><button class="iconbtn" data-export="chScatter">导出 PNG</button></div>
+      </div>
+      <div id="chScatter" class="chart" style="height:400px"></div>
+      <figcaption>
+        <b>Figure 5｜</b>将 Figure 4 各研究投影至「特异性—总灵敏度」平面。圆点 = 回顾性/病例-对照设计，三角 = 前瞻性队列。
+        <b>读图要点：</b>MERCURY 的两个点（验证集 97.8%/87.4% → 金陵前瞻队列 98.1%/53.8%）来自<b>同一模型</b>，
+        特异性几乎不变而灵敏度下降约 34 个百分点，是「回顾性设计高估灵敏度」的单研究内部证据<sup class="cite" data-ref="mercury2025"></sup>。
+        <b>口径说明：</b>CancerSEEK 原文特异性口径为「&gt; 99%」，本图取 99.0% 作图；各研究癌种谱与分期分布不可比，坐标位置不构成优劣排序。
+        <span class="etag et-cc">病例-对照</span> <span class="etag et-prosp">前瞻队列</span> <span class="etag et-ind">企业/会议数据</span>
+      </figcaption>
+    </figure>
+  </section>
+  <!-- ==================================================================== -->
+  <!-- 第 7 区块 · 交互验证工具                                              -->
+  <!-- ==================================================================== -->
+  <section id="s7">
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <h2 data-zh="交互验证工具" data-en="Interactive Methodological Tools">交互验证工具</h2>
+      <span class="sub">Bayesian PPV · simulated cohort · threshold explorer</span>
+    </div>
+
+    <p class="reveal">
+      本区块的目的不是演示模型有多好，而是让观众<b>亲手验证筛查统计学的三条硬约束</b>：
+      （i）PPV 由患病率主导，而非由灵敏度主导；（ii）在低患病率人群中，特异性每损失 0.5 个百分点，
+      假阳性绝对数的增加就足以压垮阳性确诊路径；（iii）阈值不能同时优化 Se 与 Sp。
+      <b>所有输出均为模拟数据。</b>
+    </p>
+
+    <!-- ============================ 工具 A ============================ -->
+    <div class="tool reveal">
+      <div class="tool-hd">
+        <span class="tno">TOOL A</span>
+        <h4>贝叶斯 PPV / NPV 计算器</h4>
+        <span class="th-note">模拟数据 · 不构成任何产品性能声明</span>
+      </div>
+      <div class="tool-bd">
+        <div class="presetrow" id="ppvPresets"></div>
+        <div class="grid g23" style="gap:22px">
+          <div>
+            <div class="ctrl">
+              <label for="sPrev">人群患病率 P<span class="val" id="vPrev">0.50%</span></label>
+              <input type="range" id="sPrev" min="0" max="1000" step="1" value="602">
+              <div class="hint">对数刻度 0.05% – 2.00%（筛查场景常见区间）；预设按钮可载入 10% 的有症状人群作为对照</div>
+            </div>
+            <div class="ctrl">
+              <label for="sSe">模型灵敏度 Se<span class="val" id="vSe">87.0%</span></label>
+              <input type="range" id="sSe" min="50" max="95" step="0.5" value="87">
+            </div>
+            <div class="ctrl">
+              <label for="sSp">模型特异性 Sp<span class="val" id="vSp">95.0%</span></label>
+              <input type="range" id="sSp" min="90" max="99.9" step="0.1" value="95">
+              <div class="hint">注意特异性刻度：90% → 99.9% 的区间内，PPV 会变化一个数量级</div>
+            </div>
+            <div class="formula">
+              <div class="fl">阳性预测值（贝叶斯）</div>
+              <div data-tex="\mathrm{PPV}=\frac{\mathrm{Se}\cdot P}{\mathrm{Se}\cdot P+(1-\mathrm{Sp})(1-P)}" data-display="1"></div>
+              <div class="fl" style="margin-top:10px">阴性预测值</div>
+              <div data-tex="\mathrm{NPV}=\frac{\mathrm{Sp}\,(1-P)}{\mathrm{Sp}\,(1-P)+(1-\mathrm{Se})\,P}" data-display="1"></div>
+              <div class="fl" style="margin-top:10px">似然比（与患病率无关，故可跨人群迁移）</div>
+              <div data-tex="\mathrm{LR}^{+}=\frac{\mathrm{Se}}{1-\mathrm{Sp}},\qquad \mathrm{LR}^{-}=\frac{1-\mathrm{Se}}{\mathrm{Sp}}" data-display="1"></div>
+            </div>
+          </div>
+          <div>
+            <div class="readout" id="ppvReadout"></div>
+            <h4 class="mini-head">1 000 人方阵可视化</h4>
+            <div class="matrix" id="ppvMatrix"></div>
+            <div class="mlegend" id="ppvLegend"></div>
+            <div class="callout" style="margin-top:14px" id="ppvInsight"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================ 工具 B ============================ -->
+    <div class="tool reveal">
+      <div class="tool-hd">
+        <span class="tno">TOOL B</span>
+        <h4>模拟筛查队列</h4>
+        <span class="th-note">模拟数据 · 用于估算筛查项目的假阳性负担</span>
+      </div>
+      <div class="tool-bd">
+        <div class="presetrow">
+          <button class="chip" id="btnPathfinder">一键载入：PATHFINDER 实测参数<sup class="cite" data-ref="schrag2023"></sup></button>
+          <button class="chip" id="btnModelParam">载入：本模型出厂参数（Sp 95% / Se 87%）</button>
+          <button class="chip" id="btnGalleriParam">载入：Galleri CCGA3 参数（Sp 99.5% / Se 51.5%）</button>
+        </div>
+        <div class="grid g4" style="gap:14px; align-items:end">
+          <div class="ctrl" style="margin-bottom:0">
+            <label for="nScreen">筛查人数<span class="val" id="vN">100 000</span></label>
+            <input type="range" id="nScreen" min="0" max="1000" step="1" value="500">
+            <div class="hint">1 万 – 100 万（对数刻度）</div>
+          </div>
+          <div class="ctrl" style="margin-bottom:0">
+            <label for="bPrev">患病率 P<span class="val" id="vBPrev">0.50%</span></label>
+            <input type="range" id="bPrev" min="0" max="1000" step="1" value="602">
+          </div>
+          <div class="ctrl" style="margin-bottom:0">
+            <label for="bSe">灵敏度 Se<span class="val" id="vBSe">87.0%</span></label>
+            <input type="range" id="bSe" min="10" max="95" step="0.5" value="87">
+          </div>
+          <div class="ctrl" style="margin-bottom:0">
+            <label for="bSp">特异性 Sp<span class="val" id="vBSp">95.0%</span></label>
+            <input type="range" id="bSp" min="90" max="99.9" step="0.1" value="95">
+          </div>
+        </div>
+        <div class="readout" id="cohortReadout" style="margin-top:18px"></div>
+        <div class="tbl-wrap" style="margin-top:14px">
+          <table class="rule3" id="tblCohort">
+            <caption><b>Table 3｜</b>2 × 2 混淆矩阵（模拟数据，按输入参数与四舍五入计算）。</caption>
+          </table>
+        </div>
+        <div class="formula">
+          <div class="fl">每检出 1 例癌症所需筛查人数（NNS, number needed to screen）</div>
+          <div data-tex="\mathrm{NNS}=\frac{1}{P\cdot \mathrm{Se}}\qquad\text{假阳性 : 真阳性}=\frac{(1-\mathrm{Sp})(1-P)}{\mathrm{Se}\cdot P}" data-display="1"></div>
+        </div>
+        <div class="callout warn" id="cohortInsight"></div>
+      </div>
+    </div>
+
+    <!-- ============================ 工具 C ============================ -->
+    <div class="tool reveal">
+      <div class="tool-hd">
+        <span class="tno">TOOL C</span>
+        <h4>阈值—工作点探索器</h4>
+        <span class="th-note">与第 5 区块 Figure 5.1 及 Figure 1 双向联动</span>
+      </div>
+      <div class="tool-bd">
+        <div class="grid g23" style="gap:22px">
+          <div>
+            <div class="ctrl">
+              <label for="thrSlider2">阈值 t（与 Figure 5.1 同一变量）<span class="val" id="thrVal2">0.99</span></label>
+              <input type="range" id="thrSlider2" min="0.30" max="1.80" step="0.01" value="0.99">
+              <div class="hint">拖动即同步更新：Figure 5.1 阈值线、Figure 1 工作点、下方 PPV/NPV</div>
+            </div>
+            <div class="ctrl">
+              <label for="thrPrev">评估用患病率 P<span class="val" id="vThrPrev">0.50%</span></label>
+              <select id="thrPrev">
+                <option value="0.5" selected>0.5% · 无症状平均风险人群</option>
+                <option value="1">1.0% · 中等富集人群</option>
+                <option value="2">2.0% · 高危人群</option>
+                <option value="10">10% · 有症状就诊人群</option>
+              </select>
+            </div>
+            <div class="presetrow" style="margin-top:14px">
+              <button class="chip" id="btnSendToA">把当前工作点发送到工具 A ↑</button>
+              <a class="chip" href="#figScoreWrap">跳转到评分分布图 ↑</a>
+            </div>
+            <p class="tiny muted" style="margin-top:10px">
+              数学关系：<span class="mono">Se(t)=1−Φ((t−μ₁)/σ₁)</span>，<span class="mono">Sp(t)=Φ((t−μ₀)/σ₀)</span>，
+              双正态模型下 <span class="mono">AUC=Φ((μ₁−μ₀)/√(σ₀²+σ₁²))</span> 与阈值无关——
+              这正是「AUC 高」不能保证「任一工作点可用」的原因。
+            </p>
+          </div>
+          <div>
+            <div class="readout" id="thrReadout2"></div>
+            <div class="tbl-wrap" style="margin-top:12px">
+              <table class="rule3" id="tblThr">
+                <caption><b>Table 4｜</b>典型阈值下的工作点对照（演示模拟模型计算值）。</caption>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 8 区块 · 模拟检测报告                                              -->
+  <!-- ==================================================================== -->
+  <section id="s8">
+    <div class="sec-head">
+      <span class="sec-num">08</span>
+      <h2 data-zh="模拟检测报告（专业版）" data-en="Simulated Clinical Report">模拟检测报告（专业版）</h2>
+      <span class="sub">Report template · 3 scenarios</span>
+    </div>
+
+    <p class="reveal">
+      报告是模型与临床的唯一接口。以下模板演示三种典型情形：<b>阴性</b>、<b>阳性</b>、<b>质控不合格</b>。
+      设计要点在于：质控区先于结果区（质控不合格时结果区不得出图）、结论区必须写明「非临床诊断」、
+      页脚固定声明必须包含<b>不覆盖癌种</b>与<b>假阴性/假阳性</b>说明。
+    </p>
+
+    <div class="tabs no-print" id="repTabs"></div>
+    <div class="rep reveal" id="repBody"></div>
+    <p class="tiny muted reveal" style="margin-top:10px">
+      注：报告中受检者信息、样本编号、日期、质控数值、总分与 z-score 全部为<b>模拟数据</b>；
+      质控项中「cfDNA 投入量 ≥ 1 ng」「转化率 ≥ 99%」为给定规格，覆盖深度 / 文库复杂度 / Q30 阈值为<b>演示假设</b>。
+      4 个标志物区域以 M1–M4 占位，不披露基因身份，以避免虚构基因名称。
+    </p>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 9 区块 · 方法学局限与阴性证据                                      -->
+  <!-- ==================================================================== -->
+  <section id="s9">
+    <div class="sec-head">
+      <span class="sec-num">09</span>
+      <h2 data-zh="方法学局限与阴性证据" data-en="Limitations and Negative Evidence">方法学局限与阴性证据</h2>
+      <span class="sub">Academic integrity section</span>
+    </div>
+
+    <div class="callout risk reveal" style="margin-bottom:16px">
+      <h4>本区块不可省略</h4>
+      <p class="small" style="margin:0">
+        一个早筛模型演示如果只展示 AUC 与灵敏度，就是把<b>替代终点</b>当作<b>临床价值</b>。
+        以下 6 条为本模型与本领域当前的真实边界，其中第 2 条是全领域最重要的<b>阴性证据</b>。
+      </p>
+    </div>
+
+    <ol class="limlist reveal" id="limList"></ol>
+
+    <h3 class="sub-head reveal">9.1 三大筛查偏倚示意</h3>
+    <div class="biasgrid reveal">
+      <!-- 偏倚 1：领先时间偏倚 -->
+      <div class="biascard">
+        <h5>① 领先时间偏倚</h5>
+        <div class="en">Lead-time bias</div>
+        <svg viewBox="0 0 330 152" role="img" aria-label="领先时间偏倚示意">
+          <line x1="18" y1="130" x2="316" y2="130" stroke="var(--line2)" marker-end="url(#mkArrow2)"></line>
+          <defs><marker id="mkArrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--line2)"></path></marker></defs>
+          <text x="18" y="146" class="svg-tiny">生物学起病</text>
+          <text x="286" y="146" class="svg-tiny">时间 →</text>
+          <!-- 常规诊断行 -->
+          <text x="18" y="40" class="svg-tiny">常规确诊</text>
+          <line x1="18" y1="48" x2="290" y2="48" stroke="var(--line)" stroke-dasharray="3 3"></line>
+          <line x1="180" y1="38" x2="180" y2="58" stroke="var(--muted)" stroke-width="1.5"></line>
+          <text x="180" y="34" class="svg-tiny" text-anchor="middle">确诊 D</text>
+          <line x1="180" y1="48" x2="272" y2="48" stroke="var(--muted)" stroke-width="4"></line>
+          <text x="226" y="42" class="svg-tiny" text-anchor="middle">生存期</text>
+          <!-- 筛查诊断行 -->
+          <text x="18" y="88" class="svg-tiny">筛查检出</text>
+          <line x1="18" y1="96" x2="290" y2="96" stroke="var(--line)" stroke-dasharray="3 3"></line>
+          <line x1="92" y1="86" x2="92" y2="106" stroke="var(--blue)" stroke-width="1.5"></line>
+          <text x="92" y="82" class="svg-tiny" text-anchor="middle" fill="var(--blue)">检出 S</text>
+          <line x1="92" y1="96" x2="272" y2="96" stroke="var(--blue)" stroke-width="4"></line>
+          <text x="182" y="90" class="svg-tiny" text-anchor="middle" fill="var(--blue)">「更长」的生存期</text>
+          <!-- 死亡时间点 -->
+          <line x1="272" y1="30" x2="272" y2="130" stroke="var(--risk)" stroke-width="1.5" stroke-dasharray="4 3"></line>
+          <text x="272" y="24" class="svg-tiny" text-anchor="middle" fill="var(--risk)">死亡（时间不变）</text>
+          <line x1="92" y1="114" x2="180" y2="114" stroke="var(--amber)" stroke-width="1.2"></line>
+          <text x="136" y="126" class="svg-tiny" text-anchor="middle" fill="var(--amber)">lead time</text>
+        </svg>
+        <p>提前诊断把「测量起点」左移，生存期在统计上被延长，而<b>死亡时间未推迟</b>。任何以「筛查组 5 年生存率更高」为依据的获益宣称，都必须先排除本偏倚。</p>
+      </div>
+      <!-- 偏倚 2：病程长短偏倚 -->
+      <div class="biascard">
+        <h5>② 病程长短偏倚</h5>
+        <div class="en">Length（-time）bias</div>
+        <svg viewBox="0 0 330 152" role="img" aria-label="病程长短偏倚示意">
+          <rect x="150" y="14" width="34" height="116" fill="var(--blue2)" opacity=".12"></rect>
+          <text x="167" y="10" class="svg-tiny" text-anchor="middle" fill="var(--blue)">筛查时点</text>
+          <line x1="18" y1="130" x2="316" y2="130" stroke="var(--line2)"></line>
+          <text x="286" y="146" class="svg-tiny">时间 →</text>
+          <!-- 慢速肿瘤：可检出窗口长 -->
+          <line x1="46" y1="40" x2="268" y2="40" stroke="var(--ok)" stroke-width="5"></line>
+          <text x="18" y="34" class="svg-tiny">惰性 / 慢速</text>
+          <text x="272" y="44" class="svg-tiny" fill="var(--ok)">✓ 易被捕获</text>
+          <!-- 中速 -->
+          <line x1="120" y1="72" x2="214" y2="72" stroke="var(--amber)" stroke-width="5"></line>
+          <text x="18" y="66" class="svg-tiny">中速</text>
+          <text x="218" y="76" class="svg-tiny" fill="var(--amber)">✓ 可能捕获</text>
+          <!-- 快速：窗口短，落在筛查间隔之外 -->
+          <line x1="60" y1="104" x2="104" y2="104" stroke="var(--risk)" stroke-width="5"></line>
+          <text x="18" y="98" class="svg-tiny">侵袭 / 快速</text>
+          <text x="112" y="108" class="svg-tiny" fill="var(--risk)">✗ 常被漏过（间隔癌）</text>
+        </svg>
+        <p>肿瘤在「可检出但无症状」窗口中停留越久，越容易被某一次筛查捕获。筛查因而<b>系统性富集预后本就更好的惰性肿瘤</b>，而侵袭性肿瘤更多表现为间隔癌。</p>
+      </div>
+      <!-- 偏倚 3：过度诊断 -->
+      <div class="biascard">
+        <h5>③ 过度诊断</h5>
+        <div class="en">Overdiagnosis</div>
+        <svg viewBox="0 0 330 152" role="img" aria-label="过度诊断示意">
+          <line x1="34" y1="130" x2="316" y2="130" stroke="var(--line2)"></line>
+          <line x1="34" y1="130" x2="34" y2="14" stroke="var(--line2)"></line>
+          <text x="6" y="20" class="svg-tiny">肿瘤负荷</text>
+          <text x="286" y="146" class="svg-tiny">时间 →</text>
+          <line x1="34" y1="42" x2="316" y2="42" stroke="var(--risk)" stroke-dasharray="4 3"></line>
+          <text x="316" y="36" class="svg-tiny" text-anchor="end" fill="var(--risk)">出现症状 / 致死阈值</text>
+          <line x1="34" y1="98" x2="316" y2="98" stroke="var(--blue)" stroke-dasharray="4 3"></line>
+          <text x="316" y="112" class="svg-tiny" text-anchor="end" fill="var(--blue)">筛查可检出阈值</text>
+          <path d="M52 126 C110 120 140 70 176 34" fill="none" stroke="var(--risk)" stroke-width="2"></path>
+          <text x="180" y="30" class="svg-tiny" fill="var(--risk)">① 进展型</text>
+          <path d="M52 126 C130 118 200 104 300 92" fill="none" stroke="var(--amber)" stroke-width="2"></path>
+          <text x="240" y="86" class="svg-tiny" fill="var(--amber)">② 缓慢型</text>
+          <path d="M52 126 C140 122 220 121 300 120" fill="none" stroke="var(--muted)" stroke-width="2"></path>
+          <text x="240" y="134" class="svg-tiny" fill="var(--muted)">③ 静止型</text>
+          <path d="M52 122 C90 108 120 116 150 128" fill="none" stroke="var(--ok)" stroke-width="2"></path>
+          <text x="150" y="140" class="svg-tiny" fill="var(--ok)">④ 消退型</text>
+        </svg>
+        <p>轨迹 ②③④ 终生不会越过症状阈值，却可能被筛查检出并接受治疗——获得「癌症患者」身份与治疗伤害，却无任何生存获益。检出能力越强，过度诊断风险越高。</p>
+      </div>
+    </div>
+    <p class="tiny muted reveal" style="margin-top:10px">
+      示意图依据：Welch HG, Black WC. Overdiagnosis in cancer. JNCI 2010<sup class="cite" data-ref="welchBlack2010"></sup>。
+      三幅图为概念示意，非实测数据。
+    </p>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 10 区块 · 与现行指南和共识的关系                                   -->
+  <!-- ==================================================================== -->
+  <section id="s10">
+    <div class="sec-head">
+      <span class="sec-num">10</span>
+      <h2 data-zh="与现行指南和共识的关系" data-en="Relationship to Current Guidelines">与现行指南和共识的关系</h2>
+      <span class="sub">Guidelines · regulatory status · clinical pathway</span>
+    </div>
+
+    <h3 class="sub-head reveal">10.1 2025 年液体活检联合筛查专家共识</h3>
+    <div class="grid g32 reveal">
+      <div class="card" id="consensusCard"></div>
+      <div class="callout warn" id="positioningCard"></div>
+    </div>
+
+    <h3 class="sub-head reveal">10.2 监管现状（截至 2026 年）</h3>
+    <div class="tbl-wrap reveal">
+      <table class="rule3" id="tblReg">
+        <caption><b>Table 5｜</b>泛癌种早筛产品的监管状态。单癌种血检的获批不等于泛癌种检测获批，二者的适用声明范围完全不同。</caption>
+      </table>
+    </div>
+    <p class="tiny muted reveal" style="margin-top:8px">
+      口径说明：Guardant Shield 与 Freenome 的获批适应证为<b>单癌种（结直肠癌）</b>筛查<sup class="cite" data-ref="chung2024"></sup>；
+      GRAIL 已就 Galleri 提交 PMA，FDA 咨询委员会定于 2026 年 9 月审评<span class="etag et-ind">企业/会议数据</span>。
+      本条为监管进程信息，随时间变化，引用前请核实最新公告。
+    </p>
+
+    <h3 class="sub-head reveal">10.3 阳性结果后的临床路径建议</h3>
+    <div class="pathway reveal" id="pathwayFlow"></div>
+    <div class="callout reveal" style="margin-top:14px">
+      <h4>路径设计的三个必答问题 <span class="etag et-prosp">前瞻队列</span></h4>
+      <ol class="small" style="margin:0; padding-left:20px">
+        <li><b>谁负责闭环？</b>阳性结果必须有指定的随访责任人与时限，否则受检者将在多科室间自行游走。</li>
+        <li><b>检查强度如何限定？</b>无定位信息时应避免无节制全身影像；DETECT-A 与 PATHFINDER 均显示阳性后检查负担是主要成本项<sup class="cite" data-ref="lennon2020,schrag2023"></sup>。</li>
+        <li><b>如何解除标签？</b>必须事先定义「多长时间、何种检查阴性后判为假阳性并终止随访」，否则受检者将长期承担「疑似癌症」身份。</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 11 区块 · 参考文献                                                 -->
+  <!-- ==================================================================== -->
+  <section id="s11">
+    <div class="sec-head">
+      <span class="sec-num">11</span>
+      <h2 data-zh="参考文献" data-en="References">参考文献</h2>
+      <span class="sub">编号与正文上标一致 · 点击条目展开摘要</span>
+    </div>
+    <div class="reveal" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
+      <button class="chip no-print" id="btnExpandAll">展开全部摘要</button>
+      <button class="chip no-print" id="btnCollapseAll">收起全部摘要</button>
+      <span class="tiny muted">共 <b id="refCount">0</b> 条。标注「待核」者为本演示未能确认的卷期或作者信息，已如实标出，未做任何虚构补全。</span>
+    </div>
+    <ol class="reflist" id="refList"></ol>
+    <div class="callout warn reveal" style="margin-top:16px">
+      <h4>文献校订说明（学术诚信）</h4>
+      <p class="small" style="margin:0">
+        任务书中 THUNDER（燃石 OverC）研究原列为「Jamshidi A, et al. Ann Oncol 2023」。经核对，THUNDER 的发表为
+        <b>Gao Q, Lin YP, Li BS, et al. Ann Oncol 2023;34(6):486-495</b>；Jamshidi A 等（Cancer Cell 2022）为 GRAIL 的另一项
+        方法学比较研究。本演示按「文献准确性优先于原始清单」的原则更正，并在条目内保留校订记录。
+        另有 2 条（《常见恶性肿瘤联合筛查共识》卷期、MERCURY 作者列表）本演示无法确认，已标注「待核」而非填充虚构信息。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- 第 12 区块 · 页脚                                                     -->
+  <!-- ==================================================================== -->
+  <section id="s12" style="margin-bottom:0">
+    <div class="pagefoot" id="pageFoot"></div>
+  </section>
+  </main>
+</div>
+
+<button id="toTop" class="no-print" title="返回顶部" aria-label="返回顶部">↑</button>
+
+<script>
+/* ============================================================================
+   逻辑层 · Part 1：基础设施 / 参考文献 / 导航 / 机制图 / SOP / 算法
+   ============================================================================ */
+'use strict';
+
+/* ------------------------------------------------ 全局状态与埋点占位 */
+const STATE = {
+  lang: 'zh',
+  theme: 'light',
+  thr: MODEL_DATA.algorithm.scoreModel.threshold,
+  repTab: 'negative',
+  toolAPrev: 0.5, toolASe: 87, toolASp: 95,
+  toolBN: 100000, toolBPrev: 0.5, toolBSe: 87, toolBSp: 95,
+  toolCPrev: 0.5
+};
+
+/* 页面访问埋点占位：默认关闭；接入时填 endpoint 并置 enabled=true 即可 */
+const ANALYTICS = {
+  enabled: false,
+  endpoint: '',          /* 例如 'https://example.org/collect' */
+  buffer: [],
+  track(event, payload) {
+    const rec = { event: event, payload: payload || {}, ts: new Date().toISOString(), href: location.href };
+    this.buffer.push(rec);
+    if (this.buffer.length > 500) this.buffer.shift();
+    if (!this.enabled || !this.endpoint) return;
+    try { navigator.sendBeacon(this.endpoint, JSON.stringify(rec)); } catch (e) { /* 静默失败 */ }
+  },
+  dump() { return this.buffer.slice(); }
+};
+window.__MCED_DEMO__ = { MODEL_DATA: MODEL_DATA, REFERENCES: REFERENCES, STATE: STATE, ANALYTICS: ANALYTICS };
+
+/* ------------------------------------------------ DOM 与格式化工具 */
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+function elt(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function svgEl(tag, attrs, text) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const k in (attrs || {})) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  return e;
+}
+const fmtInt = n => Math.round(n).toLocaleString('en-US').replace(/,/g, ' ');
+const fmt1   = n => (Math.round(n * 10) / 10).toFixed(1);
+const fmt2   = n => (Math.round(n * 100) / 100).toFixed(2);
+const pct1   = n => fmt1(n) + '%';
+function T(zh, en) { return STATE.lang === 'en' ? en : zh; }
+function tagHtml(key, plain) {
+  const t = MODEL_DATA.tags[key];
+  if (!t) return '';
+  return '<span class="etag et-' + key + (plain ? ' plain' : '') + '" title="' + t.desc + '">' + T(t.zh, t.en) + '</span>';
+}
+function citeHtml(ids) { return ids ? '<sup class="cite" data-ref="' + ids + '"></sup>' : ''; }
+
+/* ------------------------------------------------ 统计学工具函数 */
+/* 标准正态分布 CDF（Zelen & Severo 近似，|误差| < 7.5e-8） */
+function ncdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+  const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x > 0 ? 1 - p : p;
+}
+function npdf(x, mu, sd) { const z = (x - mu) / sd; return Math.exp(-z * z / 2) / (sd * Math.sqrt(2 * Math.PI)); }
+/* 正态分位数（Acklam 有理逼近） */
+function probit(p) {
+  if (p <= 0) return -Infinity; if (p >= 1) return Infinity;
+  const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+  const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
+  const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+  const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+  const pl = 0.02425, ph = 1 - pl; let q, r;
+  if (p < pl) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  if (p > ph) { q = Math.sqrt(-2 * Math.log(1-p)); return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  q = p - 0.5; r = q * q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+/* Wilson 得分区间（比例的 95% CI，小样本与极端比例下优于 Wald 区间） */
+function wilsonCI(k, n, z) {
+  z = z || 1.959963985;
+  if (!n) return [null, null];
+  const p = k / n, z2 = z * z, den = 1 + z2 / n;
+  const centre = p + z2 / (2 * n);
+  const half = z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n));
+  return [Math.max(0, (centre - half) / den) * 100, Math.min(1, (centre + half) / den) * 100];
+}
+/* 演示双正态评分模型 */
+const SM = MODEL_DATA.algorithm.scoreModel;
+const seAt = t => (1 - ncdf((t - SM.cancer.mu) / SM.cancer.sd)) * 100;
+const spAt = t => ncdf((t - SM.healthy.mu) / SM.healthy.sd) * 100;
+const thrForSp = sp => SM.healthy.mu + probit(sp / 100) * SM.healthy.sd;
+/* 贝叶斯预测值：p/se/sp 均以百分数传入 */
+function predictive(p, se, sp) {
+  const P = p / 100, Se = se / 100, Sp = sp / 100;
+  const tp = Se * P, fn = (1 - Se) * P, fp = (1 - Sp) * (1 - P), tn = Sp * (1 - P);
+  return {
+    tp: tp, fn: fn, fp: fp, tn: tn,
+    ppv: tp + fp > 0 ? tp / (tp + fp) * 100 : 0,
+    npv: tn + fn > 0 ? tn / (tn + fn) * 100 : 0,
+    lrp: Sp < 1 ? Se / (1 - Sp) : Infinity,
+    lrn: Sp > 0 ? (1 - Se) / Sp : Infinity,
+    nns: P * Se > 0 ? 1 / (P * Se) : Infinity,
+    fpRatio: tp > 0 ? fp / tp : Infinity
+  };
+}
+/* 对数刻度滑块映射：滑块 0–1000 ↔ [lo, hi] */
+const logMap = (v, lo, hi) => lo * Math.pow(hi / lo, v / 1000);
+const logInv = (x, lo, hi) => Math.round(1000 * Math.log(x / lo) / Math.log(hi / lo));
+
+/* ------------------------------------------------ 区块目录 */
+const SECTIONS = [
+  { id: 's1',  n: '01', zh: '标题与范围',          en: 'Title & Scope',        short: '标题' },
+  { id: 's2',  n: '02', zh: '研究背景与临床需求',  en: 'Background & Need',    short: '背景' },
+  { id: 's3',  n: '03', zh: '分子机制',            en: 'Molecular Basis',      short: '机制' },
+  { id: 's4',  n: '04', zh: '技术路线与实验流程',  en: 'Technical Workflow',   short: '技术路线' },
+  { id: 's5',  n: '05', zh: '算法与建模',          en: 'Algorithm & Modeling', short: '算法' },
+  { id: 's6',  n: '06', zh: '模型性能验证',        en: 'Validation',           short: '性能' },
+  { id: 's7',  n: '07', zh: '交互验证工具',        en: 'Interactive Tools',    short: '交互工具' },
+  { id: 's8',  n: '08', zh: '模拟检测报告',        en: 'Simulated Report',     short: '报告' },
+  { id: 's9',  n: '09', zh: '方法学局限与阴性证据',en: 'Limitations',          short: '局限' },
+  { id: 's10', n: '10', zh: '与指南和共识的关系',  en: 'Guidelines',           short: '指南' },
+  { id: 's11', n: '11', zh: '参考文献',            en: 'References',           short: '文献' },
+  { id: 's12', n: '12', zh: '页脚与声明',          en: 'Footer',               short: '页脚' }
+];
+
+function buildNav() {
+  const nl = $('#navlinks'), tl = $('#tocList');
+  nl.innerHTML = ''; tl.innerHTML = '';
+  SECTIONS.forEach(s => {
+    const a = elt('a', null, T(s.short, s.en));
+    a.href = '#' + s.id;
+    nl.appendChild(a);
+    const li = elt('li');
+    const la = elt('a', null, '<span class="num">' + s.n + '</span><span>' + T(s.zh, s.en) + '</span>');
+    la.href = '#' + s.id; la.dataset.target = s.id;
+    li.appendChild(la); tl.appendChild(li);
+  });
+}
+
+/* ------------------------------------------------ 参考文献渲染与上标绑定 */
+function renderRefs() {
+  const ol = $('#refList'); ol.innerHTML = '';
+  REFERENCES.forEach((r, i) => {
+    const li = elt('li', 'refitem'); li.id = 'ref-' + r.id;
+    const loc = r.loc ? ' <span class="mono">' + r.loc + '</span>' : '';
+    const journal = r.journal && r.journal !== '—' ? '<i>' + r.journal + '</i>. ' : '';
+    const q = encodeURIComponent(r.title);
+    li.innerHTML =
+      '<div class="rnum">' + (i + 1) + '.</div>' +
+      '<div class="rmain">' +
+        '<div class="rt">' + r.authors + ' ' + r.title + '.</div>' +
+        '<div class="rj">' + journal + r.year + ';' + loc + (r.study ? ' · ' + r.study : '') + '</div>' +
+        '<div class="rmeta">' + tagHtml(r.tag) +
+          '<button class="linkbtn" data-abs="' + r.id + '">展开摘要 / 说明</button>' +
+          '<a class="linkbtn" href="https://pubmed.ncbi.nlm.nih.gov/?term=' + q + '" target="_blank" rel="noopener">PubMed 检索</a>' +
+        '</div>' +
+        '<div class="rabs"><b>要点：</b>' + (r.abstract || '（本演示未收录摘要）') + '</div>' +
+        (r.note ? '<div class="rnote"><b>校订 / 待核：</b>' + r.note + '</div>' : '') +
+      '</div>';
+    ol.appendChild(li);
+  });
+  $('#refCount').textContent = REFERENCES.length;
+  ol.addEventListener('click', e => {
+    const b = e.target.closest('[data-abs]');
+    if (!b) return;
+    const item = b.closest('.refitem');
+    item.classList.toggle('open');
+    b.textContent = item.classList.contains('open') ? '收起摘要' : '展开摘要 / 说明';
+    ANALYTICS.track('ref_abstract_toggle', { id: b.dataset.abs });
+  });
+  $('#btnExpandAll').addEventListener('click', () => {
+    $$('.refitem').forEach(x => x.classList.add('open'));
+    $$('[data-abs]').forEach(b => b.textContent = '收起摘要');
+  });
+  $('#btnCollapseAll').addEventListener('click', () => {
+    $$('.refitem').forEach(x => x.classList.remove('open'));
+    $$('[data-abs]').forEach(b => b.textContent = '展开摘要 / 说明');
+  });
+}
+
+let citeDelegated = false;
+function bindCitations() {
+  const map = {}; REFERENCES.forEach((r, i) => map[r.id] = i + 1);
+  $$('sup.cite').forEach(sup => {
+    const ids = (sup.dataset.ref || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!ids.length) return;
+    sup.innerHTML = ids.map(id => map[id]
+      ? '<a href="#ref-' + id + '" data-id="' + id + '">' + map[id] + '</a>'
+      : '<a title="未匹配文献">?</a>').join('<span class="sep">,</span>');
+  });
+  if (citeDelegated) return;
+  citeDelegated = true;
+  document.body.addEventListener('click', e => {
+    const a = e.target.closest('sup.cite a[data-id]');
+    if (!a) return;
+    e.preventDefault(); jumpToRef(a.dataset.id);
+  });
+}
+function jumpToRef(id) {
+  const el = document.getElementById('ref-' + id);
+  if (!el) return;
+  el.classList.add('open');
+  const btn = $('[data-abs]', el); if (btn) btn.textContent = '收起摘要';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 2600);
+  ANALYTICS.track('cite_jump', { id: id });
+}
+
+/* ------------------------------------------------ 第 1 / 2 区块渲染 */
+function renderHero() {
+  const m = MODEL_DATA.meta;
+  $('#heroTitle').textContent = m.title;
+  $('#heroTitleEn').textContent = m.titleEn;
+  $('#bannerText').textContent = ' ' + T(m.banner, m.bannerEn);
+  const items = [
+    ['模型版本 / Version', m.version],
+    ['样本类型 / Specimen', m.sampleType],
+    ['平台 / Platform', m.platform],
+    ['文档性质 / Document', m.nature]
+  ];
+  $('#heroMeta').innerHTML = items.map(x => '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>').join('');
+  $('#tagLegend').innerHTML = Object.keys(MODEL_DATA.tags)
+    .map(k => tagHtml(k) + ' <span style="margin-left:-4px">' + MODEL_DATA.tags[k].desc + '</span>').join('<br>');
+}
+function renderEpi() {
+  const box = $('#epiCards'); box.innerHTML = '';
+  MODEL_DATA.epidemiology.cards.forEach(c => {
+    box.appendChild(elt('div', 'statcard',
+      '<div class="k">' + c.k + '<small>' + c.unit + '</small></div>' +
+      '<div class="lb">' + c.label + citeHtml(c.refs) + '</div>' +
+      '<div class="sb">' + c.sub + ' ' + tagHtml(c.tag, true) + '</div>'));
+  });
+  $('#sciQuestion').textContent = '「' + MODEL_DATA.epidemiology.question + '」';
+  $('#sciQuestionEn').textContent = MODEL_DATA.epidemiology.questionEn;
+}
+
+/* ------------------------------------------------ 第 3 区块：机制图 */
+const MECH_TEXT = {};
+function buildMechanismFigure() {
+  const root = $('#mechRoot'); if (!root) return;
+  root.innerHTML = '';
+  const add = (t, a, txt) => { const e = svgEl(t, a, txt); root.appendChild(e); return e; };
+
+  /* --- 标题带 --- */
+  add('text', { x: 16, y: 24, class: 'svg-title' }, 'Figure M1 · 正常细胞 vs 癌细胞：甲基化图谱与 cfDNA 释放');
+  add('text', { x: 16, y: 42, class: 'svg-tiny' }, '滚轮缩放 / 拖动平移；点击虚线框标注查看专业解说（示意图，非按比例绘制）');
+  add('line', { x1: 16, y1: 52, x2: 964, y2: 52, stroke: 'var(--line)' });
+
+  /* --- 面板骨架 --- */
+  const panels = [
+    { x: 16,  fill: 'var(--surface2)', stroke: 'var(--line)',  title: '正常细胞 Normal cell', accent: 'var(--muted)', kind: 'normal' },
+    { x: 502, fill: 'var(--risk-bg)',  stroke: 'var(--line)',  title: '癌细胞 Cancer cell',   accent: 'var(--risk)',  kind: 'tumor' }
+  ];
+  panels.forEach(P => {
+    add('rect', { x: P.x, y: 64, width: 462, height: 340, rx: 6, fill: P.fill, stroke: P.stroke });
+    add('text', { x: P.x + 16, y: 88, class: 'svg-title', style: 'font-size:14px' }, P.title);
+    const cx = P.x + 104, cy = 178;
+    if (P.kind === 'normal') {
+      add('ellipse', { cx: cx, cy: cy, rx: 84, ry: 68, fill: 'none', stroke: 'var(--line2)', 'stroke-width': 1.4 });
+      add('ellipse', { cx: cx, cy: cy, rx: 48, ry: 40, fill: 'none', stroke: 'var(--muted)', 'stroke-width': 1.2 });
+      add('path', { d: 'M' + (cx - 40) + ' ' + (cy - 18) + ' q20 -13 40 0 q20 13 40 0', fill: 'none', stroke: 'var(--muted)', 'stroke-width': 1 });
+      add('path', { d: 'M' + (cx - 40) + ' ' + (cy + 18) + ' q20 -13 40 0 q20 13 40 0', fill: 'none', stroke: 'var(--muted)', 'stroke-width': 1 });
+      add('text', { x: cx, y: cy + 4, class: 'svg-tiny', 'text-anchor': 'middle' }, '细胞核');
+      add('text', { x: cx, y: 262, class: 'svg-tiny', 'text-anchor': 'middle' }, '染色体结构稳定 · 转座子沉默');
+    } else {
+      add('path', { d: 'M' + (cx - 6) + ' 110 q66 -20 106 16 q40 36 18 78 q-20 42 -68 48 q-52 6 -78 -32 q-24 -38 -2 -72 q10 -22 24 -38 z',
+                    fill: 'none', stroke: 'var(--risk)', 'stroke-width': 1.4 });
+      add('ellipse', { cx: cx, cy: cy, rx: 46, ry: 42, fill: 'none', stroke: 'var(--risk)', 'stroke-width': 1.2, transform: 'rotate(-9 ' + cx + ' ' + cy + ')' });
+      add('path', { d: 'M' + (cx - 38) + ' ' + (cy - 20) + ' q19 -17 38 -2 q19 15 38 -6', fill: 'none', stroke: 'var(--risk)', 'stroke-width': 1 });
+      add('path', { d: 'M' + (cx - 38) + ' ' + (cy + 20) + ' q19 -15 38 2 q19 17 38 -4', fill: 'none', stroke: 'var(--risk)', 'stroke-width': 1 });
+      add('text', { x: cx, y: cy + 4, class: 'svg-tiny', 'text-anchor': 'middle' }, '核形不规则');
+      add('text', { x: cx, y: 262, class: 'svg-tiny', 'text-anchor': 'middle', fill: 'var(--risk)' }, '染色体不稳定 · 转座子（LINE-1）激活');
+    }
+  });
+
+  /* --- 基因组轨道：三个区域 × 甲基化 lollipop --- */
+  /* pattern: 1 = 甲基化(实心), 0 = 未甲基化(空心) */
+  const regions = [
+    { key: 'repeat', name: '重复序列 / 转座子', w: 118, normal: [1,1,1,1,1,1], tumor: [0,0,1,0,0,0] },
+    { key: 'shore',  name: 'CpG shore (−2kb)', w: 62,  normal: [0,1,0], tumor: [1,1,1] },
+    { key: 'island', name: 'CpG 岛启动子',      w: 96,  normal: [0,0,0,0,0], tumor: [1,1,1,1,1] },
+    { key: 'shore2', name: 'CpG shore (+2kb)', w: 62,  normal: [1,0,1], tumor: [1,1,1] },
+    { key: 'body',   name: '基因体 exon/intron', w: 84, normal: [1,0,1,1], tumor: [0,1,0,0] }
+  ];
+  panels.forEach(P => {
+    let x = P.x + 22;
+    const yDot = 312, yStem = 328, yLine = 332, yBar = 340, yName = 356;
+    add('line', { x1: P.x + 18, y1: yLine, x2: P.x + 444, y2: yLine, stroke: 'var(--ink2)', 'stroke-width': 1 });
+    add('line', { x1: P.x + 18, y1: yLine + 4, x2: P.x + 444, y2: yLine + 4, stroke: 'var(--ink2)', 'stroke-width': 1, opacity: .5 });
+    regions.forEach(R => {
+      const pat = P.kind === 'normal' ? R.normal : R.tumor;
+      const barFill = (R.key === 'island') ? 'var(--blue2)' : (R.key.indexOf('shore') === 0 ? 'var(--blue)' : 'var(--faint)');
+      add('rect', { x: x, y: yBar, width: R.w, height: 6, rx: 1, fill: barFill, opacity: R.key === 'island' ? .55 : .3 });
+      add('text', { x: x + R.w / 2, y: yName + 2, class: 'svg-tiny', 'text-anchor': 'middle' }, R.name);
+      const step = R.w / (pat.length + 1);
+      pat.forEach((m, i) => {
+        const dx = x + step * (i + 1);
+        add('line', { x1: dx, y1: yDot + 5, x2: dx, y2: yStem, stroke: 'var(--muted)', 'stroke-width': .8 });
+        add('circle', { cx: dx, cy: yDot, r: 4.6, fill: m ? 'var(--ink)' : 'var(--surface)', stroke: 'var(--ink2)', 'stroke-width': 1.1 });
+      });
+      x += R.w + 6;
+    });
+    /* 区域注释 */
+    if (P.kind === 'normal') {
+      add('text', { x: P.x + 22, y: 296, class: 'svg-mono' }, '● 甲基化   ○ 未甲基化');
+      add('text', { x: P.x + 22, y: 380, class: 'svg-tiny' }, '重复序列高甲基化（沉默）· CpG 岛启动子去甲基化（抑癌基因正常转录）');
+    } else {
+      add('text', { x: P.x + 22, y: 296, class: 'svg-mono', fill: 'var(--risk)' }, '全基因组低甲基化 + 启动子局灶高甲基化（图谱「反转」）');
+      add('text', { x: P.x + 22, y: 380, class: 'svg-tiny', fill: 'var(--risk)' }, 'MLH1 / p16(CDKN2A) / BRCA1 等抑癌基因启动子沉默；shores 为差异甲基化富集区');
+    }
+  });
+
+  /* --- 热区标注（可点击） --- */
+  const hots = [
+    { key: 'hypo',   x: 508, y: 286, w: 250, h: 16, label: '① 全基因组低甲基化' },
+    { key: 'hyper',  x: 700, y: 302, w: 150, h: 24, label: '② 启动子高甲基化' },
+    { key: 'shore',  x: 508, y: 348, w: 250, h: 18, label: '③ CpG shores 富集' },
+    { key: 'early',  x: 20,  y: 286, w: 220, h: 16, label: '④ 最早期分子事件' }
+  ];
+  hots.forEach(H => {
+    const g = svgEl('g', { class: 'hot', 'data-mech': H.key, tabindex: '0' });
+    g.appendChild(svgEl('rect', { class: 'hit', x: H.x, y: H.y, width: H.w, height: H.h, rx: 3 }));
+    g.appendChild(svgEl('rect', { x: H.x, y: H.y, width: H.w, height: H.h, rx: 3, fill: 'none', stroke: 'var(--blue)', 'stroke-dasharray': '3 3', 'stroke-width': .9, opacity: .8 }));
+    root.appendChild(g);
+  });
+
+  /* --- 图例带 --- */
+  add('rect', { x: 16, y: 412, width: 948, height: 26, rx: 4, fill: 'var(--surface2)', stroke: 'var(--line)' });
+  const lg = [
+    ['circle-filled', '甲基化 CpG (5mC)'], ['circle-open', '未甲基化 CpG'],
+    ['bar-island', 'CpG 岛'], ['bar-shore', 'CpG shore (±2kb)'], ['bar-other', '重复序列 / 基因体']
+  ];
+  let lx = 34;
+  lg.forEach(item => {
+    if (item[0] === 'circle-filled') add('circle', { cx: lx, cy: 425, r: 4.6, fill: 'var(--ink)', stroke: 'var(--ink2)' });
+    else if (item[0] === 'circle-open') add('circle', { cx: lx, cy: 425, r: 4.6, fill: 'var(--surface)', stroke: 'var(--ink2)' });
+    else add('rect', { x: lx - 7, y: 422, width: 14, height: 6, rx: 1,
+      fill: item[0] === 'bar-island' ? 'var(--blue2)' : (item[0] === 'bar-shore' ? 'var(--blue)' : 'var(--faint)'),
+      opacity: item[0] === 'bar-other' ? .3 : .55 });
+    add('text', { x: lx + 12, y: 429, class: 'svg-tiny' }, item[1]);
+    lx += 24 + item[1].length * 7.2;
+  });
+
+  /* --- 血浆 cfDNA 池 --- */
+  add('rect', { x: 16, y: 448, width: 948, height: 200, rx: 6, fill: 'var(--surface)', stroke: 'var(--line)' });
+  add('text', { x: 32, y: 472, class: 'svg-title', style: 'font-size:14px' }, '外周血血浆 cfDNA 池 Plasma cfDNA pool');
+  add('line', { x1: 32, y1: 480, x2: 948, y2: 480, stroke: 'var(--line)' });
+  /* 释放箭头 */
+  add('path', { d: 'M150 404 C150 424 150 430 150 446', fill: 'none', stroke: 'var(--muted)', 'stroke-width': 1, 'marker-end': 'url(#mkArrow)' });
+  add('path', { d: 'M636 404 C636 424 636 430 636 446', fill: 'none', stroke: 'var(--risk)', 'stroke-width': 1.4, 'marker-end': 'url(#mkArrow)' });
+  add('text', { x: 158, y: 444, class: 'svg-tiny' }, '造血细胞凋亡释放 (> 80%)');
+  add('text', { x: 644, y: 444, class: 'svg-tiny', fill: 'var(--risk)' }, '肿瘤细胞凋亡 / 坏死释放 ctDNA (~0.022%)');
+
+  /* 片段长度示意 */
+  add('text', { x: 46, y: 508, class: 'svg-label' }, '片段长度分布（示意）');
+  add('line', { x1: 46, y1: 596, x2: 366, y2: 596, stroke: 'var(--line2)' });
+  add('text', { x: 46, y: 612, class: 'svg-tiny' }, '100 bp');
+  add('text', { x: 340, y: 612, class: 'svg-tiny' }, '250 bp');
+  /* 两条峰曲线：正常 cfDNA ~167bp，ctDNA ~143bp */
+  const peak = (mu, color, dash) => {
+    let d = '';
+    for (let bp = 100; bp <= 250; bp += 3) {
+      const x = 46 + (bp - 100) / 150 * 320;
+      const y = 596 - 74 * Math.exp(-Math.pow((bp - mu) / 22, 2));
+      d += (d ? ' L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    }
+    add('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.6, 'stroke-dasharray': dash || 'none' });
+  };
+  peak(167, 'var(--muted)');
+  peak(143, 'var(--risk)', '4 3');
+  add('line', { x1: 46 + 67 / 150 * 320, y1: 522, x2: 46 + 67 / 150 * 320, y2: 596, stroke: 'var(--muted)', 'stroke-dasharray': '2 2' });
+  add('line', { x1: 46 + 43 / 150 * 320, y1: 522, x2: 46 + 43 / 150 * 320, y2: 596, stroke: 'var(--risk)', 'stroke-dasharray': '2 2' });
+  add('text', { x: 46 + 67 / 150 * 320 + 4, y: 518, class: 'svg-mono' }, '~167 bp 正常 cfDNA');
+  add('text', { x: 46 + 43 / 150 * 320 - 4, y: 534, class: 'svg-mono', 'text-anchor': 'end', fill: 'var(--risk)' }, 'ctDNA ~143 bp');
+  const gFrag = svgEl('g', { class: 'hot', 'data-mech': 'fragment', tabindex: '0' });
+  gFrag.appendChild(svgEl('rect', { class: 'hit', x: 40, y: 494, width: 336, height: 112, rx: 4 }));
+  gFrag.appendChild(svgEl('rect', { x: 40, y: 494, width: 336, height: 112, rx: 4, fill: 'none', stroke: 'var(--blue)', 'stroke-dasharray': '3 3', 'stroke-width': .9, opacity: .7 }));
+  root.appendChild(gFrag);
+
+  /* 采样瓶颈量化框 */
+  add('rect', { x: 404, y: 494, width: 268, height: 112, rx: 4, fill: 'var(--risk-bg)', stroke: '#F6C7C7' });
+  add('text', { x: 418, y: 514, class: 'svg-label', fill: 'var(--risk)' }, '采样瓶颈（灵敏度的生物学上限）');
+  add('text', { x: 418, y: 534, class: 'svg-mono' }, '1 cm³ 肿瘤 / 15 mL 全血');
+  add('text', { x: 418, y: 552, class: 'svg-mono' }, '→ 约 1.7 个基因组当量');
+  add('text', { x: 418, y: 570, class: 'svg-mono' }, '→ 肿瘤分数 ≈ 0.022%');
+  add('text', { x: 418, y: 592, class: 'svg-tiny' }, '每 10 000 个 cfDNA 分子中约 2 个来自肿瘤');
+  const gBn = svgEl('g', { class: 'hot', 'data-mech': 'bottleneck', tabindex: '0' });
+  gBn.appendChild(svgEl('rect', { class: 'hit', x: 404, y: 494, width: 268, height: 112, rx: 4 }));
+  root.appendChild(gBn);
+
+  /* CHIP 干扰框 */
+  add('rect', { x: 696, y: 494, width: 252, height: 112, rx: 4, fill: 'var(--amber-bg)', stroke: '#F5D9A8' });
+  add('text', { x: 710, y: 514, class: 'svg-label', fill: 'var(--amber)' }, '干扰源：克隆性造血 CHIP');
+  add('text', { x: 710, y: 534, class: 'svg-mono' }, '> 70 岁携带率 ≈ 10%');
+  add('text', { x: 710, y: 552, class: 'svg-tiny' }, '突变型检测：假阳性主要来源');
+  add('text', { x: 710, y: 570, class: 'svg-tiny' }, '甲基化模式识别：受干扰相对较小');
+  add('text', { x: 710, y: 592, class: 'svg-tiny', fill: 'var(--muted)' }, '→ 本模型选择甲基化为主标志物的理由');
+  const gChip = svgEl('g', { class: 'hot', 'data-mech': 'chip', tabindex: '0' });
+  gChip.appendChild(svgEl('rect', { class: 'hit', x: 696, y: 494, width: 252, height: 112, rx: 4 }));
+  root.appendChild(gChip);
+
+  /* --- 解说文本表 --- */
+  const M = MODEL_DATA.mechanism;
+  M.epigenome.forEach(x => MECH_TEXT[x.key] = { title: x.title, text: x.text, refs: x.refs, tag: x.tag });
+  M.cfdna.forEach(x => MECH_TEXT[x.key] = { title: x.title, text: x.text, refs: x.refs, tag: 'mech' });
+  MECH_TEXT.bottleneck = { title: M.bottleneck.title, text: M.bottleneck.text, refs: M.bottleneck.refs, tag: 'mech' };
+  MECH_TEXT.chip = { title: M.interference.title, text: M.interference.text, refs: M.interference.refs, tag: 'prosp' };
+  MECH_TEXT.hypo = MECH_TEXT.hypo || {};
+
+  /* --- 交互：点击热区 --- */
+  root.addEventListener('click', e => {
+    const g = e.target.closest('.hot'); if (!g) return;
+    showMech(g.dataset.mech);
+    $$('.hot', root).forEach(h => h.classList.remove('on'));
+    g.classList.add('on');
+  });
+  bindSvgZoom($('#mechSvg'), root);
+}
+function showMech(key) {
+  const d = MECH_TEXT[key]; const box = $('#mechDetail');
+  if (!d || !d.title) { box.innerHTML = '<div class="small muted">该标注暂无扩展解说。</div>'; return; }
+  box.innerHTML = '<h4 class="mini-head" style="margin-top:0">' + d.title + ' ' + tagHtml(d.tag || 'mech', true) + '</h4>' +
+    '<p class="small" style="margin:0">' + d.text + citeHtml(d.refs) + '</p>';
+  bindCitations();
+  ANALYTICS.track('mech_detail', { key: key });
+}
+/* SVG 缩放与平移（viewBox 操作，纯原生） */
+function bindSvgZoom(svg, root) {
+  if (!svg) return;
+  const base = { x: 0, y: 0, w: 980, h: 664 };
+  let vb = Object.assign({}, base), drag = null;
+  const apply = () => svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+  const zoom = (f, cx, cy) => {
+    const nw = Math.min(base.w * 2.5, Math.max(base.w * 0.28, vb.w * f));
+    const k = nw / vb.w;
+    vb.x = cx - (cx - vb.x) * k; vb.y = cy - (cy - vb.y) * k;
+    vb.w = nw; vb.h = base.h * (nw / base.w); apply();
+  };
+  const pt = e => {
+    const r = svg.getBoundingClientRect();
+    return { x: vb.x + (e.clientX - r.left) / r.width * vb.w, y: vb.y + (e.clientY - r.top) / r.height * vb.h };
+  };
+  svg.addEventListener('wheel', e => { e.preventDefault(); const p = pt(e); zoom(e.deltaY > 0 ? 1.12 : 0.89, p.x, p.y); }, { passive: false });
+  svg.addEventListener('pointerdown', e => { drag = { p: pt(e), vb: Object.assign({}, vb) }; svg.classList.add('dragging'); });
+  svg.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const r = svg.getBoundingClientRect();
+    /* 以按下时的 viewBox 为基准，把光标位移换算成用户坐标位移 */
+    const cur = {
+      x: drag.vb.x + (e.clientX - r.left) / r.width * drag.vb.w,
+      y: drag.vb.y + (e.clientY - r.top) / r.height * drag.vb.h
+    };
+    vb.x = drag.vb.x - (cur.x - drag.p.x);
+    vb.y = drag.vb.y - (cur.y - drag.p.y);
+    apply();
+  });
+  const end = () => { drag = null; svg.classList.remove('dragging'); };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointerleave', end);
+  $$('[data-svgzoom]').forEach(b => b.addEventListener('click', () => {
+    const m = b.dataset.svgzoom;
+    if (m === 'reset') { vb = Object.assign({}, base); apply(); }
+    else zoom(m === 'in' ? 0.8 : 1.25, vb.x + vb.w / 2, vb.y + vb.h / 2);
+  }));
+}
+function renderMechLists() {
+  const M = MODEL_DATA.mechanism;
+  $('#mechEpi').innerHTML = M.epigenome.map(x =>
+    '<div class="card hotlink" data-mech="' + x.key + '" style="cursor:pointer">' +
+    '<h4 class="mini-head" style="margin-top:0">' + x.title + ' ' + tagHtml(x.tag, true) + '</h4>' +
+    '<p class="small muted" style="margin:0">' + x.text + citeHtml(x.refs) + '</p></div>').join('');
+  $('#mechCfdna').innerHTML = M.cfdna.map(x =>
+    '<div class="card hotlink" data-mech="' + x.key + '" style="cursor:pointer">' +
+    '<h4 class="mini-head" style="margin-top:0">' + x.title + '</h4>' +
+    '<p class="small muted" style="margin:0">' + x.text + citeHtml(x.refs) + '</p></div>').join('');
+  $('#mechBottleneck').innerHTML =
+    '<h4>' + M.bottleneck.title + ' ' + tagHtml('mech', true) + '</h4>' +
+    '<p class="small" style="margin:0">' + M.bottleneck.text + citeHtml(M.bottleneck.refs) + '</p>';
+  $('#mechInterference').innerHTML =
+    '<h4>' + M.interference.title + ' ' + tagHtml('prosp', true) + '</h4>' +
+    '<p class="small" style="margin:0">' + M.interference.text + citeHtml(M.interference.refs) + '</p>';
+  $$('.hotlink').forEach(c => c.addEventListener('click', () => {
+    showMech(c.dataset.mech);
+    $('#mechDetail').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+}
+
+/* ------------------------------------------------ 第 4 区块：SOP 与湿实验 */
+function renderSOP() {
+  const box = $('#sopTimeline'); box.innerHTML = '';
+  MODEL_DATA.sop.forEach((s, i) => {
+    const item = elt('div', 'tl-item' + (i === 0 ? ' open' : ''));
+    item.innerHTML =
+      '<span class="dot"></span>' +
+      '<button class="tl-btn"><span class="tt">' + s.t + '</span>' +
+        '<span><span class="th">' + (i + 1) + '. ' + s.title + '</span><div class="td">' + s.detail + '</div></span>' +
+        '<span class="caret">▾</span></button>' +
+      '<div class="tl-qc"><div class="qch">质控要点 QC checkpoints</div><ul>' +
+        s.qc.map(q => '<li>' + q + '</li>').join('') + '</ul></div>';
+    item.querySelector('.tl-btn').addEventListener('click', () => {
+      item.classList.toggle('open');
+      ANALYTICS.track('sop_step', { step: i + 1 });
+    });
+    box.appendChild(item);
+  });
+}
+function renderWetlab() {
+  const box = $('#wetlabFlow'); box.innerHTML = '';
+  MODEL_DATA.wetlab.forEach((w, i) => {
+    if (i) box.appendChild(elt('div', 'arrow', '→'));
+    box.appendChild(elt('div', 'node',
+      '<div class="nid">' + w.id + '</div><div class="nt">' + w.title + '</div>' +
+      '<ul>' + w.params.map(p => '<li>' + p + '</li>').join('') +
+      w.qc.map(q => '<li style="color:var(--blue)">QC：' + q + '</li>').join('') + '</ul>'));
+  });
+}
+
+/* ------------------------------------------------ 第 5 区块：算法文本 */
+function renderAlgorithm() {
+  const A = MODEL_DATA.algorithm;
+  $('#algoPipe').innerHTML = A.pipeline.map(s =>
+    '<div class="step"><span class="sid">' + s.id + '</span><div><div class="st">' + s.title + '</div>' +
+    '<div class="sd">' + s.desc + '</div></div></div>').join('');
+  const t = A.training;
+  $('#algoTraining').innerHTML = [
+    ['训练与验证样本总数', fmtInt(t.totalSamples) + ' 例'],
+    ['其中 TCGA 肿瘤组织样本', fmtInt(t.tcgaTumor) + ' 例'],
+    ['数据来源', t.source],
+    ['研究设计', t.design]
+  ].map(x => '<div class="kvi"><span>' + x[0] + '</span><span>' + x[1] + '</span></div>').join('');
+  $('#algoPositioning').innerHTML =
+    '<h4>' + A.positioning.title + '：二分类 + 风险提示，不做组织溯源</h4>' +
+    '<p class="small" style="margin:0">' + A.positioning.text + citeHtml(A.positioning.refs) + '</p>';
+}
+/* ============================================================================
+   逻辑层 · Part 2：ECharts 学术图表（Figure 1–5、5.1、报告 z-score）
+   风格约定：无渐变填充、细坐标轴、误差棒表示 95% CI、图注在 HTML 的 figcaption 中
+   ============================================================================ */
+const HAS_ECHARTS = (typeof echarts !== 'undefined');
+const CHARTS = {};
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function P() {
+  return {
+    ink: cssVar('--ink') || '#1F2937', ink2: cssVar('--ink2') || '#374151',
+    muted: cssVar('--muted') || '#64748B', faint: cssVar('--faint') || '#94A3B8',
+    line: cssVar('--line2') || '#CBD5E1', grid: cssVar('--line') || '#E2E8F0',
+    surface: cssVar('--surface') || '#FFFFFF',
+    blue: cssVar('--blue') || '#1D4ED8', blue2: cssVar('--blue2') || '#2563EB',
+    risk: cssVar('--risk') || '#DC2626', ok: cssVar('--ok') || '#059669',
+    amber: cssVar('--amber') || '#B45309', violet: cssVar('--violet') || '#6D28D9'
+  };
+}
+function axisBase(p, name, extra) {
+  return Object.assign({
+    name: name || '', nameLocation: 'middle', nameGap: 30,
+    nameTextStyle: { color: p.ink2, fontSize: 11.5, fontWeight: 'normal' },
+    axisLine: { lineStyle: { color: p.line, width: 1 } },
+    axisTick: { lineStyle: { color: p.line }, length: 4, alignWithLabel: true },
+    axisLabel: { color: p.muted, fontSize: 11 },
+    splitLine: { show: false }
+  }, extra || {});
+}
+function baseOption(p) {
+  return {
+    backgroundColor: 'transparent',
+    animationDuration: 700, animationEasing: 'cubicOut',
+    textStyle: { fontFamily: '-apple-system,"Segoe UI","Microsoft YaHei","Noto Sans SC",sans-serif', color: p.ink2 },
+    tooltip: {
+      backgroundColor: p.surface, borderColor: p.line, borderWidth: 1,
+      textStyle: { color: p.ink, fontSize: 12 }, extraCssText: 'box-shadow:0 2px 12px rgba(15,23,42,.12);'
+    },
+    legend: { textStyle: { color: p.ink2, fontSize: 11.5 }, itemWidth: 14, itemHeight: 9, icon: 'roundRect' }
+  };
+}
+function reg(id, build) { CHARTS[id] = { build: build, inst: null }; }
+function ensureChart(id) {
+  const c = CHARTS[id]; if (!c) return null;
+  const dom = document.getElementById(id); if (!dom) return null;
+  if (!HAS_ECHARTS) {
+    dom.innerHTML = '<div class="nochart">图表库（ECharts CDN）未加载成功，图表无法渲染。<br>本页其余内容（含全部数值、表格与文献）不受影响；联网后刷新即可显示图表。</div>';
+    return null;
+  }
+  if (!c.inst) c.inst = echarts.init(dom, null, { renderer: 'canvas' });
+  c.inst.setOption(c.build(), true);
+  return c.inst;
+}
+function refreshCharts() { Object.keys(CHARTS).forEach(id => { if (CHARTS[id].inst) CHARTS[id].inst.setOption(CHARTS[id].build(), true); }); }
+function resizeCharts() { Object.keys(CHARTS).forEach(id => { if (CHARTS[id].inst) CHARTS[id].inst.resize(); }); }
+function exportPng(id) {
+  const c = CHARTS[id];
+  if (!c || !c.inst) { alert('图表尚未渲染完成，请滚动到图表位置后重试。'); return; }
+  const url = c.inst.getDataURL({ type: 'png', pixelRatio: 3, backgroundColor: cssVar('--surface') || '#FFFFFF' });
+  const a = document.createElement('a');
+  a.href = url; a.download = 'MCED-demo-' + id + '.png'; document.body.appendChild(a); a.click(); a.remove();
+  ANALYTICS.track('export_png', { chart: id });
+}
+
+/* ---------------------------------------- Figure 5.1：评分分布直方图 */
+function scoreBins() {
+  const out = [];
+  for (let lo = SM.min; lo < SM.max - 1e-9; lo += SM.bin) {
+    const hi = lo + SM.bin, mid = lo + SM.bin / 2;
+    const mass = (mu, sd) => {
+      const a = (lo <= SM.min + 1e-9) ? 0 : ncdf((lo - mu) / sd);
+      const b = (hi >= SM.max - 1e-9) ? 1 : ncdf((hi - mu) / sd);
+      return (b - a) * 100;
+    };
+    out.push([+mid.toFixed(3), mass(SM.healthy.mu, SM.healthy.sd), mass(SM.cancer.mu, SM.cancer.sd)]);
+  }
+  return out;
+}
+reg('chScore', function () {
+  const p = P(), bins = scoreBins();
+  const alpha = c => c;
+  return Object.assign(baseOption(p), {
+    grid: { left: 56, right: 24, top: 58, bottom: 52 },
+    legend: Object.assign(baseOption(p).legend, { top: 6, right: 10, data: [T('健康对照（演示模拟）', 'Healthy (simulated)'), T('癌症样本（演示模拟）', 'Cancer (simulated)')] }),
+    tooltip: Object.assign(baseOption(p).tooltip, {
+      trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: p.faint, type: 'dashed' } },
+      formatter: ps => {
+        if (!ps.length) return '';
+        let s = '<b>总分 ≈ ' + fmt2(ps[0].value[0]) + '</b>';
+        ps.forEach(x => { s += '<br>' + x.marker + x.seriesName + '：' + fmt1(x.value[1]) + '%'; });
+        return s;
+      }
+    }),
+    xAxis: axisBase(p, T('模型输出总分（0–2 量表）', 'Model score (0–2)'), { type: 'value', min: 0, max: 2, interval: 0.25, nameGap: 32 }),
+    yAxis: axisBase(p, T('组内样本占比（%）', 'Share within group (%)'), {
+      type: 'value', nameGap: 40, nameRotate: 90,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    series: [
+      {
+        name: T('健康对照（演示模拟）', 'Healthy (simulated)'), type: 'bar', barGap: '-100%', barWidth: 9,
+        data: bins.map(b => [b[0], b[1]]), z: 2,
+        itemStyle: { color: alpha('rgba(100,116,139,.45)'), borderColor: p.muted, borderWidth: .8 },
+        markLine: {
+          symbol: 'none', animation: false, silent: true,
+          label: { position: 'insideEndTop', color: p.ink, fontSize: 11, fontWeight: 'bold', formatter: () => 't = ' + fmt2(STATE.thr) },
+          lineStyle: { color: p.ink, width: 1.6 },
+          data: [{ xAxis: STATE.thr }]
+        }
+      },
+      {
+        name: T('癌症样本（演示模拟）', 'Cancer (simulated)'), type: 'bar', barGap: '-100%', barWidth: 9,
+        data: bins.map(b => [b[0], b[2]]), z: 3,
+        itemStyle: { color: 'rgba(220,38,38,.42)', borderColor: p.risk, borderWidth: .8 }
+      }
+    ],
+    graphic: [{
+      type: 'text', left: 70, top: 26, silent: true,
+      style: { text: T('双正态演示模型：健康 μ=0.661 σ=0.200｜癌症 μ=1.458 σ=0.415', 'Bi-normal demo model'), fill: p.faint, fontSize: 10.5 }
+    }]
+  });
+});
+
+/* ---------------------------------------- Figure 1：ROC */
+function rocPoints() {
+  const pts = [];
+  for (let t = 3.8; t >= -1.4; t -= 0.01) pts.push([+(100 - spAt(t)).toFixed(4), +seAt(t).toFixed(4)]);
+  return pts;
+}
+function rocAucNumeric() {
+  const pts = rocPoints(); let a = 0;
+  for (let i = 1; i < pts.length; i++) a += (pts[i][0] - pts[i - 1][0]) * (pts[i][1] + pts[i - 1][1]) / 2;
+  return a / 10000;
+}
+reg('chRoc', function () {
+  const p = P(), R = MODEL_DATA.performance.roc, b = R.benchmark;
+  const wp = [+(100 - spAt(STATE.thr)).toFixed(3), +seAt(STATE.thr).toFixed(3)];
+  return Object.assign(baseOption(p), {
+    grid: { left: 62, right: 30, top: 40, bottom: 56 },
+    legend: Object.assign(baseOption(p).legend, { bottom: 4, left: 'center' }),
+    tooltip: Object.assign(baseOption(p).tooltip, {
+      formatter: o => {
+        if (o.seriesName.indexOf('ROC') >= 0) return '1 − 特异性：' + fmt1(o.value[0]) + '%<br>灵敏度：' + fmt1(o.value[1]) + '%';
+        return '<b>' + o.seriesName + '</b><br>特异性：' + fmt1(100 - o.value[0]) + '%<br>灵敏度：' + fmt1(o.value[1]) + '%';
+      }
+    }),
+    xAxis: axisBase(p, T('1 − 特异性（%）  False positive rate', '1 − Specificity (%)'), { type: 'value', min: 0, max: 100, interval: 20, nameGap: 32 }),
+    yAxis: axisBase(p, T('灵敏度（%）  Sensitivity', 'Sensitivity (%)'), {
+      type: 'value', min: 0, max: 100, interval: 20, nameGap: 42, nameRotate: 90,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    series: [
+      { name: T('随机猜测（AUC = 0.5）', 'Chance (AUC = 0.5)'), type: 'line', showSymbol: false, silent: true,
+        data: [[0, 0], [100, 100]], lineStyle: { color: p.faint, width: 1, type: 'dashed' }, z: 1 },
+      { name: T('本模型 ROC（n = 18 752，回顾性）', 'This model ROC'), type: 'line', showSymbol: false, smooth: false,
+        data: rocPoints(), lineStyle: { color: p.blue, width: 1.8 }, z: 3 },
+      { name: T('本模型工作点', 'Operating point'), type: 'scatter', symbol: 'rect', symbolSize: 11,
+        data: [wp], itemStyle: { color: p.risk }, z: 6,
+        label: {
+          show: true, position: 'right', color: p.risk, fontSize: 11, fontWeight: 'bold',
+          formatter: o => 'Sp ' + fmt1(100 - o.value[0]) + '% / Se ' + fmt1(o.value[1]) + '%'
+        },
+        markLine: {
+          symbol: 'none', silent: true, animation: false,
+          lineStyle: { color: p.risk, width: .9, type: 'dotted' },
+          data: [[{ coord: [wp[0], 0] }, { coord: [wp[0], wp[1]] }], [{ coord: [0, wp[1]] }, { coord: [wp[0], wp[1]] }]]
+        }
+      },
+      { name: T('Galleri CCGA3（独立验证集）', 'Galleri CCGA3'), type: 'scatter', symbol: 'diamond', symbolSize: 14,
+        data: [[+(100 - b.sp).toFixed(2), b.se]], z: 6,
+        itemStyle: { color: 'transparent', borderColor: p.ink, borderWidth: 1.6 },
+        label: { show: true, position: 'right', color: p.ink, fontSize: 11, formatter: 'Galleri CCGA3\nSp 99.5% / Se 51.5%' } }
+    ],
+    graphic: [{
+      type: 'text', left: 92, top: 52, silent: true,
+      style: {
+        text: 'AUC = ' + R.auc.toFixed(4) + '  (n = ' + fmtInt(R.n) + ')\n' + T('队列类型：', 'Design: ') + R.design +
+              '\n' + T('曲线数值积分校验 AUC = ', 'Numeric check AUC = ') + rocAucNumeric().toFixed(4),
+        fill: p.ink2, fontSize: 12, lineHeight: 17, fontWeight: 'bold'
+      }
+    }]
+  });
+});
+
+/* ---------------------------------------- Figure 2：分癌种森林图 */
+function cancerRows() {
+  return MODEL_DATA.performance.byCancer.map(c => {
+    const k = Math.round(c.sens * c.n / 100);
+    const ci = wilsonCI(k, c.n);
+    return { zh: c.zh, en: c.en, sens: c.sens, n: c.n, nSrc: c.nSrc, group: c.group, lo: ci[0], hi: ci[1], k: k };
+  }).sort((a, b) => a.sens - b.sens);
+}
+reg('chForest', function () {
+  const p = P(), rows = cancerRows();
+  const names = rows.map(r => T(r.zh, r.en));
+  return Object.assign(baseOption(p), {
+    grid: { left: 108, right: 118, top: 42, bottom: 52 },
+    legend: Object.assign(baseOption(p).legend, { top: 6, right: 10, data: [T('高敏组', 'High-sensitivity'), T('低敏组', 'Low-sensitivity')] }),
+    tooltip: Object.assign(baseOption(p).tooltip, {
+      formatter: o => {
+        const idx = (o.seriesType === 'scatter') ? o.value[1] : o.dataIndex;
+        const r = rows[idx]; if (!r) return '';
+        return '<b>' + T(r.zh, r.en) + '</b><br>灵敏度：' + r.sens + '%<br>95% CI：' + fmt1(r.lo) + '–' + fmt1(r.hi) + '%<br>' +
+               'n = ' + r.n + '（' + (r.nSrc === 'given' ? '给定样本量' : '演示估算样本量') + '）';
+      }
+    }),
+    xAxis: axisBase(p, T('灵敏度（%，工作点 Sp 95%）', 'Sensitivity (%)'), {
+      type: 'value', min: 0, max: 100, interval: 20, nameGap: 30,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    yAxis: axisBase(p, '', { type: 'category', data: names, axisTick: { show: false }, axisLabel: { color: p.ink2, fontSize: 12 } }),
+    series: [
+      { /* 95% CI 误差棒 */
+        name: '95% CI', type: 'custom', z: 3, silent: true,
+        renderItem: function (params, api) {
+          const idx = api.value(0);
+          const a = api.coord([api.value(1), idx]), b = api.coord([api.value(2), idx]);
+          const cap = 5, col = rows[idx] && rows[idx].group === 'low' ? P().risk : P().blue;
+          return {
+            type: 'group', children: [
+              { type: 'line', shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: col, lineWidth: 1.2 } },
+              { type: 'line', shape: { x1: a[0], y1: a[1] - cap, x2: a[0], y2: a[1] + cap }, style: { stroke: col, lineWidth: 1.2 } },
+              { type: 'line', shape: { x1: b[0], y1: b[1] - cap, x2: b[0], y2: b[1] + cap }, style: { stroke: col, lineWidth: 1.2 } }
+            ]
+          };
+        },
+        encode: { x: [1, 2], y: 0 },
+        data: rows.map((r, i) => [i, r.lo, r.hi])
+      },
+      { name: T('高敏组', 'High-sensitivity'), type: 'scatter', symbolSize: 9, z: 5,
+        itemStyle: { color: p.blue }, data: rows.map((r, i) => r.group === 'high' ? [r.sens, i] : null).filter(Boolean),
+        label: { show: true, position: 'right', color: p.ink2, fontSize: 11, offset: [10, 0],
+          formatter: o => { const r = rows[o.value[1]]; return r.sens + '% (' + fmt1(r.lo) + '–' + fmt1(r.hi) + ')'; } } },
+      { name: T('低敏组', 'Low-sensitivity'), type: 'scatter', symbolSize: 9, z: 5,
+        itemStyle: { color: p.risk }, data: rows.map((r, i) => r.group === 'low' ? [r.sens, i] : null).filter(Boolean),
+        label: { show: true, position: 'right', color: p.risk, fontSize: 11, offset: [10, 0],
+          formatter: o => { const r = rows[o.value[1]]; return r.sens + '% (' + fmt1(r.lo) + '–' + fmt1(r.hi) + ')'; } } }
+    ]
+  });
+});
+
+/* ---------------------------------------- Figure 3：分期灵敏度 */
+reg('chStage', function () {
+  const p = P(), S = MODEL_DATA.performance.byStage;
+  const colors = [p.ink2, p.blue];
+  return Object.assign(baseOption(p), {
+    grid: { left: 58, right: 26, top: 80, bottom: 58 },
+    legend: Object.assign(baseOption(p).legend, { top: 4, left: 'center', data: S.series.map(s => s.name) }),
+    tooltip: Object.assign(baseOption(p).tooltip, { trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: ps => {
+        let s = '<b>' + ps[0].axisValue + '</b>';
+        ps.forEach(x => { if (x.value != null) s += '<br>' + x.marker + x.seriesName + '：' + fmt1(x.value) + '%'; });
+        return s;
+      } }),
+    xAxis: axisBase(p, '', { type: 'category', data: S.axis, axisLabel: { color: p.ink2, fontSize: 12 } }),
+    yAxis: axisBase(p, T('灵敏度（%）', 'Sensitivity (%)'), {
+      type: 'value', min: 0, max: 100, interval: 20, nameGap: 40, nameRotate: 90,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    series: S.series.map((s, i) => ({
+      name: s.name, type: 'bar', barMaxWidth: 46, barGap: '18%', data: s.data,
+      itemStyle: { color: i === 0 ? 'rgba(100,116,139,.55)' : 'rgba(37,99,235,.55)', borderColor: colors[i], borderWidth: 1 },
+      label: { show: true, position: 'top', color: colors[i], fontSize: 11.5, fontWeight: 'bold', formatter: o => o.value == null ? '' : fmt1(o.value) + '%' }
+    })),
+    graphic: [{
+      type: 'text', left: 62, top: 30, silent: true,
+      style: { text: '口径提示：' + S.caveat, fill: p.amber, fontSize: 10.5, width: 720, overflow: 'break', lineHeight: 15 }
+    }]
+  });
+});
+
+/* ---------------------------------------- Figure 5：特异性—灵敏度散点 */
+reg('chScatter', function () {
+  const p = P(), D = MODEL_DATA.performance.scatter;
+  const mk = t => D.filter(d => d.type === t).map(d => ({ name: d.name, value: [d.sp, d.se] }));
+  const lbl = { show: true, position: 'right', fontSize: 11, color: p.ink2, formatter: o => o.name };
+  return Object.assign(baseOption(p), {
+    grid: { left: 60, right: 150, top: 40, bottom: 56 },
+    legend: Object.assign(baseOption(p).legend, { top: 6, left: 'center' }),
+    tooltip: Object.assign(baseOption(p).tooltip, {
+      formatter: o => '<b>' + o.name + '</b><br>特异性：' + fmt1(o.value[0]) + '%<br>总灵敏度：' + fmt1(o.value[1]) + '%'
+    }),
+    xAxis: axisBase(p, T('特异性（%）', 'Specificity (%)'), {
+      type: 'value', min: 88, max: 100.5, interval: 2, nameGap: 30,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    yAxis: axisBase(p, T('总灵敏度（%）', 'Overall sensitivity (%)'), {
+      type: 'value', min: 40, max: 100, interval: 10, nameGap: 40, nameRotate: 90,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    series: [
+      { name: T('回顾性 / 病例-对照', 'Retrospective'), type: 'scatter', symbol: 'circle', symbolSize: 11,
+        itemStyle: { color: 'transparent', borderColor: p.blue, borderWidth: 1.6 }, data: mk('retro'), label: lbl,
+        labelLayout: { moveOverlap: 'shiftY', hideOverlap: false } },
+      { name: T('前瞻性队列', 'Prospective'), type: 'scatter', symbol: 'triangle', symbolSize: 13,
+        itemStyle: { color: p.ok }, data: mk('prosp'), label: Object.assign({}, lbl, { color: p.ok }),
+        labelLayout: { moveOverlap: 'shiftY', hideOverlap: false } },
+      { name: 'MERCURY 同一模型落差', type: 'line', showSymbol: false, silent: true, z: 1,
+        data: [[97.8, 87.4], [98.1, 53.8]], lineStyle: { color: p.amber, width: 1.2, type: 'dashed' } }
+    ],
+    graphic: [{
+      type: 'text', right: 16, bottom: 60, silent: true,
+      style: { text: T('虚线：MERCURY 同一模型\n回顾性验证集 → 前瞻队列\n灵敏度落差约 34 个百分点', 'Dashed: MERCURY retro → prospective'), fill: p.amber, fontSize: 10.5, lineHeight: 15 }
+    }]
+  });
+});
+
+/* ---------------------------------------- 报告 z-score 图 */
+reg('chMarkers', function () {
+  const p = P(), s = MODEL_DATA.report.samples[STATE.repTab];
+  const ms = MODEL_DATA.report.markers;
+  const vals = ms.map(m => (s && s.z) ? s.z[m.id] : 0);
+  return Object.assign(baseOption(p), {
+    grid: { left: 116, right: 46, top: 22, bottom: 44 },
+    tooltip: Object.assign(baseOption(p).tooltip, { formatter: o => o.name + '<br>z-score：' + fmt1(o.value) }),
+    xAxis: axisBase(p, T('标准化偏离 z-score（相对健康对照分布）', 'z-score vs healthy reference'), {
+      type: 'value', min: -3, max: 6, interval: 1, nameGap: 28,
+      splitLine: { show: true, lineStyle: { color: p.grid, type: 'dashed', width: .8 } }
+    }),
+    yAxis: axisBase(p, '', { type: 'category', data: ms.map(m => m.name), axisTick: { show: false }, axisLabel: { color: p.ink2, fontSize: 11.5 } }),
+    series: [{
+      type: 'bar', barMaxWidth: 18, data: vals,
+      itemStyle: { color: o => (o.value >= 2 ? 'rgba(220,38,38,.55)' : 'rgba(100,116,139,.45)'),
+                   borderColor: o => (o.value >= 2 ? p.risk : p.muted), borderWidth: 1 },
+      label: { show: true, position: 'right', fontSize: 11, color: p.ink2, formatter: o => fmt1(o.value) },
+      markLine: {
+        symbol: 'none', silent: true, animation: false,
+        lineStyle: { color: p.risk, width: 1, type: 'dashed' },
+        label: { formatter: 'z = 2（演示判读界值）', color: p.risk, fontSize: 10, position: 'end' },
+        data: [{ xAxis: 2 }]
+      }
+    }]
+  });
+});
+
+/* ---------------------------------------- 懒加载与联动 */
+function initChartObserver() {
+  const ids = Object.keys(CHARTS);
+  if (!('IntersectionObserver' in window)) { ids.forEach(ensureChart); return; }
+  const io = new IntersectionObserver(es => {
+    es.forEach(e => {
+      if (e.isIntersecting) { ensureChart(e.target.id); io.unobserve(e.target); ANALYTICS.track('chart_view', { chart: e.target.id }); }
+    });
+  }, { rootMargin: '120px' });
+  ids.forEach(id => { const d = document.getElementById(id); if (d) io.observe(d); });
+}
+function syncThresholdCharts() {
+  const cS = CHARTS.chScore.inst, cR = CHARTS.chRoc.inst, p = P();
+  if (cS) cS.setOption({ series: [{ markLine: { data: [{ xAxis: STATE.thr }] } }, {}] });
+  if (cR) {
+    const wp = [+(100 - spAt(STATE.thr)).toFixed(3), +seAt(STATE.thr).toFixed(3)];
+    cR.setOption({ series: [{}, {}, {
+      data: [wp],
+      markLine: { data: [[{ coord: [wp[0], 0] }, { coord: [wp[0], wp[1]] }], [{ coord: [0, wp[1]] }, { coord: [wp[0], wp[1]] }]] }
+    }, {}] });
+  }
+}
+/* ============================================================================
+   逻辑层 · Part 3：三线表 / 交互工具 A·B·C / 模拟报告 / 局限 / 指南 / 启动
+   ============================================================================ */
+
+/* ---------------------------------------- Table 1：分癌种三线表 */
+function renderCancerTable() {
+  const rows = cancerRows().slice().sort((a, b) => b.sens - a.sens);
+  const head = ['癌种', '灵敏度', '95% CI（Wilson）', '样本量 n', 'n 数据性质', '分组'];
+  let html = '<thead><tr>' + head.map((h, i) => '<th' + (i >= 1 && i <= 3 ? ' class="num"' : '') + '>' + h + '</th>').join('') + '</tr></thead><tbody>';
+  rows.forEach(r => {
+    html += '<tr>' +
+      '<td class="rowname">' + r.zh + ' <span class="tiny muted">' + r.en + '</span></td>' +
+      '<td class="num">' + r.sens + '%</td>' +
+      '<td class="num">' + fmt1(r.lo) + '–' + fmt1(r.hi) + '%</td>' +
+      '<td class="num">' + r.n + '</td>' +
+      '<td>' + (r.nSrc === 'given' ? '<span class="pass">任务给定</span>' : '<span class="muted">演示估算</span>') + '</td>' +
+      '<td>' + (r.group === 'high' ? '<span style="color:var(--blue)">高敏组</span>' : '<span class="fail">低敏组</span>') + '</td></tr>';
+  });
+  html += '</tbody>';
+  const t = $('#tblCancer');
+  t.insertAdjacentHTML('beforeend', html);
+  t.insertAdjacentHTML('afterend',
+    '<div class="tfoot-note">注 1：灵敏度均为出厂工作点（特异性 95%）下的回顾性病例-对照结果 ' + tagHtml('cc') + '。</div>' +
+    '<div class="tfoot-note">注 2：除肝癌（402 例血浆，任务给定）外，样本量为<b>演示估算假设值</b>，故 95% CI 仅示意区间宽度与样本量的关系，不可作为精度证据引用。</div>' +
+    '<div class="tfoot-note">注 3：' + MODEL_DATA.performance.byCancerNote + citeHtml('bettegowda2014') + '</div>');
+}
+
+/* ---------------------------------------- Figure 4 / Table 2：多模型对比 */
+function renderCompareTable() {
+  const head = ['模型 / 研究', '队列类型', '样本量', '特异性', '总灵敏度', 'I 期灵敏度', '备注'];
+  let html = '<thead><tr>' + head.map((h, i) => '<th' + (i >= 2 && i <= 5 ? ' class="num"' : '') + '>' + h + '</th>').join('') + '</tr></thead><tbody>';
+  MODEL_DATA.performance.comparison.forEach(r => {
+    html += '<tr>' +
+      '<td class="rowname">' + r.model + citeHtml(r.refs) + '<div class="tiny muted">' + r.study + '</div></td>' +
+      '<td>' + r.cohort + '<br>' + tagHtml(r.tag) + '</td>' +
+      '<td class="num">' + r.n + '</td>' +
+      '<td class="num">' + r.sp + '</td>' +
+      '<td class="num">' + r.se + '</td>' +
+      '<td class="num">' + r.se1 + '</td>' +
+      '<td class="tiny">' + r.note + '</td></tr>';
+  });
+  html += '</tbody>';
+  $('#tblCompare').insertAdjacentHTML('beforeend', html);
+  $('#cmpFootnote').innerHTML = '<b>' + MODEL_DATA.performance.comparisonFootnote + '</b>';
+  $('#cmpDataNote').textContent = MODEL_DATA.performance.comparisonDataNote;
+}
+
+/* ---------------------------------------- Table 5：监管现状 */
+function renderRegTable() {
+  let html = '<thead><tr><th>地区 / 主体</th><th>状态（截至 2026 年）</th><th>证据性质</th></tr></thead><tbody>';
+  MODEL_DATA.guidelines.regulatory.forEach(r => {
+    html += '<tr><td class="rowname">' + r.region + '</td><td>' + r.status + '</td><td>' + tagHtml(r.tag) + '</td></tr>';
+  });
+  $('#tblReg').insertAdjacentHTML('beforeend', html + '</tbody>');
+}
+
+/* ---------------------------------------- 工具 A：贝叶斯 PPV / NPV */
+const PREV_LO = 0.05, PREV_HI = 2.0;
+let prevOverride = null;
+function buildMatrix() {
+  const box = $('#ppvMatrix'); if (box.children.length) return;
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 1000; i++) frag.appendChild(document.createElement('i'));
+  box.appendChild(frag);
+}
+function largestRemainder(fracs, total) {
+  const raw = fracs.map(f => f * total), base = raw.map(Math.floor);
+  let rest = total - base.reduce((a, b) => a + b, 0);
+  const order = raw.map((v, i) => ({ i: i, r: v - Math.floor(v) })).sort((a, b) => b.r - a.r);
+  for (let k = 0; k < order.length && rest > 0; k++, rest--) base[order[k].i]++;
+  return base;
+}
+function updateToolA() {
+  const p = prevOverride != null ? prevOverride : logMap(+$('#sPrev').value, PREV_LO, PREV_HI);
+  const se = +$('#sSe').value, sp = +$('#sSp').value;
+  STATE.toolAPrev = p; STATE.toolASe = se; STATE.toolASp = sp;
+  $('#vPrev').innerHTML = fmt2(p) + '%' + (prevOverride != null ? ' <span class="tiny" style="color:var(--amber)">（超出滑块量程，按预设计算）</span>' : '');
+  $('#vSe').textContent = fmt1(se) + '%';
+  $('#vSp').textContent = fmt1(sp) + '%';
+  const r = predictive(p, se, sp);
+  $('#ppvReadout').innerHTML = [
+    { k: 'PPV 阳性预测值', v: fmt1(r.ppv) + '%', n: '阳性者中真正患癌的比例', cls: 'hi' },
+    { k: 'NPV 阴性预测值', v: fmt2(r.npv) + '%', n: '阴性者中确实无癌的比例', cls: 'good' },
+    { k: 'LR+ 阳性似然比', v: fmt1(r.lrp), n: '与患病率无关，可跨人群迁移', cls: '' },
+    { k: '假阳性 : 真阳性', v: fmt1(r.fpRatio) + ' : 1', n: '每 1 例真阳性对应的假阳性数', cls: r.fpRatio > 1 ? 'bad' : '' }
+  ].map(x => '<div class="ro ' + x.cls + '"><div class="rk">' + x.k + '</div><div class="rv">' + x.v + '</div><div class="rn">' + x.n + '</div></div>').join('');
+  /* 1000 人方阵 */
+  const cnt = largestRemainder([r.tp, r.fn, r.fp, r.tn], 1000);
+  const cls = ['tp', 'fn', 'fp', 'tn'];
+  const cells = $('#ppvMatrix').children;
+  let idx = 0;
+  for (let g = 0; g < 4; g++) for (let k = 0; k < cnt[g]; k++, idx++) cells[idx].className = cls[g];
+  for (; idx < 1000; idx++) cells[idx].className = 'tn';
+  $('#ppvLegend').innerHTML = [
+    ['var(--risk)', '真阳性 TP', cnt[0], r.tp * 1000],
+    ['var(--amber)', '假阴性 FN（漏诊）', cnt[1], r.fn * 1000],
+    ['#F9A8A8', '假阳性 FP', cnt[2], r.fp * 1000],
+    ['#DDE5EE', '真阴性 TN', cnt[3], r.tn * 1000]
+  ].map(x => '<span><b style="background:' + x[0] + '"></b>' + x[1] + '：' + x[2] + ' 人 <span class="tiny">（精确值 ' + fmt2(x[3]) + '）</span></span>').join('');
+  $('#ppvInsight').innerHTML =
+    '<h4>贝叶斯规律读数</h4><p class="small" style="margin:0">在患病率 <b>' + fmt2(p) + '%</b>、灵敏度 <b>' + fmt1(se) +
+    '%</b>、特异性 <b>' + fmt1(sp) + '%</b> 下：每筛查 1 000 人可检出约 <b>' + cnt[0] + '</b> 例真阳性，同时产生约 <b>' + cnt[2] +
+    '</b> 例假阳性，漏诊约 <b>' + cnt[1] + '</b> 例；<b>PPV = ' + fmt1(r.ppv) + '%</b>。' +
+    (r.ppv < 20 ? '此时阳性结果的主要含义是「需要进一步检查」，而非「很可能患癌」。' :
+      (r.ppv > 50 ? '此时阳性结果已具备较强指向性，但仍须病理确诊。' : '此时阳性结果约一半为假阳性，阳性确诊路径的承载能力是项目可行性的关键。')) +
+    '<br><span class="tiny">模拟数据。注意：灵敏度从 50% 提到 95% 对 PPV 的改善远小于特异性从 95% 提到 99.5% —— 请亲手验证这一点。</span></p>';
+  ANALYTICS.track('tool_a', { p: p, se: se, sp: sp, ppv: r.ppv });
+}
+function initToolA() {
+  buildMatrix();
+  $('#sPrev').value = logInv(0.5, PREV_LO, PREV_HI);
+  $('#ppvPresets').innerHTML = MODEL_DATA.tools.ppvPresets
+    .map(x => '<button class="chip' + (x.key === 'avg' ? ' on' : '') + '" data-preset="' + x.key + '" title="' + x.note + '">' + x.label + '（P = ' + x.p + '%）</button>').join('');
+  $$('[data-preset]').forEach(b => b.addEventListener('click', () => {
+    const pr = MODEL_DATA.tools.ppvPresets.filter(x => x.key === b.dataset.preset)[0];
+    $$('[data-preset]').forEach(o => o.classList.remove('on')); b.classList.add('on');
+    if (pr.p > PREV_HI) { prevOverride = pr.p; $('#sPrev').value = 1000; }
+    else { prevOverride = null; $('#sPrev').value = logInv(pr.p, PREV_LO, PREV_HI); }
+    updateToolA();
+  }));
+  ['sPrev', 'sSe', 'sSp'].forEach(id => $('#' + id).addEventListener('input', () => {
+    if (id === 'sPrev') { prevOverride = null; $$('[data-preset]').forEach(o => o.classList.remove('on')); }
+    updateToolA();
+  }));
+  updateToolA();
+}
+
+/* ---------------------------------------- 工具 B：模拟筛查队列 */
+const N_LO = 10000, N_HI = 1000000;
+let cohortNote = '';
+function updateToolB() {
+  const N = Math.round(logMap(+$('#nScreen').value, N_LO, N_HI) / 1000) * 1000;
+  const p = logMap(+$('#bPrev').value, PREV_LO, PREV_HI);
+  const se = +$('#bSe').value, sp = +$('#bSp').value;
+  STATE.toolBN = N; STATE.toolBPrev = p; STATE.toolBSe = se; STATE.toolBSp = sp;
+  $('#vN').textContent = fmtInt(N);
+  $('#vBPrev').textContent = fmt2(p) + '%';
+  $('#vBSe').textContent = fmt1(se) + '%';
+  $('#vBSp').textContent = fmt1(sp) + '%';
+  const r = predictive(p, se, sp);
+  const TP = r.tp * N, FN = r.fn * N, FP = r.fp * N, TN = r.tn * N;
+  $('#cohortReadout').innerHTML = [
+    { k: '预期检出真阳性', v: fmtInt(TP), n: '例（模拟）', cls: 'hi' },
+    { k: '预期假阳性', v: fmtInt(FP), n: '例，须进入阳性确诊路径', cls: 'bad' },
+    { k: 'NNS 每检出 1 例癌症', v: fmtInt(r.nns), n: '需筛查人数', cls: '' },
+    { k: '假阳性 : 真阳性', v: fmt1(r.fpRatio) + ' : 1', n: '假阳性负担比', cls: r.fpRatio > 1 ? 'bad' : 'good' },
+    { k: 'PPV', v: fmt1(r.ppv) + '%', n: '本参数组合下的阳性预测值', cls: 'hi' },
+    { k: '漏诊（假阴性）', v: fmtInt(FN), n: '例，阴性报告中的实际患者', cls: 'bad' }
+  ].map(x => '<div class="ro ' + x.cls + '"><div class="rk">' + x.k + '</div><div class="rv">' + x.v + '</div><div class="rn">' + x.n + '</div></div>').join('');
+  const t = $('#tblCohort');
+  const cap = t.querySelector('caption') ? t.querySelector('caption').outerHTML : '';
+  t.innerHTML = cap +
+    '<thead><tr><th>检测结果</th><th class="num">实际患癌</th><th class="num">实际无癌</th><th class="num">合计</th></tr></thead><tbody>' +
+    '<tr><td class="rowname">阳性</td><td class="num">' + fmtInt(TP) + '（TP）</td><td class="num">' + fmtInt(FP) + '（FP）</td><td class="num">' + fmtInt(TP + FP) + '</td></tr>' +
+    '<tr><td class="rowname">阴性</td><td class="num">' + fmtInt(FN) + '（FN）</td><td class="num">' + fmtInt(TN) + '（TN）</td><td class="num">' + fmtInt(FN + TN) + '</td></tr>' +
+    '<tr><td class="rowname">合计</td><td class="num">' + fmtInt(TP + FN) + '</td><td class="num">' + fmtInt(FP + TN) + '</td><td class="num">' + fmtInt(N) + '</td></tr>' +
+    '</tbody>';
+  $('#cohortInsight').innerHTML = '<h4>项目层面的读数（模拟数据）</h4><p class="small" style="margin:0">' +
+    '筛查 ' + fmtInt(N) + ' 人将产生约 <b>' + fmtInt(TP + FP) + '</b> 例阳性报告，其中约 <b>' + fmtInt(FP) + '</b> 例（' +
+    fmt1(TP + FP > 0 ? FP / (TP + FP) * 100 : 0) + '%）最终为假阳性，全部需要影像 / 内镜等诊断性分辨；' +
+    '同时约 <b>' + fmtInt(FN) + '</b> 例真实患者获得阴性报告。' +
+    '<br><span class="tiny">' + (cohortNote || '提示：把特异性从 95% 调到 99.5%，观察假阳性绝对数的变化量级——这是筛查项目可行性的决定性参数。') + '</span></p>';
+  ANALYTICS.track('tool_b', { n: N, p: p, se: se, sp: sp });
+}
+function initToolB() {
+  $('#nScreen').value = logInv(100000, N_LO, N_HI);
+  $('#bPrev').value = logInv(0.5, PREV_LO, PREV_HI);
+  ['nScreen', 'bPrev', 'bSe', 'bSp'].forEach(id => $('#' + id).addEventListener('input', () => { cohortNote = ''; updateToolB(); }));
+  const PF = MODEL_DATA.tools.cohortPreset;
+  $('#btnPathfinder').addEventListener('click', () => {
+    /* 由 NNS ≈ 189 与 Se ≈ 29% 反算隐含患病率：P = 1/(NNS·Se) —— 演示推导 */
+    const impliedP = 1 / (PF.nns * PF.se / 100) * 100;
+    $('#bSp').value = PF.sp; $('#bSe').value = PF.se;
+    $('#bPrev').value = logInv(Math.min(PREV_HI, Math.max(PREV_LO, impliedP)), PREV_LO, PREV_HI);
+    const r = predictive(impliedP, PF.se, PF.sp);
+    cohortNote = 'PATHFINDER 实测参数已载入：特异性 99.5%、一年随访灵敏度约 29%、实测 PPV <b>43.1%</b>、NNS ≈ 189，' +
+      '阳性结果中 <b>62%</b> 为假阳性（Lancet 2023，前瞻队列）。此处患病率 ' + fmt2(impliedP) +
+      '% 由 NNS 与 Se 反算得到（<b>演示推导</b>，非原文给定）。本工具按简单贝叶斯模型算得 PPV = ' + fmt1(r.ppv) +
+      '%，与实测 43.1% 存在差距——实测 PPV 还取决于入组人群真实患病率、随访完整度与确诊路径效率，' +
+      '这一差异本身就是「模型化 PPV 不能替代实测 PPV」的方法学教学点。';
+    updateToolB();
+    ANALYTICS.track('preset_pathfinder', {});
+  });
+  $('#btnModelParam').addEventListener('click', () => {
+    $('#bSp').value = 95; $('#bSe').value = 87;
+    cohortNote = '已载入本模型出厂参数（Sp 95% / Se 87%，回顾性病例-对照）。请注意：该灵敏度来自回顾性设计，前瞻性筛查场景预期显著降低。';
+    updateToolB();
+  });
+  $('#btnGalleriParam').addEventListener('click', () => {
+    $('#bSp').value = 99.5; $('#bSe').value = 51.5;
+    cohortNote = '已载入 Galleri CCGA3 参数（Sp 99.5% / Se 51.5%，独立验证集）。对比上一组参数：特异性提高 4.5 个百分点使假阳性下降约 9 倍，代价是灵敏度下降约 35 个百分点。';
+    updateToolB();
+  });
+  updateToolB();
+}
+
+/* ---------------------------------------- 工具 C：阈值—工作点探索器 */
+function thrReadoutHtml(t, prev) {
+  const se = seAt(t), sp = spAt(t), r = predictive(prev, se, sp);
+  return [
+    { k: '特异性 Sp', v: fmt1(sp) + '%', n: '阈值 t = ' + fmt2(t), cls: '' },
+    { k: '灵敏度 Se', v: fmt1(se) + '%', n: '演示双正态模型计算值', cls: 'hi' },
+    { k: 'PPV', v: fmt1(r.ppv) + '%', n: 'P = ' + fmt2(prev) + '%', cls: r.ppv < 20 ? 'bad' : 'good' },
+    { k: 'NPV', v: fmt2(r.npv) + '%', n: 'P = ' + fmt2(prev) + '%', cls: 'good' }
+  ].map(x => '<div class="ro ' + x.cls + '"><div class="rk">' + x.k + '</div><div class="rv">' + x.v + '</div><div class="rn">' + x.n + '</div></div>').join('');
+}
+function updateThreshold(t, from) {
+  STATE.thr = Math.min(1.8, Math.max(0.3, +t));
+  $('#thrVal').textContent = fmt2(STATE.thr);
+  $('#thrVal2').textContent = fmt2(STATE.thr);
+  if (from !== 'a') $('#thrSlider').value = STATE.thr;
+  if (from !== 'c') $('#thrSlider2').value = STATE.thr;
+  const se = seAt(STATE.thr), sp = spAt(STATE.thr);
+  $('#thrReadout').innerHTML = [
+    { k: '特异性 Sp(t)', v: fmt1(sp) + '%', cls: '' },
+    { k: '灵敏度 Se(t)', v: fmt1(se) + '%', cls: 'hi' },
+    { k: '约登指数 J = Se+Sp−1', v: fmt1(se + sp - 100), cls: '' },
+    { k: '相对出厂阈值', v: (STATE.thr > 0.99 ? '更严（+' : '更松（') + fmt2(STATE.thr - 0.99) + '）', cls: '' }
+  ].map(x => '<div class="ro ' + x.cls + '"><div class="rk">' + x.k + '</div><div class="rv">' + x.v + '</div></div>').join('');
+  $('#thrReadout2').innerHTML = thrReadoutHtml(STATE.thr, STATE.toolCPrev);
+  $$('[data-thr]').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.thr - STATE.thr) < 0.005));
+  renderThrTable();
+  syncThresholdCharts();
+}
+function renderThrTable() {
+  const prev = STATE.toolCPrev;
+  const list = [
+    { t: thrForSp(76), lb: '高灵敏取向' }, { t: 0.99, lb: '出厂阈值（Sp 95%）' },
+    { t: thrForSp(99.5), lb: 'Galleri 式（Sp 99.5%）' }, { t: thrForSp(99.9), lb: '极高特异性' },
+    { t: STATE.thr, lb: '当前阈值' }
+  ];
+  let html = '<caption><b>Table 4｜</b>典型阈值下的工作点对照（演示模拟模型计算值，P = ' + fmt2(prev) + '%）。</caption>' +
+    '<thead><tr><th>阈值 t</th><th class="num">Sp</th><th class="num">Se</th><th class="num">PPV</th><th class="num">FP:TP</th><th>取向</th></tr></thead><tbody>';
+  list.forEach(x => {
+    const se = seAt(x.t), sp = spAt(x.t), r = predictive(prev, se, sp);
+    const cur = Math.abs(x.t - STATE.thr) < 0.005;
+    html += '<tr style="' + (cur ? 'background:var(--blue-bg)' : '') + '"><td class="rowname mono">' + fmt2(x.t) + '</td>' +
+      '<td class="num">' + fmt1(sp) + '%</td><td class="num">' + fmt1(se) + '%</td>' +
+      '<td class="num">' + fmt1(r.ppv) + '%</td><td class="num">' + fmt1(r.fpRatio) + ':1</td>' +
+      '<td class="tiny">' + x.lb + '</td></tr>';
+  });
+  $('#tblThr').innerHTML = html + '</tbody>';
+}
+function initToolC() {
+  $('#thrSlider').addEventListener('input', e => updateThreshold(e.target.value, 'a'));
+  $('#thrSlider2').addEventListener('input', e => updateThreshold(e.target.value, 'c'));
+  $$('[data-thr]').forEach(b => b.addEventListener('click', () => updateThreshold(b.dataset.thr)));
+  $('#thrPrev').addEventListener('change', e => {
+    STATE.toolCPrev = +e.target.value;
+    $('#vThrPrev').textContent = fmt2(STATE.toolCPrev) + '%';
+    updateThreshold(STATE.thr);
+  });
+  $('#btnSendToA').addEventListener('click', () => {
+    $('#sSe').value = Math.min(95, Math.max(50, seAt(STATE.thr)));
+    $('#sSp').value = Math.min(99.9, Math.max(90, spAt(STATE.thr)));
+    updateToolA();
+    $('#ppvReadout').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    ANALYTICS.track('tool_c_to_a', { thr: STATE.thr });
+  });
+  updateThreshold(SM.threshold);
+}
+
+/* ---------------------------------------- 第 8 区块：模拟报告 */
+function renderReportTabs() {
+  const keys = ['negative', 'positive', 'invalid'];
+  $('#repTabs').innerHTML = keys.map(k =>
+    '<button class="tab' + (k === STATE.repTab ? ' on' : '') + '" data-tab="' + k + '">' + MODEL_DATA.report.samples[k].tabLabel + '</button>').join('');
+  $$('[data-tab]').forEach(b => b.addEventListener('click', () => {
+    STATE.repTab = b.dataset.tab;
+    $$('[data-tab]').forEach(o => o.classList.toggle('on', o === b));
+    renderReport();
+    ANALYTICS.track('report_tab', { tab: STATE.repTab });
+  }));
+}
+function renderReport() {
+  const R = MODEL_DATA.report, s = R.samples[STATE.repTab];
+  /* 报告体每次整体重绘，先释放旧的 ECharts 实例，避免引用已移除的 DOM 节点 */
+  if (CHARTS.chMarkers && CHARTS.chMarkers.inst) {
+    try { CHARTS.chMarkers.inst.dispose(); } catch (e) {}
+    CHARTS.chMarkers.inst = null;
+  }
+  const invalid = s.conclusion === 'invalid';
+  const concl = R.conclusions[s.conclusion];
+  const badgeCls = s.conclusion === 'negative' ? 'neg' : (s.conclusion === 'positive' ? 'pos' : 'inv');
+  const qcRows = R.qcSpec.map(q =>
+    '<tr><td class="rowname">' + q.name + '</td><td class="num">' + s.qc[q.key] + '</td><td class="num">' + q.spec + '</td>' +
+    '<td>' + (s.qcPass[q.key] ? '<span class="pass">合格</span>' : '<span class="fail">不合格</span>') + '</td>' +
+    '<td class="tiny">' + (q.src === 'given' ? '任务给定规格' : '演示假设阈值') + '</td></tr>').join('');
+  const thrPos = (SM.threshold / SM.max) * 100;
+  const scorePos = s.score != null ? Math.min(100, (s.score / SM.max) * 100) : null;
+
+  $('#repBody').innerHTML =
+    '<div class="rep-wm">模拟数据 SIMULATED</div>' +
+    '<div class="rep-inner">' +
+      '<div class="rep-hd">' +
+        '<div><div class="rt">外周血 cfDNA 甲基化泛癌种筛查检测报告</div>' +
+        '<div class="rs">Plasma cfDNA Methylation Multi-Cancer Screening Report · 模型 ' + MODEL_DATA.meta.version +
+        ' · 平台：' + MODEL_DATA.meta.platform + '<br><b style="color:var(--amber)">本报告为方法学演示模板，内容全部为模拟数据，不具备临床效力</b></div></div>' +
+        '<div class="rbadge"><span class="badge ' + badgeCls + '">' + (invalid ? '质控不合格 · 结果无效' : (s.conclusion === 'positive' ? '检出异常甲基化信号' : '未检出异常甲基化信号')) + '</span>' +
+        '<div class="tiny muted" style="margin-top:6px">报告编号 ' + s.subject.barcode + '</div></div>' +
+      '</div>' +
+
+      '<div class="repsec"><div class="rh">一 · 受检者与样本信息（演示）</div><div class="kv">' +
+        [['受检者', s.subject.name], ['受检者编号', s.subject.pid], ['样本编号', s.subject.barcode],
+         ['样本类型', '外周血血浆 cfDNA'], ['采样日期', s.dates.collect], ['接收日期', s.dates.receive],
+         ['报告日期', s.dates.report], ['送检单位', '（演示）转化医学研究中心']]
+        .map(x => '<div class="kvi"><span>' + x[0] + '</span><span>' + x[1] + '</span></div>').join('') +
+      '</div></div>' +
+
+      '<div class="repsec"><div class="rh">二 · 样本与文库质控</div>' +
+        '<div class="tbl-wrap"><table class="rule3"><thead><tr><th>质控项</th><th class="num">实测值</th><th class="num">规格</th><th>判定</th><th>规格来源</th></tr></thead>' +
+        '<tbody>' + qcRows + '</tbody></table></div>' +
+        (invalid ? '<div class="callout risk" style="margin-top:10px"><h4>本样本检测结果无效，建议重新采样</h4><p class="small" style="margin:0">' + s.reason + '</p></div>'
+                 : '<div class="tiny muted" style="margin-top:6px">全部质控项合格，结果可用于判读。</div>') +
+      '</div>' +
+
+      (invalid ? '<div class="repsec"><div class="rh">三 · 检测结果</div>' +
+        '<div class="callout" style="border-style:dashed"><p class="small" style="margin:0">因质控不合格，<b>不出具甲基化总分与标志物分项结果</b>。' +
+        '按报告规范，质控失败样本不得报告任何定量结果，以避免下游误读。</p></div></div>'
+      : '<div class="repsec"><div class="rh">三 · 检测结果</div>' +
+        '<div class="small"><b>甲基化总分（0–2 量表）：</b><span class="mono" style="font-size:17px; color:' +
+          (s.conclusion === 'positive' ? 'var(--risk)' : 'var(--ok)') + '; font-weight:700">' + fmt2(s.score) + '</span>' +
+          '　阈值线 <span class="mono">' + fmt2(SM.threshold) + '</span>（= 健康人群评分第 95 百分位，特异性预设 95%）</div>' +
+        '<div class="scorebar">' +
+          '<div class="zone zn" style="width:' + thrPos + '%"></div>' +
+          '<div class="zone zp" style="width:' + (100 - thrPos) + '%"></div>' +
+          '<div class="thr" style="left:' + thrPos + '%"><span>阈值 ' + fmt2(SM.threshold) + '</span></div>' +
+          '<div class="mk" style="left:' + scorePos + '%; background:' + (s.conclusion === 'positive' ? 'var(--risk)' : 'var(--ok)') +
+            '; color:' + (s.conclusion === 'positive' ? 'var(--risk)' : 'var(--ok)') + '"></div>' +
+          '<div class="axis" style="left:0">0.00</div><div class="axis" style="right:0">2.00</div>' +
+        '</div>' +
+        '<div class="tiny muted" style="margin-top:22px">绿区 = 阈值下（未检出信号）；红区 = 阈值上（检出信号）。总分为 4 个标志物区域判别统计量的加权合成值。</div>' +
+        '<h4 class="mini-head">4 个标志物区域分项 z-score</h4>' +
+        '<div id="chMarkers" class="chart" style="height:210px"></div>' +
+        '<div class="tiny muted">' + R.markerNote + '</div>' +
+      '</div>') +
+
+      '<div class="repsec"><div class="rh">四 · 结论与建议</div>' +
+        '<div class="callout ' + (s.conclusion === 'positive' ? 'risk' : (invalid ? 'warn' : 'ok')) + '">' +
+        '<h4>' + concl.head + '</h4><p class="small" style="margin:0">' + concl.advice + '</p></div>' +
+        (s.conclusion === 'positive' ? '<p class="tiny muted" style="margin-top:8px">阳性后临床路径见第 10 区块流程图：异常信号 → 复查确认 → 定向影像 / 内镜 → 病理确诊。' +
+          '请注意前瞻队列实测数据：阳性结果中约 62% 最终为假阳性' + citeHtml('schrag2023') + '。</p>' : '') +
+      '</div>' +
+
+      '<div class="rep-foot"><div class="rh" style="border:none; padding:0; margin-bottom:4px">五 · 方法学与局限性声明（固定页脚）</div>' +
+        '<ol>' + R.footerStatements.map(x => '<li>' + x + '</li>').join('') + '</ol>' +
+        '<div class="rep-sign"><div>检验者（演示）</div><div>审核者（演示）</div><div>报告单位（演示）</div></div>' +
+      '</div>' +
+    '</div>';
+  bindCitations();
+  if (!invalid) ensureChart('chMarkers');
+}
+
+/* ---------------------------------------- 第 9 / 10 / 12 区块 */
+function renderLimitations() {
+  $('#limList').innerHTML = MODEL_DATA.limitations.map(l =>
+    '<li><span class="ln">' + l.n + '</span>' +
+    '<h4>' + l.title + ' ' + tagHtml(l.tag) + '</h4>' +
+    '<p>' + l.text + citeHtml(l.refs) + '</p></li>').join('');
+}
+function renderGuidelines() {
+  const G = MODEL_DATA.guidelines;
+  $('#consensusCard').innerHTML =
+    '<h4 class="mini-head" style="margin-top:0">' + G.consensus.title + ' ' + tagHtml('guide', true) + '</h4>' +
+    '<div class="tiny muted" style="margin-bottom:10px">' + G.consensus.cite + citeHtml(G.consensus.refs) + '</div>' +
+    '<div class="tbl-wrap"><table class="rule3"><thead><tr><th>条目</th><th>共识内容</th><th>推荐强度 / 证据级别</th></tr></thead><tbody>' +
+    G.consensus.points.map(p => '<tr><td class="rowname">' + p.k + '</td><td>' + p.v + '</td><td class="tiny"><b>' + p.level + '</b></td></tr>').join('') +
+    '</tbody></table></div>';
+  $('#positioningCard').innerHTML =
+    '<h4>' + G.positioning.title + '（两条须并呈）</h4>' +
+    '<p class="small" style="margin:0 0 8px">① ' + G.positioning.textA + '</p>' +
+    '<p class="small" style="margin:0 0 8px">② ' + G.positioning.textB + citeHtml(G.positioning.refs) + '</p>' +
+    '<p class="tiny" style="margin:0"><b>' + G.positioning.note + '</b></p>';
+  const pw = $('#pathwayFlow'); pw.innerHTML = '';
+  G.pathway.forEach((n, i) => {
+    if (i) pw.appendChild(elt('div', 'pa', '→'));
+    pw.appendChild(elt('div', 'pnode', '<div class="pt">' + n.id + '　' + n.title + '</div><div class="pd">' + n.desc + '</div>'));
+  });
+}
+function renderFooter() {
+  const F = MODEL_DATA.footer;
+  $('#pageFoot').innerHTML =
+    '<div class="fgrid">' +
+      '<div><h5>文档</h5>' + MODEL_DATA.meta.title + '<br>版本 ' + F.version + '｜更新 ' + F.updated + '</div>' +
+      '<div><h5>数据口径</h5>流行病学与已发表研究数值按原文引用并标注文献编号；<br>交互输出、评分分布与模拟报告为<b>模拟数据</b>。</div>' +
+      '<div><h5>联系方式（占位）</h5>' + F.contact.org + '<br>' + F.contact.mail + '　' + F.contact.tel + '</div>' +
+      '<div><h5>报告规范</h5>' + MODEL_DATA.meta.reportingStandard + citeHtml('bossuyt2015stard,collins2015tripod') + '</div>' +
+    '</div>' +
+    '<div class="fdecl"><b style="color:var(--risk)">' + F.statement + '</b><br>' +
+    '本演示不提供诊断服务、不构成医疗建议，亦不代表任何在研或已上市产品的性能声明。' +
+    '如需引用本页面中的第三方研究数据，请回溯第 11 区块列出的原始文献。' +
+    '禁止将本演示内容用于患者沟通、商业宣传或监管申报材料。<br>' +
+    '<span class="tiny">Rendering: ECharts 5 · GSAP ScrollTrigger · KaTeX · Tailwind CSS（CDN）｜单文件自包含，无后端。</span></div>';
+  bindCitations();
+}
+
+/* ---------------------------------------- 主题 / 语言 / 滚动 / 公式 */
+function applyTheme(t) {
+  STATE.theme = t;
+  document.documentElement.dataset.theme = t;
+  $('#btnTheme').textContent = t === 'dark' ? '◑ 浅色' : '◐ 深色';
+  try { localStorage.setItem('mced-demo-theme', t); } catch (e) {}
+  setTimeout(refreshCharts, 40);
+  ANALYTICS.track('theme', { theme: t });
+}
+function applyLang(l) {
+  STATE.lang = l;
+  document.documentElement.dataset.lang = l;
+  $('#btnLang').textContent = l === 'en' ? '中文' : 'EN';
+  $$('[data-zh][data-en]').forEach(e => { e.textContent = l === 'en' ? e.dataset.en : e.dataset.zh; });
+  $('#bannerText').textContent = ' ' + T(MODEL_DATA.meta.banner, MODEL_DATA.meta.bannerEn);
+  buildNav(); initTocObserver();
+  refreshCharts();
+  ANALYTICS.track('lang', { lang: l });
+}
+let tocIO = null;
+function initTocObserver() {
+  if (tocIO) tocIO.disconnect();
+  if (!('IntersectionObserver' in window)) return;
+  const links = {};
+  $$('#tocList a').forEach(a => links[a.dataset.target] = a);
+  tocIO = new IntersectionObserver(es => {
+    es.forEach(e => {
+      if (e.isIntersecting) {
+        $$('#tocList a').forEach(a => a.classList.remove('active'));
+        if (links[e.target.id]) links[e.target.id].classList.add('active');
+      }
+    });
+  }, { rootMargin: '-96px 0px -62% 0px', threshold: 0 });
+  SECTIONS.forEach(s => { const el = document.getElementById(s.id); if (el) tocIO.observe(el); });
+}
+function initReveal() {
+  const items = $$('.reveal');
+  if (typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined') {
+    gsap.registerPlugin(ScrollTrigger);
+    items.forEach(el => {
+      el.classList.add('in');
+      gsap.fromTo(el, { opacity: 0, y: 14 }, {
+        opacity: 1, y: 0, duration: .55, ease: 'power2.out',
+        scrollTrigger: { trigger: el, start: 'top 92%', once: true }
+      });
+    });
+  } else if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { rootMargin: '0px 0px -8% 0px' });
+    items.forEach(el => io.observe(el));
+  } else items.forEach(el => el.classList.add('in'));
+}
+function renderMath() {
+  const nodes = $$('[data-tex]');
+  if (typeof katex === 'undefined') {
+    nodes.forEach(n => { n.className = 'katex-fallback'; n.textContent = n.dataset.tex; });
+    return;
+  }
+  nodes.forEach(n => {
+    try { katex.render(n.dataset.tex, n, { displayMode: n.dataset.display === '1', throwOnError: false, output: 'html' }); }
+    catch (e) { n.className = 'katex-fallback'; n.textContent = n.dataset.tex; }
+  });
+}
+function initMisc() {
+  $('#btnTheme').addEventListener('click', () => applyTheme(STATE.theme === 'dark' ? 'light' : 'dark'));
+  $('#btnLang').addEventListener('click', () => applyLang(STATE.lang === 'en' ? 'zh' : 'en'));
+  $('#btnPrint').addEventListener('click', () => { $$('.refitem').forEach(x => x.classList.add('open')); setTimeout(() => window.print(), 120); });
+  $$('[data-export]').forEach(b => b.addEventListener('click', () => exportPng(b.dataset.export)));
+  const top = $('#toTop');
+  top.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  const bar = $('#progress');
+  const onScroll = () => {
+    const h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (h > 0 ? Math.min(100, window.scrollY / h * 100) : 0) + '%';
+    top.classList.toggle('show', window.scrollY > 700);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  let rt = null;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resizeCharts, 180); });
+  window.addEventListener('beforeprint', () => setTimeout(resizeCharts, 60));
+  onScroll();
+}
+
+/* ---------------------------------------- 启动 */
+(function boot() {
+  try { const t = localStorage.getItem('mced-demo-theme'); if (t) document.documentElement.dataset.theme = STATE.theme = t; } catch (e) {}
+  buildNav();
+  renderHero();
+  renderEpi();
+  buildMechanismFigure();
+  renderMechLists();
+  renderSOP();
+  renderWetlab();
+  renderAlgorithm();
+  renderCancerTable();
+  renderCompareTable();
+  renderRegTable();
+  renderLimitations();
+  renderGuidelines();
+  renderReportTabs();
+  renderReport();
+  renderFooter();
+  renderRefs();
+  bindCitations();
+  initToolA();
+  initToolB();
+  initToolC();
+  initChartObserver();
+  initTocObserver();
+  initReveal();
+  renderMath();
+  initMisc();
+  applyTheme(STATE.theme);
+  ANALYTICS.track('page_view', { version: MODEL_DATA.meta.version });
+  console.info('%c cfDNA 甲基化早筛模型演示 v2.1 ', 'background:#1D4ED8;color:#fff;padding:2px 6px;border-radius:3px',
+    '\n数据入口：window.__MCED_DEMO__（MODEL_DATA / REFERENCES / STATE / ANALYTICS）' +
+    '\n埋点占位：ANALYTICS.enabled = true 并设置 ANALYTICS.endpoint 后即可上报；ANALYTICS.dump() 查看本地缓冲。' +
+    '\n所有交互输出均为模拟数据，不构成诊断依据。');
+})();
+</script>
+</body>
+</html>

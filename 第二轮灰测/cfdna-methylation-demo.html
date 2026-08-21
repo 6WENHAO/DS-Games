@@ -1,0 +1,2891 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  cfDNA 甲基化癌症早期筛查 · 医学模型演示（Demo）  v1.1
+  单文件交付：双击即可在浏览器打开，无需构建、无需后端、无外部图片依赖。
+  所有演示数据集中在页面底部脚本顶部的 DEMO_DATA 对象，可整体替换。
+  免责：本页面为技术演示，不构成医疗建议、诊断或治疗方案。
+  ----------------------------------------------------------------------------
+  结构索引
+    CSS   1) 主题变量        2) 基础重置       3) 通用版式
+          4) 进度条 / 导航   5) 首屏          6) 数据大屏
+          7) 科学原理        8) 流程时间线     9) 模拟检测台
+         10) 模拟报告 A4    11) 图表/FAQ/页脚 12) 增强模块
+         13) 打印样式（仅打印报告）
+    HTML  10 个区块：#hero #burden #science #workflow #lab
+                    #performance #survival #guideline #faq #footer
+    JS    ① DEMO_DATA（唯一数据源）      ② 工具与图标
+          ③ 进度条/主题/导航/渐入/高光/术语
+          ④ 首屏 Canvas DNA 双螺旋（3D 透视）
+          ⑤ 疾病负担计数器               ⑥ 科学原理交互（甲基化对照）
+          ⑦ 流程时间线                   ⑧ ECharts 管理（主题联动）
+          ⑨ 性能图表 / ⑨-b 分期与生存 / ⑨-c PPV 推演
+          ⑩ 模拟检测台 + 报告（含焦点管理）
+          ⑪ 指南 / FAQ / 页脚            ⑫ 统一绑定滚动渐入
+  ============================================================================
+-->
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>一管血，预见癌症 · cfDNA 甲基化癌症早期筛查医学模型（演示 Demo）</title>
+<meta name="description" content="cfDNA 甲基化癌症早期筛查医学模型演示：疾病负担、科学原理、检测流程、模拟检测台、性能数据与早筛价值。演示数据，不构成医疗建议。" />
+<meta name="theme-color" content="#070B14" />
+
+<!-- 先行主题与临界样式：避免 CDN 阻塞期间出现白屏闪烁与主题跳变 -->
+<script>
+  try { if (localStorage.getItem('cfdna-demo-theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
+</script>
+<style>
+  html{background:#070B14}
+  html[data-theme="light"]{background:#EDF2F9}
+  body{margin:0;color:#E6EEF8;font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif}
+  html[data-theme="light"] body{color:#0B1220}
+</style>
+
+<!-- ===== CDN 依赖（缺失时页面仍可浏览，脚本内均有可用性判断） ===== -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* Tailwind 仅作为“增强”使用：关闭 preflight，避免覆盖本文件自带的基础样式 */
+  if (window.tailwind) {
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: { extend: { colors: { ink: '#070B14', ink2: '#0B1220', med: '#22D3EE', med2: '#38BDF8', warn: '#F59E0B', ok: '#34D399' } } }
+    };
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+
+<style>
+/* ==========================================================================
+   1) 主题变量
+   ========================================================================== */
+:root{
+  --bg:#070B14; --bg2:#0B1220; --panel:rgba(255,255,255,.045); --panel2:rgba(255,255,255,.075);
+  --solid:#0E1626; --text:#E6EEF8; --muted:#94A3B8; --dim:#64748B;
+  --border:rgba(148,163,184,.18); --border2:rgba(148,163,184,.32);
+  --cyan:#22D3EE; --sky:#38BDF8; --amber:#F59E0B; --green:#34D399; --red:#F87171;
+  --grid:rgba(148,163,184,.14);
+  --shadow:0 22px 48px -24px rgba(0,0,0,.85), 0 2px 10px rgba(0,0,0,.35);
+  --nav-h:64px;
+  --radius:20px;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#EDF2F9; --bg2:#FFFFFF; --panel:rgba(15,23,42,.035); --panel2:rgba(15,23,42,.065);
+  --solid:#FFFFFF; --text:#0B1220; --muted:#475569; --dim:#64748B;
+  --border:rgba(15,23,42,.12); --border2:rgba(15,23,42,.22);
+  --cyan:#0E7490; --sky:#0369A1; --amber:#B45309; --green:#047857; --red:#B91C1C;
+  --grid:rgba(15,23,42,.10);
+  --shadow:0 20px 44px -26px rgba(15,23,42,.30), 0 2px 8px rgba(15,23,42,.08);
+  color-scheme:light;
+}
+
+/* ==========================================================================
+   2) 基础重置（Tailwind preflight 已关闭，这里自备）
+   ========================================================================== */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--text); overflow-x:hidden;
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  line-height:1.7; font-size:16px; letter-spacing:.01em;
+  transition:background-color .4s ease,color .4s ease;
+}
+h1,h2,h3,h4,h5,h6,p,figure,dl,dd,blockquote{margin:0}
+ul,ol{margin:0;padding:0;list-style:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;padding:0}
+a{color:inherit;text-decoration:none}
+svg{display:block}
+.ico{display:inline-block;vertical-align:middle}
+::selection{background:rgba(34,211,238,.28)}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:3px;border-radius:6px}
+
+/* 背景光晕 */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(1100px 620px at 78% -8%, rgba(34,211,238,.16), transparent 62%),
+    radial-gradient(900px 560px at 6% 8%, rgba(56,189,248,.13), transparent 60%),
+    radial-gradient(1000px 700px at 50% 108%, rgba(15,118,178,.14), transparent 65%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg2) 55%,var(--bg) 100%);
+}
+/* 细网格纹理 */
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.35;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:64px 64px;
+  mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 78%);
+  -webkit-mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 78%);
+}
+
+/* ==========================================================================
+   3) 通用版式
+   ========================================================================== */
+.wrap{width:100%;max-width:1200px;margin:0 auto;padding:0 20px}
+.sec{padding:92px 0;position:relative;scroll-margin-top:calc(var(--nav-h) + 12px)}
+.sec--tight{padding:70px 0}
+.sec-head{max-width:860px;margin-bottom:40px}
+.kicker{
+  display:inline-flex;align-items:center;gap:8px;font-size:12.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--cyan);font-weight:700;margin-bottom:14px;
+  padding:5px 12px;border:1px solid var(--border2);border-radius:999px;background:var(--panel);
+}
+.kicker i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);display:block}
+.sec-title{font-size:clamp(26px,3.4vw,42px);line-height:1.25;font-weight:800;letter-spacing:-.01em;margin-bottom:14px}
+.sec-title em{font-style:normal;background:linear-gradient(92deg,var(--cyan),var(--sky));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sec-lead{color:var(--muted);font-size:15.5px;max-width:760px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace}
+.glass{
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  -webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);
+  box-shadow:var(--shadow);
+}
+.glass-hover{transition:transform .35s cubic-bezier(.22,1,.36,1),border-color .35s,box-shadow .35s}
+.glass-hover:hover{transform:translateY(-4px);border-color:var(--border2)}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.note{font-size:12.5px;color:var(--dim);line-height:1.6}
+.tag{
+  display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;
+  border:1px solid var(--border2);color:var(--muted);background:var(--panel);
+}
+.tag-cyan{color:var(--cyan);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+.tag-amber{color:var(--amber);border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.09)}
+.tag-green{color:var(--green);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.09)}
+.hr{height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);margin:26px 0}
+
+/* 按钮 */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;
+  border:1px solid var(--border2);color:var(--text);background:var(--panel);
+  transition:transform .18s ease,box-shadow .25s,background .25s,border-color .25s,opacity .2s;
+}
+.btn:hover{transform:translateY(-2px)}
+.btn:active{transform:translateY(0)}
+.btn-primary{
+  background:linear-gradient(100deg,var(--cyan),var(--sky));color:#04121C;border-color:transparent;
+  box-shadow:0 12px 30px -12px rgba(34,211,238,.75);
+}
+html[data-theme="light"] .btn-primary{color:#fff}
+.btn-primary:hover{box-shadow:0 18px 38px -14px rgba(34,211,238,.85)}
+.btn-amber{background:linear-gradient(100deg,var(--amber),#FBBF24);color:#1A1203;border-color:transparent;box-shadow:0 12px 30px -14px rgba(245,158,11,.7)}
+html[data-theme="light"] .btn-amber{color:#fff}
+.btn-ghost:hover{background:var(--panel2);border-color:var(--cyan)}
+.btn-sm{padding:9px 16px;font-size:13.5px;border-radius:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed;transform:none}
+.btn.on{border-color:var(--cyan);background:rgba(34,211,238,.12);color:var(--cyan)}
+
+/* 滚动渐入 */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1!important;transform:none!important;transition:none!important}
+}
+
+/* ==========================================================================
+   4) 顶部进度条 + 导航
+   ========================================================================== */
+#loadBar,#scrollBar{position:fixed;left:0;top:0;height:3px;width:100%;z-index:120;pointer-events:none;background:transparent}
+#loadBar i,#scrollBar i{display:block;height:100%;width:0}
+#loadBar i{background:linear-gradient(90deg,var(--cyan),var(--sky),#A78BFA);box-shadow:0 0 14px rgba(34,211,238,.9);transition:width .35s ease,opacity .5s ease}
+#scrollBar{opacity:0;transition:opacity .5s ease}
+#scrollBar i{background:linear-gradient(90deg,var(--cyan),var(--sky));box-shadow:0 0 10px rgba(34,211,238,.6)}
+body.loaded #loadBar{opacity:0}
+body.loaded #scrollBar{opacity:1}
+
+#nav{position:fixed;top:0;left:0;right:0;z-index:110;height:var(--nav-h);display:flex;align-items:center;transition:background .35s,border-color .35s,box-shadow .35s}
+#nav.stuck{
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);box-shadow:0 10px 30px -20px rgba(0,0,0,.9);
+}
+@supports not (background:color-mix(in srgb,red 50%,blue)){
+  #nav.stuck{background:rgba(7,11,20,.88)}
+  html[data-theme="light"] #nav.stuck{background:rgba(240,245,251,.92)}
+}
+.nav-inner{width:100%;max-width:1280px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;flex:none}
+.brand-txt b{display:block;font-size:14.5px;font-weight:800;letter-spacing:.02em;line-height:1.2}
+.brand-txt span{display:block;font-size:10.5px;color:var(--dim);letter-spacing:.14em}
+.nav-links{display:flex;align-items:center;gap:2px;margin-left:auto;flex-wrap:nowrap}
+.nav-links a{
+  position:relative;font-size:13px;color:var(--muted);padding:8px 10px;border-radius:9px;
+  transition:color .25s,background .25s;white-space:nowrap;
+}
+.nav-links a:hover{color:var(--text);background:var(--panel)}
+.nav-links a.active{color:var(--cyan);background:rgba(34,211,238,.10)}
+.nav-links a.active::after{content:"";position:absolute;left:10px;right:10px;bottom:3px;height:2px;border-radius:2px;background:var(--cyan)}
+.nav-tools{display:flex;align-items:center;gap:8px;flex:none}
+.icon-btn{width:36px;height:36px;border-radius:11px;border:1px solid var(--border);display:grid;place-items:center;color:var(--muted);background:var(--panel);transition:.25s}
+.icon-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+#navToggle{display:none}
+#navMobile{display:none}
+@media (max-width:1080px){
+  .nav-links{display:none}
+  #navToggle{display:grid}
+  #navMobile{
+    display:block;position:fixed;top:var(--nav-h);left:0;right:0;z-index:109;
+    background:var(--solid);border-bottom:1px solid var(--border);
+    max-height:0;overflow:hidden;transition:max-height .4s cubic-bezier(.22,1,.36,1);
+  }
+  #navMobile.open{max-height:70vh;overflow:auto}
+  #navMobile ul{padding:10px 20px 18px;display:grid;gap:2px}
+  #navMobile a{display:block;padding:11px 12px;border-radius:10px;font-size:14.5px;color:var(--muted)}
+  #navMobile a.active{color:var(--cyan);background:rgba(34,211,238,.10)}
+}
+
+/* ==========================================================================
+   5) 第 1 区块 · 首屏
+   ========================================================================== */
+.hero{position:relative;min-height:100vh;display:flex;align-items:center;padding:calc(var(--nav-h) + 40px) 0 70px;overflow:hidden;scroll-margin-top:0}
+@supports (min-height:100svh){.hero{min-height:100svh}}
+#heroCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.hero-veil{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(760px 460px at 22% 46%,rgba(7,11,20,.86),transparent 70%),
+             linear-gradient(180deg,rgba(7,11,20,.55),transparent 30%,rgba(7,11,20,.75));
+}
+html[data-theme="light"] .hero-veil{background:radial-gradient(760px 460px at 22% 46%,rgba(237,242,249,.9),transparent 70%),linear-gradient(180deg,rgba(237,242,249,.6),transparent 30%,rgba(237,242,249,.8))}
+.hero-inner{position:relative;z-index:2;width:100%}
+.hero-badge{display:inline-flex;align-items:center;gap:10px;padding:7px 15px;border-radius:999px;background:var(--panel);border:1px solid var(--border2);font-size:12.5px;color:var(--muted);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.hero-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);animation:pulse 2.4s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+.hero-title{
+  font-size:clamp(42px,7.6vw,94px);line-height:1.02;font-weight:900;letter-spacing:-.03em;margin:22px 0 0;
+  text-shadow:0 22px 60px rgba(0,0,0,.5);
+}
+.hero-title .g{background:linear-gradient(96deg,#67E8F9 0%,var(--cyan) 38%,var(--sky) 74%,#818CF8 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-sub{margin-top:20px;font-size:clamp(15px,1.7vw,19px);color:var(--muted);max-width:640px}
+.hero-sub b{color:var(--text);font-weight:700}
+.hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+.hero-chips{display:flex;flex-wrap:wrap;gap:12px;margin-top:40px}
+.chip{display:flex;align-items:center;gap:11px;padding:12px 16px;border-radius:14px;background:var(--panel);border:1px solid var(--border);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.chip b{font-size:19px;font-weight:800;letter-spacing:-.01em;line-height:1}
+.chip span{font-size:12px;color:var(--muted);display:block}
+.hero-disclaimer{
+  margin-top:38px;display:inline-flex;align-items:flex-start;gap:10px;max-width:640px;
+  padding:12px 16px;border-radius:13px;font-size:13px;color:#FCD34D;
+  background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.36);
+}
+html[data-theme="light"] .hero-disclaimer{color:#92400E;background:rgba(245,158,11,.14)}
+.scroll-hint{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:2;display:grid;justify-items:center;gap:7px;color:var(--dim);font-size:11.5px;letter-spacing:.18em}
+.scroll-hint .bar{width:1px;height:36px;background:linear-gradient(180deg,var(--cyan),transparent);animation:drop 1.9s infinite}
+@keyframes drop{0%{opacity:0;transform:scaleY(.2)}45%{opacity:1}100%{opacity:0;transform:translateY(14px) scaleY(.9)}}
+
+/* ==========================================================================
+   6) 第 2 区块 · 数据大屏
+   ========================================================================== */
+.stat{padding:26px 24px;position:relative;overflow:hidden}
+.stat::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--cyan);opacity:.85}
+.stat[data-accent="amber"]::after{background:var(--amber)}
+.stat[data-accent="red"]::after{background:var(--red)}
+.stat[data-accent="sky"]::after{background:var(--sky)}
+.stat[data-accent="green"]::after{background:var(--green)}
+.stat-top{display:flex;align-items:flex-end;gap:5px;flex-wrap:wrap}
+.stat-num{font-size:clamp(32px,4.2vw,46px);font-weight:900;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat[data-accent="cyan"] .stat-num{color:var(--cyan)}
+.stat[data-accent="sky"] .stat-num{color:var(--sky)}
+.stat[data-accent="amber"] .stat-num{color:var(--amber)}
+.stat[data-accent="red"] .stat-num{color:var(--red)}
+.stat[data-accent="green"] .stat-num{color:var(--green)}
+.stat-pre{font-size:24px;font-weight:800;color:var(--muted);line-height:1;margin-right:2px}
+.stat-unit{font-size:15px;color:var(--muted);font-weight:600;padding-bottom:3px}
+.stat-label{margin-top:14px;font-size:14.5px;font-weight:600}
+.stat-note{margin-top:6px;font-size:12.5px;color:var(--dim)}
+.burden-call{
+  margin-top:22px;padding:22px 24px;display:flex;gap:16px;align-items:flex-start;
+  border-radius:var(--radius);border:1px dashed var(--border2);background:var(--panel);
+}
+.burden-call b{color:var(--cyan)}
+
+/* ==========================================================================
+   7) 第 3 区块 · 科学原理
+   ========================================================================== */
+.sci-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:18px 22px;margin-bottom:22px}
+.sci-ctl .sw{display:flex;gap:8px}
+.slider-wrap{flex:1;min-width:260px;display:flex;align-items:center;gap:14px}
+input[type="range"]{
+  -webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:999px;
+  background:linear-gradient(90deg,var(--cyan),var(--amber));outline:none;cursor:pointer;
+}
+input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;
+  border:3px solid var(--cyan);box-shadow:0 3px 12px rgba(0,0,0,.5);cursor:grab;
+}
+input[type="range"]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--cyan);cursor:grab}
+.lvl-badge{min-width:126px;text-align:right;font-size:13px;color:var(--muted)}
+.lvl-badge b{font-size:20px;color:var(--amber);font-variant-numeric:tabular-nums}
+.panel-pair{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cellpanel{padding:22px;position:relative;overflow:hidden}
+.cellpanel h3{font-size:17px;font-weight:800;display:flex;align-items:center;gap:9px}
+.cellpanel .ph-sub{font-size:12.5px;color:var(--dim);margin-top:4px;margin-bottom:14px}
+.cellpanel[data-kind="normal"]{border-color:rgba(52,211,153,.28)}
+.cellpanel[data-kind="cancer"]{border-color:rgba(245,158,11,.3)}
+.cell-svg{width:100%;max-width:340px;margin:0 auto 8px}
+.metrics{display:grid;gap:10px;margin:14px 0 4px}
+.mrow{display:grid;grid-template-columns:auto minmax(56px,1fr) 48px;align-items:center;gap:10px;font-size:12.5px}
+.mrow .mlabel{color:var(--muted)}
+.mbar{height:7px;border-radius:999px;background:var(--panel2);overflow:hidden}
+.mbar i{display:block;height:100%;border-radius:999px;transition:width .45s cubic-bezier(.22,1,.36,1)}
+.mbar.amber i{background:linear-gradient(90deg,#FBBF24,var(--amber))}
+.mbar.cyan i{background:linear-gradient(90deg,var(--sky),var(--cyan))}
+.mbar.green i{background:linear-gradient(90deg,var(--green),#6EE7B7)}
+.mval{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.track-title{font-size:11.5px;color:var(--dim);letter-spacing:.06em;margin:12px 0 2px;display:flex;justify-content:space-between}
+.verdict{margin-top:14px;padding:12px 14px;border-radius:13px;font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:9px}
+.verdict.ok{background:rgba(52,211,153,.10);border:1px solid rgba(52,211,153,.34);color:var(--green)}
+.verdict.bad{background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.34);color:var(--red)}
+.verdict.mid{background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.34);color:var(--amber)}
+.seqbox{margin-top:12px;padding:12px;border-radius:12px;background:rgba(2,6,14,.45);border:1px solid var(--border);overflow-x:auto}
+html[data-theme="light"] .seqbox{background:rgba(15,23,42,.04)}
+.seq{display:flex;gap:1px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.04em;min-width:max-content}
+.seq span{position:relative;padding:14px 2px 3px;color:var(--muted);border-radius:3px;transition:color .3s,background .3s}
+.seq span.cpg{color:var(--sky)}
+.seq span.mC{color:#fff;background:var(--amber);font-weight:800}
+html[data-theme="light"] .seq span.mC{color:#fff}
+.seq span.mC::before{
+  content:"CH₃";position:absolute;left:50%;top:0;transform:translateX(-50%);
+  font-size:8px;color:var(--amber);background:rgba(245,158,11,.16);border-radius:3px;padding:0 2px;line-height:1.35;white-space:nowrap;
+}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12.5px;color:var(--muted);margin-top:16px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.fact{padding:20px}
+.fact .fi{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(34,211,238,.12);color:var(--cyan);border:1px solid rgba(34,211,238,.3);margin-bottom:13px}
+.fact h4{font-size:15px;font-weight:800;margin-bottom:7px}
+.fact p{font-size:13px;color:var(--muted)}
+
+@media (max-width:900px){
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g3{grid-template-columns:1fr}
+  .panel-pair{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .sec{padding:66px 0}
+  .g2,.g4{grid-template-columns:1fr}
+  .mrow{grid-template-columns:auto minmax(40px,1fr) 44px;font-size:11.5px}
+}
+/* 时间线：手机端改为两列网格，消除横向滚动 */
+@media (max-width:720px){
+  .tl{min-width:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 8px}
+  .tl-line{display:none}
+  .tl-scroll{overflow-x:visible;padding:10px 6px 12px}
+  .tl-step{min-width:0}
+  .tl-step p{display:none}
+}
+/* ==========================================================================
+   8) 第 4 区块 · 检测全流程时间线
+   ========================================================================== */
+.tl-wrap{position:relative;padding:8px 0 4px}
+.tl-scroll{overflow-x:auto;overflow-y:hidden;padding:10px 2px 18px;-webkit-overflow-scrolling:touch}
+.tl{position:relative;display:flex;gap:8px;min-width:840px}
+.tl-line{position:absolute;left:6%;right:6%;top:30px;height:2px;background:var(--border);border-radius:2px;overflow:hidden}
+.tl-line i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--sky));box-shadow:0 0 12px rgba(34,211,238,.7);transition:width 1.6s cubic-bezier(.22,1,.36,1)}
+.tl-step{position:relative;flex:1;min-width:110px;text-align:center;cursor:pointer;padding-top:2px}
+.tl-dot{
+  width:58px;height:58px;margin:0 auto;border-radius:18px;display:grid;place-items:center;
+  background:var(--solid);border:1px solid var(--border);color:var(--dim);position:relative;z-index:2;
+  transition:transform .45s cubic-bezier(.22,1,.36,1),color .45s,border-color .45s,box-shadow .45s,background .45s;
+}
+.tl-step .tl-idx{
+  position:absolute;top:-6px;right:calc(50% - 38px);width:22px;height:22px;border-radius:50%;z-index:3;
+  display:grid;place-items:center;font-size:11px;font-weight:800;background:var(--solid);
+  border:1px solid var(--border);color:var(--dim);transition:.4s;
+}
+.tl-step h4{font-size:13.5px;font-weight:700;margin-top:12px;color:var(--muted);transition:color .4s;padding:0 4px}
+.tl-step p{font-size:11.5px;color:var(--dim);margin-top:5px;padding:0 6px;line-height:1.5}
+.tl-step.on .tl-dot{color:var(--cyan);border-color:rgba(34,211,238,.55);box-shadow:0 0 0 5px rgba(34,211,238,.09),0 14px 30px -16px rgba(34,211,238,.8);transform:translateY(-3px)}
+.tl-step.on .tl-idx{color:#04121C;background:var(--cyan);border-color:transparent}
+html[data-theme="light"] .tl-step.on .tl-idx{color:#fff}
+.tl-step.on h4{color:var(--text)}
+.tl-step.sel .tl-dot{background:rgba(34,211,238,.12)}
+.tl-detail{margin-top:8px;padding:24px;display:grid;gap:16px;grid-template-columns:64px 1fr}
+.tl-detail .d-ic{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.3);color:var(--cyan)}
+.tl-detail h3{font-size:18px;font-weight:800;margin-bottom:8px}
+.tl-detail p{font-size:14px;color:var(--muted)}
+.tl-detail ul{margin-top:12px;display:grid;gap:7px}
+.tl-detail li{font-size:12.5px;color:var(--muted);padding-left:16px;position:relative}
+.tl-detail li::before{content:"";position:absolute;left:0;top:9px;width:6px;height:6px;border-radius:50%;background:var(--cyan)}
+
+/* ==========================================================================
+   9) 第 5 区块 · 模拟检测台
+   ========================================================================== */
+.lab{display:grid;gap:18px;grid-template-columns:minmax(0,340px) minmax(0,1fr)}
+.lab-card{padding:24px}
+.lab-card h3{font-size:16px;font-weight:800;display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.lab-card .sub{font-size:12px;color:var(--dim);margin-bottom:18px}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;letter-spacing:.02em}
+.field input,.field select{
+  width:100%;padding:10px 12px;border-radius:11px;background:rgba(2,6,14,.42);
+  border:1px solid var(--border);color:var(--text);font-size:13.5px;transition:border-color .25s,background .25s;
+}
+html[data-theme="light"] .field input,html[data-theme="light"] .field select{background:#fff}
+.field input:focus,.field select:focus{border-color:var(--cyan);outline:none}
+.field .hintline{font-size:11px;color:var(--dim);margin-top:5px}
+.sample-btns{display:grid;gap:9px;grid-template-columns:1fr 1fr;margin:6px 0 14px}
+.risk-hint{padding:11px 13px;border-radius:12px;font-size:12px;background:var(--panel2);border:1px dashed var(--border2);color:var(--muted);margin-bottom:14px}
+.assay-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:6px}
+.assay-state{font-size:12.5px;color:var(--cyan);font-weight:600;display:flex;align-items:center;gap:8px;min-height:22px}
+.assay-state .spin{width:13px;height:13px;border-radius:50%;border:2px solid rgba(34,211,238,.25);border-top-color:var(--cyan);animation:spin .8s linear infinite;display:none}
+.assay-state.busy .spin{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.overall{height:8px;border-radius:999px;background:var(--panel2);overflow:hidden;margin:14px 0 20px}
+.overall i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--cyan),var(--sky));transition:width .4s ease}
+.mini-list{display:grid;gap:9px}
+.mini{display:grid;grid-template-columns:34px 1fr 68px;gap:12px;align-items:center;padding:10px 12px;border-radius:13px;border:1px solid transparent;background:var(--panel);transition:border-color .35s,background .35s,opacity .35s;opacity:.55}
+.mini .mi{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--panel2);color:var(--dim);border:1px solid var(--border);transition:.35s}
+.mini .mtxt{font-size:13px;font-weight:600}
+.mini .msub{font-size:11px;color:var(--dim)}
+.mini-bar{display:block;height:5px;border-radius:999px;background:var(--panel2);overflow:hidden;margin-top:7px}
+.mini-fill{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--sky));border-radius:999px}
+.mini .mstat{font-size:11px;text-align:right;color:var(--dim)}
+.mini.running{opacity:1;border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.07)}
+.mini.running .mi{color:var(--cyan);border-color:rgba(34,211,238,.5)}
+.mini.done{opacity:1;border-color:var(--border)}
+.mini.done .mi{color:var(--green);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.10)}
+.mini.done .mstat{color:var(--green)}
+.lab-foot{margin-top:18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+@media (max-width:980px){.lab{grid-template-columns:1fr}}
+
+/* ==========================================================================
+   10) 模拟报告（A4 纸质感 · 支持打印）
+   ========================================================================== */
+.modal{position:fixed;inset:0;z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:26px 16px;overflow:auto;background:rgba(3,6,12,.72);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px)}
+.modal[hidden]{display:none}
+.modal-in{width:100%;max-width:840px;animation:pop .45s cubic-bezier(.22,1,.36,1)}
+@keyframes pop{from{opacity:0;transform:translateY(22px) scale(.98)}to{opacity:1;transform:none}}
+.rp-actions{display:flex;gap:10px;justify-content:flex-end;margin-bottom:12px;flex-wrap:wrap}
+.report-sheet{
+  position:relative;overflow:hidden;background:#FFFFFF;color:#0F172A;border-radius:12px;
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.85);padding:34px 36px 26px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact;
+}
+.report-sheet *{border-color:#E2E8F0}
+.wm{position:absolute;inset:0;pointer-events:none;display:grid;place-items:center;z-index:0}
+.wm span{font-size:88px;font-weight:900;color:rgba(15,23,42,.045);transform:rotate(-24deg);letter-spacing:.28em;white-space:nowrap}
+.rp{position:relative;z-index:1}
+.rp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:16px;border-bottom:2px solid #0F172A}
+.rp-brand{display:flex;align-items:center;gap:11px}
+.rp-brand b{font-size:16px;font-weight:900;letter-spacing:.02em;display:block;color:#0B1220}
+.rp-brand span{font-size:10.5px;color:#64748B;letter-spacing:.14em}
+.rp-title{font-size:15px;font-weight:800;text-align:right;color:#0B1220;line-height:1.5}
+.rp-title small{display:block;font-size:11px;color:#64748B;font-weight:600;letter-spacing:.04em}
+.rp-demo{display:inline-block;margin-top:6px;font-size:10.5px;font-weight:800;color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:5px;padding:2px 8px;letter-spacing:.1em}
+.rp-sect{margin-top:20px}
+.rp-h{font-size:12px;font-weight:800;color:#0F172A;letter-spacing:.12em;padding-bottom:7px;border-bottom:1px solid #CBD5E1;margin-bottom:12px;display:flex;justify-content:space-between;align-items:baseline}
+.rp-h span{font-size:10.5px;color:#94A3B8;font-weight:600;letter-spacing:.04em}
+.rp-info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.rp-info div{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px}
+.rp-info label{display:block;font-size:10px;color:#64748B;margin-bottom:3px}
+.rp-info b{font-size:13px;font-weight:700;color:#0F172A;word-break:break-all}
+.rp-score{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:18px;align-items:center}
+#reportGauge{width:100%;height:206px}
+.rp-verdict{border-radius:10px;padding:15px 17px;border:1px solid}
+.rp-verdict.neg{background:#ECFDF5;border-color:#A7F3D0}
+.rp-verdict.pos{background:#FEF2F2;border-color:#FECACA}
+.rp-verdict .vt{font-size:19px;font-weight:900;display:flex;align-items:center;gap:9px}
+.rp-verdict.neg .vt{color:#047857}
+.rp-verdict.pos .vt{color:#B91C1C}
+.rp-verdict .vs{font-size:12px;color:#475569;margin-top:7px;line-height:1.6}
+.rp-kv{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.rp-kv b{font-size:11px;font-weight:700;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:999px;padding:3px 9px;color:#334155}
+.rp-origin{margin-top:12px}
+.rp-origin .orow{display:grid;grid-template-columns:70px 1fr 44px;gap:9px;align-items:center;font-size:11.5px;color:#475569;margin-top:5px}
+.rp-origin .obar{height:6px;background:#F1F5F9;border-radius:999px;overflow:hidden}
+.rp-origin .obar i{display:block;height:100%;background:linear-gradient(90deg,#0891B2,#38BDF8);border-radius:999px}
+.rp-table{width:100%;border-collapse:collapse;font-size:12px}
+.rp-table th,.rp-table td{padding:8px 9px;border-bottom:1px solid #E8EDF3;text-align:left}
+.rp-table th{font-size:10.5px;color:#64748B;font-weight:700;letter-spacing:.06em;background:#F8FAFC}
+.rp-table td b{font-weight:700;color:#0F172A}
+.lvbox{display:inline-flex;gap:3px;vertical-align:middle}
+.lvbox i{width:20px;height:9px;border-radius:2px;background:#E2E8F0;display:block}
+.lvbox.low i:nth-child(1){background:#10B981}
+.lvbox.mid i:nth-child(1),.lvbox.mid i:nth-child(2){background:#F59E0B}
+.lvbox.high i{background:#EF4444}
+.lvtxt{font-weight:800;font-size:11.5px}
+.lvtxt.low{color:#047857}.lvtxt.mid{color:#B45309}.lvtxt.high{color:#B91C1C}
+.rp-adv{background:#F8FAFC;border:1px solid #E2E8F0;border-left:3px solid #0891B2;border-radius:8px;padding:14px 16px;font-size:12.5px;color:#334155;line-height:1.8}
+.rp-adv b{color:#0F172A}
+.rp-foot{margin-top:20px;padding-top:14px;border-top:1px dashed #CBD5E1;display:grid;gap:5px}
+.rp-foot p{font-size:11px;color:#B91C1C;font-weight:700;display:flex;gap:7px;align-items:flex-start}
+.rp-foot p.sm{color:#64748B;font-weight:500}
+.rp-sign{display:flex;justify-content:space-between;gap:14px;margin-top:14px;font-size:10.5px;color:#94A3B8}
+@media (max-width:720px){
+  .report-sheet{padding:22px 18px}
+  .rp-info{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rp-score{grid-template-columns:1fr}
+  .rp-head{flex-direction:column}
+  .rp-title{text-align:left}
+}
+
+/* ==========================================================================
+   11) 图表 / 卡片 / FAQ / 页脚
+   ========================================================================== */
+.chart-card{padding:22px}
+.chart-card h3{font-size:16px;font-weight:800;display:flex;align-items:center;gap:9px}
+.chart-card .csub{font-size:12.5px;color:var(--muted);margin-top:6px}
+.chart{width:100%;height:340px;margin-top:8px}
+.chart.tall{height:420px}
+.chart-fallback{display:grid;place-items:center;height:100%;color:var(--dim);font-size:13px;text-align:center;padding:20px}
+.cap{margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);font-size:11.5px;color:#FCD34D;line-height:1.6}
+html[data-theme="light"] .cap{color:#92400E}
+.kpi-strip{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:18px}
+.kpi{padding:16px 18px}
+.kpi b{display:block;font-size:26px;font-weight:900;color:var(--cyan);line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--muted)}
+.gl-card{padding:24px;position:relative;overflow:hidden}
+.gl-card .gl-no{position:absolute;right:18px;top:10px;font-size:54px;font-weight:900;color:var(--panel2);line-height:1}
+.gl-card h3{font-size:16.5px;font-weight:800;margin-bottom:10px;position:relative}
+.gl-card p{font-size:13.5px;color:var(--muted);position:relative}
+.gl-card ul{margin-top:12px;display:grid;gap:7px}
+.gl-card li{font-size:13px;color:var(--muted);padding-left:18px;position:relative}
+.gl-card li::before{content:"✓";position:absolute;left:0;top:0;color:var(--cyan);font-weight:800}
+.gl-tags{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
+.conclusion{
+  margin-top:20px;padding:26px 28px;border-radius:var(--radius);text-align:center;
+  background:linear-gradient(100deg,rgba(34,211,238,.12),rgba(56,189,248,.06));border:1px solid rgba(34,211,238,.3);
+}
+.conclusion p{font-size:clamp(17px,2.4vw,26px);font-weight:800;letter-spacing:-.01em}
+.conclusion p em{font-style:normal;color:var(--cyan)}
+.faq{display:grid;gap:11px}
+.qa{border:1px solid var(--border);border-radius:16px;background:var(--panel);overflow:hidden;transition:border-color .3s}
+.qa.open{border-color:rgba(34,211,238,.42)}
+.qa-q{width:100%;display:flex;align-items:center;gap:13px;padding:17px 20px;text-align:left;font-size:15px;font-weight:700}
+.qa-q .qn{width:24px;height:24px;flex:none;border-radius:7px;display:grid;place-items:center;font-size:11px;font-weight:800;background:var(--panel2);color:var(--muted)}
+.qa.open .qn{background:var(--cyan);color:#04121C}
+html[data-theme="light"] .qa.open .qn{color:#fff}
+.qa-q .cv{margin-left:auto;flex:none;color:var(--dim);transition:transform .35s}
+.qa.open .cv{transform:rotate(180deg);color:var(--cyan)}
+.qa-a{max-height:0;overflow:hidden;transition:max-height .42s cubic-bezier(.22,1,.36,1)}
+.qa-a div{padding:0 20px 19px 57px;font-size:13.5px;color:var(--muted);line-height:1.85}
+.footer{border-top:1px solid var(--border);background:var(--panel);padding:60px 0 34px;scroll-margin-top:calc(var(--nav-h) + 12px)}
+.foot-grid{display:grid;gap:26px;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+.foot-dis{padding:22px 24px;border-radius:var(--radius);border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.06)}
+.foot-dis h3{font-size:15px;font-weight:800;color:var(--amber);margin-bottom:12px;display:flex;gap:9px;align-items:center}
+.foot-dis ol{display:grid;gap:9px;counter-reset:d}
+.foot-dis li{font-size:12.5px;color:var(--muted);padding-left:24px;position:relative;counter-increment:d;line-height:1.75}
+.foot-dis li::before{content:counter(d);position:absolute;left:0;top:2px;width:17px;height:17px;border-radius:5px;background:rgba(245,158,11,.18);color:var(--amber);font-size:10px;font-weight:800;display:grid;place-items:center}
+.foot-meta dl{display:grid;gap:10px}
+.foot-meta .row{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding-bottom:9px;border-bottom:1px dashed var(--border)}
+.foot-meta .row dt{color:var(--dim)}
+.foot-meta .row dd{color:var(--muted);text-align:right}
+.foot-bottom{margin-top:30px;padding-top:20px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;font-size:11.5px;color:var(--dim)}
+#backTop{position:fixed;right:20px;bottom:22px;z-index:100;width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--solid);border:1px solid var(--border2);color:var(--muted);box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:.35s}
+#backTop.show{opacity:1;pointer-events:auto}
+#backTop:hover{color:var(--cyan);border-color:var(--cyan);transform:translateY(-3px)}
+@media (max-width:900px){
+  .kpi-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .foot-grid{grid-template-columns:1fr}
+  .chart{height:300px}
+  .chart.tall{height:380px}
+  .tl-detail{grid-template-columns:1fr}
+}
+
+/* ==========================================================================
+   12) 增强模块：指针高光 / 术语提示 / 样本视图 / PPV 推算器 / 报告条码
+   ========================================================================== */
+/* 指针跟随高光（z-index:-1 → 位于卡片背景之上、文字之下） */
+.glass-hover{position:relative}
+.glass-hover::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
+  background:radial-gradient(240px circle at var(--mx,50%) var(--my,0%),rgba(34,211,238,.16),transparent 70%);
+  opacity:0;transition:opacity .4s ease;
+}
+.glass-hover:hover::before{opacity:1}
+
+/* 术语提示（悬浮或键盘聚焦均可触发，移动端点按聚焦亦可） */
+.gl{border-bottom:1px dashed var(--cyan);cursor:help;position:relative;color:var(--text);font-weight:600}
+.gl::after{
+  content:attr(data-tip);position:absolute;left:50%;bottom:150%;transform:translate(-50%,6px);
+  width:max-content;max-width:min(300px,72vw);padding:10px 12px;border-radius:11px;z-index:60;
+  background:var(--solid);border:1px solid var(--border2);color:var(--muted);
+  font-size:12px;font-weight:400;line-height:1.65;text-align:left;letter-spacing:0;
+  box-shadow:0 18px 40px -18px rgba(0,0,0,.85);opacity:0;pointer-events:none;transition:opacity .22s,transform .22s;
+}
+.gl:hover::after,.gl:focus::after,.gl:focus-visible::after{opacity:1;transform:translate(-50%,0)}
+.term-row{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
+.term{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;font-size:12.5px;
+  background:var(--panel);border:1px solid var(--border);color:var(--muted);cursor:help;position:relative;
+  transition:border-color .25s,color .25s;
+}
+.term:hover,.term:focus-visible{color:var(--cyan);border-color:rgba(34,211,238,.45)}
+.term::before{content:"?";width:15px;height:15px;border-radius:50%;background:rgba(34,211,238,.16);color:var(--cyan);font-size:10px;font-weight:800;display:grid;place-items:center;flex:none}
+
+/* 第 5 区块：样本视图（7 幕 SVG 场景） */
+.stage{
+  position:relative;height:176px;margin:2px 0 16px;border-radius:16px;overflow:hidden;
+  border:1px solid var(--border);background:linear-gradient(180deg,rgba(2,6,14,.42),rgba(2,6,14,.06));
+}
+html[data-theme="light"] .stage{background:linear-gradient(180deg,rgba(15,23,42,.05),transparent)}
+.stage>svg{position:absolute;inset:0;width:100%;height:100%}
+.scene{opacity:0;transition:opacity .55s ease}
+.scene.on{opacity:1}
+.stage-cap{position:absolute;left:14px;bottom:9px;font-size:11.5px;color:var(--muted);letter-spacing:.04em}
+.stage-idx{position:absolute;right:14px;top:9px;font-size:10.5px;color:var(--cyan);letter-spacing:.16em;font-weight:700}
+.an-spin,.an-rise,.an-flow,.an-blink,.an-pulse{transform-box:fill-box;transform-origin:center}
+.an-rise{transform-origin:50% 100%}
+@keyframes stRise{from{transform:translateY(16px) scaleY(.25);opacity:.2}to{transform:translateY(0) scaleY(1);opacity:1}}
+@keyframes stSpin{to{transform:rotate(360deg)}}
+@keyframes stFlow{from{transform:translateX(-20px)}to{transform:translateX(20px)}}
+@keyframes stBlink{0%,100%{opacity:.22}50%{opacity:1}}
+@keyframes stPulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.26);opacity:1}}
+.scene.on .an-rise{animation:stRise 1.1s cubic-bezier(.22,1,.36,1) both}
+.scene.on .an-spin{animation:stSpin 1.05s linear infinite}
+.scene.on .an-flow{animation:stFlow 1.7s ease-in-out infinite alternate}
+.scene.on .an-blink{animation:stBlink 1.3s ease-in-out infinite}
+.scene.on .an-pulse{animation:stPulse 1.5s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.scene.on *{animation:none!important}}
+
+/* 第 6 区块：阳性预测值（PPV）推算器 */
+.ppv{display:grid;gap:20px;grid-template-columns:minmax(0,320px) minmax(0,1fr);align-items:start}
+.ppv-canvas{position:relative;width:100%;max-width:320px;aspect-ratio:1/1;border-radius:14px;border:1px solid var(--border);background:rgba(2,6,14,.35);padding:8px}
+html[data-theme="light"] .ppv-canvas{background:rgba(15,23,42,.03)}
+.ppv-canvas canvas{width:100%;height:100%;display:block}
+@supports not (aspect-ratio:1/1){.ppv-canvas{height:320px}}
+.ppv-ctl{padding:14px 16px;border-radius:13px;background:var(--panel);border:1px solid var(--border);margin-bottom:14px}
+.ppv-ctl .pl{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.ppv-ctl .pl b{font-size:17px;color:var(--cyan);font-variant-numeric:tabular-nums}
+.ppv-num{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.ppv-num>div{padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel)}
+.ppv-num b{display:block;font-size:23px;font-weight:900;line-height:1.15;font-variant-numeric:tabular-nums}
+.ppv-num span{font-size:11.5px;color:var(--muted)}
+.ppv-legend{display:grid;gap:7px;margin-top:14px;font-size:12px;color:var(--muted)}
+.ppv-legend>div{display:flex;align-items:center;gap:9px}
+.ppv-legend i{width:11px;height:11px;border-radius:3px;flex:none;display:block}
+.ppv-legend b{margin-left:auto;color:var(--text);font-variant-numeric:tabular-nums}
+.ppv-say{margin-top:14px;padding:13px 15px;border-radius:12px;font-size:13px;line-height:1.85;color:var(--muted);background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.26)}
+.ppv-say b{color:var(--cyan)}
+@media (max-width:820px){.ppv{grid-template-columns:1fr}.ppv-canvas{margin:0 auto}}
+
+/* 第 2 区块：辅助小图表 */
+.chart-sm{width:100%;height:238px}
+.mini-chart-grid{display:grid;gap:18px;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:18px}
+@media (max-width:820px){.mini-chart-grid{grid-template-columns:1fr}}
+
+/* 报告：演示条码 + 页码 */
+.rp-code{display:flex;align-items:flex-end;gap:16px;margin-top:16px}
+.barcode{display:flex;align-items:flex-end;gap:1px;height:32px}
+.barcode i{display:block;background:#0F172A;height:100%}
+.barcode-txt{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:#64748B;letter-spacing:.14em;margin-top:4px}
+.rp-page{margin-left:auto;font-size:10.5px;color:#94A3B8;text-align:right;line-height:1.7}
+
+/* ==========================================================================
+   13) 打印样式（仅打印模拟报告）
+   ========================================================================== */
+@media print{
+  html[data-theme]{--bg:#fff;--bg2:#fff;--text:#111827;--muted:#374151;--panel:#fff;--border:#D1D5DB;color-scheme:light}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff!important}
+  body::before,body::after{display:none!important}
+  .no-print,#nav,#navMobile,#backTop,#loadBar,#scrollBar,.scroll-hint{display:none!important}
+  body.report-open>*:not(#reportModal){display:none!important}
+  body.report-open{overflow:visible!important;height:auto!important}
+  body.report-open #reportModal{position:static!important;display:block!important;padding:0!important;background:none!important;overflow:visible!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+  body.report-open .modal-in{max-width:none!important;animation:none!important}
+  body.report-open .rp-actions{display:none!important}
+  .report-sheet{box-shadow:none!important;border-radius:0!important;padding:0!important}
+  .wm span{color:rgba(15,23,42,.07)}
+  @page{size:A4;margin:14mm}
+}
+</style>
+</head>
+<body>
+
+<!-- 顶部加载进度条（加载完成后切换为滚动进度条） -->
+<div id="loadBar" class="no-print" aria-hidden="true"><i></i></div>
+<div id="scrollBar" class="no-print" aria-hidden="true"><i></i></div>
+
+<!-- ======================= 固定导航 ======================= -->
+<header id="nav" class="no-print">
+  <div class="nav-inner">
+    <a class="brand" href="#hero" aria-label="返回首屏">
+      <svg class="ico" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+        <defs><linearGradient id="brandG" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#38BDF8"/></linearGradient></defs>
+        <rect x="1" y="1" width="32" height="32" rx="10" fill="none" stroke="url(#brandG)" stroke-opacity=".55"/>
+        <path d="M12 6c0 6 10 6 10 11s-10 5-10 11" fill="none" stroke="url(#brandG)" stroke-width="2" stroke-linecap="round"/>
+        <path d="M22 6c0 6-10 6-10 11s10 5 10 11" fill="none" stroke="url(#brandG)" stroke-width="2" stroke-linecap="round" stroke-opacity=".65"/>
+        <circle cx="17" cy="11" r="1.6" fill="#F59E0B"/><circle cx="17" cy="23" r="1.6" fill="#F59E0B"/>
+      </svg>
+      <span class="brand-txt"><b>cfDNA 甲基化早筛</b><span>MEDICAL MODEL · DEMO</span></span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="页面导航">
+      <a href="#hero">首页</a>
+      <a href="#burden">为何早筛</a>
+      <a href="#science">科学原理</a>
+      <a href="#workflow">检测流程</a>
+      <a href="#lab">模拟检测</a>
+      <a href="#performance">性能数据</a>
+      <a href="#survival">早筛价值</a>
+      <a href="#guideline">指南共识</a>
+      <a href="#faq">常见问题</a>
+      <a href="#footer">声明</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="icon-btn" id="themeBtn" title="切换深色/浅色主题" aria-label="切换主题">
+        <svg class="ico" id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <button class="icon-btn" id="navToggle" title="菜单" aria-label="展开导航" aria-expanded="false">
+        <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+<div id="navMobile" class="no-print">
+  <ul>
+    <li><a href="#hero">首页</a></li>
+    <li><a href="#burden">为何需要早筛</a></li>
+    <li><a href="#science">科学原理</a></li>
+    <li><a href="#workflow">检测全流程</a></li>
+    <li><a href="#lab">模拟检测台</a></li>
+    <li><a href="#performance">性能仪表盘</a></li>
+    <li><a href="#survival">早发现的价值</a></li>
+    <li><a href="#guideline">指南与共识</a></li>
+    <li><a href="#faq">常见问题</a></li>
+    <li><a href="#footer">页脚与免责声明</a></li>
+  </ul>
+</div>
+
+<main>
+
+  <!-- ==================== 第 1 区块 · 首屏 Hero ==================== -->
+  <section id="hero" class="hero">
+    <canvas id="heroCanvas" aria-hidden="true"></canvas>
+    <div class="hero-veil"></div>
+    <div class="hero-inner">
+      <div class="wrap">
+        <span class="hero-badge" id="heroBadge"><span class="dot"></span>医学模型演示 · Medical Model Demo</span>
+        <h1 class="hero-title" id="heroTitle">一管血，<span class="g">预见癌症</span></h1>
+        <p class="hero-sub" id="heroSub"><b>cfDNA 甲基化 · 癌症早期筛查医学模型（演示 Demo）</b><br />
+          以血浆游离 DNA 的甲基化图谱为分子信号，把“等症状出现再检查”变成“在细胞层面出现异常时就发出提示”。</p>
+        <div class="hero-cta" id="heroCta">
+          <a class="btn btn-primary" href="#lab">
+            <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v12a2 2 0 0 0 4 0V3M7 21h10"/></svg>
+            开始模拟检测
+          </a>
+          <a class="btn btn-ghost" href="#science">
+            <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3c0 6 8 6 8 9s-8 3-8 9"/><path d="M16 3c0 6-8 6-8 9s8 3 8 9"/></svg>
+            了解科学原理
+          </a>
+        </div>
+        <!-- 指标条由 DEMO_DATA.heroChips 渲染 -->
+        <div class="hero-chips" id="heroChips"></div>
+        <p class="hero-disclaimer" id="heroDisc">
+          <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="flex:none;margin-top:3px"><path d="M12 9v5M12 17h.01"/><path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <span><b>本页面为医学模型演示，所有数据均为演示用途</b>，不构成医疗建议、诊断或治疗方案。</span>
+        </p>
+      </div>
+    </div>
+    <div class="scroll-hint" aria-hidden="true"><span>SCROLL</span><span class="bar"></span></div>
+  </section>
+
+  <!-- ==================== 第 2 区块 · 为什么需要早筛 ==================== -->
+  <section id="burden" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>疾病负担 · 01</span>
+        <h2 class="sec-title">为什么必须<em>早筛</em></h2>
+        <p class="sec-lead">癌症的结局，在很大程度上由“被发现的时间”决定。下列为公开统计数据（2022 年中国癌症统计等），用于说明早期筛查的必要性。</p>
+      </div>
+      <div class="grid g3" id="burdenGrid"></div>
+
+      <div class="mini-chart-grid">
+        <div class="chart-card glass reveal">
+          <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l7 4"/></svg>确诊时的分期构成</h3>
+          <p class="csub">超过一半的患者在确诊时已属 III–IV 期——这正是早筛试图前移的那条线。</p>
+          <div class="chart-sm" id="chartStageMix"></div>
+          <p class="note">数据口径：中国癌症患者确诊分期分布，中晚期（III–IV 期）占 52.8%；早期占比由 100% − 52.8% 推算得出。</p>
+        </div>
+        <div class="chart-card glass reveal">
+          <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sky)" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V8M11 20V4M18 20v-7M2 20h20"/></svg>癌症总体 5 年生存率对比</h3>
+          <p class="csub">生存率差距的背后，是筛查覆盖率与确诊分期结构的差距，而非单纯的治疗水平差异。</p>
+          <div class="chart-sm" id="chartSurvGap"></div>
+          <p class="note">数据口径：癌症总体 5 年（相对）生存率，中国 43.7%，同期美国约 70%；不同国家的统计口径与癌种构成存在差异。</p>
+        </div>
+      </div>
+
+      <div class="burden-call reveal">
+        <svg class="ico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-linecap="round" style="flex:none;margin-top:4px"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+        <p style="font-size:14.5px;color:var(--muted)">
+          问题的核心并不只是“治不好”，而是<b>发现得太晚</b>：约 <b>70%</b> 的新发癌症目前没有标准筛查手段，而现有单癌种筛查手段依从性有限。
+          泛癌种液体活检的价值，正是为这部分“筛查空白”提供一次<b>低门槛、可重复</b>的风险提示入口——它是标准筛查的补充，而不是替代。
+        </p>
+      </div>
+      <p class="note reveal" style="margin-top:14px">数据口径：2022 年中国癌症统计数据（新发/死亡病例与全球占比）、中国与美国癌症总体 5 年生存率对比、确诊分期分布。以上为公开统计数据，用于说明疾病负担。</p>
+    </div>
+  </section>
+
+  <!-- ==================== 第 3 区块 · 科学原理 ==================== -->
+  <section id="science" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>科学原理 · 02</span>
+        <h2 class="sec-title">甲基化：癌症<em>最早期</em>的分子信号</h2>
+        <p class="sec-lead">DNA 甲基化（5-mC）是发生在 CpG 位点上的表观遗传修饰。癌变过程存在一组高度特征化的甲基化改变——
+          <b style="color:var(--text)">全基因组低甲基化</b> 叠加 <b style="color:var(--text)">抑癌基因启动子 CpG 岛高甲基化</b>。拖动下方滑块，观察甲基化位点（●CH₃）的增减。</p>
+      </div>
+
+      <div class="sci-ctl glass reveal">
+        <div class="sw">
+          <button class="btn btn-sm btn-ghost on" id="btnNormal">正常细胞</button>
+          <button class="btn btn-sm btn-ghost" id="btnCancer">癌变细胞</button>
+        </div>
+        <div class="slider-wrap">
+          <label for="cancerSlider" style="font-size:12.5px;color:var(--muted);white-space:nowrap">癌变程度</label>
+          <input type="range" id="cancerSlider" min="0" max="100" value="0" step="1" aria-label="癌变程度滑块" />
+        </div>
+        <div class="lvl-badge">右侧细胞癌变程度<br /><b id="lvlText">0</b> %</div>
+      </div>
+
+      <div class="panel-pair">
+        <div class="cellpanel glass reveal" data-kind="normal" id="panelNormal"></div>
+        <div class="cellpanel glass reveal" data-kind="cancer" id="panelCancer"></div>
+      </div>
+
+      <div class="legend reveal">
+        <span><i style="background:var(--amber)"></i>已甲基化 CpG 位点（●CH₃）</span>
+        <span><i style="background:transparent;border:1.5px solid var(--muted)"></i>未甲基化 CpG 位点</span>
+        <span><i style="background:rgba(34,211,238,.35);border-radius:3px"></i>CpG 岛区域（启动子）</span>
+        <span style="color:var(--dim)">序列条中被甲基化的 C 会高亮并标注 CH₃</span>
+      </div>
+
+      <div class="hr"></div>
+      <div class="grid g4" id="factGrid"></div>
+
+      <div class="reveal" style="margin-top:26px">
+        <p class="note" style="margin-bottom:2px">名词解释 · 悬浮或点按查看（共 <b id="termCount">0</b> 条）</p>
+        <div class="term-row" id="termRow"></div>
+      </div>
+
+      <p class="note reveal" style="margin-top:20px">示意说明：图中甲基化位点数量、序列与细胞形态均为原理示意，非真实测序结果。PanSeer 等研究提示甲基化信号可在临床确诊前 1–4 年被检出，属回顾性队列结论。</p>
+    </div>
+  </section>
+  <!-- ==================== 第 4 区块 · 检测全流程 ==================== -->
+  <section id="workflow" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>检测流程 · 03</span>
+        <h2 class="sec-title">一管血，<em>七个步骤</em></h2>
+        <p class="sec-lead">从采血到报告的完整链路。滚动进入视野时依次点亮，<b style="color:var(--text)">点击任一步骤</b>可展开详细说明。</p>
+      </div>
+      <div class="tl-wrap glass reveal" style="padding:18px 10px 6px">
+        <div class="tl-scroll">
+          <div class="tl" id="timeline">
+            <div class="tl-line"><i id="tlFill"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="tl-detail glass reveal" id="stepDetail"></div>
+      <p class="note reveal" style="margin-top:14px">流程参数（离心时间、起始量、转化方式等）为本演示模型的示意设定，实际实验室 SOP 以各检测机构的验证方案与说明书为准。</p>
+    </div>
+  </section>
+
+  <!-- ==================== 第 5 区块 · 模拟检测台 ==================== -->
+  <section id="lab" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>核心交互 · 04</span>
+        <h2 class="sec-title">模拟<em>检测台</em></h2>
+        <p class="sec-lead">填写演示受检者信息 → 加载演示样本 → 开始检测，实时观察 7 步流程，并生成一份 A4 质感的<b style="color:var(--text)">模拟检测报告</b>。
+          全部为演示数据，不产生任何真实检测行为。</p>
+      </div>
+
+      <div class="lab">
+        <!-- 左：受检者信息与样本 -->
+        <div class="lab-card glass reveal">
+          <h3>
+            <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+            演示受检者信息
+          </h3>
+          <p class="sub">仅用于生成演示报告，不会上传或保存任何数据</p>
+          <div class="field"><label for="fName">姓名</label><input id="fName" type="text" value="演示用户" maxlength="16" /></div>
+          <div class="grid g2" style="gap:12px">
+            <div class="field"><label for="fAge">年龄</label><input id="fAge" type="number" min="18" max="99" value="45" /></div>
+            <div class="field"><label for="fSex">性别</label>
+              <select id="fSex"><option value="female">女</option><option value="male">男</option></select></div>
+          </div>
+          <div class="field"><label for="fSmoke">吸烟史</label>
+            <select id="fSmoke">
+              <option>从不吸烟</option><option>已戒烟 ≥5 年</option><option>吸烟 20 包年</option><option>吸烟 30 包年</option>
+            </select></div>
+          <div class="field"><label for="fFam">癌症家族史</label>
+            <select id="fFam">
+              <option>无癌症家族史</option><option>一级亲属肺癌史</option><option>一级亲属结直肠癌史</option><option>其他肿瘤家族史</option>
+            </select></div>
+          <div class="risk-hint" id="riskHint"></div>
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:7px">选择演示样本</label>
+          <div class="sample-btns">
+            <button class="btn btn-sm btn-ghost on" id="btnNeg" data-sample="negative">加载阴性样本</button>
+            <button class="btn btn-sm btn-ghost" id="btnPos" data-sample="positive">加载阳性样本</button>
+          </div>
+          <button class="btn btn-primary" id="btnRun" style="width:100%">
+            <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l13 8-13 8z"/></svg>
+            开始检测
+          </button>
+          <p class="note" style="margin-top:11px">当前样本：<b id="curSample" style="color:var(--green)">阴性演示样本</b></p>
+        </div>
+
+        <!-- 右：流程运行 -->
+        <div class="lab-card glass reveal">
+          <div class="assay-head">
+            <div>
+              <h3>
+                <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"><path d="M9 3h6M10 3v12a2 2 0 0 0 4 0V3M7 21h10"/></svg>
+                虚拟实验室 · 实时流程
+              </h3>
+              <p class="sub" style="margin-bottom:0">7 步微缩动画演示（演示耗时约 8 秒；真实流程约 7–14 个工作日）</p>
+            </div>
+            <div class="assay-state" id="assayState" role="status" aria-live="polite"><span class="spin"></span><span id="assayText">待机中 · 请点击「开始检测」</span></div>
+          </div>
+          <div class="stage" id="sampleStage" aria-hidden="true"></div>
+          <div class="overall"><i id="overallFill"></i></div>
+          <div class="mini-list" id="miniList"></div>
+          <div class="lab-foot">
+            <p class="note">所有中间结果与评分均为<b style="color:var(--amber)">模拟生成</b>，仅用于演示交互与报告样式。</p>
+            <button class="btn btn-sm btn-ghost" id="btnReopen" disabled>
+              <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/></svg>
+              查看上次报告
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 第 6 区块 · 性能仪表盘 ==================== -->
+  <section id="performance" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>性能数据 · 05</span>
+        <h2 class="sec-title">性能<em>仪表盘</em></h2>
+        <p class="sec-lead">既展示优势，也如实展示短板。以下图表用于说明方法学水平与行业共性规律，<b style="color:var(--text)">均为回顾性研究口径</b>；最后一张「每 10,000 人筛查推演」把灵敏度与特异性翻译成一句人话：阳性到底意味着什么。</p>
+      </div>
+
+      <div class="kpi-strip reveal" id="kpiStrip"></div>
+
+      <div class="grid g2">
+        <div class="chart-card glass reveal">
+          <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V4M4 20h16"/><path d="M4 17c5 0 8-11 16-11"/></svg>ROC 曲线 · 判别能力</h3>
+          <p class="csub">曲线下面积 AUC = <b style="color:var(--cyan)">0.9581</b>；标注工作点为<b style="color:var(--text)">特异性 95% 时灵敏度 87%</b>。</p>
+          <div class="chart" id="chartROC" data-chart="roc"></div>
+          <p class="cap" id="capROC"></p>
+        </div>
+        <div class="chart-card glass reveal">
+          <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h12M4 12h16M4 18h7"/></svg>代表性癌种灵敏度</h3>
+          <p class="csub">上半部分为表现较好的癌种，下半部分为<b style="color:var(--amber)">短板癌种</b>——甲基化信号释放少、检出率明显偏低。</p>
+          <div class="chart tall" id="chartCancer" data-chart="cancer"></div>
+          <p class="cap" id="capCancer"></p>
+        </div>
+      </div>
+
+      <div class="chart-card glass reveal" style="margin-top:18px">
+        <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sky)" stroke-width="1.7" stroke-linecap="round"><path d="M5 20V12M11 20V8M17 20V4M3 20h18"/></svg>分期与灵敏度：越早期，越难检出</h3>
+        <p class="csub">这是所有 cfDNA 泛癌筛查产品共同面临的核心挑战：I 期灵敏度显著低于晚期，因为早期肿瘤释放到血液中的 ctDNA 极少。</p>
+        <div class="chart" id="chartStage" data-chart="stage"></div>
+        <p class="cap" id="capStage"></p>
+      </div>
+
+      <!-- 阳性预测值推算器：把“灵敏度/特异性”翻译成“阳性到底意味着什么” -->
+      <div class="chart-card glass reveal" style="margin-top:18px">
+        <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>
+          阳性到底意味着什么？—— 每 10,000 人筛查推演</h3>
+        <p class="csub">一个反直觉但极其重要的事实：<b style="color:var(--text)">检测很准，也不等于阳性就是患癌</b>。拖动患病率滑块，看同一套性能指标在不同人群中的实际含义。</p>
+        <div class="ppv" style="margin-top:16px">
+          <div class="ppv-canvas"><canvas id="ppvCanvas" aria-label="每 10,000 人筛查结果点阵图"></canvas></div>
+          <div>
+            <div class="ppv-ctl">
+              <div class="pl"><label for="ppvPrev">假设人群患病率（每 10,000 人中患癌人数）</label><b id="ppvPrevTxt">100</b></div>
+              <input type="range" id="ppvPrev" min="10" max="300" step="5" value="100" aria-label="假设人群患病率滑块" />
+              <p class="note" style="margin-top:9px">固定采用本页 ROC 工作点：<b style="color:var(--cyan)">灵敏度 87%</b> · <b style="color:var(--cyan)">特异性 95%</b></p>
+            </div>
+            <div class="ppv-num">
+              <div><b id="ppvVal" style="color:var(--amber)">--</b><span>阳性预测值 PPV<br />（阳性者中真正患癌的比例）</span></div>
+              <div><b id="npvVal" style="color:var(--green)">--</b><span>阴性预测值 NPV<br />（阴性者中确实无癌的比例）</span></div>
+            </div>
+            <div class="ppv-legend">
+              <div><i style="background:#34D399"></i>患癌 · 检出阳性（真阳性）<b id="ppvTP">0</b></div>
+              <div><i style="background:#F87171"></i>患癌 · 未被检出（假阴性 / 漏检）<b id="ppvFN">0</b></div>
+              <div><i style="background:#F59E0B"></i>无癌 · 却报阳性（假阳性）<b id="ppvFP">0</b></div>
+              <div><i style="background:#64748B"></i>无癌 · 结果阴性（真阴性）<b id="ppvTN">0</b></div>
+            </div>
+            <p class="ppv-say" id="ppvSay"></p>
+          </div>
+        </div>
+        <p class="cap" id="capPPV"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 第 7 区块 · 早发现的价值 ==================== -->
+  <section id="survival" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>早筛价值 · 06</span>
+        <h2 class="sec-title">早发现的<em>价值</em></h2>
+        <p class="sec-lead">既然早期更难检出，为什么还要努力去做？因为分期对生存的影响是<b style="color:var(--text)">数量级</b>的。</p>
+      </div>
+      <div class="chart-card glass reveal">
+        <h3><svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.7" stroke-linecap="round"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg>局限期 vs 远处转移期 · 5 年生存率</h3>
+        <p class="csub">同一癌种，仅因发现时间不同，5 年生存率相差可达数十个百分点。</p>
+        <div class="chart" id="chartSurvival" data-chart="survival"></div>
+        <p class="cap" id="capSurvival"></p>
+      </div>
+      <div class="conclusion reveal"><p>同一种癌症，早期发现与晚期发现，<em>是两种完全不同的人生。</em></p></div>
+    </div>
+  </section>
+
+  <!-- ==================== 第 8 区块 · 指南与共识 ==================== -->
+  <section id="guideline" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>指南共识 · 07</span>
+        <h2 class="sec-title">指南与<em>共识背书</em></h2>
+        <p class="sec-lead">技术定位需要专业共识来界定边界：什么可以做，什么不能替代，谁适合做。</p>
+      </div>
+      <div class="grid g3" id="glGrid"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 第 9 区块 · 常见问题 ==================== -->
+  <section id="faq" class="sec">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="kicker"><i></i>常见问题 · 08</span>
+        <h2 class="sec-title">常见<em>问题</em> FAQ</h2>
+        <p class="sec-lead">用通俗语言解释最常被问到的问题，包括“准确性”到底该怎么理解。</p>
+      </div>
+      <div class="faq" id="faqList"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ==================== 第 10 区块 · 页脚与免责声明 ==================== -->
+<footer id="footer" class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-dis reveal">
+        <h3>
+          <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          完整免责声明
+        </h3>
+        <ol id="discList"></ol>
+      </div>
+      <div class="foot-meta reveal">
+        <div class="glass" style="padding:22px 24px">
+          <h3 style="font-size:15px;font-weight:800;margin-bottom:14px">制作信息</h3>
+          <dl id="metaList"></dl>
+          <p class="note" style="margin-top:14px">DEMO_DATA 位于文件内 &lt;script&gt; 顶部，替换该对象即可接入真实数据。</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© <span id="year">2025</span> cfDNA 甲基化癌症早期筛查医学模型演示 · 本页面所有数据均为演示用途</span>
+      <span class="mono">筛查 ≠ 诊断 · Screening is not Diagnosis</span>
+    </div>
+  </div>
+</footer>
+
+<button id="backTop" class="no-print" title="返回顶部" aria-label="返回顶部">
+  <svg class="ico" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<!-- ==================== 模拟检测报告（模态框 · 可打印） ==================== -->
+<div class="modal" id="reportModal" hidden role="dialog" aria-modal="true" aria-label="模拟检测报告">
+  <div class="modal-in">
+    <div class="rp-actions no-print">
+      <button class="btn btn-sm btn-ghost" id="btnPrint">
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4v-6h16v6h-2"/><path d="M6 14h12v7H6z"/></svg>
+        打印 / 导出 PDF
+      </button>
+      <button class="btn btn-sm btn-ghost" id="btnClose">
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        关闭
+      </button>
+    </div>
+    <div class="report-sheet" id="reportSheet"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+ * ①  演示数据（全部集中于此，替换本对象即可接入真实数据）
+ *     ⚠ 医学数据红线：第 2/3/6/7/8 区块数值取自题设给定的公开统计与研究数据，
+ *        不得擅自改动；回顾性/企业研究数据必须保留图注口径说明。
+ * ========================================================================== */
+const DEMO_DATA = {
+
+  /* ---------- 通用信息 ---------- */
+  meta: {
+    title: '一管血，预见癌症',
+    subtitle: 'cfDNA 甲基化 · 癌症早期筛查医学模型（演示 Demo）',
+    demoNotice: '本页面为医学模型演示，所有数据均为演示用途',
+    reportName: 'cfDNA 甲基化癌症早期筛查 · 模拟检测报告',
+    labName: '演示医学检验实验室（占位）',
+    samplePrefix: 'DEMO'
+  },
+
+  /* ---------- 第 1 区块：首屏指标条 ---------- */
+  heroChips: [
+    { icon: 'drop',  value: '10', unit: 'mL', label: '外周血 · 无需空腹', tone: 'cyan' },
+    { icon: 'seq',   value: '0.9581', label: '模型 AUC（回顾性研究）', tone: 'sky' },
+    { icon: 'clock', value: '1–4 年', label: '甲基化信号可提前检出', tone: 'amber' }
+  ],
+
+  /* ---------- 第 2 区块：疾病负担（公开统计数据） ---------- */
+  burden: [
+    { value: 482.47, decimals: 2, unit: '万例', accent: 'cyan',
+      label: '2022 年中国癌症新发病例', note: '占全球新发病例的 24.2%' },
+    { value: 257.42, decimals: 2, unit: '万例', accent: 'amber',
+      label: '2022 年中国癌症死亡病例', note: '占全球癌症死亡的 26.4%' },
+    { value: 43.7, decimals: 1, unit: '%', accent: 'sky',
+      label: '中国癌症总体 5 年生存率', note: '同期美国约为 70%' },
+    { value: 52.8, decimals: 1, unit: '%', accent: 'amber',
+      label: '确诊时已是中晚期（III–IV 期）', note: '超过一半的患者错过最佳干预窗口' },
+    { value: 70, decimals: 0, unit: '%', prefix: '约', accent: 'red',
+      label: '新发癌症尚无标准筛查手段', note: '如胰腺癌、卵巢癌、食管癌等长期缺乏有效筛查路径' },
+    { value: 10000, decimals: 0, unit: '人 / 天', prefix: '>', accent: 'cyan',
+      label: '中国每天新确诊癌症人数', note: '每天超过 1 万人确诊，平均每 8–9 秒新增约 1 例' }
+  ],
+
+  /* ---------- 第 2 区块：辅助小图表（仅使用上方给定数值及其算术补数） ---------- */
+  burdenCharts: {
+    stageMix: [
+      { name: '中晚期（III–IV 期）', value: 52.8 },
+      { name: '早期（I–II 期）', value: 47.2 }
+    ],
+    survivalGap: [
+      { name: '中国', value: 43.7, display: '43.7%', tone: 'amber' },
+      { name: '美国', value: 70, display: '约 70%', tone: 'green' }
+    ]
+  },
+
+  /* ---------- 第 3 区块：科学原理 ---------- */
+  science: {
+    /* 甲基化模型参数：正常 → 癌变 的线性插值端点 */
+    model: {
+      promoter: { label: '抑癌基因启动子 CpG 岛', sites: 14, normal: 0.06, cancer: 0.92 },
+      genome:   { label: '基因组其他区域（重复序列 / 基因间区）', sites: 18, normal: 0.80, cancer: 0.46 },
+      /* 序列条：JS 自动识别其中的 CpG（CG）位点，被甲基化的 C 会高亮 + 标注 CH₃ */
+      sequence: 'TTCGGCCGCGTTACGCGGCTCGCAAGCGCTCGGCCGCGTTCGCA'
+    },
+    facts: [
+      { icon: 'clock', title: 'cfDNA：观察体内肿瘤的“实时窗口”',
+        text: 'cfDNA 是细胞凋亡、坏死后释放到血液中的游离 DNA，半衰期仅约 2 小时。因此血液中的甲基化信号反映的是“当下”的身体状态，可重复、可动态随访。' },
+      { icon: 'ruler', title: 'ctDNA 片段更短：约 143bp vs 167bp',
+        text: '肿瘤来源的 ctDNA 片段长度约 143bp，明显短于正常 cfDNA 的约 167bp。片段长度、末端偏好等“片段组学”特征可与甲基化联合建模，提升信号识别能力。' },
+      { icon: 'early', title: '甲基化异常是癌症最早期事件之一',
+        text: 'DNA 甲基化改变早于影像学可见的形态学改变。PanSeer 研究显示，可在临床确诊前 1–4 年从血液中检出甲基化信号（回顾性队列结论）。' },
+      { icon: 'drop', title: '一次抽血 10mL，最低 1ng DNA',
+        text: '一次外周血采集仅需 10mL（EDTA 抗凝管），无需空腹；本模型设定最低 1ng cfDNA 起始量即可完成建库与检测，采样端门槛低、可重复。' }
+    ]
+  },
+
+  /* ---------- 名词解释（术语提示，全站可复用） ---------- */
+  glossary: [
+    { t: 'cfDNA', d: '游离 DNA：细胞凋亡或坏死后释放到血液中的 DNA 片段，半衰期仅约 2 小时，因此反映的是“当下”的身体状态。' },
+    { t: 'ctDNA', d: '循环肿瘤 DNA：cfDNA 中来自肿瘤的那一部分，片段更短（约 143bp vs 167bp）；早期肿瘤的占比可低至万分之几。' },
+    { t: 'CpG 岛', d: '基因组中 C、G 碱基高度密集的区域，常位于基因启动子；其甲基化状态直接决定该基因是否被“关闭”。' },
+    { t: 'DNA 甲基化（5-mC）', d: '在胞嘧啶 C 上添加甲基（CH₃）的表观遗传修饰：不改变碱基序列，但可以让基因沉默，是癌症最早期的分子事件之一。' },
+    { t: '甲基化单倍型', d: '同一条 DNA 片段上多个相邻 CpG 位点的甲基化组合模式。相比单个位点，它对低丰度的肿瘤信号更敏感。' },
+    { t: '亚硫酸氢盐转化', d: '把未甲基化的 C 转成 U（测序读作 T），而甲基化的 C 保持不变，从而把表观遗传信息“翻译”成可测序的碱基差异。' },
+    { t: '灵敏度', d: '真正患病的人中，被检测判为阳性的比例。灵敏度越高，漏检越少。' },
+    { t: '特异性', d: '真正健康的人中，被检测判为阴性的比例。特异性 95% 意味着 100 名健康人中约 5 人会被误报为阳性。' },
+    { t: '阳性预测值（PPV）', d: '检测阳性的人中真正患病的比例。它不仅取决于灵敏度与特异性，还极大依赖人群患病率——见第 6 区块推演。' },
+    { t: '假阳性', d: '实际没有患病，但检测结果为阳性。会带来额外检查、经济成本与心理负担，是筛查必须权衡的代价。' }
+  ],
+
+  /* ---------- 第 4 / 5 区块：检测全流程（同一份数据驱动时间线与模拟检测台） ---------- */
+  workflow: {
+    steps: [
+      { icon: 'blood', title: '采集外周血', short: '10mL EDTA 抗凝管', ms: 1100,
+        status: '正在采集外周血 10mL（EDTA 抗凝管）…',
+        detail: '采集外周静脉血 10mL 于 EDTA-K₂ 抗凝管，无需空腹。采血后轻柔颠倒混匀 8–10 次，室温运输，避免剧烈震荡导致白细胞破裂、释放基因组 DNA 污染 cfDNA。',
+        points: ['无创、无需空腹，与常规体检抽血一致', '禁用肝素管（抑制后续酶反应）', '采血后需在规定时限内进入前处理'] },
+      { icon: 'spin', title: '离心分离血浆', short: '4 小时内完成', ms: 1200,
+        status: '血浆离心分离中（两步离心去除细胞碎片）…',
+        detail: '采血后 4 小时内完成两步离心：先低速离心分离血浆，再高速离心去除残余细胞与碎片，获得无细胞血浆并低温保存。超时会显著增加基因组 DNA 背景，稀释肿瘤信号。',
+        points: ['时间窗是质量控制的关键指标', '两步离心：分离血浆 → 去除残余碎片', '血浆需低温保存/转运'] },
+      { icon: 'pipette', title: '提取血浆 cfDNA', short: '最低 1ng 起始量', ms: 1150,
+        status: '正在提取 cfDNA（磁珠富集、去除长片段）…',
+        detail: '自 4–5mL 血浆中富集 cfDNA。正常 cfDNA 片段集中在约 167bp，肿瘤来源 ctDNA 约 143bp。本模型设定最低 1ng 起始量即可进入建库流程。',
+        points: ['片段分布本身即为质控与建模特征', '需评估高分子量 DNA 污染比例', '低起始量对文库转化效率要求高'] },
+      { icon: 'convert', title: '甲基化转化', short: '亚硫酸氢盐 / 酶法', ms: 1350,
+        status: '亚硫酸氢盐 / 酶法转化进行中（写入甲基化信息）…',
+        detail: '未甲基化的胞嘧啶 C 被转化为尿嘧啶 U（测序读作 T），而 5-甲基胞嘧啶保持为 C，从而把表观遗传的甲基化信息“写入”碱基序列。酶法转化（如 TET2 + APOBEC）对 DNA 损伤更小，更适合低起始量 cfDNA。',
+        points: ['转化率是核心质控指标（通常要求 >99%）', '亚硫酸氢盐法成熟但降解较强', '酶法保留更长片段，利于单倍型分析'] },
+      { icon: 'seq', title: '高通量测序', short: 'NGS 读取甲基化图谱', ms: 1400,
+        status: '测序读段比对中（构建全基因组甲基化图谱）…',
+        detail: '通过全基因组甲基化测序或靶向甲基化 panel 读取甲基化图谱，产生数亿条读段；比对参考基因组后，计算每个 CpG 位点及区域的甲基化水平与共甲基化模式。',
+        points: ['全基因组测序信息量大、成本较高', '靶向 panel 深度高、成本可控', '需要严格的比对与去重复策略'] },
+      { icon: 'ai', title: 'AI 算法建模', short: '分类器 + 单倍型评分', ms: 1450,
+        status: '甲基化单倍型分析中（机器学习分类器推理）…',
+        detail: '机器学习分类器（正则化逻辑回归、梯度提升树、深度学习等）结合甲基化单倍型（methylation haplotype）评分，输出癌症信号概率与组织来源提示。模型需在独立队列中验证以避免过拟合。',
+        points: ['单倍型评分对低丰度信号更敏感', '必须使用独立验证队列评估性能', '阈值设定决定灵敏度与特异性的权衡'] },
+      { icon: 'report', title: '生成评估报告', short: '评分 + 风险提示', ms: 1250,
+        status: '生成甲基化评分与风险评估报告…',
+        detail: '输出总体甲基化评分（本模型阈值 0.99）、各部位风险提示与复查建议。报告为筛查风险提示，需由医生结合临床、影像学与病理检查综合判断。',
+        points: ['评分高于阈值判定为“检出异常信号”', '附组织来源提示以指导后续检查', '筛查结果不能作为诊断依据'] }
+    ]
+  },
+
+  /* ---------- 第 5 区块：模拟检测台 ---------- */
+  lab: {
+    threshold: 0.99,
+    gaugeMax: 2,
+    organs: [
+      { key: 'lung',       name: '肺',     sex: 'all' },
+      { key: 'liver',      name: '肝',     sex: 'all' },
+      { key: 'colorectal', name: '结直肠', sex: 'all' },
+      { key: 'stomach',    name: '胃',     sex: 'all' },
+      { key: 'pancreas',   name: '胰腺',   sex: 'all' },
+      { key: 'esophagus',  name: '食管',   sex: 'all' },
+      { key: 'breast',     name: '乳腺',   sex: 'female' },
+      { key: 'prostate',   name: '前列腺', sex: 'male' }
+    ],
+    samples: {
+      negative: {
+        name: '阴性演示样本', code: 'N', score: 0.23, positive: false,
+        verdict: '未检出异常甲基化信号',
+        subject: { name: '演示用户', age: 45, sex: 'female', smoke: '从不吸烟', family: '无癌症家族史' },
+        qc: { volume: '10.0 mL', plasma: '4.6 mL', cfdna: '18.4 ng', conversion: '99.4%', depth: '38×' },
+        risks: {
+          lung: { level: 'low', score: 0.11 }, liver: { level: 'low', score: 0.08 },
+          colorectal: { level: 'low', score: 0.13 }, stomach: { level: 'low', score: 0.10 },
+          pancreas: { level: 'low', score: 0.07 }, esophagus: { level: 'low', score: 0.09 },
+          breast: { level: 'low', score: 0.12 }, prostate: { level: 'low', score: 0.06 }
+        },
+        origin: [],
+        advice: '本次检测未检出异常甲基化信号。<b>建议按常规周期（12 个月）复查</b>，并继续按年龄与性别完成指南推荐的标准筛查项目（如低剂量螺旋 CT、胃肠镜、乳腺超声/钼靶、HPV 检测等）。阴性结果不能完全排除癌症：若出现持续不适或新发症状，请及时就医，不要因本次结果推迟必要检查。'
+      },
+      positive: {
+        name: '阳性演示样本', code: 'P', score: 1.62, positive: true,
+        verdict: '检出异常甲基化信号',
+        subject: { name: '演示用户', age: 58, sex: 'male', smoke: '吸烟 30 包年', family: '一级亲属肺癌史' },
+        qc: { volume: '10.0 mL', plasma: '4.8 mL', cfdna: '26.1 ng', conversion: '99.6%', depth: '41×' },
+        risks: {
+          lung: { level: 'high', score: 0.86 }, esophagus: { level: 'mid', score: 0.47 },
+          stomach: { level: 'mid', score: 0.34 }, liver: { level: 'low', score: 0.15 },
+          colorectal: { level: 'low', score: 0.12 }, pancreas: { level: 'low', score: 0.10 },
+          breast: { level: 'low', score: 0.08 }, prostate: { level: 'low', score: 0.14 }
+        },
+        origin: [
+          { name: '肺', p: 0.62 }, { name: '食管', p: 0.19 },
+          { name: '胃', p: 0.08 }, { name: '其他 / 无法确定', p: 0.11 }
+        ],
+        advice: '本次检测在多个 cfDNA 甲基化标记上检出异常信号，评分高于本模型阈值（0.99）。<b>建议 3–6 个月内复查，并进行针对性影像学 / 内镜检查以明确诊断</b>（结合组织来源提示，可优先考虑胸部低剂量螺旋 CT 与上消化道内镜）。请携本报告至肿瘤科或相应专科门诊，由医生制定后续检查与随访路径；阳性结果为风险提示，不等于确诊，请勿自行用药或过度焦虑。'
+      }
+    }
+  },
+
+  /* ---------- 第 6 区块：性能数据（回顾性研究口径） ---------- */
+  performance: {
+    kpis: [
+      { v: '0.9581', t: '模型 AUC（回顾性队列）' },
+      { v: '95%',    t: '特异性（工作点）' },
+      { v: '87%',    t: '灵敏度（该工作点对应）' },
+      { v: '0.99',   t: '甲基化评分判定阈值' }
+    ],
+    /* ROC：双正态模型合成参数，使曲线同时满足 AUC=0.9581 与工作点(0.05, 0.87) */
+    roc: { auc: 0.9581, a: 1.9193, b: 0.482, point: { fpr: 0.05, tpr: 0.87 } },
+    cancers: [
+      { name: '肺腺癌',     value: 100, display: '100%',  band: 'high' },
+      { name: '结直肠癌',   value: 100, display: '100%',  band: 'high' },
+      { name: '子宫内膜癌', value: 100, display: '100%',  band: 'high' },
+      { name: '胰腺癌',     value: 99,  display: '99%',   band: 'high' },
+      { name: '肝癌',       value: 96,  display: '96%',   band: 'high' },
+      { name: '胃癌',       value: 90,  display: '≥90%',  band: 'high' },
+      { name: '乳腺癌',     value: 90,  display: '约 90%', band: 'high' },
+      { name: '甲状腺癌',   value: 33,  display: '33%',   band: 'low' },
+      { name: '睾丸癌',     value: 17,  display: '17%',   band: 'low' },
+      { name: '嗜铬细胞瘤', value: 10,  display: '10%',   band: 'low' }
+    ],
+    stages: [
+      { name: 'I 期', value: 16.8 }, { name: 'II 期', value: 40.4 },
+      { name: 'III 期', value: 77 }, { name: 'IV 期', value: 90.1 }
+    ],
+    footnote: '数据口径：回顾性病例-对照研究数据；在前瞻性人群筛查中灵敏度会显著降低。',
+    rocNote: '数据口径：回顾性病例-对照研究数据；在前瞻性人群筛查中灵敏度会显著降低。ROC 曲线按双正态模型合成，用于示意该 AUC 与工作点下的曲线形态。',
+    cancerNote: '数据口径：回顾性病例-对照研究数据；在前瞻性人群筛查中灵敏度会显著降低。个别癌种在小样本回顾性研究中灵敏度达 100%，不代表其在真实人群筛查中的表现；甲状腺癌、睾丸癌、嗜铬细胞瘤等释放的甲基化信号少，检出率明显偏低。',
+    stageNote: '数据来源：Galleri CCGA3 独立验证队列数据，用于说明“分期越晚、检出率越高”的行业共性规律。数据口径：回顾性病例-对照研究数据；在前瞻性人群筛查中灵敏度会显著降低。',
+    /* 阳性预测值推演：仅使用上方工作点（灵敏度 87% / 特异性 95%）+ 用户设定的假设患病率 */
+    ppv: {
+      sens: 0.87, spec: 0.95, total: 10000,
+      prevalence: 100, min: 10, max: 300, step: 5,
+      note: '推算口径：基于本页 ROC 工作点（灵敏度 87% / 特异性 95%）与用户设定的假设患病率进行的演示推算，不代表任何产品在真实人群筛查中的阳性预测值。人群患病率越低、特异性越低，阳性人群中的假阳性占比就越高——这正是行业努力把特异性做到 99% 以上的原因，也是阳性结果必须依靠影像学/病理进一步确认的原因。'
+    }
+  },
+
+  /* ---------- 第 7 区块：早发现的价值 ---------- */
+  survival: {
+    items: [
+      { name: '乳腺癌',   local: 99, localDisplay: '>99%', distant: 32 },
+      { name: '结直肠癌', local: 91, distant: 13 },
+      { name: '肺癌',     local: 67, distant: 12 },
+      { name: '胰腺癌',   local: 44, distant: 3 }
+    ],
+    conclusion: '同一种癌症，早期发现与晚期发现，是两种完全不同的人生。',
+    note: '数据口径：5 年相对生存率，按局限期（未扩散）与远处转移期分层统计，用于说明分期与生存结局的关系，不代表个体预后。'
+  },
+
+  /* ---------- 第 8 区块：指南与共识 ---------- */
+  guideline: [
+    { no: '01', title: '2025《基于液体活检技术的多种癌种联合筛查专家共识》',
+      text: '共识认为：<b>cfDNA 甲基化是目前最成熟的核心标志物</b>（2 级证据、强推荐）；<b>血浆</b>为主要样本类型。',
+      list: ['核心标志物：cfDNA 甲基化（2 级证据、强推荐）', '主要样本类型：血浆', '强调规范化的检测前咨询与检测后随访路径'],
+      tags: [{ t: '2 级证据', c: 'tag-cyan' }, { t: '强推荐', c: 'tag-green' }, { t: '血浆样本', c: 'tag-cyan' }] },
+    { no: '02', title: '定位声明：补充，而非替代',
+      text: '液体活检泛癌筛查是现有标准筛查的<b>「补充而非替代」</b>：不改变指南推荐的既有筛查项目与周期。',
+      list: ['不替代低剂量螺旋 CT、胃肠镜、钼靶等标准筛查', '不作为诊断依据，阳性需临床与病理确认', '主要价值在于覆盖缺乏标准筛查手段的癌种'],
+      tags: [{ t: '补充而非替代', c: 'tag-amber' }, { t: '筛查 ≠ 诊断', c: 'tag-amber' }] },
+    { no: '03', title: '适用人群建议',
+      text: '建议 <b>40 岁以上</b>人群考虑，尤其合并以下高危因素者，是否检测应由医生结合个体情况共同决策。',
+      list: ['吸烟、长期饮酒', '慢性感染：乙肝病毒、HPV、幽门螺杆菌', '癌症家族史（尤其一级亲属）', '职业暴露、长期慢性炎症等其他高危因素'],
+      tags: [{ t: '40 岁以上', c: 'tag-cyan' }, { t: '高危因素人群', c: 'tag-amber' }, { t: '医患共同决策', c: 'tag-green' }] }
+  ],
+
+  /* ---------- 第 9 区块：FAQ ---------- */
+  faq: [
+    { q: '需要空腹吗？抽血疼不疼？',
+      a: '不需要空腹。全程仅需采集外周静脉血 <b>10mL</b>（约两支采血管），与常规体检抽血完全一致，属于无创采样，采血后即可正常饮食与活动。相比胃肠镜等侵入性检查，采样端负担很低，这也是液体活检最大的依从性优势。' },
+    { q: '多久能出结果？',
+      a: '本演示模型设定：样本进入实验室后约 <b>7–14 个工作日</b>出具报告，包含离心分离、cfDNA 提取、甲基化转化、高通量测序与算法分析等环节。第 5 区块的模拟检测台把这一流程压缩成约 8 秒的动画，用于演示各步骤顺序，不代表真实耗时。' },
+    { q: '结果是阳性怎么办？',
+      a: '阳性表示血液中检出了异常甲基化信号，属于<b>风险提示，不等于确诊</b>。规范做法是：携报告至肿瘤科或相应专科门诊，由医生结合组织来源提示安排针对性影像学或内镜检查；若首轮检查未见异常，通常建议 3–6 个月内复查随访。请不要据此自行用药，也不必过度恐慌——筛查阳性中包含一定比例的假阳性。' },
+    { q: '能替代胃肠镜、低剂量 CT 吗？',
+      a: '<b>不能。</b>专家共识明确将液体活检泛癌筛查定位为现有标准筛查的“补充而非替代”。胃肠镜、低剂量螺旋 CT、乳腺钼靶等仍是各自癌种的标准筛查手段；内镜还能在检查同时取活检、直接处理早期病变，这是血液检测无法做到的。' },
+    { q: '“准确性”到底该怎么理解？',
+      a: '两个核心指标：<b>灵敏度</b>＝真正患病的人中被检出的比例；<b>特异性</b>＝真正健康的人中被判为阴性的比例。特异性 95% 意味着 100 名健康人中约有 5 人会出现<b>假阳性</b>。由于人群中癌症发病率本身很低，即使指标不错，阳性人群中真正患癌的比例（阳性预测值）仍然可能有限——所以阳性必须靠影像学与病理进一步确认，阴性也不能完全排除癌症。可在第 6 区块的<b>「每 10,000 人筛查推演」</b>中亲手拖动患病率滑块，直观感受这一点。' },
+    { q: '哪些人建议做？',
+      a: '一般建议 <b>40 岁以上</b>人群考虑，尤其是合并吸烟、长期饮酒、慢性感染（乙肝病毒、HPV、幽门螺杆菌）、癌症家族史、职业暴露等高危因素者。是否检测、检测频次应由医生结合个人病史与既有筛查安排共同决策，不建议脱离临床判断自行反复检测。' },
+    { q: '阴性就一定没有癌症吗？',
+      a: '不是。早期肿瘤释放到血液中的 ctDNA 极少，可能低于检测下限；部分癌种（如甲状腺癌、睾丸癌等）本身释放的甲基化信号就比较弱（见第 6 区块短板癌种）。阴性只能说明<b>本次未检出异常信号</b>，仍需按常规周期复查，并完成指南推荐的标准筛查项目。' },
+    { q: '会不会带来过度检查或心理负担？',
+      a: '这是泛癌筛查领域被广泛讨论的问题：阳性结果可能带来焦虑与额外的检查成本，也可能发现进展缓慢、终生不致病的病灶。规范做法是——检测前充分知情同意、明确其局限性；检测后由医生统一解读并制定随访路径，避免患者自行“加做”大量不必要的检查。' }
+  ],
+
+  /* ---------- 第 10 区块：页脚 ---------- */
+  footer: {
+    disclaimers: [
+      '本页面为技术演示 Demo，<b>不构成医疗建议、诊断或治疗方案</b>，也不构成任何产品宣传或性能承诺。',
+      '页面内所有检测结果、甲基化评分、风险提示与报告样式<b>均为模拟数据</b>，并非真实检测结果。',
+      '癌症筛查与诊断请咨询专业医疗机构与执业医师；任何筛查结果都需经影像学、内镜或病理等临床检查确认。',
+      '页面引用的公开统计与研究数据仅用于说明方法学水平与行业共性规律；回顾性研究数据不代表前瞻性人群筛查表现，具体产品性能以其注册资料与说明书为准。',
+      '<b>筛查 ≠ 诊断</b>：本模型定位为现有标准筛查的补充，不替代任何指南推荐的检查项目。'
+    ],
+    meta: [
+      { k: '项目名称', v: 'cfDNA 甲基化癌症早筛医学模型 Demo' },
+      { k: '制作团队', v: '（团队 / 作者名称占位）' },
+      { k: '医学审核', v: '（医学审核人占位）' },
+      { k: '数据来源', v: '公开统计数据与已发表研究（口径见各区块图注）' },
+      { k: '版本', v: 'v1.0 · Demo' },
+      { k: '联系方式', v: '（联系方式占位）' }
+    ]
+  }
+};
+
+/* ============================================================================
+ * ②  基础工具
+ * ========================================================================== */
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const HAS_GSAP = !!(window.gsap && window.ScrollTrigger);
+if (HAS_GSAP) { gsap.registerPlugin(ScrollTrigger); }
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function fmtNum(v, d) {
+  return v.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+/* 进入视口一次性回调：已在视口内则立即执行，否则优先 ScrollTrigger，回退 IntersectionObserver */
+function onEnter(el, cb) {
+  if (!el) return;
+  let done = false;
+  const fire = () => { if (done) return; done = true; cb(); };
+  const rect = el.getBoundingClientRect();
+  if (rect.top < window.innerHeight * 0.88 && rect.bottom > 0) { setTimeout(fire, 60); return; }
+  if (HAS_GSAP) {
+    ScrollTrigger.create({ trigger: el, start: 'top 88%', once: true, onEnter: fire });
+  } else if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((es) => {
+      es.forEach(e => { if (e.isIntersecting) { io.disconnect(); fire(); } });
+    }, { rootMargin: '0px 0px -12% 0px' });
+    io.observe(el);
+  } else { fire(); }
+}
+
+/* ---------- 图标库（纯 SVG，无外部图片） ---------- */
+const ICON_PATHS = {
+  blood:   '<path d="M12 3s6 6.6 6 10.4A6 6 0 0 1 6 13.4C6 9.6 12 3 12 3z"/>',
+  spin:    '<circle cx="12" cy="12" r="8.5"/><path d="M12 5v7l5.5 3"/><path d="M19.5 7.5 21 6"/>',
+  pipette: '<path d="M4 20.5l4.2-1 9-9-3.2-3.2-9 9z"/><path d="M14.6 4.6 19.4 9.4"/><path d="M16.8 2.4 21.6 7.2"/>',
+  convert: '<path d="M4 8h13l-3.2-3.2"/><path d="M20 16H7l3.2 3.2"/>',
+  seq:     '<path d="M4 19V9M8 19V5M12 19v-7M16 19V7M20 19v-10"/>',
+  ai:      '<rect x="6.5" y="6.5" width="11" height="11" rx="3"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21M6.5 4.5v2M17.5 4.5v2M6.5 17.5v2M17.5 17.5v2"/>',
+  report:  '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/>',
+  clock:   '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  ruler:   '<path d="M3 8h18v8H3z"/><path d="M7 8v3M11 8v4M15 8v3M19 8v4"/>',
+  early:   '<path d="M4 20V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M4 20h16M8 3v4M16 3v4M8 12h8M8 16h5"/>',
+  drop:    '<path d="M12 3s6 6.6 6 10.4A6 6 0 0 1 6 13.4C6 9.6 12 3 12 3z"/><path d="M12 16.5a2.5 2.5 0 0 1-2.5-2.5"/>'
+};
+function icon(name, size, color) {
+  const p = ICON_PATHS[name] || ICON_PATHS.report;
+  return '<svg class="ico" width="' + (size || 22) + '" height="' + (size || 22) + '" viewBox="0 0 24 24" fill="none" '
+    + 'stroke="' + (color || 'currentColor') + '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+}
+
+/* ============================================================================
+ * ③  顶部进度条 / 主题切换 / 导航 / 滚动渐入
+ * ========================================================================== */
+(function progressBar() {
+  const load = $('#loadBar i'), scr = $('#scrollBar i');
+  let p = 12;
+  const tick = setInterval(() => { p = Math.min(88, p + Math.random() * 16); load.style.width = p + '%'; }, 220);
+  function finish() {
+    clearInterval(tick); load.style.width = '100%';
+    setTimeout(() => document.body.classList.add('loaded'), 320);
+  }
+  if (document.readyState === 'complete') finish();
+  else window.addEventListener('load', finish);
+  setTimeout(finish, 3200); /* 兜底：CDN 异常也不卡住 */
+
+  function onScroll() {
+    const h = document.documentElement.scrollHeight - window.innerHeight;
+    scr.style.width = (h > 0 ? clamp(window.scrollY / h, 0, 1) * 100 : 0) + '%';
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  onScroll();
+})();
+
+/* ---------- 主题（深色 / 浅色，localStorage 记忆） ---------- */
+const ThemeAPI = (function theme() {
+  const KEY = 'cfdna-demo-theme';
+  const btn = $('#themeBtn'), root = document.documentElement;
+  const SUN = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/>';
+  const MOON = '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  const listeners = [];
+  function apply(t) {
+    root.setAttribute('data-theme', t);
+    $('#themeIcon').innerHTML = (t === 'dark' ? MOON : SUN);
+    listeners.forEach(f => { try { f(t); } catch (e) { console.warn(e); } });
+  }
+  try { const s = localStorage.getItem(KEY); if (s) apply(s); } catch (e) {}
+  btn.addEventListener('click', () => {
+    const t = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    apply(t);
+    try { localStorage.setItem(KEY, t); } catch (e) {}
+  });
+  return { onChange: (f) => listeners.push(f), current: () => root.getAttribute('data-theme') };
+})();
+
+/* ---------- 导航：吸顶 / 移动端菜单 / 滚动高亮 ---------- */
+(function navigation() {
+  const nav = $('#nav'), mob = $('#navMobile'), toggle = $('#navToggle');
+  const links = $$('#navLinks a').concat($$('#navMobile a'));
+  const ids = ['hero', 'burden', 'science', 'workflow', 'lab', 'performance', 'survival', 'guideline', 'faq', 'footer'];
+  toggle.addEventListener('click', () => {
+    const open = mob.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  $$('#navMobile a').forEach(a => a.addEventListener('click', () => {
+    mob.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false');
+  }));
+  function spy() {
+    if (window.scrollY > 24) nav.classList.add('stuck'); else nav.classList.remove('stuck');
+    const line = window.scrollY + parseInt(cssVar('--nav-h') || '64', 10) + 40;
+    let cur = ids[0];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.getBoundingClientRect().top + window.scrollY <= line) cur = id;
+    });
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+    $('#backTop').classList.toggle('show', window.scrollY > 700);
+  }
+  window.addEventListener('scroll', spy, { passive: true });
+  window.addEventListener('resize', spy);
+  spy();
+  $('#backTop').addEventListener('click', () => window.scrollTo({ top: 0, behavior: REDUCED ? 'auto' : 'smooth' }));
+})();
+
+/* ---------- 滚动渐入（GSAP ScrollTrigger 触发 + CSS 过渡；无 GSAP 时自动回退） ---------- */
+function bindReveals(scope) {
+  $$('.reveal', scope).forEach((el, i) => {
+    if (el.dataset.revealBound) return;
+    el.dataset.revealBound = '1';
+    if (REDUCED) { el.classList.add('in'); return; }
+    onEnter(el, () => setTimeout(() => el.classList.add('in'), (i % 6) * 70));
+  });
+}
+
+/* ---------- 数字滚动计数器 ---------- */
+function countUp(el) {
+  const target = parseFloat(el.dataset.value), dec = parseInt(el.dataset.decimals || '0', 10);
+  if (REDUCED) { el.textContent = fmtNum(target, dec); return; }
+  const dur = 1700, t0 = performance.now();
+  (function frame(now) {
+    const p = clamp((now - t0) / dur, 0, 1);
+    const e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmtNum(target * e, dec);
+    if (p < 1) requestAnimationFrame(frame);
+  })(t0);
+}
+
+/* ---------- 卡片指针跟随高光（仅具备 hover 能力的设备） ---------- */
+(function spotlight() {
+  if (REDUCED) return;
+  if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
+  let raf = 0, pending = null;
+  document.addEventListener('mousemove', (e) => {
+    const card = e.target && e.target.closest ? e.target.closest('.glass-hover') : null;
+    if (!card) return;
+    pending = { card: card, x: e.clientX, y: e.clientY };
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      if (!pending) return;
+      const r = pending.card.getBoundingClientRect();
+      pending.card.style.setProperty('--mx', Math.round(pending.x - r.left) + 'px');
+      pending.card.style.setProperty('--my', Math.round(pending.y - r.top) + 'px');
+    });
+  }, { passive: true });
+})();
+
+/* ---------- 名词解释：术语提示条（悬浮 / 键盘聚焦 / 移动端点按） ---------- */
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+(function glossary() {
+  const row = $('#termRow'); if (!row) return;
+  row.innerHTML = DEMO_DATA.glossary.map(g =>
+    '<span class="term gl" tabindex="0" role="note" data-tip="' + escAttr(g.t + '：' + g.d) + '">' + g.t + '</span>').join('');
+  const c = $('#termCount'); if (c) c.textContent = DEMO_DATA.glossary.length;
+})();
+
+/* ============================================================================
+ * ④  第 1 区块：首屏 Canvas —— DNA 双螺旋（3D 透视旋转）+ 甲基化粒子
+ * ========================================================================== */
+(function heroCanvas() {
+  /* 首屏指标条（数据驱动，须在 GSAP 入场时间线之前渲染） */
+  const chipBox = $('#heroChips');
+  if (chipBox) {
+    chipBox.innerHTML = DEMO_DATA.heroChips.map(c =>
+      '<div class="chip"><span class="ico" style="color:var(--' + (c.tone || 'cyan') + ')">' + icon(c.icon, 22) + '</span>' +
+      '<span><b>' + c.value + (c.unit ? '<small style="font-size:12px">' + c.unit + '</small>' : '') + '</b>' +
+      '<span>' + c.label + '</span></span></div>').join('');
+  }
+
+  const cv = $('#heroCanvas'); if (!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0, dpr = 1, running = true, looping = false, t = 0, mx = 0, particles = [];
+
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    const r = cv.getBoundingClientRect();
+    W = Math.max(320, r.width); H = Math.max(420, r.height);
+    cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    particles = [];
+    const n = Math.round(clamp(W * H / 26000, 26, 90));
+    for (let i = 0; i < n; i++) {
+      particles.push({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - .5) * .18, vy: -.10 - Math.random() * .22,
+        r: .7 + Math.random() * 1.9, a: .12 + Math.random() * .4,
+        ch3: Math.random() < .13
+      });
+    }
+  }
+
+  function palette() {
+    const light = ThemeAPI.current() === 'light';
+    return {
+      c1: light ? '8,145,178' : '34,211,238',
+      c2: light ? '3,105,161' : '56,189,248',
+      am: '245,158,11',
+      base: light ? '15,23,42' : '226,238,248'
+    };
+  }
+
+  function draw() {
+    const P = palette();
+    ctx.clearRect(0, 0, W, H);
+
+    /* --- 粒子（游离 cfDNA / 甲基化基团意象） --- */
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.y < -20) { p.y = H + 16; p.x = Math.random() * W; }
+      if (p.x < -20) p.x = W + 16; if (p.x > W + 20) p.x = -16;
+      if (p.ch3) {
+        ctx.globalAlpha = p.a * .95;
+        ctx.fillStyle = 'rgba(' + P.am + ',1)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 1.25, 0, 6.2832); ctx.fill();
+        ctx.globalAlpha = p.a * .55;
+        ctx.font = '9px ui-monospace, monospace';
+        ctx.fillText('CH₃', p.x + 5, p.y + 3);
+      } else {
+        ctx.globalAlpha = p.a;
+        ctx.fillStyle = 'rgba(' + P.c2 + ',1)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+      }
+    });
+    ctx.globalAlpha = 1;
+
+    /* --- DNA 双螺旋：绕竖轴旋转 + 透视缩放（近大远小 / 近亮远暗） --- */
+    const cx = W * (W > 980 ? 0.755 : 0.5) + mx * 26;
+    const R = clamp(W * (W > 980 ? 0.085 : 0.13), 42, 120);
+    /* 螺旋背后的柔光，制造景深 */
+    const glow = ctx.createRadialGradient(cx, H * .5, 0, cx, H * .5, R * 4.4);
+    glow.addColorStop(0, 'rgba(' + P.c1 + ',.17)');
+    glow.addColorStop(.55, 'rgba(' + P.c1 + ',.06)');
+    glow.addColorStop(1, 'rgba(' + P.c1 + ',0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - R * 4.4, 0, R * 8.8, H);
+    const top = H * 0.06, bottom = H * 0.94, N = 52, f = 620;
+    const nodes = [];
+    for (let i = 0; i < N; i++) {
+      const y = lerp(top, bottom, i / (N - 1));
+      const ph = i * 0.38 + t;
+      for (let s = 0; s < 2; s++) {
+        const a = ph + s * Math.PI;
+        const z = Math.sin(a) * R;
+        const sc = f / (f - z);
+        nodes.push({ x: cx + Math.cos(a) * R * sc, y: y, z: z, sc: sc, i: i, s: s });
+      }
+    }
+    /* 碱基对横档 */
+    for (let i = 0; i < N; i++) {
+      const A = nodes[i * 2], B = nodes[i * 2 + 1];
+      const depth = (A.z + B.z) / (2 * R);
+      ctx.globalAlpha = .10 + .22 * (depth + 1) / 2;
+      ctx.strokeStyle = 'rgba(' + P.base + ',1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+    }
+    /* 骨架 */
+    for (let s = 0; s < 2; s++) {
+      ctx.beginPath();
+      for (let i = 0; i < N; i++) { const nd = nodes[i * 2 + s]; if (i === 0) ctx.moveTo(nd.x, nd.y); else ctx.lineTo(nd.x, nd.y); }
+      ctx.globalAlpha = .5; ctx.lineWidth = 1.6;
+      ctx.strokeStyle = 'rgba(' + (s ? P.c2 : P.c1) + ',1)';
+      ctx.stroke();
+    }
+    /* 节点（按深度排序，远处先画）+ 每 5 个节点挂一个甲基化基团 */
+    nodes.sort((a, b) => a.z - b.z).forEach(nd => {
+      const near = (nd.z / R + 1) / 2;
+      const methyl = (nd.i % 5 === 0 && nd.s === 0);
+      const r = (methyl ? 3.4 : 2.3) * nd.sc;
+      ctx.globalAlpha = .22 + .68 * near;
+      ctx.fillStyle = methyl ? 'rgba(' + P.am + ',1)' : 'rgba(' + (nd.s ? P.c2 : P.c1) + ',1)';
+      ctx.beginPath(); ctx.arc(nd.x, nd.y, r, 0, 6.2832); ctx.fill();
+      if (methyl && near > .62) {
+        ctx.globalAlpha = .3 + .5 * near;
+        ctx.font = 'bold 9px ui-monospace, monospace';
+        ctx.fillText('CH₃', nd.x + r + 3, nd.y + 3);
+      }
+    });
+    ctx.globalAlpha = 1;
+    t += REDUCED ? 0 : 0.011;
+  }
+  /* 单一渲染循环，避免重复启动 */
+  function loop() {
+    if (!running) { looping = false; return; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  function start() { if (looping) return; looping = true; requestAnimationFrame(loop); }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', e => { mx = (e.clientX / window.innerWidth - .5) * 2; }, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { running = false; }
+    else { running = true; start(); }
+  });
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(es => {
+      es.forEach(e => {
+        if (e.isIntersecting) { running = true; start(); }
+        else { running = false; }
+      });
+    }, { threshold: 0 }).observe(cv);
+  }
+  resize(); start();
+
+  /* 首屏入场（GSAP 可用时启用） */
+  if (HAS_GSAP && !REDUCED) {
+    gsap.timeline({ defaults: { ease: 'power3.out' } })
+      .from('#heroBadge', { y: 18, opacity: 0, duration: .7 })
+      .from('#heroTitle', { y: 34, opacity: 0, duration: .95 }, '-=.45')
+      .from('#heroSub', { y: 24, opacity: 0, duration: .8 }, '-=.6')
+      .from('#heroCta .btn', { y: 20, opacity: 0, duration: .6, stagger: .12 }, '-=.5')
+      .from('#heroChips .chip', { y: 18, opacity: 0, duration: .55, stagger: .1 }, '-=.35')
+      .from('#heroDisc', { opacity: 0, duration: .6 }, '-=.2');
+  }
+})();
+/* ============================================================================
+ * ⑤  第 2 区块：疾病负担数据大屏
+ * ========================================================================== */
+(function renderBurden() {
+  const box = $('#burdenGrid');
+  box.innerHTML = DEMO_DATA.burden.map(s =>
+    '<div class="stat glass glass-hover reveal" data-accent="' + s.accent + '">' +
+      '<div class="stat-top">' +
+        (s.prefix ? '<span class="stat-pre">' + s.prefix + '</span>' : '') +
+        '<span class="stat-num counter" data-value="' + s.value + '" data-decimals="' + s.decimals + '">0</span>' +
+        '<span class="stat-unit">' + s.unit + '</span>' +
+      '</div>' +
+      '<div class="stat-label">' + s.label + '</div>' +
+      '<div class="stat-note">' + s.note + '</div>' +
+    '</div>').join('');
+  $$('.counter', box).forEach(el => onEnter(el.closest('.stat'), () => countUp(el)));
+})();
+
+/* ============================================================================
+ * ⑥  第 3 区块：科学原理（交互式甲基化对照）
+ * ========================================================================== */
+(function science() {
+  const M = DEMO_DATA.science.model;
+  const CYAN = [34, 211, 238], AMBER = [245, 158, 11], GREEN = [52, 211, 153];
+
+  /* --- 几何工具：柔和闭合 blob 路径（细胞 / 细胞核形态） --- */
+  function blobPts(cx, cy, rx, ry, jitter, seed, n) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2;
+      const k = 1 + jitter * (Math.sin(seed + i * 2.31) * .7 + Math.cos(seed * 1.7 + i * 1.13) * .5);
+      pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+    }
+    return pts;
+  }
+  function smoothClosed(pts) {
+    const n = pts.length;
+    let d = 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+    for (let i = 0; i < n; i++) {
+      const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += 'C' + c1[0].toFixed(1) + ',' + c1[1].toFixed(1) + ' ' + c2[0].toFixed(1) + ',' + c2[1].toFixed(1)
+        + ' ' + p2[0].toFixed(1) + ',' + p2[1].toFixed(1);
+    }
+    return d + 'Z';
+  }
+  function mix(a, b, t) {
+    const r = Math.round(lerp(a[0], b[0], t)), g = Math.round(lerp(a[1], b[1], t)), bl = Math.round(lerp(a[2], b[2], t));
+    return 'rgb(' + r + ',' + g + ',' + bl + ')';
+  }
+
+  /* --- 细胞插画（SVG） --- */
+  function cellSVG(level, kind) {
+    const uid = kind;
+    const cancer = kind === 'cancer';
+    const col = cancer ? mix(GREEN, AMBER, clamp(level * 1.15, 0, 1)) : 'rgb(52,211,153)';
+    const jm = cancer ? .028 + level * .13 : .026;
+    const jn = cancer ? .035 + level * .22 : .03;
+    const memb = smoothClosed(blobPts(100, 82, 76, 58, jm, 1.7, 16));
+    const nuc = smoothClosed(blobPts(97, 78, 37, 29, jn, 4.2, 14));
+    let inner = '';
+    /* 染色质纹理 */
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.27 + 0.4, rr = 12 + (i % 3) * 6;
+      inner += '<path d="M' + (97 + Math.cos(a) * rr).toFixed(1) + ',' + (78 + Math.sin(a) * rr * .8).toFixed(1) +
+        ' q6,-5 12,1" fill="none" stroke="' + col + '" stroke-opacity=".45" stroke-width="1.2" stroke-linecap="round"/>';
+    }
+    /* 核内甲基化基团：随癌变程度增加 */
+    const nCH3 = cancer ? Math.round(level * 9) : 1;
+    for (let i = 0; i < nCH3; i++) {
+      const a = i * 2.399, rr = 8 + (i % 4) * 6.5;
+      inner += '<circle cx="' + (97 + Math.cos(a) * rr).toFixed(1) + '" cy="' + (78 + Math.sin(a) * rr * .82).toFixed(1) +
+        '" r="2.6" fill="rgb(245,158,11)" fill-opacity=".95"/>';
+    }
+    /* 释放到血液的 cfDNA 片段 */
+    const frag = cancer ? .18 + level * .82 : .3;
+    let out = '';
+    [[176, 34], [186, 96], [26, 40], [20, 118], [166, 138]].forEach((p, i) => {
+      out += '<g opacity="' + (frag * (i % 2 ? .8 : 1)).toFixed(2) + '">' +
+        '<path d="M' + p[0] + ',' + p[1] + ' q5,-4 10,0 q5,4 10,0" fill="none" stroke="' + (cancer ? 'rgb(245,158,11)' : 'rgb(56,189,248)') +
+        '" stroke-width="1.5" stroke-linecap="round"/></g>';
+    });
+    return '<svg viewBox="0 0 200 165" width="100%" role="img" aria-label="' + (cancer ? '癌细胞示意' : '正常细胞示意') + '">' +
+      '<defs><radialGradient id="cg-' + uid + '" cx="36%" cy="30%" r="78%">' +
+      '<stop offset="0" stop-color="' + col + '" stop-opacity=".34"/>' +
+      '<stop offset="1" stop-color="' + col + '" stop-opacity=".06"/></radialGradient></defs>' +
+      out +
+      '<path d="' + memb + '" fill="url(#cg-' + uid + ')" stroke="' + col + '" stroke-opacity=".7" stroke-width="1.7"/>' +
+      '<path d="' + nuc + '" fill="' + col + '" fill-opacity=".14" stroke="' + col + '" stroke-opacity=".9" stroke-width="1.3"/>' +
+      inner +
+      '</svg>';
+  }
+
+  /* --- 甲基化位点轨道（棒棒糖图） --- */
+  function trackSVG(cfg) {
+    const W = 480, yS = 66, yTop = 30;
+    const x0 = cfg.island ? 52 : 26, x1 = cfg.island ? 300 : 452;
+    let s = '<svg viewBox="0 0 480 92" width="100%" role="img" aria-label="' + cfg.aria + '">';
+    if (cfg.island) {
+      s += '<rect x="40" y="52" width="272" height="26" rx="7" fill="rgba(34,211,238,.14)" stroke="rgba(34,211,238,.45)" stroke-dasharray="4 3"/>' +
+        '<text x="44" y="90" fill="rgba(56,189,248,.85)" font-size="9.5" font-family="monospace">CpG ISLAND</text>' +
+        '<path d="M316,66 h22 m0,0 l-5,-4 m5,4 l-5,4" stroke="rgba(148,163,184,.85)" stroke-width="1.3" fill="none" stroke-linecap="round"/>' +
+        '<text x="342" y="70" fill="rgba(148,163,184,.9)" font-size="9.5" font-family="monospace">TSS → 基因</text>' +
+        '<rect x="404" y="59" width="26" height="14" rx="3" fill="rgba(148,163,184,.35)"/>' +
+        '<rect x="436" y="59" width="18" height="14" rx="3" fill="rgba(148,163,184,.22)"/>';
+    }
+    /* 双链骨架 */
+    s += '<line x1="18" y1="62" x2="462" y2="62" stroke="rgba(148,163,184,.5)" stroke-width="1.4"/>' +
+      '<line x1="18" y1="70" x2="462" y2="70" stroke="rgba(148,163,184,.5)" stroke-width="1.4"/>';
+    let rungs = '';
+    for (let x = 24; x <= 456; x += 8) rungs += 'M' + x + ',62 V70 ';
+    s += '<path d="' + rungs + '" stroke="rgba(148,163,184,.22)" stroke-width="1"/>';
+    /* 位点 */
+    for (let i = 0; i < cfg.sites; i++) {
+      const x = cfg.sites === 1 ? (x0 + x1) / 2 : lerp(x0, x1, i / (cfg.sites - 1));
+      const on = cfg.flags[i];
+      s += '<line x1="' + x.toFixed(1) + '" y1="62" x2="' + x.toFixed(1) + '" y2="' + (yTop + 6) + '" stroke="' +
+        (on ? 'rgba(245,158,11,.85)' : 'rgba(148,163,184,.5)') + '" stroke-width="1.3"/>';
+      s += '<circle cx="' + x.toFixed(1) + '" cy="' + yTop + '" r="' + (on ? 6 : 4.6) + '" fill="' +
+        (on ? 'rgb(245,158,11)' : 'none') + '" stroke="' + (on ? 'rgba(245,158,11,.9)' : 'rgba(148,163,184,.75)') + '" stroke-width="1.4"/>';
+      if (on) s += '<text x="' + x.toFixed(1) + '" y="' + (yTop + 2.8) + '" text-anchor="middle" font-size="5.6" font-weight="700" fill="#1A1203" font-family="monospace">M</text>';
+    }
+    return s + '</svg>';
+  }
+
+  /* --- CpG 位点定位（用于序列条高亮） --- */
+  const seq = M.sequence, cpg = [];
+  for (let i = 0; i < seq.length - 1; i++) { if (seq[i] === 'C' && seq[i + 1] === 'G') { cpg.push(i); i++; } }
+  /* 甲基化填充顺序（散布而非从左到右，更接近真实分布观感） */
+  function fillOrder(n) {
+    return Array.from({ length: n }, (_, i) => i).sort((a, b) => ((a * 5 + 3) % n) - ((b * 5 + 3) % n));
+  }
+  const ORD_P = fillOrder(M.promoter.sites), ORD_G = fillOrder(M.genome.sites), ORD_S = fillOrder(cpg.length);
+
+  function flagsOf(total, rate, order) {
+    const k = Math.round(total * rate), on = new Array(total).fill(false);
+    for (let i = 0; i < k; i++) on[order[i]] = true;
+    return on;
+  }
+
+  /* --- 面板骨架 --- */
+  function skeleton(root, kind) {
+    const cancer = kind === 'cancer';
+    root.innerHTML =
+      '<h3><span style="width:9px;height:9px;border-radius:50%;background:' + (cancer ? 'var(--amber)' : 'var(--green)') + ';display:inline-block"></span>' +
+        (cancer ? '癌细胞' : '正常细胞') + '</h3>' +
+      '<p class="ph-sub">' + (cancer
+        ? '全基因组低甲基化 ＋ 抑癌基因启动子 CpG 岛高甲基化 → 基因被沉默（拖动滑块观察变化）'
+        : '抑癌基因启动子区 CpG 岛低甲基化 → 基因正常表达（作为对照，保持正常状态）') + '</p>' +
+      '<div class="cell-svg" data-role="cell"></div>' +
+      '<div class="metrics" data-role="metrics"></div>' +
+      '<div data-role="tracks"></div>' +
+      '<div class="track-title"><span>启动子 CpG 岛序列（C 被甲基化时高亮）</span><span data-role="seqcount"></span></div>' +
+      '<div class="seqbox"><div class="seq" data-role="seq"></div></div>' +
+      '<div class="verdict" data-role="verdict"></div>';
+    const seqBox = root.querySelector('[data-role=seq]');
+    seqBox.innerHTML = seq.split('').map((ch, i) =>
+      '<span data-i="' + i + '" class="' + (cpg.indexOf(i) >= 0 || cpg.indexOf(i - 1) >= 0 ? 'cpg' : '') + '">' + ch + '</span>').join('');
+  }
+
+  function update(root, level, kind) {
+    const pr = lerp(M.promoter.normal, M.promoter.cancer, level);
+    const gr = lerp(M.genome.normal, M.genome.cancer, level);
+    const ex = clamp((0.85 - pr) / 0.70, 0, 1);
+
+    root.querySelector('[data-role=cell]').innerHTML = cellSVG(level, kind);
+
+    root.querySelector('[data-role=metrics]').innerHTML =
+      mrow('启动子 CpG 岛甲基化', pr, 'amber') +
+      mrow('全基因组甲基化水平', gr, 'cyan') +
+      mrow('抑癌基因表达水平', ex, 'green');
+
+    root.querySelector('[data-role=tracks]').innerHTML =
+      '<div class="track-title"><span>① ' + M.promoter.label + '</span><span>' +
+        Math.round(M.promoter.sites * pr) + ' / ' + M.promoter.sites + ' 位点甲基化</span></div>' +
+      trackSVG({ sites: M.promoter.sites, flags: flagsOf(M.promoter.sites, pr, ORD_P), island: true, aria: '启动子 CpG 岛甲基化位点' }) +
+      '<div class="track-title"><span>② ' + M.genome.label + '</span><span>' +
+        Math.round(M.genome.sites * gr) + ' / ' + M.genome.sites + ' 位点甲基化</span></div>' +
+      trackSVG({ sites: M.genome.sites, flags: flagsOf(M.genome.sites, gr, ORD_G), island: false, aria: '基因组其他区域甲基化位点' });
+
+    const sflags = flagsOf(cpg.length, pr, ORD_S);
+    let mc = 0;
+    $$('[data-role=seq] span', root).forEach(sp => sp.classList.remove('mC'));
+    cpg.forEach((pos, i) => {
+      if (sflags[i]) {
+        mc++;
+        const sp = root.querySelector('[data-role=seq] span[data-i="' + pos + '"]');
+        if (sp) sp.classList.add('mC');
+      }
+    });
+    root.querySelector('[data-role=seqcount]').textContent = mc + ' / ' + cpg.length + ' 个 CpG 被甲基化';
+
+    const v = root.querySelector('[data-role=verdict]');
+    let cls = 'ok', txt = '抑癌基因正常表达 · 细胞周期调控完好';
+    if (pr > 0.75) { cls = 'bad'; txt = '抑癌基因被沉默 ＋ 基因组不稳定 · 典型癌变甲基化模式'; }
+    else if (pr > 0.45) { cls = 'mid'; txt = '启动子甲基化累积，抑癌基因表达显著下降'; }
+    else if (pr > 0.20) { cls = 'mid'; txt = '出现异常甲基化，基因表达开始下调'; }
+    v.className = 'verdict ' + cls;
+    v.innerHTML = (cls === 'ok'
+      ? '<svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>'
+      : '<svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>') + '<span>' + txt + '</span>';
+  }
+  function mrow(label, ratio, color) {
+    return '<div class="mrow"><span class="mlabel">' + label + '</span>' +
+      '<span class="mbar ' + color + '"><i style="width:' + (ratio * 100).toFixed(1) + '%"></i></span>' +
+      '<b class="mval">' + Math.round(ratio * 100) + '%</b></div>';
+  }
+
+  const pn = $('#panelNormal'), pc = $('#panelCancer');
+  skeleton(pn, 'normal'); skeleton(pc, 'cancer');
+  update(pn, 0, 'normal'); update(pc, 0, 'cancer');
+
+  const slider = $('#cancerSlider'), lvl = $('#lvlText');
+  let raf = 0, touched = false;
+  function setLevel(v, silent) {
+    v = clamp(v, 0, 100);
+    if (!silent) slider.value = v;
+    lvl.textContent = Math.round(v);
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => update(pc, v / 100, 'cancer'));
+    $('#btnNormal').classList.toggle('on', v < 8);
+    $('#btnCancer').classList.toggle('on', v > 92);
+  }
+  slider.addEventListener('input', () => { touched = true; setLevel(+slider.value, true); });
+  slider.addEventListener('pointerdown', () => { touched = true; });
+  /* 一键切换：平滑补间到 0 / 100；auto=true 的自动演示会在用户接管后立即让位 */
+  function tweenTo(target, auto) {
+    const from = +slider.value, t0 = performance.now(), dur = REDUCED ? 0 : 700;
+    (function step(now) {
+      if (auto && touched) return;
+      const p = dur ? clamp((now - t0) / dur, 0, 1) : 1;
+      const e = 1 - Math.pow(1 - p, 3);
+      setLevel(lerp(from, target, e));
+      if (p < 1) requestAnimationFrame(step);
+    })(t0);
+  }
+  $('#btnNormal').addEventListener('click', () => { touched = true; tweenTo(0); });
+  $('#btnCancer').addEventListener('click', () => { touched = true; tweenTo(100); });
+
+  /* 原理卡片 */
+  $('#factGrid').innerHTML = DEMO_DATA.science.facts.map(f =>
+    '<div class="fact glass glass-hover reveal"><div class="fi">' + icon(f.icon, 21) + '</div>' +
+    '<h4>' + f.title + '</h4><p>' + f.text + '</p></div>').join('');
+
+  /* 滚动进入时自动演示一次癌变过程，帮助用户理解交互；用户一旦操作立即让位 */
+  onEnter($('#science'), () => {
+    if (REDUCED) return;
+    setTimeout(() => {
+      if (touched) return;
+      tweenTo(100, true);
+      setTimeout(() => { if (!touched) tweenTo(0, true); }, 2600);
+    }, 900);
+  });
+})();
+
+/* ============================================================================
+ * ⑦  第 4 区块：检测全流程时间线
+ * ========================================================================== */
+(function workflow() {
+  const steps = DEMO_DATA.workflow.steps, tl = $('#timeline'), detail = $('#stepDetail');
+  steps.forEach((s, i) => {
+    const el = document.createElement('div');
+    el.className = 'tl-step';
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.innerHTML = '<span class="tl-idx">' + (i + 1) + '</span><div class="tl-dot">' + icon(s.icon, 24) + '</div>' +
+      '<h4>' + s.title + '</h4><p>' + s.short + '</p>';
+    el.addEventListener('click', () => select(i));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(i); } });
+    tl.appendChild(el);
+  });
+  const nodes = $$('.tl-step', tl);
+  function select(i) {
+    nodes.forEach((n, k) => n.classList.toggle('sel', k === i));
+    const s = steps[i];
+    detail.innerHTML = '<div class="d-ic">' + icon(s.icon, 26) + '</div><div>' +
+      '<h3>STEP ' + (i + 1) + ' · ' + s.title + '</h3><p>' + s.detail + '</p>' +
+      '<ul>' + s.points.map(p => '<li>' + p + '</li>').join('') + '</ul></div>';
+  }
+  select(0);
+  onEnter($('#workflow'), () => {
+    $('#tlFill').style.width = '100%';
+    nodes.forEach((n, i) => setTimeout(() => n.classList.add('on'), REDUCED ? 0 : 180 * i));
+  });
+})();
+
+/* ============================================================================
+ * ⑧  ECharts 图表管理（主题联动 + 懒加载入场动画）
+ * ========================================================================== */
+const Charts = (function () {
+  const reg = [];
+  function P() {
+    return {
+      cyan: cssVar('--cyan') || '#22D3EE', sky: cssVar('--sky') || '#38BDF8',
+      amber: cssVar('--amber') || '#F59E0B', green: cssVar('--green') || '#34D399',
+      red: cssVar('--red') || '#F87171', text: cssVar('--text') || '#E6EEF8',
+      muted: cssVar('--muted') || '#94A3B8', line: cssVar('--border2') || 'rgba(148,163,184,.3)',
+      split: cssVar('--grid') || 'rgba(148,163,184,.14)', solid: cssVar('--solid') || '#0E1626'
+    };
+  }
+  function base() {
+    const t = P();
+    return {
+      animationDuration: 1200, animationEasing: 'cubicOut',
+      textStyle: { color: t.muted, fontFamily: 'inherit' },
+      grid: { left: 12, right: 22, top: 46, bottom: 18, containLabel: true },
+      tooltip: {
+        backgroundColor: t.solid, borderColor: t.line, borderWidth: 1,
+        textStyle: { color: t.text, fontSize: 12 }, extraCssText: 'border-radius:10px;box-shadow:0 12px 30px -12px rgba(0,0,0,.6)'
+      },
+      legend: { textStyle: { color: t.muted, fontSize: 11.5 }, itemWidth: 14, itemHeight: 9, top: 6, icon: 'roundRect' }
+    };
+  }
+  function merge(a, b) { return Object.assign({}, a, b); }
+  function mount(el, build) {
+    if (!el) return null;
+    if (!window.echarts) { el.innerHTML = '<div class="chart-fallback">图表需要 ECharts CDN 支持<br />请联网后刷新页面</div>'; return null; }
+    const inst = echarts.init(el, null, { renderer: el.dataset.renderer || 'canvas' });
+    inst.setOption(build());
+    reg.push({ inst: inst, build: build });
+    return inst;
+  }
+  window.addEventListener('resize', () => reg.forEach(r => r.inst.resize()));
+  ThemeAPI.onChange(() => reg.forEach(r => r.inst.setOption(r.build(), true)));
+  return { mount: mount, base: base, merge: merge, P: P, all: reg };
+})();
+
+/* --- 正态分布工具：用于按 (AUC, 工作点) 合成形态合理的 ROC 曲线 --- */
+function erf(x) {
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const a1 = .254829592, a2 = -.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = .3275911;
+  const t = 1 / (1 + p * x);
+  return s * (1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x));
+}
+const normCdf = z => .5 * (1 + erf(z / Math.SQRT2));
+function normInv(p) {
+  if (p <= 0) return -Infinity; if (p >= 1) return Infinity;
+  const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2, -3.066479806614716e1, 2.506628277459239];
+  const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
+  const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+  const pl = .02425, ph = 1 - pl; let q, r;
+  if (p < pl) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  if (p <= ph) { q = p - .5; r = q * q; return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+  q = Math.sqrt(-2 * Math.log(1 - p));
+  return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+}
+
+/* ============================================================================
+ * ⑨  第 6 / 7 区块：性能仪表盘与早筛价值
+ * ========================================================================== */
+(function performanceCharts() {
+  const PF = DEMO_DATA.performance;
+  $('#kpiStrip').innerHTML = PF.kpis.map(k =>
+    '<div class="kpi glass"><b>' + k.v + '</b><span>' + k.t + '</span></div>').join('');
+  $('#capROC').textContent = PF.rocNote;
+  $('#capCancer').textContent = PF.cancerNote;
+  $('#capStage').textContent = PF.stageNote;
+  $('#capSurvival').textContent = DEMO_DATA.survival.note;
+
+  /* ---- ROC ---- */
+  function buildROC() {
+    const t = Charts.P(), R = PF.roc, pts = [[0, 0]];
+    for (let i = 1; i <= 240; i++) {
+      const u = i / 240, fpr = u * u;
+      pts.push([+fpr.toFixed(5), +clamp(normCdf(R.a + R.b * normInv(fpr)), 0, 1).toFixed(5)]);
+    }
+    return Charts.merge(Charts.base(), {
+      grid: { left: 12, right: 26, top: 44, bottom: 30, containLabel: true },
+      tooltip: {
+        trigger: 'axis', backgroundColor: t.solid, borderColor: t.line, borderWidth: 1,
+        textStyle: { color: t.text, fontSize: 12 },
+        formatter: function (ps) {
+          const o = ps.filter(p => p.seriesIndex === 0)[0] || ps[0];
+          if (!o || !o.data) return '';
+          return '假阳性率（1−特异性）：<b>' + (o.data[0] * 100).toFixed(1) + '%</b><br/>灵敏度：<b>' + (o.data[1] * 100).toFixed(1) + '%</b>';
+        }
+      },
+      legend: { data: ['ROC 曲线（合成示意）', '随机猜测 AUC = 0.50'], textStyle: { color: t.muted, fontSize: 11.5 }, top: 4, icon: 'roundRect' },
+      xAxis: {
+        type: 'value', min: 0, max: 1, name: '1 − 特异性（假阳性率）', nameLocation: 'middle', nameGap: 30,
+        nameTextStyle: { color: t.muted, fontSize: 11.5 }, axisLine: { lineStyle: { color: t.line } },
+        axisLabel: { color: t.muted, fontSize: 11, formatter: v => Math.round(v * 100) + '%' },
+        splitLine: { lineStyle: { color: t.split } }
+      },
+      yAxis: {
+        type: 'value', min: 0, max: 1, name: '灵敏度（真阳性率）', nameTextStyle: { color: t.muted, fontSize: 11.5 },
+        axisLine: { lineStyle: { color: t.line } }, axisLabel: { color: t.muted, fontSize: 11, formatter: v => Math.round(v * 100) + '%' },
+        splitLine: { lineStyle: { color: t.split } }
+      },
+      graphic: [{
+        type: 'text', right: '9%', bottom: '20%', z: 10,
+        style: { text: 'AUC = ' + R.auc.toFixed(4), fill: t.cyan, font: 'bold 17px inherit' }
+      }],
+      series: [
+        {
+          name: 'ROC 曲线（合成示意）', type: 'line', data: pts, showSymbol: false, smooth: false, z: 4,
+          lineStyle: { width: 3, color: t.cyan, shadowColor: 'rgba(34,211,238,.5)', shadowBlur: 12 },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(34,211,238,.30)' }, { offset: 1, color: 'rgba(34,211,238,.02)' }])
+          },
+          markLine: {
+            silent: true, symbol: 'none', label: { show: false },
+            lineStyle: { type: 'dashed', width: 1.2, color: t.amber, opacity: .75 },
+            data: [{ xAxis: R.point.fpr }, { yAxis: R.point.tpr }]
+          },
+          markPoint: {
+            symbol: 'circle', symbolSize: 13,
+            data: [{
+              coord: [R.point.fpr, R.point.tpr], itemStyle: { color: t.amber, borderColor: '#fff', borderWidth: 2 },
+              label: {
+                show: true, position: 'right', offset: [10, 0], color: t.text, fontSize: 11.5, fontWeight: 700,
+                formatter: '工作点：特异性 95% / 灵敏度 87%',
+                backgroundColor: 'rgba(245,158,11,.14)', borderColor: t.amber, borderWidth: 1, borderRadius: 6, padding: [4, 7]
+              }
+            }]
+          }
+        },
+        {
+          name: '随机猜测 AUC = 0.50', type: 'line', data: [[0, 0], [1, 1]], showSymbol: false, z: 2,
+          lineStyle: { type: 'dashed', width: 1.4, color: t.muted, opacity: .55 }
+        }
+      ]
+    });
+  }
+
+  /* ---- 各癌种灵敏度 ---- */
+  function buildCancer() {
+    const t = Charts.P(), items = PF.cancers.slice().reverse();
+    return Charts.merge(Charts.base(), {
+      grid: { left: 12, right: 74, top: 18, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: 'item', backgroundColor: t.solid, borderColor: t.line, borderWidth: 1, textStyle: { color: t.text, fontSize: 12 },
+        formatter: p => p.name + '<br/>回顾性研究灵敏度：<b>' + items[p.dataIndex].display + '</b>'
+      },
+      xAxis: {
+        type: 'value', max: 100, name: '灵敏度（%）', nameLocation: 'middle', nameGap: 26,
+        nameTextStyle: { color: t.muted, fontSize: 11.5 }, axisLine: { lineStyle: { color: t.line } },
+        axisLabel: { color: t.muted, fontSize: 11 }, splitLine: { lineStyle: { color: t.split } }
+      },
+      yAxis: {
+        type: 'category', data: items.map(i => i.name), axisTick: { show: false },
+        axisLine: { lineStyle: { color: t.line } }, axisLabel: { color: t.text, fontSize: 12 }
+      },
+      series: [{
+        type: 'bar', barWidth: '58%',
+        data: items.map(i => ({
+          value: i.value,
+          itemStyle: {
+            borderRadius: [0, 6, 6, 0],
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, i.band === 'high'
+              ? [{ offset: 0, color: 'rgba(34,211,238,.35)' }, { offset: 1, color: t.cyan }]
+              : [{ offset: 0, color: 'rgba(245,158,11,.35)' }, { offset: 1, color: t.amber }])
+          },
+          label: { show: true, position: 'right', color: i.band === 'high' ? t.cyan : t.amber, fontWeight: 800, fontSize: 12, formatter: i.display }
+        }))
+      }]
+    });
+  }
+
+  /* ---- 分期灵敏度 ---- */
+  function buildStage() {
+    const t = Charts.P(), st = PF.stages;
+    return Charts.merge(Charts.base(), {
+      grid: { left: 12, right: 24, top: 34, bottom: 30, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: t.solid, borderColor: t.line, borderWidth: 1, textStyle: { color: t.text, fontSize: 12 }, formatter: ps => ps[0].name + ' 灵敏度：<b>' + ps[0].value + '%</b>' },
+      legend: { show: false },
+      xAxis: { type: 'category', data: st.map(s => s.name), axisTick: { show: false }, axisLine: { lineStyle: { color: t.line } }, axisLabel: { color: t.text, fontSize: 12.5, fontWeight: 700 } },
+      yAxis: { type: 'value', max: 100, name: '灵敏度（%）', nameTextStyle: { color: t.muted, fontSize: 11.5 }, axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11 }, splitLine: { lineStyle: { color: t.split } } },
+      series: [{
+        type: 'bar', barWidth: '46%',
+        data: st.map((s, i) => ({
+          value: s.value,
+          itemStyle: {
+            borderRadius: [8, 8, 0, 0],
+            color: new echarts.graphic.LinearGradient(0, 1, 0, 0, [
+              { offset: 0, color: i < 2 ? 'rgba(245,158,11,.25)' : 'rgba(34,211,238,.25)' },
+              { offset: 1, color: i < 2 ? t.amber : t.cyan }])
+          }
+        })),
+        label: { show: true, position: 'top', color: t.text, fontWeight: 800, fontSize: 13, formatter: '{c}%' },
+        markLine: {
+          silent: true, symbol: 'none', data: [{ yAxis: 50 }],
+          lineStyle: { type: 'dotted', color: t.muted, opacity: .5 },
+          label: { formatter: '50%', color: t.muted, fontSize: 10.5 }
+        }
+      }]
+    });
+  }
+
+  /* ---- 局限期 vs 远处转移期 5 年生存率 ---- */
+  function buildSurvival() {
+    const t = Charts.P(), it = DEMO_DATA.survival.items;
+    return Charts.merge(Charts.base(), {
+      grid: { left: 12, right: 24, top: 44, bottom: 30, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: t.solid, borderColor: t.line, borderWidth: 1, textStyle: { color: t.text, fontSize: 12 } },
+      legend: { data: ['局限期（未扩散）', '远处转移期'], textStyle: { color: t.muted, fontSize: 12 }, top: 4, icon: 'roundRect' },
+      xAxis: { type: 'category', data: it.map(i => i.name), axisTick: { show: false }, axisLine: { lineStyle: { color: t.line } }, axisLabel: { color: t.text, fontSize: 12.5, fontWeight: 700 } },
+      yAxis: { type: 'value', max: 100, name: '5 年生存率（%）', nameTextStyle: { color: t.muted, fontSize: 11.5 }, axisLine: { show: false }, axisLabel: { color: t.muted, fontSize: 11 }, splitLine: { lineStyle: { color: t.split } } },
+      series: [
+        {
+          name: '局限期（未扩散）', type: 'bar', barGap: '12%', barWidth: '26%',
+          data: it.map(i => ({
+            value: i.local,
+            label: { show: true, position: 'top', color: t.green, fontWeight: 800, fontSize: 12, formatter: i.localDisplay || (i.local + '%') }
+          })),
+          itemStyle: {
+            borderRadius: [7, 7, 0, 0],
+            color: new echarts.graphic.LinearGradient(0, 1, 0, 0, [{ offset: 0, color: 'rgba(52,211,153,.22)' }, { offset: 1, color: t.green }])
+          }
+        },
+        {
+          name: '远处转移期', type: 'bar', barWidth: '26%',
+          data: it.map(i => i.distant),
+          label: { show: true, position: 'top', color: t.red, fontWeight: 800, fontSize: 12, formatter: '{c}%' },
+          itemStyle: {
+            borderRadius: [7, 7, 0, 0],
+            color: new echarts.graphic.LinearGradient(0, 1, 0, 0, [{ offset: 0, color: 'rgba(248,113,113,.2)' }, { offset: 1, color: t.red }])
+          }
+        }
+      ]
+    });
+  }
+
+  /* 懒挂载：进入视野再初始化，确保入场动画可见 */
+  [['#chartROC', buildROC], ['#chartCancer', buildCancer], ['#chartStage', buildStage], ['#chartSurvival', buildSurvival]]
+    .forEach(([sel, fn]) => {
+      const el = $(sel); if (!el) return;
+      onEnter(el, () => Charts.mount(el, fn));
+    });
+})();
+
+/* ============================================================================
+ * ⑨-b  第 2 区块辅助图表：确诊分期构成 + 中美 5 年生存率对比
+ * ========================================================================== */
+(function burdenCharts() {
+  const D = DEMO_DATA.burdenCharts;
+
+  function buildStageMix() {
+    const t = Charts.P();
+    return Charts.merge(Charts.base(), {
+      grid: { show: false },
+      tooltip: {
+        trigger: 'item', backgroundColor: t.solid, borderColor: t.line, borderWidth: 1,
+        textStyle: { color: t.text, fontSize: 12 }, formatter: '{b}<br/>占比：<b>{c}%</b>'
+      },
+      legend: { bottom: 2, itemGap: 16, textStyle: { color: t.muted, fontSize: 11.5 }, icon: 'roundRect' },
+      graphic: [
+        { type: 'text', left: 'center', top: '36%', z: 10, style: { text: D.stageMix[0].value + '%', fill: t.amber, font: 'bold 27px inherit', textAlign: 'center' } },
+        { type: 'text', left: 'center', top: '52%', z: 10, style: { text: '确诊即中晚期', fill: t.muted, font: '12px inherit', textAlign: 'center' } }
+      ],
+      series: [{
+        type: 'pie', radius: ['56%', '78%'], center: ['50%', '46%'], avoidLabelOverlap: true,
+        label: { show: false }, labelLine: { show: false },
+        itemStyle: { borderColor: 'rgba(0,0,0,0)', borderWidth: 3 },
+        data: [
+          {
+            value: D.stageMix[0].value, name: D.stageMix[0].name,
+            itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 1, 1, [{ offset: 0, color: '#FBBF24' }, { offset: 1, color: t.amber }]) }
+          },
+          {
+            value: D.stageMix[1].value, name: D.stageMix[1].name,
+            itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 1, 1, [{ offset: 0, color: 'rgba(34,211,238,.55)' }, { offset: 1, color: 'rgba(34,211,238,.22)' }]) }
+          }
+        ]
+      }]
+    });
+  }
+
+  function buildSurvGap() {
+    const t = Charts.P(), items = D.survivalGap.slice().reverse();
+    return Charts.merge(Charts.base(), {
+      grid: { left: 12, right: 70, top: 16, bottom: 30, containLabel: true },
+      tooltip: {
+        trigger: 'item', backgroundColor: t.solid, borderColor: t.line, borderWidth: 1,
+        textStyle: { color: t.text, fontSize: 12 },
+        formatter: p => p.name + ' 癌症总体 5 年生存率：<b>' + items[p.dataIndex].display + '</b>'
+      },
+      xAxis: {
+        type: 'value', max: 100, name: '5 年生存率（%）', nameLocation: 'middle', nameGap: 26,
+        nameTextStyle: { color: t.muted, fontSize: 11 }, axisLine: { lineStyle: { color: t.line } },
+        axisLabel: { color: t.muted, fontSize: 11 }, splitLine: { lineStyle: { color: t.split } }
+      },
+      yAxis: {
+        type: 'category', data: items.map(i => i.name), axisTick: { show: false },
+        axisLine: { lineStyle: { color: t.line } }, axisLabel: { color: t.text, fontSize: 13, fontWeight: 700 }
+      },
+      series: [{
+        type: 'bar', barWidth: '44%',
+        data: items.map(i => ({
+          value: i.value,
+          itemStyle: {
+            borderRadius: [0, 7, 7, 0],
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, i.tone === 'amber'
+              ? [{ offset: 0, color: 'rgba(245,158,11,.3)' }, { offset: 1, color: t.amber }]
+              : [{ offset: 0, color: 'rgba(52,211,153,.3)' }, { offset: 1, color: t.green }])
+          },
+          label: {
+            show: true, position: 'right', fontSize: 13, fontWeight: 800,
+            color: i.tone === 'amber' ? t.amber : t.green, formatter: i.display
+          }
+        }))
+      }]
+    });
+  }
+
+  [['#chartStageMix', buildStageMix], ['#chartSurvGap', buildSurvGap]].forEach(([sel, fn]) => {
+    const el = $(sel); if (!el) return;
+    onEnter(el, () => Charts.mount(el, fn));
+  });
+})();
+
+/* ============================================================================
+ * ⑨-c  第 6 区块：阳性预测值（PPV）推演 —— 每 10,000 人点阵图
+ *      仅使用 ROC 工作点（灵敏度 87% / 特异性 95%）+ 用户设定的假设患病率
+ * ========================================================================== */
+(function ppvSim() {
+  const cfg = DEMO_DATA.performance.ppv;
+  const cv = $('#ppvCanvas'), slider = $('#ppvPrev'), cap = $('#capPPV');
+  if (cap) cap.textContent = cfg.note;
+  if (!cv || !cv.getContext || !slider) return;
+  const ctx = cv.getContext('2d');
+  slider.min = cfg.min; slider.max = cfg.max; slider.step = cfg.step; slider.value = cfg.prevalence;
+
+  function calc(p) {
+    const dis = p, well = cfg.total - p;
+    const tp = Math.round(dis * cfg.sens), fn = dis - tp;
+    const fp = Math.round(well * (1 - cfg.spec)), tn = well - fp;
+    return {
+      p: p, tp: tp, fn: fn, fp: fp, tn: tn, pos: tp + fp,
+      ppv: (tp + fp) ? tp / (tp + fp) : 0, npv: (tn + fn) ? tn / (tn + fn) : 0
+    };
+  }
+  function draw(r) {
+    const box = cv.getBoundingClientRect();
+    const size = Math.max(180, Math.floor(Math.min(box.width || 300, box.height || 300)));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.floor(size * dpr); cv.height = Math.floor(size * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    const cell = size / 100, dot = Math.max(1.3, cell * .72), off = (cell - dot) / 2;
+    const tn = ThemeAPI.current() === 'light' ? 'rgba(100,116,139,.32)' : 'rgba(148,163,184,.26)';
+    /* 按 真阳性 → 假阴性 → 假阳性 → 真阴性 的顺序逐行铺满，方便肉眼比对块面大小 */
+    let idx = 0;
+    [[r.tp, '#34D399'], [r.fn, '#F87171'], [r.fp, '#F59E0B'], [r.tn, tn]].forEach(pair => {
+      ctx.fillStyle = pair[1];
+      for (let k = 0; k < pair[0]; k++) {
+        const i = idx + k;
+        ctx.fillRect((i % 100) * cell + off, Math.floor(i / 100) * cell + off, dot, dot);
+      }
+      idx += pair[0];
+    });
+  }
+  function render() {
+    const p = parseInt(slider.value, 10) || cfg.prevalence;
+    const r = calc(p);
+    $('#ppvPrevTxt').textContent = p + ' 人（' + (p / cfg.total * 100).toFixed(2) + '%）';
+    $('#ppvVal').textContent = (r.ppv * 100).toFixed(1) + '%';
+    $('#npvVal').textContent = (r.npv * 100).toFixed(2) + '%';
+    $('#ppvTP').textContent = r.tp.toLocaleString('zh-CN') + ' 人';
+    $('#ppvFN').textContent = r.fn.toLocaleString('zh-CN') + ' 人';
+    $('#ppvFP').textContent = r.fp.toLocaleString('zh-CN') + ' 人';
+    $('#ppvTN').textContent = r.tn.toLocaleString('zh-CN') + ' 人';
+    $('#ppvSay').innerHTML = '每 <b>10,000</b> 人接受筛查，若其中 <b>' + p + '</b> 人真正患癌：约 <b>' + r.pos +
+      '</b> 人会得到阳性结果，其中真正患癌的约 <b>' + r.tp + '</b> 人 —— 阳性预测值约 <b>' + (r.ppv * 100).toFixed(1) +
+      '%</b>；同时约 <b>' + r.fn + '</b> 人患癌却未被检出。所以：<b>阳性 = 需要进一步检查，而不是确诊</b>；阴性也不能完全排除癌症。';
+    draw(r);
+  }
+  slider.addEventListener('input', render);
+  window.addEventListener('resize', () => { if (cv.width) render(); });
+  ThemeAPI.onChange(() => { if (cv.width) render(); });
+  onEnter($('#ppvCanvas'), render);
+})();
+
+/* ============================================================================
+ * ⑩  第 5 区块：模拟检测台 + 模拟报告
+ * ========================================================================== */
+(function lab() {
+  const L = DEMO_DATA.lab, steps = DEMO_DATA.workflow.steps;
+  const state = { sample: 'negative', running: false, last: null };
+  let gauge = null, nameDirty = false, lastFocus = null;
+
+  /* ------------------------------------------------------------------
+   * 样本视图：7 幕 SVG 场景（纯 SVG + CSS 动画，无外部图片）
+   * ---------------------------------------------------------------- */
+  const SC = { sl: '#94A3B8', dim: '#64748B', cy: '#22D3EE', sky: '#38BDF8', am: '#F59E0B', gr: '#34D399', rd: '#F87171' };
+  const tx = (x, y, s, c, sz, w) => '<text x="' + x + '" y="' + y + '" fill="' + c + '" font-size="' + (sz || 11.5) +
+    '"' + (w ? ' font-weight="' + w + '"' : '') + ' font-family="inherit">' + s + '</text>';
+
+  function sceneCollect() {
+    /* ① 采血 */
+    const s1 =
+      '<rect x="196" y="24" width="44" height="14" rx="4" fill="rgba(56,189,248,.25)" stroke="' + SC.sky + '" stroke-width="1.6"/>' +
+      '<path d="M199 38 v70 a19 19 0 0 0 38 0 V38" fill="none" stroke="' + SC.sky + '" stroke-width="1.8"/>' +
+      '<path class="an-rise" d="M201 66 v42 a17 17 0 0 0 34 0 V66 Z" fill="rgba(248,113,113,.42)"/>' +
+      '<circle class="an-pulse" cx="150" cy="62" r="6.5" fill="' + SC.rd + '" opacity=".75"/>' +
+      '<path d="M160 62 h30" stroke="' + SC.rd + '" stroke-width="1.5" stroke-dasharray="4 4" opacity=".8"/>' +
+      tx(256, 62, '全血 10mL', SC.sl, 13, 700) + tx(256, 82, 'EDTA 抗凝管 · 无需空腹', SC.dim, 11);
+
+    /* ② 离心分层 */
+    const s2 =
+      '<g class="an-spin"><circle cx="140" cy="80" r="40" fill="none" stroke="' + SC.sky + '" stroke-width="1.6" stroke-dasharray="7 8"/>' +
+      '<rect x="134" y="34" width="12" height="26" rx="3" fill="rgba(56,189,248,.42)"/>' +
+      '<rect x="134" y="100" width="12" height="26" rx="3" fill="rgba(56,189,248,.42)"/></g>' +
+      '<circle cx="140" cy="80" r="4.5" fill="' + SC.sky + '"/>' +
+      '<path d="M258 34 v62 a16 16 0 0 0 32 0 V34" fill="none" stroke="' + SC.cy + '" stroke-width="1.8"/>' +
+      '<rect x="259" y="40" width="30" height="30" fill="rgba(245,158,11,.30)"/>' +
+      '<path d="M259 70 v26 a15 15 0 0 0 30 0 V70 Z" fill="rgba(248,113,113,.42)"/>' +
+      tx(304, 56, '血浆（含 cfDNA）', SC.sl, 12) + tx(304, 88, '血细胞层', SC.dim, 11);
+
+    /* ③ 提取 cfDNA */
+    let beads = '';
+    [[116, 66], [140, 82], [124, 96], [148, 62], [132, 108]].forEach(p => {
+      beads += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4.4" fill="rgba(148,163,184,.75)"/>';
+    });
+    let frags = '';
+    [[236, 52], [268, 74], [244, 98], [284, 116], [258, 132]].forEach((p, i) => {
+      frags += '<path d="M' + p[0] + ' ' + p[1] + ' q6 -5 12 0 q6 5 12 0" fill="none" stroke="' + SC.cy +
+        '" stroke-width="2" stroke-linecap="round" opacity="' + (0.55 + i * 0.09).toFixed(2) + '"/>';
+    });
+    const s3 =
+      '<circle cx="132" cy="86" r="36" fill="rgba(245,158,11,.13)" stroke="rgba(245,158,11,.42)" stroke-width="1.4" stroke-dasharray="4 4"/>' +
+      beads + '<g class="an-flow">' + frags + '</g>' +
+      tx(96, 34, '血浆 + 磁珠', SC.dim, 11) + tx(320, 80, '纯化 cfDNA', SC.cy, 12, 700) +
+      tx(320, 100, '167bp / ctDNA 约 143bp', SC.dim, 10.5);
+
+    /* ④ 甲基化转化 */
+    const s4 =
+      '<rect x="86" y="38" width="104" height="34" rx="9" fill="rgba(148,163,184,.12)" stroke="rgba(148,163,184,.42)"/>' +
+      tx(100, 60, '未甲基化 C', SC.sl, 12.5) +
+      '<path d="M198 55 h36 m0 0 l-7 -4.5 m7 4.5 l-7 4.5" stroke="' + SC.cy + '" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+      '<rect x="244" y="38" width="112" height="34" rx="9" fill="rgba(34,211,238,.14)" stroke="rgba(34,211,238,.45)"/>' +
+      tx(258, 60, 'U（测序读作 T）', SC.cy, 12.5) +
+      '<rect x="86" y="88" width="104" height="34" rx="9" fill="rgba(245,158,11,.14)" stroke="rgba(245,158,11,.45)"/>' +
+      tx(100, 110, 'mC · 带 CH₃', SC.am, 12.5) +
+      '<path d="M198 105 h36 m0 0 l-7 -4.5 m7 4.5 l-7 4.5" stroke="' + SC.am + '" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+      '<rect x="244" y="88" width="112" height="34" rx="9" fill="rgba(245,158,11,.14)" stroke="rgba(245,158,11,.45)"/>' +
+      tx(258, 110, '仍然读作 C', SC.am, 12.5);
+
+    /* ⑤ 高通量测序 */
+    let reads = '';
+    [[92, 58, 74], [186, 58, 96], [300, 58, 62], [78, 74, 108], [206, 74, 82],
+     [304, 74, 70], [96, 90, 90], [200, 90, 104], [316, 90, 54], [84, 106, 120], [216, 106, 88]]
+      .forEach((r, i) => {
+        reads += '<rect x="' + r[0] + '" y="' + r[1] + '" width="' + r[2] + '" height="8" rx="4" fill="rgba(34,211,238,' +
+          (0.32 + (i % 4) * 0.16).toFixed(2) + ')"/>';
+      });
+    const s5 =
+      '<line x1="70" y1="44" x2="392" y2="44" stroke="rgba(148,163,184,.4)" stroke-width="1.6"/>' +
+      tx(70, 36, '参考基因组', SC.dim, 10.5) + '<g class="an-flow">' + reads + '</g>';
+
+    /* ⑥ AI 建模 */
+    const layers = [[4, 130], [5, 230], [3, 330]];
+    let net = '', pts = [];
+    layers.forEach(l => {
+      const arr = [];
+      for (let i = 0; i < l[0]; i++) arr.push([l[1], 88 - (l[0] - 1) * 15 + i * 30]);
+      pts.push(arr);
+    });
+    for (let i = 0; i < pts.length - 1; i++) {
+      pts[i].forEach(a => pts[i + 1].forEach(b => {
+        net += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] +
+          '" stroke="rgba(34,211,238,.18)" stroke-width="1"/>';
+      }));
+    }
+    pts.forEach((arr, li) => arr.forEach((p, i) => {
+      net += '<circle class="' + ((i + li) % 2 ? 'an-blink' : '') + '" cx="' + p[0] + '" cy="' + p[1] +
+        '" r="5.4" fill="' + (li === 2 ? SC.gr : SC.cy) + '" opacity=".9"/>';
+    }));
+    const s6 = net + tx(96, 34, '甲基化特征输入', SC.dim, 10.5) +
+      tx(352, 76, '癌症信号概率', SC.gr, 11.5, 700) + tx(352, 96, '组织来源提示', SC.dim, 10.5);
+
+    /* ⑦ 生成报告 */
+    let lines = '';
+    [46, 62, 78, 94, 110, 126].forEach((y, i) => {
+      lines += '<rect x="152" y="' + y + '" width="' + (i % 2 ? 60 : 78) + '" height="5" rx="2.5" fill="rgba(148,163,184,.45)"/>';
+    });
+    const s7 =
+      '<rect x="140" y="28" width="104" height="120" rx="9" fill="rgba(148,163,184,.08)" stroke="' + SC.cy + '" stroke-width="1.6"/>' +
+      '<rect x="152" y="36" width="46" height="6" rx="3" fill="' + SC.cy + '"/>' + lines +
+      '<path d="M282 116 a44 44 0 0 1 88 0" fill="none" stroke="rgba(148,163,184,.3)" stroke-width="8" stroke-linecap="round"/>' +
+      '<path d="M282 116 a44 44 0 0 1 64 -39" fill="none" stroke="' + SC.gr + '" stroke-width="8" stroke-linecap="round"/>' +
+      '<circle class="an-pulse" cx="346" cy="77" r="4.4" fill="' + SC.cy + '"/>' +
+      tx(286, 140, '甲基化评分 · 风险分级', SC.dim, 10.5);
+
+    return [s1, s2, s3, s4, s5, s6, s7];
+  }
+
+  const stage = $('#sampleStage');
+  if (stage) {
+    stage.innerHTML = '<svg viewBox="0 0 460 176" preserveAspectRatio="xMidYMid meet">' +
+      sceneCollect().map((s, i) => '<g class="scene" data-s="' + i + '">' + s + '</g>').join('') + '</svg>' +
+      '<div class="stage-cap" id="stageCap"></div><div class="stage-idx" id="stageIdx"></div>';
+  }
+  function setScene(i, cap) {
+    if (!stage) return;
+    $$('.scene', stage).forEach(g => g.classList.toggle('on', parseInt(g.dataset.s, 10) === i));
+    $('#stageIdx').textContent = 'STEP 0' + (i + 1) + ' / 07';
+    $('#stageCap').textContent = cap || (steps[i].title + ' · ' + steps[i].short);
+  }
+
+  /* --- 微缩流程列表 --- */
+  $('#miniList').innerHTML = steps.map((s, i) =>
+    '<div class="mini" data-i="' + i + '"><span class="mi">' + icon(s.icon, 18) + '</span>' +
+    '<div><div class="mtxt">' + (i + 1) + '. ' + s.title + '</div><div class="msub">' + s.short + '</div>' +
+    '<span class="mini-bar"><i class="mini-fill"></i></span></div>' +
+    '<div class="mstat">待运行</div></div>').join('');
+  const rows = $$('#miniList .mini');
+
+  /* --- 表单 --- */
+  const F = { name: $('#fName'), age: $('#fAge'), sex: $('#fSex'), smoke: $('#fSmoke'), fam: $('#fFam') };
+  function readForm() {
+    return {
+      name: (F.name.value || '演示用户').slice(0, 16),
+      age: clamp(parseInt(F.age.value || '45', 10) || 45, 18, 99),
+      sex: F.sex.value, smoke: F.smoke.value, family: F.fam.value
+    };
+  }
+  function refreshHint() {
+    const f = readForm(), risks = [];
+    if (f.age >= 40) risks.push('年龄 ≥ 40 岁');
+    if (/吸烟 \d+ 包年/.test(f.smoke)) risks.push('吸烟史');
+    if (f.family !== '无癌症家族史') risks.push('癌症家族史');
+    $('#riskHint').innerHTML = risks.length
+      ? '<b style="color:var(--amber)">演示模型判定：符合建议筛查人群特征</b>（' + risks.join('、') + '）。是否检测仍应由医生结合个体情况共同决策。'
+      : '演示模型判定：暂不符合本模型设定的高危特征（建议 40 岁以上或合并吸烟、饮酒、慢性感染、家族史等因素）。';
+  }
+  Object.values(F).forEach(el => el.addEventListener('change', refreshHint));
+  F.age.addEventListener('input', refreshHint);
+  /* 用户改过姓名后，加载演示样本不再覆盖它 */
+  F.name.addEventListener('input', () => { nameDirty = true; });
+  refreshHint();
+
+  /* --- 样本选择 --- */
+  function pick(kind) {
+    state.sample = kind;
+    const s = L.samples[kind];
+    if (!nameDirty) F.name.value = s.subject.name;
+    F.age.value = s.subject.age; F.sex.value = s.subject.sex;
+    F.smoke.value = s.subject.smoke; F.fam.value = s.subject.family;
+    $('#btnNeg').classList.toggle('on', kind === 'negative');
+    $('#btnPos').classList.toggle('on', kind === 'positive');
+    const tag = $('#curSample');
+    tag.textContent = s.name;
+    tag.style.color = kind === 'positive' ? 'var(--amber)' : 'var(--green)';
+    refreshHint();
+    resetRows();
+    setScene(0, '待机 · 已装载' + s.name);
+    $('#assayText').textContent = '已加载' + s.name + ' · 请点击「开始检测」';
+  }
+  $('#btnNeg').addEventListener('click', () => pick('negative'));
+  $('#btnPos').addEventListener('click', () => pick('positive'));
+
+  function resetRows() {
+    rows.forEach(r => {
+      r.classList.remove('running', 'done');
+      $('.mini-fill', r).style.width = '0%';
+      $('.mstat', r).textContent = '待运行';
+    });
+    $('#overallFill').style.width = '0%';
+  }
+  function fill(el, ms) {
+    return new Promise(res => {
+      const t0 = performance.now();
+      (function f(now) {
+        const p = clamp((now - t0) / ms, 0, 1);
+        el.style.width = (p * 100).toFixed(1) + '%';
+        if (p < 1) requestAnimationFrame(f); else res();
+      })(t0);
+    });
+  }
+
+  /* --- 运行模拟检测 --- */
+  async function run() {
+    if (state.running) return;
+    state.running = true;
+    $('#btnRun').disabled = true; $('#btnReopen').disabled = true;
+    $('#assayState').classList.add('busy');
+    resetRows();
+    for (let i = 0; i < steps.length; i++) {
+      const r = rows[i];
+      r.classList.add('running');
+      $('.mstat', r).textContent = '进行中';
+      $('#assayText').textContent = steps[i].status;
+      setScene(i);
+      await fill($('.mini-fill', r), REDUCED ? 160 : steps[i].ms);
+      r.classList.remove('running'); r.classList.add('done');
+      $('.mstat', r).textContent = '完成 ✓';
+      $('#overallFill').style.width = ((i + 1) / steps.length * 100).toFixed(1) + '%';
+    }
+    $('#assayText').textContent = '分析完成 · 正在生成模拟报告…';
+    await sleep(REDUCED ? 60 : 520);
+    setScene(6, '完成 · 已生成模拟检测报告（演示数据）');
+    $('#assayState').classList.remove('busy');
+    $('#assayText').textContent = '已生成模拟报告（演示数据）';
+    openReport(buildReport());
+    state.running = false;
+    $('#btnRun').disabled = false; $('#btnReopen').disabled = false;
+  }
+  $('#btnRun').addEventListener('click', run);
+  $('#btnReopen').addEventListener('click', () => { if (state.last) openReport(state.last); });
+
+  /* --- 生成报告数据 --- */
+  function buildReport() {
+    const s = L.samples[state.sample], f = readForm();
+    const d = new Date();
+    const pad = n => (n < 10 ? '0' + n : '' + n);
+    const ymd = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const sn = DEMO_DATA.meta.samplePrefix + '-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+      s.code + String(Math.floor(Math.random() * 9000) + 1000);
+    state.last = { sample: s, subject: f, date: ymd, sn: sn };
+    return state.last;
+  }
+
+  /* --- 报告 HTML --- */
+  const LV = { low: '低', mid: '中', high: '高' };
+  const LVTXT = {
+    low: '未检出异常甲基化信号', mid: '检出弱异常信号，建议关注与随访',
+    high: '检出较强异常信号，建议优先排查'
+  };
+  function organTable(sample, sex) {
+    return L.organs.filter(o => o.sex === 'all' || o.sex === sex).map(o => {
+      const r = sample.risks[o.key] || { level: 'low', score: .1 };
+      return '<tr><td><b>' + o.name + '</b></td>' +
+        '<td><span class="lvbox ' + r.level + '"><i></i><i></i><i></i></span> <span class="lvtxt ' + r.level + '">' + LV[r.level] + '</span></td>' +
+        '<td>' + Math.round(r.score * 100) + ' / 100</td>' +
+        '<td>' + LVTXT[r.level] + '</td></tr>';
+    }).join('');
+  }
+  function reportHTML(R) {
+    const s = R.sample, sub = R.subject, pos = s.positive;
+    const sexTxt = sub.sex === 'male' ? '男' : '女';
+    return '' +
+    '<div class="wm"><span>DEMO 演示数据</span></div>' +
+    '<div class="rp">' +
+      '<div class="rp-head">' +
+        '<div class="rp-brand">' +
+          '<svg width="36" height="36" viewBox="0 0 34 34" aria-hidden="true">' +
+            '<rect x="1" y="1" width="32" height="32" rx="9" fill="none" stroke="#0891B2"/>' +
+            '<path d="M12 6c0 6 10 6 10 11s-10 5-10 11" fill="none" stroke="#0891B2" stroke-width="2" stroke-linecap="round"/>' +
+            '<path d="M22 6c0 6-10 6-10 11s10 5 10 11" fill="none" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>' +
+            '<circle cx="17" cy="11" r="1.7" fill="#F59E0B"/><circle cx="17" cy="23" r="1.7" fill="#F59E0B"/></svg>' +
+          '<span><b>' + DEMO_DATA.meta.labName + '</b><span>cfDNA METHYLATION MULTI-CANCER SCREENING</span></span>' +
+        '</div>' +
+        '<div class="rp-title">' + DEMO_DATA.meta.reportName +
+          '<small>Simulated Report · For Demonstration Only</small>' +
+          '<span class="rp-demo">演示数据 DEMO</span></div>' +
+      '</div>' +
+
+      '<div class="rp-sect"><div class="rp-h">受检者信息 <span>SUBJECT INFORMATION</span></div>' +
+        '<div class="rp-info">' +
+          kv('姓名', sub.name) + kv('年龄 / 性别', sub.age + ' 岁 / ' + sexTxt) +
+          kv('吸烟史', sub.smoke) + kv('癌症家族史', sub.family) +
+          kv('样本编号', R.sn) + kv('样本类型', '外周血 10mL（EDTA）') +
+          kv('报告日期', R.date) + kv('检测方法', 'cfDNA 全基因组甲基化 + AI 建模') +
+        '</div>' +
+        '<div class="rp-kv">' +
+          '<b>采血量 ' + s.qc.volume + '</b><b>血浆 ' + s.qc.plasma + '</b><b>cfDNA ' + s.qc.cfdna + '</b>' +
+          '<b>转化率 ' + s.qc.conversion + '</b><b>平均深度 ' + s.qc.depth + '</b><b>质控 合格（演示）</b>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="rp-sect"><div class="rp-h">总体甲基化评分 <span>METHYLATION SCORE · 阈值 ' + L.threshold + '</span></div>' +
+        '<div class="rp-score">' +
+          '<div id="reportGauge" data-renderer="svg"></div>' +
+          '<div>' +
+            '<div class="rp-verdict ' + (pos ? 'pos' : 'neg') + '">' +
+              '<div class="vt">' + (pos
+                ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5M12 16.5h.01"/><circle cx="12" cy="12" r="9"/></svg>'
+                : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>') +
+                s.verdict + '</div>' +
+              '<div class="vs">甲基化评分 <b>' + s.score.toFixed(2) + '</b>（判定阈值 ' + L.threshold + '，量程 0–' + L.gaugeMax + '）：' +
+                (pos ? '评分高于阈值，提示血浆 cfDNA 中存在异常甲基化模式。' : '评分低于阈值，本次未检出异常甲基化模式。') +
+                '<br /><b>本结果为演示数据，且筛查结果不能替代临床诊断。</b></div>' +
+            '</div>' +
+            (s.origin && s.origin.length ? '<div class="rp-origin"><div class="rp-h" style="margin-top:14px">组织来源提示（演示）<span>TISSUE OF ORIGIN</span></div>' +
+              s.origin.map(o => '<div class="orow"><span>' + o.name + '</span><span class="obar"><i style="width:' +
+                (o.p * 100).toFixed(0) + '%"></i></span><b>' + (o.p * 100).toFixed(0) + '%</b></div>').join('') +
+              '<p style="font-size:10.5px;color:#94A3B8;margin-top:7px">组织来源提示仅用于指导后续检查方向，不代表确诊部位。</p></div>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="rp-sect"><div class="rp-h">各部位风险提示 <span>ORGAN-LEVEL RISK · 低 / 中 / 高</span></div>' +
+        '<table class="rp-table"><thead><tr><th>部位</th><th>风险分级</th><th>相对信号强度</th><th>提示</th></tr></thead>' +
+        '<tbody>' + organTable(s, sub.sex) + '</tbody></table>' +
+        '<p style="font-size:10.5px;color:#94A3B8;margin-top:8px">注：相对信号强度为本演示模型输出的归一化数值，不代表肿瘤大小或分期；部位列表按性别筛选展示。</p>' +
+      '</div>' +
+
+      '<div class="rp-sect"><div class="rp-h">结果解读与建议 <span>INTERPRETATION &amp; RECOMMENDATION</span></div>' +
+        '<div class="rp-adv">' + s.advice + '</div>' +
+      '</div>' +
+
+      '<div class="rp-foot">' +
+        '<p>① 本检测为筛查手段而非临床诊断。</p>' +
+        '<p>② 本报告为演示数据，不构成任何医疗建议。</p>' +
+        '<p class="sm">③ 筛查结果需结合临床表现、影像学与病理检查综合判断；阴性结果不能完全排除癌症，阳性结果不等于确诊。</p>' +
+        '<p class="sm">④ 报告中的评分、风险分级、组织来源提示与质控参数均由演示模型模拟生成，未经任何真实样本检测。</p>' +
+      '</div>' +
+      '<div class="rp-code">' + barcode(R.sn) +
+        '<div class="rp-page">第 1 页 / 共 1 页<br />报告编号 ' + R.sn + '-01<br />DEMO · 非临床报告</div>' +
+      '</div>' +
+      '<div class="rp-sign"><span>报告医师（演示）：＿＿＿＿＿＿</span><span>审核（演示）：＿＿＿＿＿＿</span><span>' +
+        DEMO_DATA.meta.labName + ' · ' + R.date + '</span></div>' +
+    '</div>';
+  }
+  function kv(k, v) { return '<div><label>' + k + '</label><b>' + v + '</b></div>'; }
+  /* 演示条码：由样本编号确定性生成（纯 DOM，无外部图片） */
+  function barcode(sn) {
+    let bars = '';
+    for (let i = 0; i < sn.length; i++) {
+      const c = sn.charCodeAt(i);
+      bars += '<i style="width:' + (1 + (c % 3)) + 'px"></i><i style="width:' + (1 + (c % 2)) + 'px;background:transparent"></i>';
+    }
+    return '<div><div class="barcode">' + bars + '</div><div class="barcode-txt">' + sn + '</div></div>';
+  }
+
+  /* --- 报告仪表盘（SVG 渲染，打印更清晰） --- */
+  function gaugeOption(score, pos) {
+    const max = L.gaugeMax, th = L.threshold;
+    return {
+      animationDuration: 1400,
+      series: [
+        {
+          type: 'gauge', min: 0, max: max, startAngle: 208, endAngle: -28, radius: '96%', center: ['50%', '64%'],
+          splitNumber: 4,
+          axisLine: { lineStyle: { width: 15, color: [[th / max, '#10B981'], [1, '#EF4444']] } },
+          pointer: { width: 5, length: '58%', itemStyle: { color: '#0F172A' } },
+          anchor: { show: true, size: 12, showAbove: true, itemStyle: { color: '#0F172A' } },
+          axisTick: { distance: -15, length: 4, lineStyle: { color: '#fff', width: 1.2 } },
+          splitLine: { distance: -15, length: 15, lineStyle: { color: '#fff', width: 2.2 } },
+          axisLabel: { distance: -4, color: '#64748B', fontSize: 10, formatter: v => (+v).toFixed(1) },
+          title: { offsetCenter: [0, '30%'], color: '#64748B', fontSize: 11 },
+          detail: {
+            valueAnimation: true, offsetCenter: [0, '-2%'], fontSize: 32, fontWeight: 900,
+            color: pos ? '#B91C1C' : '#047857', formatter: v => (+v).toFixed(2)
+          },
+          data: [{ value: score, name: '甲基化评分 · 阈值 ' + th }]
+        },
+        {
+          type: 'gauge', min: 0, max: max, startAngle: 208, endAngle: -28, radius: '96%', center: ['50%', '64%'],
+          axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
+          detail: { show: false }, title: { show: false }, anchor: { show: false }, silent: true,
+          pointer: { icon: 'rect', width: 3, length: '13%', offsetCenter: [0, '-86%'], itemStyle: { color: '#B45309' } },
+          data: [{ value: th }]
+        }
+      ]
+    };
+  }
+
+  /* --- 打开 / 关闭报告（含焦点管理与 Tab 焦点陷阱） --- */
+  const modal = $('#reportModal');
+  function openReport(R) {
+    lastFocus = document.activeElement;
+    $('#reportSheet').innerHTML = reportHTML(R);
+    modal.hidden = false;
+    document.body.classList.add('report-open');
+    document.body.style.overflow = 'hidden';
+    const host = $('#reportGauge');
+    if (window.echarts && host) {
+      if (gauge) { gauge.dispose(); gauge = null; }
+      gauge = echarts.init(host, null, { renderer: 'svg' });
+      gauge.setOption(gaugeOption(R.sample.score, R.sample.positive));
+      setTimeout(() => gauge && gauge.resize(), 60);
+    } else if (host) {
+      host.innerHTML = '<div style="text-align:center;padding:24px 0"><div style="font-size:40px;font-weight:900;color:' +
+        (R.sample.positive ? '#B91C1C' : '#047857') + '">' + R.sample.score.toFixed(2) +
+        '</div><div style="font-size:11px;color:#64748B">甲基化评分 · 阈值 ' + L.threshold + '（量程 0–' + L.gaugeMax + '）</div></div>';
+    }
+    setTimeout(() => { const b = $('#btnClose'); if (b) b.focus(); }, 90);
+  }
+  function closeReport() {
+    modal.hidden = true;
+    document.body.classList.remove('report-open');
+    document.body.style.overflow = '';
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+  }
+  $('#btnClose').addEventListener('click', closeReport);
+  $('#btnPrint').addEventListener('click', () => window.print());
+  modal.addEventListener('click', e => { if (e.target === modal) closeReport(); });
+  document.addEventListener('keydown', e => {
+    if (modal.hidden) return;
+    if (e.key === 'Escape') { closeReport(); return; }
+    if (e.key !== 'Tab') return;
+    const f = $$('button, [href], input, select, [tabindex]:not([tabindex="-1"])', modal)
+      .filter(el => !el.disabled && el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  window.addEventListener('resize', () => { if (gauge && !modal.hidden) gauge.resize(); });
+
+  pick('negative');
+})();
+
+/* ============================================================================
+ * ⑪  第 8 / 9 / 10 区块：指南共识、FAQ、页脚
+ * ========================================================================== */
+(function tail() {
+  /* 指南卡片 */
+  $('#glGrid').innerHTML = DEMO_DATA.guideline.map(g =>
+    '<div class="gl-card glass glass-hover reveal"><span class="gl-no">' + g.no + '</span>' +
+    '<h3>' + g.title + '</h3><p>' + g.text + '</p>' +
+    '<ul>' + g.list.map(i => '<li>' + i + '</li>').join('') + '</ul>' +
+    '<div class="gl-tags">' + g.tags.map(t => '<span class="tag ' + t.c + '">' + t.t + '</span>').join('') + '</div></div>').join('');
+
+  /* FAQ 手风琴（同时仅展开一条） */
+  const box = $('#faqList');
+  box.innerHTML = DEMO_DATA.faq.map((f, i) =>
+    '<div class="qa reveal"><button class="qa-q" aria-expanded="false"><span class="qn">' + (i + 1) + '</span>' +
+    '<span>' + f.q + '</span>' +
+    '<svg class="ico cv" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>' +
+    '<div class="qa-a"><div>' + f.a + '</div></div></div>').join('');
+  $$('.qa', box).forEach(qa => {
+    const btn = $('.qa-q', qa), body = $('.qa-a', qa);
+    btn.addEventListener('click', () => {
+      const open = qa.classList.contains('open');
+      $$('.qa', box).forEach(o => {
+        o.classList.remove('open');
+        $('.qa-a', o).style.maxHeight = '0px';
+        $('.qa-q', o).setAttribute('aria-expanded', 'false');
+      });
+      if (!open) {
+        qa.classList.add('open');
+        body.style.maxHeight = body.scrollHeight + 'px';
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  window.addEventListener('resize', () => {
+    const o = $('.qa.open', box); if (o) $('.qa-a', o).style.maxHeight = $('.qa-a', o).scrollHeight + 'px';
+  });
+
+  /* 页脚 */
+  $('#discList').innerHTML = DEMO_DATA.footer.disclaimers.map(d => '<li>' + d + '</li>').join('');
+  $('#metaList').innerHTML = DEMO_DATA.footer.meta.map(m =>
+    '<div class="row"><dt>' + m.k + '</dt><dd>' + m.v + '</dd></div>').join('');
+  $('#year').textContent = new Date().getFullYear();
+})();
+
+/* ============================================================================
+ * ⑫  统一绑定滚动渐入（所有动态内容渲染完成后执行）
+ * ========================================================================== */
+bindReveals(document);
+if (HAS_GSAP) { setTimeout(() => ScrollTrigger.refresh(), 300); }
+console.info('%c cfDNA 甲基化癌症早筛 · 医学模型演示 Demo ', 'background:#22D3EE;color:#04121C;font-weight:700;padding:3px 6px;border-radius:4px',
+  '\n所有数据均为演示用途，不构成医疗建议。修改 DEMO_DATA 即可替换全部演示数据。');
+</script>
+</body>
+</html>

@@ -1,0 +1,4259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>3D 脑功能网络仿真与成瘾病变脑区展示 · 酒精使用障碍（AUD）</title>
+<meta name="description" content="酒精使用障碍核心病变脑区、刺激靶区与脑功能连接网络的三维科学示意仿真。零第三方引擎依赖的自研 WebGL 渲染。" />
+<style>
+/* =============================================================================
+ * styles.css — 医疗仿真建模风格（浅灰底 / 圆角 / 轻阴影 / 等宽字体 / 无表情符号）
+ * ========================================================================== */
+:root {
+  --bg: #eceef1;
+  --panel: rgba(255, 255, 255, 0.88);
+  --panel-solid: #ffffff;
+  --line: #d6dae0;
+  --line-soft: #e4e8ec;
+  --ink: #1d2b34;
+  --ink-2: #4d5f6b;
+  --ink-3: #6c7d88;
+  --accent: #1e3a6e;
+  --craving: #8e2231;
+  --control: #1e3a6e;
+  --assoc: #6b7b84;
+  --shadow: 0 2px 12px rgba(22, 34, 44, 0.08), 0 0 0 0.5px rgba(22, 34, 44, 0.04);
+  --radius: 12px;
+  --radius-sm: 7px;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+          "Noto Sans Mono CJK SC", "Source Han Mono SC", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+#stage { position: fixed; inset: 0; }
+#gl { position: absolute; inset: 0; display: block; cursor: crosshair; touch-action: none; }
+
+/* ------------------------------------------------------------------ 面板 */
+.panel {
+  position: fixed;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(12px) saturate(1.05);
+  backdrop-filter: blur(12px) saturate(1.05);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden auto;
+  scrollbar-width: thin;
+}
+.panel::-webkit-scrollbar { width: 9px; }
+.panel::-webkit-scrollbar-thumb { background: #c8ced5; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+.panel::-webkit-scrollbar-track { background: transparent; }
+
+#hud { left: 16px; top: 16px; width: 344px; max-height: calc(100vh - 32px); }
+#controls { right: 16px; top: 16px; width: 362px; max-height: calc(100vh - 32px); }
+
+.panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--line-soft);
+  position: sticky; top: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(255,255,255,0.86));
+  z-index: 2;
+}
+.panel-title { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); }
+.panel-sub { font-size: 10px; color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase; }
+.panel-body { padding: 10px 14px 14px; }
+
+.section { margin: 0 0 12px; }
+.section:last-child { margin-bottom: 0; }
+.section-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--ink-3); margin: 12px 0 7px;
+}
+.section-label::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+.section-label:first-child { margin-top: 2px; }
+
+/* --------------------------------------------------------------- 数据行 */
+.row { display: flex; gap: 10px; align-items: flex-start; padding: 3px 0; }
+.row + .row { border-top: 1px dotted var(--line-soft); }
+.row-k { flex: 0 0 84px; color: var(--ink-3); font-size: 11px; }
+.row-v { flex: 1; color: var(--ink); font-size: 12px; word-break: break-word; }
+.row-v.mono-num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.muted { color: var(--ink-3); }
+.small { font-size: 10.5px; }
+
+.big-name { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; margin: 2px 0 1px; }
+.big-en { font-size: 10.5px; color: var(--ink-3); margin-bottom: 6px; letter-spacing: 0.02em; }
+.swatch-line { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.swatch { width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.18); flex: none; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 1px 8px 2px; font-size: 10.5px; color: var(--ink-2);
+  background: rgba(255,255,255,0.7);
+}
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chip.tag-local { border-color: #bcd0c6; background: #f2f8f4; color: #2c5c43; }
+.chip.tag-lit { border-color: #c6cee0; background: #f3f6fc; color: #2f4470; }
+.chip.tag-web { border-color: #ddd0bc; background: #fdf8f1; color: #6d4f24; }
+.chip.tag-consensus { border-color: #d3d3d3; background: #f6f6f6; color: #575757; }
+
+.badge {
+  display: inline-block; padding: 1px 7px 2px; border-radius: 5px;
+  font-size: 10.5px; letter-spacing: 0.03em; border: 1px solid transparent;
+}
+.badge-craving { background: rgba(142,34,49,0.10); color: #7d1d2b; border-color: rgba(142,34,49,0.28); }
+.badge-control { background: rgba(30,58,110,0.10); color: #1b3462; border-color: rgba(30,58,110,0.26); }
+.badge-associated { background: rgba(107,123,132,0.12); color: #4d5c65; border-color: rgba(107,123,132,0.28); }
+.badge-target { background: rgba(14,124,134,0.10); color: #0b5f68; border-color: rgba(14,124,134,0.30); }
+.badge-off { background: #f1f3f5; color: var(--ink-3); border-color: var(--line); }
+
+.hint { color: var(--ink-3); font-size: 11px; line-height: 1.55; }
+
+/* ------------------------------------------------------------- 控件：勾选 */
+.check {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: var(--radius-sm);
+  cursor: pointer; user-select: none;
+}
+.check:hover { background: rgba(30,58,110,0.05); }
+.check input { position: absolute; opacity: 0; pointer-events: none; }
+.check .box {
+  width: 13px; height: 13px; flex: none; border-radius: 3px;
+  border: 1px solid #b9c1c9; background: #fff; position: relative;
+}
+.check input:checked + .box { background: var(--accent); border-color: var(--accent); }
+.check input:checked + .box::after {
+  content: ""; position: absolute; left: 3.5px; top: 1px;
+  width: 4px; height: 7.5px; border: solid #fff; border-width: 0 1.6px 1.6px 0;
+  transform: rotate(42deg);
+}
+.check input:focus-visible + .box { outline: 2px solid rgba(30,58,110,0.35); outline-offset: 1px; }
+.check .lbl { font-size: 11.5px; color: var(--ink); }
+.check .lbl-en { font-size: 9.5px; color: var(--ink-3); margin-left: auto; letter-spacing: 0.03em; }
+.check.dim .lbl { color: var(--ink-3); }
+.checks-grid { display: grid; grid-template-columns: 1fr; gap: 1px; }
+
+.region-check { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: var(--radius-sm); cursor: pointer; }
+.region-check:hover { background: rgba(30,58,110,0.06); }
+.region-check.is-current { background: rgba(30,58,110,0.10); box-shadow: inset 0 0 0 1px rgba(30,58,110,0.18); }
+.region-check .abbr { font-size: 10.5px; color: var(--ink-2); min-width: 62px; }
+.region-check .zh { font-size: 11px; color: var(--ink); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.region-check .tgt { font-size: 9.5px; color: #0b5f68; letter-spacing: 0.04em; }
+
+/* ------------------------------------------------------------- 控件：滑块 */
+.slider { padding: 5px 6px 7px; }
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-name { font-size: 11px; color: var(--ink-2); }
+.slider-val { font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 16px; background: transparent; margin: 2px 0 0; cursor: ew-resize;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px; background: linear-gradient(90deg, #b9c6d6, #dfe4ea);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 11px; height: 11px; margin-top: -4px; border-radius: 3px;
+  background: #fff; border: 1.5px solid var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.14);
+}
+input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: #cdd5de; }
+input[type=range]::-moz-range-thumb {
+  width: 10px; height: 10px; border-radius: 3px; background: #fff;
+  border: 1.5px solid var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.14);
+}
+
+.zoom-row { display: flex; align-items: center; gap: 8px; padding: 2px 6px 4px; }
+.zoom-row input[type=number] {
+  width: 74px; font-family: var(--mono); font-size: 11.5px; color: var(--ink);
+  padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: #fff; text-align: right;
+}
+.zoom-row input[type=number]:focus { outline: none; border-color: var(--accent); }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 6px 0; }
+button.btn {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em;
+  color: var(--ink); background: #fff; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 4px 9px; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+button.btn:hover { background: #f4f7fa; border-color: #bcc6d2; }
+button.btn:active { background: #eaeff5; }
+button.btn.primary { border-color: rgba(30,58,110,0.45); color: var(--accent); }
+
+/* ----------------------------------------------------------------- 页脚 */
+#footer {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; max-width: min(760px, calc(100vw - 780px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: var(--shadow); font-size: 10.5px; color: var(--ink-3);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+#footer .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ----------------------------------------------------------------- 标签 */
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.lab {
+  position: absolute; transform: translate(-50%, -50%);
+  padding: 1px 6px 2px; border-radius: 5px; font-size: 10px; letter-spacing: 0.02em;
+  background: rgba(255,255,255,0.90); border: 1px solid var(--line);
+  color: var(--ink); white-space: nowrap; box-shadow: 0 1px 4px rgba(20,30,40,0.10);
+}
+.lab .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
+.lab.cur { border-color: rgba(30,58,110,0.55); box-shadow: 0 2px 8px rgba(20,40,70,0.16); }
+
+/* ----------------------------------------------------------------- 弹层 */
+#modal {
+  position: fixed; inset: 0; display: none; z-index: 40;
+  background: rgba(228, 232, 236, 0.72);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  align-items: center; justify-content: center; padding: 28px;
+}
+#modal.open { display: flex; }
+.modal-card {
+  width: min(760px, 100%); max-height: min(80vh, 720px); overflow: auto;
+  background: var(--panel-solid); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: 0 12px 40px rgba(20,34,48,0.18);
+}
+.modal-card .panel-body p { margin: 0 0 10px; font-size: 11.5px; line-height: 1.72; color: var(--ink-2); }
+.modal-card .panel-body p strong { color: var(--ink); font-weight: 600; }
+
+/* --------------------------------------------------------------- 错误条 */
+#errbox {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%);
+  display: none; max-width: 70vw; z-index: 60;
+  background: #fdf1f1; border: 1px solid #e2b4b4; color: #7c2020;
+  border-radius: var(--radius-sm); padding: 7px 12px; font-size: 11px;
+  box-shadow: var(--shadow); white-space: pre-wrap;
+}
+#errbox.on { display: block; }
+
+/* --------------------------------------------------------------- 加载中 */
+#boot {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); z-index: 50; transition: opacity 0.35s;
+}
+#boot.done { opacity: 0; pointer-events: none; }
+#boot .card {
+  border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
+  box-shadow: var(--shadow); padding: 16px 22px; text-align: center; min-width: 300px;
+}
+#boot .t { font-size: 12px; letter-spacing: 0.02em; }
+#boot .s { font-size: 10.5px; color: var(--ink-3); margin-top: 5px; }
+#boot .bar { height: 2px; background: var(--line-soft); border-radius: 2px; margin-top: 11px; overflow: hidden; }
+#boot .bar i { display: block; height: 100%; width: 34%; background: var(--accent); animation: slide 1.05s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+
+/* 窄屏兜底：面板收窄，避免遮挡视野 */
+@media (max-width: 1180px) {
+  #hud { width: 300px; }
+  #controls { width: 316px; }
+  #footer { max-width: calc(100vw - 660px); }
+}
+@media (max-width: 900px) {
+  #hud, #controls { width: calc(50vw - 24px); }
+  #footer { display: none; }
+}
+
+/* 实心主按钮：与普通开关形成明确层级差 */
+button.btn.solid { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.btn.solid:hover { background: #24457f; border-color: #24457f; }
+
+/* 自检诊断条（与红色错误条区分：中性蓝） */
+#errbox.diag { background: #f1f6fb; border-color: #b9cbe0; color: #21456f; }
+
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="gl"></canvas>
+</div>
+
+<div id="labels"></div>
+
+<section class="panel" id="hud" aria-label="数据面板"></section>
+<section class="panel" id="controls" aria-label="控制台"></section>
+
+<div id="footer">
+  <span class="txt">科学示意型仿真 · 非个体影像重建 · 不用于诊断或治疗决策</span>
+  <button class="btn primary" id="footer-btn" type="button">诚实声明</button>
+</div>
+
+<div id="modal" role="dialog" aria-modal="true" aria-label="数据来源与诚实声明"></div>
+<div id="errbox" role="alert"></div>
+
+<div id="boot">
+  <div class="card">
+    <div class="t">3D 脑功能网络仿真与成瘾病变脑区展示</div>
+    <div class="s" id="boot-msg">正在初始化渲染上下文…</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<script>
+/* ==== js/00-math.js ==== */
+/* =============================================================================
+ * 00-math.js — 自研线性代数 / 噪声内核（零第三方依赖）
+ * 3D 脑功能网络仿真与成瘾病变脑区展示
+ * 坐标系：近似 MNI152 解剖坐标（单位 mm；+x 右、+y 前、+z 上）
+ * ========================================================================== */
+window.AUD = window.AUD || {};
+(function (NS) {
+  'use strict';
+
+  /* ---------------------------------------------------------------- scalars */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function mix(a, b, t) { return a + (b - a) * t; }
+  function smoothstep(e0, e1, x) {
+    var t = clamp((x - e0) / (e1 - e0 || 1e-9), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+  var DEG = Math.PI / 180;
+
+  /* ------------------------------------------------------------------- vec3 */
+  var V = {
+    add: function (a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; },
+    sub: function (a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; },
+    scale: function (a, s) { return [a[0] * s, a[1] * s, a[2] * s]; },
+    mulv: function (a, b) { return [a[0] * b[0], a[1] * b[1], a[2] * b[2]]; },
+    dot: function (a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; },
+    cross: function (a, b) {
+      return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    },
+    len: function (a) { return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); },
+    dist: function (a, b) {
+      var dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    },
+    norm: function (a) {
+      var l = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) || 1;
+      return [a[0] / l, a[1] / l, a[2] / l];
+    },
+    lerp: function (a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; },
+    copy: function (a) { return [a[0], a[1], a[2]]; }
+  };
+
+  /* ------------------------------------------------------------------- mat4
+   * 列主序（与 WebGL uniformMatrix4fv 直接兼容）
+   */
+  function m4identity(out) {
+    out = out || new Float32Array(16);
+    out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
+    out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
+    out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
+    out[12] = 0; out[13] = 0; out[14] = 0; out[15] = 1;
+    return out;
+  }
+
+  function m4multiply(a, b, out) {
+    out = out || new Float32Array(16);
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+      a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+      a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+      a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    for (var i = 0; i < 4; i++) {
+      var b0 = b[i * 4], b1 = b[i * 4 + 1], b2 = b[i * 4 + 2], b3 = b[i * 4 + 3];
+      out[i * 4] = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+      out[i * 4 + 1] = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+      out[i * 4 + 2] = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+      out[i * 4 + 3] = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+    }
+    return out;
+  }
+
+  function m4perspective(fovyDeg, aspect, near, far, out) {
+    out = out || new Float32Array(16);
+    var f = 1 / Math.tan(fovyDeg * DEG / 2), nf = 1 / (near - far);
+    out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+    out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+    out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
+    out[12] = 0; out[13] = 0; out[14] = 2 * far * near * nf; out[15] = 0;
+    return out;
+  }
+
+  function m4lookAt(eye, center, up, out) {
+    out = out || new Float32Array(16);
+    var z = V.norm(V.sub(eye, center));
+    var x = V.cross(up, z);
+    var lx = V.len(x);
+    if (lx < 1e-6) { x = V.cross([0, 0, 1], z); lx = V.len(x) || 1; }
+    x = V.scale(x, 1 / lx);
+    var y = V.cross(z, x);
+    out[0] = x[0]; out[1] = y[0]; out[2] = z[0]; out[3] = 0;
+    out[4] = x[1]; out[5] = y[1]; out[6] = z[1]; out[7] = 0;
+    out[8] = x[2]; out[9] = y[2]; out[10] = z[2]; out[11] = 0;
+    out[12] = -V.dot(x, eye); out[13] = -V.dot(y, eye); out[14] = -V.dot(z, eye); out[15] = 1;
+    return out;
+  }
+
+  function m4translation(t, out) {
+    out = m4identity(out);
+    out[12] = t[0]; out[13] = t[1]; out[14] = t[2];
+    return out;
+  }
+
+  function m4scaling(s, out) {
+    out = m4identity(out);
+    out[0] = s[0]; out[5] = s[1]; out[10] = s[2];
+    return out;
+  }
+
+  function m4rotationX(a, out) {
+    out = m4identity(out);
+    var c = Math.cos(a), s = Math.sin(a);
+    out[5] = c; out[6] = s; out[9] = -s; out[10] = c;
+    return out;
+  }
+
+  function m4rotationY(a, out) {
+    out = m4identity(out);
+    var c = Math.cos(a), s = Math.sin(a);
+    out[0] = c; out[2] = -s; out[8] = s; out[10] = c;
+    return out;
+  }
+
+  function m4rotationZ(a, out) {
+    out = m4identity(out);
+    var c = Math.cos(a), s = Math.sin(a);
+    out[0] = c; out[1] = s; out[4] = -s; out[5] = c;
+    return out;
+  }
+
+  function m4transformPoint(m, p) {
+    var x = p[0], y = p[1], z = p[2];
+    var w = m[3] * x + m[7] * y + m[11] * z + m[15] || 1;
+    return [
+      (m[0] * x + m[4] * y + m[8] * z + m[12]) / w,
+      (m[1] * x + m[5] * y + m[9] * z + m[13]) / w,
+      (m[2] * x + m[6] * y + m[10] * z + m[14]) / w
+    ];
+  }
+
+  function m4transformDir(m, p) {
+    var x = p[0], y = p[1], z = p[2];
+    return [
+      m[0] * x + m[4] * y + m[8] * z,
+      m[1] * x + m[5] * y + m[9] * z,
+      m[2] * x + m[6] * y + m[10] * z
+    ];
+  }
+
+  function m4invert(m, out) {
+    out = out || new Float32Array(16);
+    var a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3],
+      a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7],
+      a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11],
+      a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+    var b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10,
+      b02 = a00 * a13 - a03 * a10, b03 = a01 * a12 - a02 * a11,
+      b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12,
+      b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30,
+      b08 = a20 * a33 - a23 * a30, b09 = a21 * a32 - a22 * a31,
+      b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
+    var det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if (!det) { return m4identity(out); }
+    det = 1 / det;
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+    return out;
+  }
+
+  /* 法线矩阵（mat4 的左上 3x3 的逆转置，写入 mat3） */
+  function m3normalFromM4(m, out) {
+    out = out || new Float32Array(9);
+    var a00 = m[0], a01 = m[1], a02 = m[2],
+      a10 = m[4], a11 = m[5], a12 = m[6],
+      a20 = m[8], a21 = m[9], a22 = m[10];
+    var b01 = a22 * a11 - a12 * a21, b11 = -a22 * a10 + a12 * a20, b21 = a21 * a10 - a11 * a20;
+    var det = a00 * b01 + a01 * b11 + a02 * b21;
+    if (!det) {
+      out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0; out[4] = 1;
+      out[5] = 0; out[6] = 0; out[7] = 0; out[8] = 1;
+      return out;
+    }
+    det = 1 / det;
+    out[0] = b01 * det;
+    out[1] = (-a22 * a01 + a02 * a21) * det;
+    out[2] = (a12 * a01 - a02 * a11) * det;
+    out[3] = b11 * det;
+    out[4] = (a22 * a00 - a02 * a20) * det;
+    out[5] = (-a12 * a00 + a02 * a10) * det;
+    out[6] = b21 * det;
+    out[7] = (-a21 * a00 + a01 * a20) * det;
+    out[8] = (a11 * a00 - a01 * a10) * det;
+    return out;
+  }
+
+  /* 欧拉角（XYZ 顺序）→ mat4 旋转 */
+  function m4fromEuler(ex, ey, ez) {
+    var rx = m4rotationX(ex), ry = m4rotationY(ey), rz = m4rotationZ(ez);
+    return m4multiply(m4multiply(rz, ry), rx);
+  }
+
+  /* ------------------------------------------------------------------ noise
+   * 32 位整数哈希 + 三线性插值值噪声 + fBm。确定性、跨平台一致。
+   */
+  function hashi(x, y, z) {
+    var h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(z | 0, 1274126177);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+
+  function valueNoise3(x, y, z) {
+    var xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    var xf = x - xi, yf = y - yi, zf = z - zi;
+    var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+    var c000 = hashi(xi, yi, zi), c100 = hashi(xi + 1, yi, zi),
+      c010 = hashi(xi, yi + 1, zi), c110 = hashi(xi + 1, yi + 1, zi),
+      c001 = hashi(xi, yi, zi + 1), c101 = hashi(xi + 1, yi, zi + 1),
+      c011 = hashi(xi, yi + 1, zi + 1), c111 = hashi(xi + 1, yi + 1, zi + 1);
+    var x00 = mix(c000, c100, u), x10 = mix(c010, c110, u),
+      x01 = mix(c001, c101, u), x11 = mix(c011, c111, u);
+    return mix(mix(x00, x10, v), mix(x01, x11, v), w);
+  }
+
+  /* 多倍频 fBm，返回 [-1, 1] */
+  function fbm3(x, y, z, octaves, freq, gain, lac) {
+    octaves = octaves || 3; freq = freq || 1; gain = gain === undefined ? 0.5 : gain;
+    lac = lac || 2.0;
+    var sum = 0, amp = 1, norm = 0, f = freq;
+    for (var i = 0; i < octaves; i++) {
+      sum += amp * (valueNoise3(x * f + i * 17.3, y * f + i * 31.7, z * f + i * 11.1) * 2 - 1);
+      norm += amp;
+      amp *= gain;
+      f *= lac;
+    }
+    return sum / (norm || 1);
+  }
+
+  /* 确定性伪随机（mulberry32） */
+  function rng(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ------------------------------------------------------- 光线-三角求交
+   * Möller–Trumbore；命中返回 t，否则返回 -1
+   */
+  function rayTriangle(orig, dir, a, b, c) {
+    var e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
+    var e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    var px = dir[1] * e2z - dir[2] * e2y,
+      py = dir[2] * e2x - dir[0] * e2z,
+      pz = dir[0] * e2y - dir[1] * e2x;
+    var det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-9 && det < 1e-9) { return -1; }
+    var inv = 1 / det;
+    var tx = orig[0] - a[0], ty = orig[1] - a[1], tz = orig[2] - a[2];
+    var u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < -1e-6 || u > 1 + 1e-6) { return -1; }
+    var qx = ty * e1z - tz * e1y,
+      qy = tz * e1x - tx * e1z,
+      qz = tx * e1y - ty * e1x;
+    var v = (dir[0] * qx + dir[1] * qy + dir[2] * qz) * inv;
+    if (v < -1e-6 || u + v > 1 + 1e-6) { return -1; }
+    var t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    return t > 1e-4 ? t : -1;
+  }
+
+  /* 光线-球求交（返回最近正根，未命中 -1） */
+  function raySphere(orig, dir, center, radius) {
+    var ox = orig[0] - center[0], oy = orig[1] - center[1], oz = orig[2] - center[2];
+    var b = ox * dir[0] + oy * dir[1] + oz * dir[2];
+    var c = ox * ox + oy * oy + oz * oz - radius * radius;
+    var disc = b * b - c;
+    if (disc < 0) { return -1; }
+    var s = Math.sqrt(disc);
+    var t0 = -b - s, t1 = -b + s;
+    if (t0 > 1e-4) { return t0; }
+    if (t1 > 1e-4) { return t1; }
+    return -1;
+  }
+
+  /* 点到线段距离 */
+  function pointSegDist(p, a, b) {
+    var abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+    var apx = p[0] - a[0], apy = p[1] - a[1], apz = p[2] - a[2];
+    var d = abx * abx + aby * aby + abz * abz;
+    var t = d > 1e-12 ? clamp((apx * abx + apy * aby + apz * abz) / d, 0, 1) : 0;
+    var dx = apx - abx * t, dy = apy - aby * t, dz = apz - abz * t;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  /* 点到折线距离（用于沟槽变形与靶区距离度量） */
+  function pointPolylineDist(p, pts) {
+    var best = Infinity;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var d = pointSegDist(p, pts[i], pts[i + 1]);
+      if (d < best) { best = d; }
+    }
+    return best;
+  }
+
+  /* 颜色工具：'#rrggbb' → [r,g,b]（0..1） */
+  function hexToRgb(hex) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) { h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; }
+    var n = parseInt(h, 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  }
+
+  function rgbToHex(c) {
+    function q(v) { var s = Math.round(clamp(v, 0, 1) * 255).toString(16); return s.length < 2 ? '0' + s : s; }
+    return '#' + q(c[0]) + q(c[1]) + q(c[2]);
+  }
+
+  NS.math = {
+    clamp: clamp, mix: mix, smoothstep: smoothstep, DEG: DEG, V: V,
+    m4identity: m4identity, m4multiply: m4multiply, m4perspective: m4perspective,
+    m4lookAt: m4lookAt, m4translation: m4translation, m4scaling: m4scaling,
+    m4rotationX: m4rotationX, m4rotationY: m4rotationY, m4rotationZ: m4rotationZ,
+    m4transformPoint: m4transformPoint, m4transformDir: m4transformDir,
+    m4invert: m4invert, m3normalFromM4: m3normalFromM4, m4fromEuler: m4fromEuler,
+    valueNoise3: valueNoise3, fbm3: fbm3, rng: rng,
+    rayTriangle: rayTriangle, raySphere: raySphere,
+    pointSegDist: pointSegDist, pointPolylineDist: pointPolylineDist,
+    hexToRgb: hexToRgb, rgbToHex: rgbToHex
+  };
+})(window.AUD);
+
+/* ==== js/10-geometry.js ==== */
+/* =============================================================================
+ * 10-geometry.js — 自研网格生成内核（球面细分 / 参数曲面 / 管状扫掠 / 边界抽取）
+ * 所有网格在构建期使用 {verts:[[x,y,z]..], faces:[[a,b,c]..]} 结构，
+ * 最终由 pack() 转为 WebGL 可直接上传的类型化数组。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var M = NS.math, V = M.V;
+
+  /* ------------------------------------------------------- 二十面体细分球 */
+  var ICO_CACHE = {};
+  function icosphere(subdiv) {
+    if (ICO_CACHE[subdiv]) { return ICO_CACHE[subdiv]; }
+    var t = (1 + Math.sqrt(5)) / 2;
+    var verts = [
+      [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+      [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+      [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
+    ].map(V.norm);
+    var faces = [
+      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+    ];
+    for (var s = 0; s < subdiv; s++) {
+      var cache = {}, nf = [];
+      function midpoint(a, b) {
+        var key = a < b ? a + '_' + b : b + '_' + a;
+        if (cache[key] !== undefined) { return cache[key]; }
+        var m = V.norm([
+          (verts[a][0] + verts[b][0]) / 2,
+          (verts[a][1] + verts[b][1]) / 2,
+          (verts[a][2] + verts[b][2]) / 2
+        ]);
+        verts.push(m);
+        cache[key] = verts.length - 1;
+        return cache[key];
+      }
+      for (var f = 0; f < faces.length; f++) {
+        var A = faces[f][0], B = faces[f][1], C = faces[f][2];
+        var ab = midpoint(A, B), bc = midpoint(B, C), ca = midpoint(C, A);
+        nf.push([A, ab, ca], [B, bc, ab], [C, ca, bc], [ab, bc, ca]);
+      }
+      faces = nf;
+    }
+    ICO_CACHE[subdiv] = { verts: verts, faces: faces };
+    return ICO_CACHE[subdiv];
+  }
+
+  /* --------------------------------------------- 顶点法线（面积加权平均） */
+  function computeNormals(verts, faces) {
+    var n = new Array(verts.length);
+    for (var i = 0; i < verts.length; i++) { n[i] = [0, 0, 0]; }
+    for (var f = 0; f < faces.length; f++) {
+      var a = verts[faces[f][0]], b = verts[faces[f][1]], c = verts[faces[f][2]];
+      var fn = V.cross(V.sub(b, a), V.sub(c, a)); // 未归一化 → 天然面积加权
+      for (var k = 0; k < 3; k++) {
+        var idx = faces[f][k];
+        n[idx][0] += fn[0]; n[idx][1] += fn[1]; n[idx][2] += fn[2];
+      }
+    }
+    for (var j = 0; j < n.length; j++) {
+      var l = V.len(n[j]);
+      n[j] = l > 1e-9 ? [n[j][0] / l, n[j][1] / l, n[j][2] / l] : [0, 0, 1];
+    }
+    return n;
+  }
+
+  /* --------------------------------------------------- 打包为 GPU 缓冲结构 */
+  function pack(verts, faces, normals) {
+    var nrm = normals || computeNormals(verts, faces);
+    var pos = new Float32Array(verts.length * 3);
+    var nor = new Float32Array(verts.length * 3);
+    for (var i = 0; i < verts.length; i++) {
+      pos[i * 3] = verts[i][0]; pos[i * 3 + 1] = verts[i][1]; pos[i * 3 + 2] = verts[i][2];
+      nor[i * 3] = nrm[i][0]; nor[i * 3 + 1] = nrm[i][1]; nor[i * 3 + 2] = nrm[i][2];
+    }
+    var idx = new Uint16Array(faces.length * 3);
+    for (var f = 0; f < faces.length; f++) {
+      idx[f * 3] = faces[f][0]; idx[f * 3 + 1] = faces[f][1]; idx[f * 3 + 2] = faces[f][2];
+    }
+    return { pos: pos, nrm: nor, idx: idx, triCount: faces.length, vertCount: verts.length };
+  }
+
+  /* ------------------------------------ 依据顶点标签抽取子网格（脑区面片） */
+  function subsetByLabel(verts, faces, labels, wanted) {
+    var map = {}, sv = [], sf = [];
+    for (var f = 0; f < faces.length; f++) {
+      var a = faces[f][0], b = faces[f][1], c = faces[f][2];
+      if (labels[a] !== wanted || labels[b] !== wanted || labels[c] !== wanted) { continue; }
+      var tri = [a, b, c].map(function (o) {
+        if (map[o] === undefined) { map[o] = sv.length; sv.push(V.copy(verts[o])); }
+        return map[o];
+      });
+      sf.push(tri);
+    }
+    return { verts: sv, faces: sf };
+  }
+
+  /* ------------------------------------------- 面集合的边界边（出现一次） */
+  function boundaryEdges(faces) {
+    var count = {}, order = [];
+    for (var f = 0; f < faces.length; f++) {
+      for (var k = 0; k < 3; k++) {
+        var i = faces[f][k], j = faces[f][(k + 1) % 3];
+        var key = i < j ? i + '_' + j : j + '_' + i;
+        if (count[key] === undefined) { count[key] = 0; order.push([key, i, j]); }
+        count[key]++;
+      }
+    }
+    var out = [];
+    for (var o = 0; o < order.length; o++) {
+      if (count[order[o][0]] === 1) { out.push([order[o][1], order[o][2]]); }
+    }
+    return out;
+  }
+
+  /* ------------------------------------------ 沿法线偏移（用于面片抬升） */
+  function offsetVerts(verts, normals, d) {
+    var out = new Array(verts.length);
+    for (var i = 0; i < verts.length; i++) {
+      out[i] = [
+        verts[i][0] + normals[i][0] * d,
+        verts[i][1] + normals[i][1] * d,
+        verts[i][2] + normals[i][2] * d
+      ];
+    }
+    return out;
+  }
+
+  /* --------------------------------------------------------- 球面形状映射
+   * fn(dir, index) → 世界坐标点；用于脑壳与所有类椭球核团。
+   */
+  function shapeSphere(subdiv, fn) {
+    var base = icosphere(subdiv);
+    var verts = new Array(base.verts.length);
+    for (var i = 0; i < base.verts.length; i++) {
+      verts[i] = fn(base.verts[i], i);
+    }
+    return { verts: verts, faces: base.faces.map(function (f) { return [f[0], f[1], f[2]]; }) };
+  }
+
+  /* ------------------------------------------------------------- 椭球核团
+   * center: 中心；radii: 三轴半径；euler: [ex,ey,ez] 弧度；
+   * opts.noiseAmp / noiseFreq: 表面微起伏（解剖体表不规则性）
+   * opts.warp(p, dir) → p：可选的额外形变（例如弯曲、压扁）
+   */
+  function blob(center, radii, euler, opts) {
+    opts = opts || {};
+    var subdiv = opts.subdiv === undefined ? 3 : opts.subdiv;
+    var amp = opts.noiseAmp === undefined ? 0.06 : opts.noiseAmp;
+    var freq = opts.noiseFreq === undefined ? 0.09 : opts.noiseFreq;
+    var seed = opts.seed || 0;
+    var rot = M.m4fromEuler(euler[0] || 0, euler[1] || 0, euler[2] || 0);
+    return shapeSphere(subdiv, function (dir) {
+      var k = 1 + amp * M.fbm3(
+        dir[0] * 40 * freq + seed, dir[1] * 40 * freq + seed * 1.7, dir[2] * 40 * freq + seed * 2.3, 2, 1
+      );
+      var p = [dir[0] * radii[0] * k, dir[1] * radii[1] * k, dir[2] * radii[2] * k];
+      p = M.m4transformDir(rot, p);
+      p = [p[0] + center[0], p[1] + center[1], p[2] + center[2]];
+      if (opts.warp) { p = opts.warp(p, dir); }
+      return p;
+    });
+  }
+
+  /* ---------------------------------------------------------- 管状扫掠体
+   * points: 中心折线；radii: 每点半径（数组）；segs: 环向分段
+   * 使用平行传输坐标架，避免扭转与翻转。
+   */
+  function tube(points, radii, segs, capStart, capEnd, xyScale) {
+    segs = segs || 12;
+    xyScale = xyScale || [1, 1];
+    var n = points.length;
+    var tangents = new Array(n);
+    for (var i = 0; i < n; i++) {
+      var a = points[Math.max(0, i - 1)], b = points[Math.min(n - 1, i + 1)];
+      var t = V.sub(b, a);
+      if (V.len(t) < 1e-6) { t = [0, 0, 1]; }
+      tangents[i] = V.norm(t);
+    }
+    // 初始法线：取与切线最不平行的基向量
+    var t0 = tangents[0];
+    var up = Math.abs(t0[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    var nrm = V.norm(V.cross(up, t0));
+    var frames = [];
+    for (var f = 0; f < n; f++) {
+      if (f > 0) {
+        // 平行传输：把上一帧法线绕 (t_{f-1} × t_f) 旋转
+        var axis = V.cross(tangents[f - 1], tangents[f]);
+        var al = V.len(axis);
+        if (al > 1e-7) {
+          axis = V.scale(axis, 1 / al);
+          var ang = Math.acos(M.clamp(V.dot(tangents[f - 1], tangents[f]), -1, 1));
+          var c = Math.cos(ang), s = Math.sin(ang);
+          var d = V.dot(axis, nrm);
+          nrm = V.norm([
+            nrm[0] * c + (axis[1] * nrm[2] - axis[2] * nrm[1]) * s + axis[0] * d * (1 - c),
+            nrm[1] * c + (axis[2] * nrm[0] - axis[0] * nrm[2]) * s + axis[1] * d * (1 - c),
+            nrm[2] * c + (axis[0] * nrm[1] - axis[1] * nrm[0]) * s + axis[2] * d * (1 - c)
+          ]);
+        }
+      }
+      var bin = V.norm(V.cross(tangents[f], nrm));
+      frames.push({ n: nrm, b: bin });
+    }
+    var verts = [], faces = [];
+    for (var r = 0; r < n; r++) {
+      for (var s2 = 0; s2 < segs; s2++) {
+        var a2 = s2 / segs * Math.PI * 2;
+        var ca = Math.cos(a2) * radii[r] * xyScale[0], sa = Math.sin(a2) * radii[r] * xyScale[1];
+        verts.push([
+          points[r][0] + frames[r].n[0] * ca + frames[r].b[0] * sa,
+          points[r][1] + frames[r].n[1] * ca + frames[r].b[1] * sa,
+          points[r][2] + frames[r].n[2] * ca + frames[r].b[2] * sa
+        ]);
+      }
+    }
+    for (var r2 = 0; r2 < n - 1; r2++) {
+      for (var s3 = 0; s3 < segs; s3++) {
+        var i0 = r2 * segs + s3, i1 = r2 * segs + (s3 + 1) % segs;
+        var i2 = (r2 + 1) * segs + s3, i3 = (r2 + 1) * segs + (s3 + 1) % segs;
+        faces.push([i0, i2, i1], [i1, i2, i3]);
+      }
+    }
+    if (capStart !== false) {
+      var cs = verts.length; verts.push(V.copy(points[0]));
+      for (var s4 = 0; s4 < segs; s4++) { faces.push([cs, (s4 + 1) % segs, s4]); }
+    }
+    if (capEnd !== false) {
+      var ce = verts.length; verts.push(V.copy(points[n - 1]));
+      var off = (n - 1) * segs;
+      for (var s5 = 0; s5 < segs; s5++) { faces.push([ce, off + s5, off + (s5 + 1) % segs]); }
+    }
+    return { verts: verts, faces: faces };
+  }
+
+  /* ------------------------------------------------------------ 参数化片层
+   * 用于矢状面（内侧皮层：mPFC / dACC / PCC / 楔前叶）与岛叶板层。
+   * mapFn(u,v) → 三维点；insideFn(u,v) → 是否属于该结构。
+   * 返回网格 + 边界线段（用于精确边缘描边）。
+   */
+  function sheet(nu, nv, mapFn, insideFn) {
+    var grid = [], valid = [];
+    for (var i = 0; i <= nu; i++) {
+      grid.push([]); valid.push([]);
+      for (var j = 0; j <= nv; j++) {
+        var u = i / nu, v = j / nv;
+        grid[i].push(mapFn(u, v));
+        valid[i].push(insideFn ? !!insideFn(u, v) : true);
+      }
+    }
+    var map = {}, verts = [], faces = [];
+    function vid(i, j) {
+      var key = i + '_' + j;
+      if (map[key] === undefined) { map[key] = verts.length; verts.push(grid[i][j]); }
+      return map[key];
+    }
+    for (var i2 = 0; i2 < nu; i2++) {
+      for (var j2 = 0; j2 < nv; j2++) {
+        if (!(valid[i2][j2] && valid[i2 + 1][j2] && valid[i2][j2 + 1] && valid[i2 + 1][j2 + 1])) { continue; }
+        var a = vid(i2, j2), b = vid(i2 + 1, j2), c = vid(i2 + 1, j2 + 1), d = vid(i2, j2 + 1);
+        faces.push([a, b, c], [a, c, d]);
+      }
+    }
+    return { verts: verts, faces: faces };
+  }
+
+  /* ------------------------------------------------------- Catmull-Rom 重采样
+   * 把稀疏解剖控制点重采样为平滑曲线（尾状核、海马等管状结构）。
+   * 同时按弧长参数线性插值半径。
+   */
+  function catmullRomResample(points, radii, samples) {
+    var n = points.length;
+    if (n < 2) { return { points: points.slice(), radii: radii.slice() }; }
+    function pt(i) { return points[Math.max(0, Math.min(n - 1, i))]; }
+    function rd(i) { return radii[Math.max(0, Math.min(n - 1, i))]; }
+    var outP = [], outR = [];
+    var segs = n - 1;
+    for (var s = 0; s < samples; s++) {
+      var g = s / (samples - 1) * segs;
+      var i = Math.min(segs - 1, Math.floor(g));
+      var t = g - i;
+      var p0 = pt(i - 1), p1 = pt(i), p2 = pt(i + 1), p3 = pt(i + 2);
+      var t2 = t * t, t3 = t2 * t;
+      var q = [0, 0, 0];
+      for (var k = 0; k < 3; k++) {
+        q[k] = 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t +
+          (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
+          (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
+      }
+      outP.push(q);
+      outR.push(M.mix(rd(i), rd(i + 1), t));
+    }
+    return { points: outP, radii: outR };
+  }
+
+  /* ------------------------------------------------- 网格变换 / 度量工具 */
+  function transformVerts(verts, m) {
+    return verts.map(function (p) { return M.m4transformPoint(m, p); });
+  }
+
+  function centroid(verts) {
+    var c = [0, 0, 0];
+    for (var i = 0; i < verts.length; i++) { c[0] += verts[i][0]; c[1] += verts[i][1]; c[2] += verts[i][2]; }
+    var n = verts.length || 1;
+    return [c[0] / n, c[1] / n, c[2] / n];
+  }
+
+  function boundingSphere(verts) {
+    var c = centroid(verts), r = 0;
+    for (var i = 0; i < verts.length; i++) {
+      var d = V.dist(c, verts[i]);
+      if (d > r) { r = d; }
+    }
+    return { center: c, radius: r };
+  }
+
+  function surfaceArea(verts, faces) {
+    var s = 0;
+    for (var f = 0; f < faces.length; f++) {
+      var a = verts[faces[f][0]], b = verts[faces[f][1]], c = verts[faces[f][2]];
+      s += 0.5 * V.len(V.cross(V.sub(b, a), V.sub(c, a)));
+    }
+    return s;
+  }
+
+  /* 近似体积（散度定理，闭合网格有效） */
+  function meshVolume(verts, faces) {
+    var vol = 0;
+    for (var f = 0; f < faces.length; f++) {
+      var a = verts[faces[f][0]], b = verts[faces[f][1]], c = verts[faces[f][2]];
+      vol += V.dot(a, V.cross(b, c)) / 6;
+    }
+    return Math.abs(vol);
+  }
+
+  /* 合并网格（同材质批处理） */
+  function mergeMeshes(list) {
+    var verts = [], faces = [];
+    for (var i = 0; i < list.length; i++) {
+      var off = verts.length;
+      for (var v = 0; v < list[i].verts.length; v++) { verts.push(V.copy(list[i].verts[v])); }
+      for (var f = 0; f < list[i].faces.length; f++) {
+        faces.push([list[i].faces[f][0] + off, list[i].faces[f][1] + off, list[i].faces[f][2] + off]);
+      }
+    }
+    return { verts: verts, faces: faces };
+  }
+
+  /* 镜像到左半球（x → -x，并翻转面朝向以保持外法线） */
+  function mirrorX(mesh) {
+    var verts = mesh.verts.map(function (p) { return [-p[0], p[1], p[2]]; });
+    var faces = mesh.faces.map(function (f) { return [f[0], f[2], f[1]]; });
+    return { verts: verts, faces: faces };
+  }
+
+  /* 二次贝塞尔采样（网络连线走线） */
+  function quadBezier(p0, p1, p2, steps) {
+    var pts = [];
+    for (var i = 0; i <= steps; i++) {
+      var t = i / steps, mt = 1 - t;
+      pts.push([
+        mt * mt * p0[0] + 2 * mt * t * p1[0] + t * t * p2[0],
+        mt * mt * p0[1] + 2 * mt * t * p1[1] + t * t * p2[1],
+        mt * mt * p0[2] + 2 * mt * t * p1[2] + t * t * p2[2]
+      ]);
+    }
+    return pts;
+  }
+
+  NS.geom = {
+    icosphere: icosphere, computeNormals: computeNormals, pack: pack,
+    subsetByLabel: subsetByLabel, boundaryEdges: boundaryEdges, offsetVerts: offsetVerts,
+    shapeSphere: shapeSphere, blob: blob, tube: tube, sheet: sheet,
+    catmullRomResample: catmullRomResample,
+    transformVerts: transformVerts, centroid: centroid, boundingSphere: boundingSphere,
+    surfaceArea: surfaceArea, meshVolume: meshVolume, mergeMeshes: mergeMeshes,
+    mirrorX: mirrorX, quadBezier: quadBezier
+  };
+})(window.AUD);
+
+/* ==== js/20-atlas-data.js ==== */
+/* =============================================================================
+ * 20-atlas-data.js — 科学数据层
+ * 酒精使用障碍（AUD）核心病变脑区 / 刺激靶区 / 功能连接网络
+ *
+ * 证据来源标记规则：
+ *   [本地-报告]  本地技术报告《酒精成瘾病变脑区与刺激靶点》(2026-08-19) 对应章节
+ *   [本地-文献]  本机 CherryStudio 文献库内已入库全文（源级 EEG 连接组、CCN 预后等）
+ *   [联网-题录]  联网检索到的 2025–2026 元分析/系统综述/注册试验，仅核对题录与摘要
+ *   [共识-环路]  成瘾神经环路教科书级共识（Koob & Volkow 三阶段模型等），非 AUD 单研究
+ *
+ * 解剖坐标：近似 MNI152 空间（mm）。右半球给出坐标，左半球按 x → -x 镜像。
+ * 全部坐标为“标准空间近似定位”，非个体 MRI 分割结果（见诚实声明）。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+
+  /* ------------------------------------------------------------- 分类定义 */
+  var GROUPS = {
+    craving: {
+      id: 'craving',
+      zh: '渴求驱动', en: 'Craving / incentive drive',
+      color: '#8E2231',           // 暗红：炎症、失控、驱动
+      desc: '奖赏—显著性—负强化环路：介导酒精线索反应、动机显著性归因与戒断期负性情绪驱动的强迫性饮酒。'
+    },
+    control: {
+      id: 'control',
+      zh: '抑制控制', en: 'Inhibitory / executive control',
+      color: '#1E3A6E',           // 深蓝：冷静、自制、理性
+      desc: '前额叶—顶叶—扣带执行控制环路：介导反应抑制、冲突监测与目标导向的饮酒行为调控，AUD 中功能不足。'
+    },
+    associated: {
+      id: 'associated',
+      zh: '伴随改变', en: 'Associated alteration',
+      color: '#6B7B84',           // 中性灰蓝：伴随/中继
+      desc: '自我参照（DMN 后部）、感觉运动与丘脑中继结构：在 AUD 中多以网络拓扑或静息活动的伴随改变出现。'
+    }
+  };
+
+  /* --------------------------------------------------------------- 脑区表
+   * layer 取值：
+   *   cortex-lateral  外侧皮层（浅层，颜色更淡）
+   *   cortex-medial   内侧壁皮层（半深，位于半球间裂内）
+   *   cortex-insular  岛叶皮层（埋于大脑外侧裂深部）
+   *   deep            深部灰质核团（颜色更深、更饱和）
+   *   brainstem       脑干/中脑结构（最深）
+   */
+  var REGIONS = [
+    /* ======================== 渴求驱动（暖色系，深部更深） ================= */
+    {
+      id: 'nac', abbr: 'NAc/VS', zh: '伏隔核 / 腹侧纹状体', en: 'Nucleus accumbens / ventral striatum',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#9E1B37',
+      mni: [10, 11, -8],
+      geom: { type: 'blob', radii: [6.6, 8.0, 5.7], euler: [0, 0, -0.18], subdiv: 3, noiseAmp: 0.07, seed: 11 },
+      func: '奖赏加工与动机显著性归因的最终共同通路；接收 VTA 多巴胺投射与 PFC/杏仁核/海马谷氨酸输入，直接编码"想喝"的强度。',
+      lesion: '酒精线索诱发反应增强；源级网络中左侧基底节节点度降低且与重度饮酒时长负相关，右侧基底节节点中介中心性增高。',
+      lesionRefs: ['[本地-文献] 源级 EEG 连接组（Wang 2025）节点度/中介中心性改变', '[本地-报告] §4.2 奖赏/习惯网络', '[共识-环路] 三阶段模型：暴食/中毒阶段核心'],
+      target: { is: true, tech: ['DBS', 'tTIS', 'tFUS'], note: 'AUD 最主要深部靶点。DBS 双盲 RCT（Bach 2023，入组不足，次要结局改善）；tTIS 健康人 NAc 调制可行（Zang 2025 / Zhang K 2026）；tFUS 多项注册试验在研。本课题拟用闭环 tTIS 靶向 NAc。' }
+    },
+    {
+      id: 'vta', abbr: 'VTA', zh: '腹侧被盖区', en: 'Ventral tegmental area',
+      group: 'craving', layer: 'brainstem', symmetric: true, color: '#6E1226',
+      mni: [4, -16, -13],
+      geom: { type: 'blob', radii: [4.6, 5.2, 4.0], euler: [0.2, 0, 0], subdiv: 3, noiseAmp: 0.05, seed: 23 },
+      func: '中脑多巴胺能起源：向 NAc（中脑-伏隔通路）与 mPFC/OFC（中脑-皮层通路）投射，编码奖赏预测误差与线索的动机赋值。',
+      lesion: '慢性酒精暴露下多巴胺能张力下降、对自然奖赏反应钝化（奖赏缺陷），同时对酒精线索的相位性反应保留或增强；缰核经 RMTg 的抑制性输入增强参与戒断期负性状态。',
+      lesionRefs: ['[共识-环路] 多巴胺能奖赏缺陷与线索反应分离', '[本地-报告] §1.1 奖赏环路'],
+      target: { is: false, tech: [], note: '非无创刺激直接靶区（位置过深、邻近关键脑干结构），在模型中作为奖赏环路上游节点显示。' }
+    },
+    {
+      id: 'putamen', abbr: 'PUT', zh: '壳核（背侧纹状体）', en: 'Putamen (dorsal striatum)',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#B8452F',
+      mni: [27, 2, 1],
+      geom: { type: 'blob', radii: [6.4, 16.0, 12.0], euler: [0, 0, 0.12], subdiv: 3, noiseAmp: 0.05, seed: 31 },
+      func: '刺激—反应习惯的形成与表达；随成瘾进程，控制权由腹侧（目标导向）向背侧（习惯化、自动化饮酒）迁移。',
+      lesion: '任务态 fMRI 元分析中左侧壳核在决策/奖赏任务反复出现激活异常；源级网络中基底节节点指标改变。',
+      lesionRefs: ['[联网-题录] 任务态 fMRI 元分析（Roberge 2025, Brain Sci 15(7):665）左侧壳核异常', '[本地-报告] §1.2/§4.2'],
+      target: { is: false, tech: ['DBS（探索）'], note: '深部靶点潜在候选，AUD 无创刺激证据不足。' }
+    },
+    {
+      id: 'caudate', abbr: 'CAU', zh: '尾状核', en: 'Caudate nucleus',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#C9743A',
+      mni: [14, 12, 10],
+      geom: {
+        type: 'tube', segs: 12,
+        points: [[13, 19, 3], [15, 8, 12], [16, -6, 18], [18, -19, 17], [24, -30, 10]],
+        radii: [7.4, 5.4, 4.4, 3.4, 2.4]
+      },
+      func: '联合型皮层-纹状体环路的输入结构，参与目标导向的动作选择与结果预期；与 OFC/dlPFC 构成价值—行动转换环节。',
+      lesion: '皮层-纹状体-丘脑-皮层环路增益异常，参与从目标导向到习惯化饮酒的转变；基底节整体节点指标改变（源级 EEG）。',
+      lesionRefs: ['[本地-文献] 源级 EEG 连接组基底节节点指标改变', '[共识-环路] 背侧化迁移假说'],
+      target: { is: false, tech: [], note: '模型中作为习惯环路节点显示。' }
+    },
+    {
+      id: 'amygdala', abbr: 'AMY', zh: '杏仁核', en: 'Amygdala',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#8E2455',
+      mni: [23, -5, -18],
+      geom: { type: 'blob', radii: [9.4, 8.0, 7.0], euler: [0, 0.15, 0], subdiv: 3, noiseAmp: 0.07, seed: 43 },
+      func: '线索—情绪联结与条件性反应：基底外侧核编码酒精线索的情绪价值，中央核（CeA）驱动戒断期焦虑与负强化性饮酒。',
+      lesion: '对酒精线索反应增强；戒断期 CRF/去甲肾上腺素能张力升高，与负性情绪驱动的复饮相关。',
+      lesionRefs: ['[联网-题录] tTIS 靶向杏仁核 AUD 干预试验 NCT07472673（10 Hz）', '[本地-报告] §1.1', '[共识-环路] 戒断/负性情绪阶段核心'],
+      target: { is: true, tech: ['tTIS', 'tFUS'], note: 'tTIS 靶向杏仁核治疗 AUD 已进入注册临床试验（NCT07472673）；tFUS 靶向杏仁核有健康人/患者可行性研究（Mol Psychiatry 2025，本地库）。' }
+    },
+    {
+      id: 'bnst', abbr: 'BNST', zh: '终纹床核（扩展杏仁核）', en: 'Bed nucleus of the stria terminalis',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#6F1F42',
+      mni: [7, 2, -1],
+      geom: { type: 'blob', radii: [3.6, 5.2, 3.6], euler: [0, 0, 0], subdiv: 2, noiseAmp: 0.05, seed: 57 },
+      func: '扩展杏仁核的核心节点，介导持续性焦虑与应激诱发的复饮（负强化）；整合 CeA、海马与下丘脑输入并调控 VTA。',
+      lesion: '慢性酒精暴露后 CRF 系统上调、应激反应性增强，构成"负性情绪—饮酒缓解"闭环的关键环节。',
+      lesionRefs: ['[共识-环路] 扩展杏仁核负强化机制（动物证据为主）', '[本地-报告] §4.2 相关网络'],
+      target: { is: false, tech: [], note: '体积极小、位置深，当前无创刺激难以选择性靶向。' }
+    },
+    {
+      id: 'hippocampus', abbr: 'HIP', zh: '海马', en: 'Hippocampus',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#A63A2A',
+      mni: [26, -26, -12],
+      geom: {
+        type: 'tube', segs: 12,
+        points: [[23, -12, -21], [27, -20, -18], [29, -28, -12], [28, -36, -5], [23, -40, 2]],
+        radii: [6.6, 5.8, 5.2, 4.6, 3.6]
+      },
+      func: '情境—线索记忆的编码与提取：把饮酒环境、时间与内感受状态绑定为复合线索，驱动情境依赖性渴求。',
+      lesion: '酒精相关记忆痕迹过度巩固；AUD 中海马体积下降与情境线索反应增强并存；向 NAc 的谷氨酸投射增强渴求。',
+      lesionRefs: ['[本地-文献] 非侵入时域干涉可靶向人类海马（Violante 2023）', '[共识-环路] 情境线索记忆', '[本地-报告] §1.1'],
+      target: { is: true, tech: ['tTIS（可行性已验证）'], note: '人类海马已被证明可由 tTIS 无创靶向调制（Violante 2023, Nature Neuroscience），但尚无 AUD 疗效数据。' }
+    },
+    {
+      id: 'habenula', abbr: 'LHb', zh: '外侧缰核', en: 'Lateral habenula',
+      group: 'craving', layer: 'deep', symmetric: true, color: '#571726',
+      mni: [5, -24, 4],
+      geom: { type: 'blob', radii: [2.9, 3.3, 2.9], euler: [0, 0, 0], subdiv: 2, noiseAmp: 0.04, seed: 63 },
+      func: '"反奖赏"中枢：编码负性预测误差与失望，经 RMTg 抑制 VTA 多巴胺神经元，驱动戒断期快感缺失与厌恶学习。',
+      lesion: '慢性酒精后 LHb 兴奋性增高，加重奖赏缺陷与负性情绪状态，促进负强化性饮酒。',
+      lesionRefs: ['[共识-环路] 反奖赏系统（以动物电生理证据为主）'],
+      target: { is: false, tech: [], note: '模型中作为负强化环路节点显示；无 AUD 无创刺激证据。' }
+    },
+    {
+      id: 'insula_ant', abbr: 'AI', zh: '前岛叶', en: 'Anterior insula',
+      group: 'craving', layer: 'cortex-insular', symmetric: true, color: '#C75B4E',
+      mni: [36, 8, -2],
+      geom: { type: 'insula', xPlane: 35.5, center: [8, -2], radii: [15.5, 13.0], tiltY: 0.10 },
+      func: '内感受表征与"渴求意识"的生成：把生理状态（心率、胃肠、酒精效应）转换为主观渴求感；与 dACC 共同构成突显网络核心。',
+      lesion: '对酒精线索反应增强；静息态元分析报告右侧额下回岛盖部活动增强；rsFC 系统综述中岛叶为最高频报告区域之一。岛叶在成瘾中具双重角色（渴求生成 + CON 控制节点），本模型按其渴求生成主导作用归类。',
+      lesionRefs: ['[联网-题录] 静息态 fMRI 元分析（Ran 2026, Eur J Neurosci 63(4):e70430）右侧 pars opercularis 活动增强', '[联网-题录] 功能连接系统综述（Bottino 2025, Hum Brain Mapp 46(2):e70156）岛叶高频报告', '[本地-报告] §1.1/§4.2'],
+      target: { is: true, tech: ['deep-TMS（H4 线圈）', 'tFUS'], note: '深部 TMS 同时刺激前额叶与岛叶已用于戒烟 RCT（本地库）；tFUS 靶向岛叶/dACC 已有注册试验。' }
+    },
+    {
+      id: 'ofc', abbr: 'OFC', zh: '眶额皮层', en: 'Orbitofrontal cortex',
+      group: 'craving', layer: 'cortex-lateral', symmetric: true, color: '#E3906F',
+      mni: [26, 38, -14],
+      geom: { type: 'cortexPatch', rule: 'ofc' },
+      func: '奖赏价值编码与结果预期更新：给酒精线索赋予过高预期价值（显著性归因偏移），并在灵活更新价值时表现僵化。',
+      lesion: 'iRISA 模型的核心：显著性归因偏移伴抑制控制受损；AUD 中 OFC 灰质与功能异常，价值更新灵活性下降。',
+      lesionRefs: ['[本地-文献] iRISA 综述（Ceceli 2026, Annu Rev Psychol，本地全文）', '[本地-报告] §1.1'],
+      target: { is: true, tech: ['deep-TMS', 'tFUS（vmPFC/OFC）'], note: 'vmPFC/OFC 为 tFUS 与深部 TMS 可及靶区，AUD 证据仍属探索性。' }
+    },
+
+    /* ======================== 抑制控制（冷色系，浅层更淡） ================= */
+    {
+      id: 'dlpfc', abbr: 'DLPFC', zh: '背外侧前额叶', en: 'Dorsolateral prefrontal cortex',
+      group: 'control', layer: 'cortex-lateral', symmetric: true, color: '#5C8FD0',
+      mni: [42, 34, 30],
+      geom: { type: 'cortexPatch', rule: 'dlpfc' },
+      func: '工作记忆维持、反应抑制的自上而下增益、认知重评与延迟折扣调控：抑制"想喝"到"去喝"的转换。',
+      lesion: '线索诱发 beta 功率增强（F4/DLPFC）且与渴求正相关；短期戒断者右侧中额回低激活；左侧背外侧前额叶节点度降低；DLPFC–后顶叶 delta 连接在维持戒断者中更高（复饮者不足）。',
+      lesionRefs: ['[本地-文献] 线索诱发 beta 与渴求相关（Kim 2023）', '[本地-文献] CCN delta 滞后相位同步预测戒断（Januszko 2021）', '[联网-题录] 任务态 fMRI 元分析（Roberge 2025）右侧中额回低激活', '[本地-报告] §2.1/§4.2'],
+      target: { is: true, tech: ['rTMS（10 Hz 高频）', 'tDCS', 'tTIS'], note: 'AUD/SUD 最常用无创靶点。rTMS 元分析（19 RCTs / 942 例）显示降低渴求、延长戒断天数；tDCS 亚组显著（NIBS meta）。' }
+    },
+    {
+      id: 'ifj', abbr: 'IFJ/vlPFC', zh: '额下交界 / 腹外侧前额叶', en: 'Inferior frontal junction / ventrolateral PFC',
+      group: 'control', layer: 'cortex-lateral', symmetric: true, color: '#63C0DC',
+      mni: [45, 12, 16],
+      geom: { type: 'cortexPatch', rule: 'ifj' },
+      func: '反应抑制与任务集切换的关键节点（Stop-signal / Go-NoGo 核心）；与前岛叶/额盖共同实现"刹车"信号。',
+      lesion: '维持戒断者右侧前岛叶/额盖—右侧额下交界 delta 连接显著高于复饮者；vlPFC 与颞叶/后扣带 delta 连接降低。',
+      lesionRefs: ['[本地-文献] eLORETA 源空间 delta 滞后相位同步（Januszko 2021）', '[本地-文献] 源级 EEG 连接组 vlPFC 连接降低', '[本地-报告] §4.2 CON/CCN'],
+      target: { is: true, tech: ['rTMS（探索）', 'deep-TMS'], note: '作为 CON/CCN 节点常与 DLPFC 靶区重叠受累，独立靶向证据有限。' }
+    },
+    {
+      id: 'mpfc', abbr: 'mPFC/vmPFC', zh: '内侧 / 腹内侧前额叶', en: 'Medial / ventromedial prefrontal cortex',
+      group: 'control', layer: 'cortex-medial', symmetric: true, color: '#3C6FB2',
+      mni: [6, 48, 2],
+      geom: { type: 'arcBand', xPlane: 6.0, theta: [-50, 40], r: [36, 62], ellipseClip: 0.90 },
+      func: '价值整合与情绪调节：对渴求的认知重评、消退学习的表达，以及 DMN 前部枢纽（自我参照加工）。',
+      lesion: '额中线 alpha–gamma 相位幅度耦合（PAC）在重度 AUD 增强；DMN 内 delta 连接整体降低；vmPFC 消退学习受损与复饮相关。',
+      lesionRefs: ['[本地-文献] 静息额中线 alpha–gamma PAC 增强（Richard 2026, COGA n=766）', '[本地-文献] DMN delta 功能连接降低（Wang 2025）', '[本地-报告] §2.1/§4.2 DMN'],
+      target: { is: true, tech: ['deep-TMS', 'tFUS（vmPFC）', 'tTIS'], note: 'vmPFC 为 tFUS 注册试验靶区之一；深部 TMS H 线圈可覆盖内侧前额叶。' }
+    },
+    {
+      id: 'dacc', abbr: 'dACC', zh: '背侧前扣带回', en: 'Dorsal anterior cingulate cortex',
+      group: 'control', layer: 'cortex-medial', symmetric: true, color: '#22497F',
+      mni: [6, 22, 32],
+      geom: { type: 'arcBand', xPlane: 5.5, theta: [12, 80], r: [21, 35], ellipseClip: 0.90 },
+      func: '冲突监测、错误监测与行为调整需求信号；与前岛叶构成突显网络，把"显著性"转交给执行控制系统。',
+      lesion: '灰质体积降低（左侧前扣带/旁扣带为 SDM-PSI 元分析最稳定区域之一）；ACC 与后顶叶/枕叶 delta 连接降低；长期戒断者背侧前扣带低激活；rsFC 综述高频报告区。',
+      lesionRefs: ['[联网-题录] 灰质 SDM-PSI 元分析（Long 2026, Drug Alcohol Depend 283:113119）左侧 ACC 体积降低', '[本地-文献] ACC–后顶叶/枕叶 delta 连接降低（Wang 2025）', '[联网-题录] Bottino 2025 rsFC 高频报告', '[本地-报告] §1.2/§4.2 CON'],
+      target: { is: true, tech: ['tFUS', 'deep-TMS', 'rTMS（间接）'], note: 'dACC 为 tFUS 注册试验靶区；因位于半球间裂深部，常规 rTMS 仅能间接调制。' }
+    },
+    {
+      id: 'ppc', abbr: 'PPC/IPL', zh: '后顶叶 / 顶下小叶', en: 'Posterior parietal cortex / inferior parietal lobule',
+      group: 'control', layer: 'cortex-lateral', symmetric: true, color: '#7C86DB',
+      mni: [46, -54, 46],
+      geom: { type: 'cortexPatch', rule: 'ppc' },
+      func: '注意定向与工作记忆的顶叶端：与 DLPFC 构成额顶网络，维持任务目标、抑制线索对注意的劫持。',
+      lesion: '右侧额上回—左侧后顶叶 delta 连接降低；左侧 DLPFC—左侧后顶叶 delta 连接在维持戒断者显著更高（复饮者不足）。',
+      lesionRefs: ['[本地-文献] 跨半球额-顶 delta 连接降低（Wang 2025）', '[本地-文献] CCN 内 DLPFC–PPC 连接预测戒断（Januszko 2021）', '[本地-报告] §4.2 FPN/CCN'],
+      target: { is: false, tech: [], note: '通常作为网络节点评估，非首选刺激靶区。' }
+    },
+    {
+      id: 'insula_post', abbr: 'PI', zh: '后岛叶', en: 'Posterior insula',
+      group: 'control', layer: 'cortex-insular', symmetric: true, color: '#2C6E80',
+      mni: [38, -16, 6],
+      geom: { type: 'insula', xPlane: 36.0, center: [-16, 6], radii: [13.0, 12.0], tiltY: 0.06 },
+      func: '初级内感受与躯体感觉整合（心跳、呼吸、内脏、疼痛）：为渴求提供原始身体状态输入，并参与内感受性调控。',
+      lesion: '左侧后岛叶节点度降低，且与渴求量表（VAS/PACS）呈负相关——后岛叶内感受输入不足与更强渴求并存，故本模型将其归入调控/内感受控制侧。',
+      lesionRefs: ['[本地-文献] 左侧后岛叶节点度降低且与渴求负相关（Wang 2025）', '[本地-报告] §4.2 SN/CON'],
+      target: { is: false, tech: ['tFUS（探索）'], note: '深部 TMS 主要覆盖前岛叶；后岛叶靶向证据不足。' }
+    },
+
+    /* ======================== 伴随改变（中性冷灰系） ====================== */
+    {
+      id: 'pcc', abbr: 'PCC', zh: '后扣带回', en: 'Posterior cingulate cortex',
+      group: 'associated', layer: 'cortex-medial', symmetric: true, color: '#7E97A6',
+      mni: [5, -44, 30],
+      geom: { type: 'arcBand', xPlane: 5.5, theta: [128, 178], r: [26, 42], ellipseClip: 0.90 },
+      func: 'DMN 后部枢纽：自我参照加工、情景记忆提取与内外注意切换的门控。',
+      lesion: '双侧后扣带节点中介中心性降低，且与饮酒量/焦虑水平相关；DMN 内 delta 连接整体降低。',
+      lesionRefs: ['[本地-文献] PCC 节点中介中心性降低（Wang 2025）', '[联网-题录] Bottino 2025 rsFC 高频报告区', '[本地-报告] §4.2 DMN'],
+      target: { is: false, tech: [], note: '模型中作为 DMN 后部节点显示。' }
+    },
+    {
+      id: 'precuneus', abbr: 'PCu', zh: '楔前叶', en: 'Precuneus',
+      group: 'associated', layer: 'cortex-medial', symmetric: true, color: '#93AAB4',
+      mni: [8, -62, 42],
+      geom: { type: 'arcBand', xPlane: 5.5, theta: [140, 172], r: [44, 66], ellipseClip: 0.88 },
+      func: '自我相关信息整合、心理意象与情景记忆重建；DMN 后部核心。',
+      lesion: '双侧楔前叶节点中介中心性降低；静息态元分析报告左侧楔前叶活动降低。',
+      lesionRefs: ['[本地-文献] 楔前叶节点指标降低（Wang 2025）', '[联网-题录] Ran 2026 左侧楔前叶活动降低', '[本地-报告] §4.2 DMN'],
+      target: { is: false, tech: [], note: '模型中作为 DMN 后部节点显示。' }
+    },
+    {
+      id: 'postcentral', abbr: 'PoCG', zh: '中央后回（初级躯体感觉）', en: 'Postcentral gyrus (S1)',
+      group: 'associated', layer: 'cortex-lateral', symmetric: true, color: '#8FA58C',
+      mni: [50, -22, 52],
+      geom: { type: 'cortexPatch', rule: 'postcentral' },
+      func: '初级躯体感觉加工：躯体状态的皮层表征，为内感受—感觉整合提供输入。',
+      lesion: '双侧中央后回静息活动降低；灰质体积降低（左侧中央后回为元分析稳定区域之一）；源级网络中节点指标改变。',
+      lesionRefs: ['[联网-题录] Ran 2026 双侧中央后回活动降低', '[联网-题录] Long 2026 左侧中央后回灰质降低', '[本地-报告] §1.2/§4.2 SMN'],
+      target: { is: false, tech: [], note: '非治疗靶区；作为伴随改变展示。' }
+    },
+    {
+      id: 'thalamus', abbr: 'THA', zh: '丘脑', en: 'Thalamus',
+      group: 'associated', layer: 'deep', symmetric: true, color: '#4A6D78',
+      mni: [11, -19, 9],
+      geom: { type: 'blob', radii: [10.0, 14.0, 10.4], euler: [0, 0, 0.08], subdiv: 3, noiseAmp: 0.05, seed: 71 },
+      func: '皮层-纹状体-丘脑-皮层（CSTC）环路的中继与放大器；调控觉醒、注意门控与运动程序的启动。',
+      lesion: '慢性酒精相关丘脑（含背侧内侧核）损伤是 Wernicke–Korsakoff 综合征的病理核心；CSTC 环路增益异常参与习惯化饮酒。',
+      lesionRefs: ['[共识-环路] CSTC 环路中继；硫胺素缺乏相关丘脑损伤', '[本地-报告] §4.2 奖赏/习惯网络'],
+      target: { is: true, tech: ['tFUS（可行性）'], note: '基于模型导航的 tFUS 已用于靶向丘脑与杏仁核（本地库），AUD 治疗证据缺乏。' }
+    },
+    {
+      id: 'ips_occ', abbr: 'IPS/OCC', zh: '顶内沟 / 枕叶视觉皮层', en: 'Intraparietal sulcus / occipital visual cortex',
+      group: 'associated', layer: 'cortex-lateral', symmetric: true, color: '#A2AEB8',
+      mni: [34, -78, 14],
+      geom: { type: 'cortexPatch', rule: 'ips_occ' },
+      func: '酒精线索的视觉加工与注意捕获：线索显著性的早期视觉—注意放大环节。',
+      lesion: '左侧顶内沟与枕叶节点度增高，且与开始饮酒年龄负相关（起病越早、节点度改变越明显）；ACC—枕叶 delta 连接降低。',
+      lesionRefs: ['[本地-文献] 顶内沟/枕叶节点度增高且与起始饮酒年龄负相关（Wang 2025）', '[本地-报告] §4.2 感觉运动/视觉网络'],
+      target: { is: false, tech: [], note: '非治疗靶区；作为线索加工上游伴随改变展示。' }
+    }
+  ];
+
+  /* ------------------------------------------------------------- 网络定义
+   * edges: [源脑区, 目标脑区, 连接规则]
+   *   'ipsi'   同侧（左-左、右-右各一条）
+   *   'contra' 跨半球（右源→左靶 与 左源→右靶）
+   *   'homo'   同名结构左右互联
+   */
+  var NETWORKS = [
+    {
+      id: 'reward', zh: '奖赏 / 习惯网络', en: 'Reward & habit network',
+      color: '#8E2E6E', evidence: '中-高',
+      func: '中脑-伏隔-皮层多巴胺环路 + 背侧纹状体习惯环路：奖赏加工、渴求生成与自动化饮酒行为。',
+      lesion: '左侧基底节节点度降低（与重度饮酒时长负相关）、右侧基底节中介中心性增高；左侧壳核任务态激活异常；NAc 为 DBS/tTIS 主要靶点。',
+      refs: ['[本地-文献] 源级 EEG 连接组基底节节点指标', '[联网-题录] Roberge 2025 左侧壳核', '[本地-报告] §4.2'],
+      edges: [
+        ['vta', 'nac', 'ipsi'], ['vta', 'mpfc', 'ipsi'], ['vta', 'amygdala', 'ipsi'],
+        ['nac', 'ofc', 'ipsi'], ['nac', 'mpfc', 'ipsi'], ['nac', 'amygdala', 'ipsi'],
+        ['nac', 'hippocampus', 'ipsi'], ['ofc', 'putamen', 'ipsi'],
+        ['putamen', 'thalamus', 'ipsi'], ['caudate', 'thalamus', 'ipsi'],
+        ['thalamus', 'dlpfc', 'ipsi'], ['caudate', 'dlpfc', 'ipsi']
+      ]
+    },
+    {
+      id: 'sn', zh: '突显网络（SN）', en: 'Salience network',
+      color: '#B5453F', evidence: '中-高',
+      func: '检测内外部显著刺激并协调奖赏、情绪与认知控制系统之间的切换。',
+      lesion: '右侧中岛叶节点中介中心性增高、左侧后岛叶节点度降低且与渴求负相关；岛叶在 AUD rsFC 文献中为最高频报告区域之一。',
+      refs: ['[本地-文献] 岛叶节点中心性改变（Wang 2025）', '[联网-题录] Bottino 2025', '[本地-报告] §4.2 SN'],
+      edges: [
+        ['insula_ant', 'dacc', 'ipsi'], ['insula_ant', 'amygdala', 'ipsi'],
+        ['insula_ant', 'nac', 'ipsi'], ['dacc', 'putamen', 'ipsi'],
+        ['amygdala', 'nac', 'ipsi']
+      ]
+    },
+    {
+      id: 'ccn', zh: '认知控制网络（CCN）', en: 'Cognitive control network',
+      color: '#2F7D5B', evidence: '高（AUD 预后直接证据）',
+      func: '反应抑制、冲突监控、冲动控制与戒断维持；与 FPN/CON 高度重叠。',
+      lesion: '维持戒断者左侧 DLPFC–左侧 PPC、右侧 AI/FO–右侧 IFJ 的静息 delta 滞后相位同步显著高于复饮者；复饮者表现为 CCN 内 delta 连接不足，右侧额-岛连接与冲动性/抑郁负相关。',
+      refs: ['[本地-文献] eLORETA delta 滞后相位同步（Januszko 2021）', '[本地-报告] §4.2 CCN'],
+      edges: [
+        ['dacc', 'dlpfc', 'ipsi'], ['dlpfc', 'ppc', 'ipsi'], ['dlpfc', 'ifj', 'ipsi'],
+        ['insula_ant', 'ifj', 'ipsi'], ['dacc', 'insula_ant', 'ipsi'], ['dlpfc', 'dlpfc', 'homo']
+      ]
+    },
+    {
+      id: 'fpn', zh: '额顶网络（FPN）', en: 'Frontoparietal network',
+      color: '#2E8FA6', evidence: '高',
+      func: '任务启动与切换、错误监测、工作记忆与执行控制的核心网络。',
+      lesion: '任务态源级 delta 带 PLV 降低（右侧额上回—左侧后顶叶）；左侧背外侧前额叶节点度降低；短期戒断者右侧中额回低激活。',
+      refs: ['[本地-文献] 任务态源级 delta PLV 降低（Wang 2025）', '[联网-题录] Roberge 2025', '[本地-报告] §4.2 FPN'],
+      edges: [
+        ['dlpfc', 'ppc', 'ipsi'], ['dlpfc', 'ppc', 'contra'], ['dlpfc', 'dlpfc', 'homo'],
+        ['ppc', 'ppc', 'homo']
+      ]
+    },
+    {
+      id: 'con', zh: '扣带-岛盖网络（CON）', en: 'Cingulo-opercular network',
+      color: '#C2803A', evidence: '高',
+      func: '目标导向行为的持续控制、线索/指令处理、交感调节与任务态维持。',
+      lesion: 'ACC 与后顶叶/枕叶 delta 连接降低；vlPFC 与颞叶/后扣带 delta 连接降低；左侧后岛叶节点度降低并与渴求负相关；右侧 AI/FO–IFJ 连接在维持戒断者中更高；ACC 灰质体积降低。',
+      refs: ['[本地-文献] Wang 2025 / Januszko 2021', '[联网-题录] Long 2026 ACC 灰质降低', '[本地-报告] §4.2 CON'],
+      edges: [
+        ['dacc', 'insula_ant', 'ipsi'], ['insula_ant', 'ifj', 'ipsi'],
+        ['insula_ant', 'insula_post', 'ipsi'], ['dacc', 'ppc', 'ipsi'],
+        ['ifj', 'pcc', 'ipsi'], ['dacc', 'ips_occ', 'ipsi']
+      ]
+    },
+    {
+      id: 'dmn', zh: '默认模式网络（DMN）', en: 'Default mode network',
+      color: '#6C74C9', evidence: '高',
+      func: '自我参照加工、内在心理活动与情景记忆提取；通过抑制不适切内部活动参与认知调控。',
+      lesion: '酒精线索加工中 delta 带 DMN 内功能连接显著降低；楔前叶、后扣带双侧节点中介中心性降低（与饮酒量/焦虑相关）；左侧楔前叶静息活动降低。',
+      refs: ['[本地-文献] DMN delta 连接降低与节点指标（Wang 2025）', '[联网-题录] Ran 2026 / Bottino 2025', '[本地-报告] §4.2 DMN'],
+      edges: [
+        ['mpfc', 'pcc', 'ipsi'], ['pcc', 'precuneus', 'ipsi'], ['precuneus', 'ppc', 'ipsi'],
+        ['mpfc', 'ppc', 'ipsi'], ['pcc', 'hippocampus', 'ipsi']
+      ]
+    },
+    {
+      id: 'stress', zh: '扩展杏仁核应激 / 负强化网络', en: 'Extended amygdala stress network',
+      color: '#7A3B2E', evidence: '中（以动物证据与跨物质共识为主）',
+      func: '戒断/负性情绪阶段的核心：应激反应、持续焦虑与"为缓解痛苦而饮酒"的负强化闭环。',
+      lesion: 'CRF/去甲肾上腺素能系统上调、LHb→VTA 抑制增强、NAc 多巴胺张力下降，共同构成负性情绪驱动的复饮风险。',
+      refs: ['[共识-环路] Koob 三阶段模型：戒断/负性情绪阶段', '[联网-题录] 杏仁核 tTIS 试验 NCT07472673'],
+      edges: [
+        ['amygdala', 'bnst', 'ipsi'], ['bnst', 'nac', 'ipsi'], ['bnst', 'habenula', 'ipsi'],
+        ['habenula', 'vta', 'ipsi'], ['amygdala', 'insula_ant', 'ipsi'],
+        ['amygdala', 'hippocampus', 'ipsi']
+      ]
+    },
+    {
+      id: 'smn', zh: '感觉运动 / 视觉网络', en: 'Sensorimotor & visual network',
+      color: '#6B7A8F', evidence: '中（多为伴随改变）',
+      func: '感觉运动整合与视觉注意；在 AUD 中多作为网络拓扑改变的伴随区域出现。',
+      lesion: '左侧顶内沟、枕叶节点度增高并与饮酒起始年龄负相关；双侧中央后回静息活动降低。',
+      refs: ['[本地-文献] Wang 2025 节点度改变', '[联网-题录] Ran 2026 中央后回活动降低', '[本地-报告] §4.2'],
+      edges: [
+        ['postcentral', 'ppc', 'ipsi'], ['postcentral', 'ips_occ', 'ipsi'],
+        ['postcentral', 'postcentral', 'homo'], ['ips_occ', 'thalamus', 'ipsi']
+      ]
+    }
+  ];
+
+  /* --------------------------------------------------------- 诚实声明文本 */
+  var DISCLOSURE = {
+    title: '数据来源与诚实声明',
+    paragraphs: [
+      '一、模型性质。本页面是"科学示意型仿真"，不是个体影像重建。脑壳、脑沟与各脑区几何由程序化解剖建模生成（球面细分 + 解剖学约束形变 + 矢状/岛叶参数化片层 + 核团椭球/管状扫掠），其空间定位参照标准 MNI152 空间的常用坐标近似值；它不来自任何被试的 MRI 分割，不能用于定位、导航或临床决策。刺激靶区标记同理，仅表示"文献中报告过的靶结构"，不代表可实施的声学/电场剂量方案。',
+      '二、脑区与网络的科学依据分级。页面内每个脑区与网络均标注证据来源：[本地-报告] 为本机技术报告《酒精成瘾病变脑区与刺激靶点》（2026-08-19）；[本地-文献] 为本机 CherryStudio 文献库内已入库全文（源级 EEG 连接组的节点度/中介中心性、eLORETA delta 滞后相位同步的戒断预后、线索诱发 beta 与渴求相关、iRISA 综述、tTIS/tFUS 可行性研究等）；[联网-题录] 为联网检索得到的 2025–2026 元分析/系统综述/注册试验，本次仅核对题录与摘要，未逐篇复核全文数值；[共识-环路] 为成瘾神经环路的教科书级共识（Koob 三阶段模型、扩展杏仁核负强化、反奖赏系统等），其中相当部分主要来自动物实验。',
+      '三、联网核验记录。本次构建期间联网核对了两项题录：其一，灰质多模态 SDM-PSI 元分析（Long 等, Drug and Alcohol Dependence 283:113119）确认存在且主题一致；其二，靶向杏仁核的经颅时域干涉刺激治疗酒精使用障碍临床试验（NCT07472673, 10 Hz）确认已注册。其余联网条目（静息态 fMRI 元分析 Ran 2026、任务态 fMRI 元分析 Roberge 2025、功能连接系统综述 Bottino 2025）沿用本地技术报告中的题录声明，同样仅核对题录，未逐篇复核全文。',
+      '四、分类的可争议性。"渴求驱动 / 抑制控制"是为可视化服务的二分简化。真实脑区多具双重角色：前岛叶既生成渴求意识、也是扣带-岛盖控制网络节点；后岛叶的内感受输入不足与更强渴求并存；mPFC 同时属于 DMN 与价值调控系统。页面对每个存在争议的归类都在"病变性质"栏内写明理由，使用者应把它读作"主导作用归类"，而不是排他性事实。',
+      '五、连接线的含义。连线表示文献中报告过的功能连接关系（源级 EEG delta/PLV、静息态 fMRI rsFC、或解剖学已确立的投射通路），线条走向为便于观察的贝塞尔走线，不表示真实白质纤维束走径；线宽与流动动画只用于视觉分组，不编码连接强度的定量数值。',
+      '六、疗效边界。目前没有任何技术被现有证据支持为"明显治愈"酒精使用障碍。rTMS/tDCS 有中等证据降低渴求，DBS/tTIS/tFUS 仍属探索阶段。页面中的"刺激靶区"仅为文献报告的靶结构汇总，不构成治疗建议。'
+    ]
+  };
+
+  /* --------------------------------------------- 派生索引：脑区 ↔ 网络映射 */
+  function buildIndex() {
+    var byId = {};
+    REGIONS.forEach(function (r) {
+      r.networks = [];
+      byId[r.id] = r;
+    });
+    var netById = {};
+    NETWORKS.forEach(function (n) {
+      netById[n.id] = n;
+      var nodes = {};
+      n.edges.forEach(function (e) {
+        if (!byId[e[0]] || !byId[e[1]]) {
+          throw new Error('网络 ' + n.id + ' 引用了未定义脑区: ' + e[0] + '/' + e[1]);
+        }
+        nodes[e[0]] = true; nodes[e[1]] = true;
+      });
+      n.nodes = Object.keys(nodes);
+      n.nodes.forEach(function (rid) {
+        if (byId[rid].networks.indexOf(n.id) < 0) { byId[rid].networks.push(n.id); }
+      });
+    });
+    return { byId: byId, netById: netById };
+  }
+
+  var IDX = buildIndex();
+
+  NS.atlas = {
+    GROUPS: GROUPS,
+    REGIONS: REGIONS,
+    NETWORKS: NETWORKS,
+    DISCLOSURE: DISCLOSURE,
+    regionById: IDX.byId,
+    networkById: IDX.netById,
+    /* 统计：用于左上面板的元信息显示 */
+    stats: function () {
+      var g = { craving: 0, control: 0, associated: 0 }, targets = 0;
+      REGIONS.forEach(function (r) {
+        g[r.group]++;
+        if (r.target && r.target.is) { targets++; }
+      });
+      var edgeCount = 0;
+      NETWORKS.forEach(function (n) {
+        n.edges.forEach(function (e) { edgeCount += (e[2] === 'ipsi' || e[2] === 'contra') ? 2 : 1; });
+      });
+      return {
+        regions: REGIONS.length, groups: g, networks: NETWORKS.length,
+        edges: edgeCount, targets: targets
+      };
+    }
+  };
+})(window.AUD);
+
+/* ==== js/30-brain-model.js ==== */
+/* =============================================================================
+ * 30-brain-model.js — 程序化解剖建模
+ *
+ * 建模策略（零第三方引擎、纯解析几何）：
+ *   1. 脑壳：二十面体细分球 → 椭球基底（近似 MNI 尺度）→ 依次施加解剖学约束形变
+ *      （额极收窄、枕极收窄、颞底压平、小脑窝抬升、大脑外侧裂沟槽、中央沟沟槽、
+ *        半球间裂沟槽）→ fBm 脑回褶皱 → 重算法线。
+ *   2. 皮层脑区：在形变后的脑壳上按解剖学判据做互斥分区（parcellation），
+ *      面片 = 三顶点同标签的三角面；精确边界 = 只出现一次的边（边界边）。
+ *   3. 内侧皮层（mPFC / dACC / PCC / 楔前叶）：以胼胝体为圆心的极坐标弧带片层，
+ *      与真实扣带回环绕胼胝体的形态一致，边界平滑。
+ *   4. 岛叶：埋于外侧裂深部的椭圆板层（极坐标圆盘网格，边界平滑）。
+ *   5. 深部核团：椭球（伏隔核、杏仁核、丘脑、缰核、终纹床核、壳核）
+ *      与管状扫掠（尾状核、海马）——均带表面微起伏。
+ *   6. 装饰性解剖结构（小脑、脑干、胼胝体）：仅供解剖参照，不参与拾取与统计。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var M = NS.math, G = NS.geom, V = M.V;
+
+  /* ------------------------------------------------------------ 全局尺度 */
+  var BRAIN = {
+    center: [0, -14, 12],     // 椭球中心（MNI 近似）
+    ax: 66, ay: 86, az: 57,   // 三半轴（mm）
+    shellSubdiv: 5,           // 10242 顶点 / 20480 面
+    callosalCenter: [-6, 16]  // (y, z) 胼胝体断面中心：内侧弧带极坐标原点
+  };
+
+  /* 大脑外侧裂（Sylvian fissure）走线：右半球，前下 → 后上 */
+  var SYLVIAN_R = [
+    [45, 27, -7], [51, 15, -3], [53, 2, 3], [50, -13, 9], [43, -28, 15], [33, -40, 20]
+  ];
+  /* 中央沟走线：右半球，上内 → 下外 */
+  var CENTRAL_R = [
+    [14, -31, 66], [30, -26, 59], [43, -19, 48], [52, -11, 34], [57, -5, 24]
+  ];
+
+  function mirrorPolyline(pts) {
+    return pts.map(function (p) { return [-p[0], p[1], p[2]]; });
+  }
+  var SYLVIAN_L = mirrorPolyline(SYLVIAN_R);
+  var CENTRAL_L = mirrorPolyline(CENTRAL_R);
+
+  /* --------------------------------------------------------- 脑壳形状函数
+   * dir: 单位球面方向 → 返回 MNI 空间点
+   */
+  function shellPoint(dir) {
+    var C = BRAIN.center;
+    var p = [dir[0] * BRAIN.ax, dir[1] * BRAIN.ay, dir[2] * BRAIN.az];
+    p = [p[0] + C[0], p[1] + C[1], p[2] + C[2]];
+
+    /* (1) 额极收窄 + 轻度下压：前额比顶部窄 */
+    var tf = M.smoothstep(18, 72, p[1]);
+    p[0] *= (1 - 0.22 * tf);
+    p[2] = C[2] + (p[2] - C[2]) * (1 - 0.14 * tf);
+
+    /* (2) 枕极收窄 */
+    var to = M.smoothstep(-52, -100, p[1]);
+    p[0] *= (1 - 0.24 * to);
+    p[2] = C[2] + (p[2] - C[2]) * (1 - 0.12 * to);
+
+    /* (3) 颞底压平（真实脑底面接近平面） */
+    if (p[2] < -24) { p[2] = -24 + (p[2] + 24) * 0.60; }
+
+    /* (4) 小脑窝：后下方抬升，为小脑与小脑幕留出空间 */
+    var tn = M.smoothstep(-28, -68, p[1]) * M.smoothstep(-4, -28, p[2]);
+    p[2] += 25 * tn;
+
+    /* (5) 大脑外侧裂沟槽：向局部中心内推 */
+    var dSyl = Math.min(M.pointPolylineDist(p, SYLVIAN_R), M.pointPolylineDist(p, SYLVIAN_L));
+    var gSyl = 9.0 * Math.exp(-(dSyl / 7.5) * (dSyl / 7.5));
+
+    /* (6) 中央沟沟槽（较浅，用于解剖辨识） */
+    var dCS = Math.min(M.pointPolylineDist(p, CENTRAL_R), M.pointPolylineDist(p, CENTRAL_L));
+    var gCS = 3.6 * Math.exp(-(dCS / 5.0) * (dCS / 5.0));
+
+    var inward = V.norm([C[0] - p[0], C[1] - p[1], C[2] - p[2]]);
+    var push = gSyl + gCS;
+    p = [p[0] + inward[0] * push, p[1] + inward[1] * push, p[2] + inward[2] * push];
+
+    /* (7) 半球间裂：顶部近中线下压 */
+    var midl = 10.5 * Math.exp(-Math.pow(p[0] / 7.0, 2)) * M.smoothstep(14, 34, p[2]);
+    p[2] -= midl;
+
+    /* (8) 脑回褶皱：fBm 沿径向位移（沟槽处衰减以保留大裂隙） */
+    var damp = 1 - 0.75 * Math.exp(-Math.pow(dSyl / 9.0, 2));
+    var n1 = M.fbm3(p[0] * 0.055, p[1] * 0.055, p[2] * 0.055, 3, 1, 0.55, 2.1);
+    var n2 = M.fbm3(p[0] * 0.13 + 5.1, p[1] * 0.13 + 2.7, p[2] * 0.13 + 9.4, 2, 1, 0.5, 2.0);
+    var fold = (n1 * 2.5 + n2 * 1.0) * damp;
+    var outward = V.norm([p[0] - C[0], p[1] - C[1], p[2] - C[2]]);
+    p = [p[0] + outward[0] * fold, p[1] + outward[1] * fold, p[2] + outward[2] * fold];
+
+    return p;
+  }
+
+  function buildShell() {
+    var mesh = G.shapeSphere(BRAIN.shellSubdiv, shellPoint);
+    mesh.normals = G.computeNormals(mesh.verts, mesh.faces);
+    return mesh;
+  }
+
+  /* --------------------------------------------------- 皮层分区解剖学判据
+   * 全部以形变后的 MNI 近似坐标 + 顶点法线判定，互斥（优先级从前到后）。
+   */
+  function zSylvian(y) {
+    // 外侧裂在侧面的高度：前下(-8) → 后上(+18)
+    return -8 + 0.40 * (20 - Math.min(y, 20));
+  }
+  function yCentral(z) {
+    // 中央沟在侧面的前后位置：越靠上越靠后
+    return -32 + (72 - z) * 0.60;
+  }
+
+  var CORTEX_RULES = {
+    /* 眶额皮层：额叶底面（法线朝下） */
+    ofc: function (p, n) {
+      var ax = Math.abs(p[0]);
+      return p[1] > 18 && p[2] < -6 && ax < 44 && n[2] < -0.20;
+    },
+    /* 额下交界 / 腹外侧前额叶：外侧裂上方的额叶外侧下部 */
+    ifj: function (p, n) {
+      var ax = Math.abs(p[0]);
+      return p[1] > 0 && p[1] < 48 && ax > 29 && Math.abs(n[0]) > 0.40 &&
+        p[2] > zSylvian(p[1]) + 1 && p[2] < 27;
+    },
+    /* 背外侧前额叶：中央沟之前、外侧裂之上的额叶背外侧面 */
+    dlpfc: function (p, n) {
+      var ax = Math.abs(p[0]);
+      return p[1] > yCentral(p[2]) + 3 && p[2] > 14 && ax > 20 && p[1] < 66 &&
+        p[2] > zSylvian(p[1]) + 2;
+    },
+    /* 中央后回：中央沟后方的条带 */
+    postcentral: function (p, n) {
+      var ax = Math.abs(p[0]);
+      var yc = yCentral(p[2]);
+      return p[2] > 26 && ax > 16 && p[1] < yc - 1 && p[1] > yc - 20;
+    },
+    /* 后顶叶 / 顶下小叶 */
+    ppc: function (p, n) {
+      var ax = Math.abs(p[0]);
+      return p[2] > 22 && ax > 22 && p[1] < yCentral(p[2]) - 20 && p[1] > -74;
+    },
+    /* 顶内沟 / 枕叶视觉皮层 */
+    ips_occ: function (p, n) {
+      var ax = Math.abs(p[0]);
+      return p[1] < -64 && ax > 14 && p[2] > -16 && p[2] < 46;
+    }
+  };
+  var CORTEX_PRIORITY = ['ofc', 'ifj', 'dlpfc', 'postcentral', 'ppc', 'ips_occ'];
+
+  function parcellate(shell) {
+    var labels = new Array(shell.verts.length);
+    for (var i = 0; i < shell.verts.length; i++) {
+      var p = shell.verts[i], n = shell.normals[i];
+      labels[i] = null;
+      for (var r = 0; r < CORTEX_PRIORITY.length; r++) {
+        var id = CORTEX_PRIORITY[r];
+        if (CORTEX_RULES[id](p, n)) { labels[i] = id + (p[0] >= 0 ? '_R' : '_L'); break; }
+      }
+    }
+    return labels;
+  }
+
+  /* --------------------------------------------------------- 极坐标圆盘片层
+   * 用于岛叶板层：中心顶点 + 同心环 → 平滑椭圆边界
+   */
+  function discSheet(nAngle, nRadial, mapFn) {
+    var verts = [mapFn(0, 0)], faces = [], ringStart = [];
+    for (var r = 1; r <= nRadial; r++) {
+      ringStart.push(verts.length);
+      for (var a = 0; a < nAngle; a++) {
+        verts.push(mapFn(a / nAngle, r / nRadial));
+      }
+    }
+    // 中心扇面
+    for (var a2 = 0; a2 < nAngle; a2++) {
+      faces.push([0, ringStart[0] + a2, ringStart[0] + (a2 + 1) % nAngle]);
+    }
+    // 环间四边形
+    for (var r2 = 0; r2 < nRadial - 1; r2++) {
+      for (var a3 = 0; a3 < nAngle; a3++) {
+        var i0 = ringStart[r2] + a3, i1 = ringStart[r2] + (a3 + 1) % nAngle;
+        var i2 = ringStart[r2 + 1] + a3, i3 = ringStart[r2 + 1] + (a3 + 1) % nAngle;
+        faces.push([i0, i2, i1], [i1, i2, i3]);
+      }
+    }
+    // 外边界环（精确边界线）
+    var outline = [];
+    var last = ringStart[nRadial - 1];
+    for (var a4 = 0; a4 < nAngle; a4++) {
+      outline.push([last + a4, last + (a4 + 1) % nAngle]);
+    }
+    return { verts: verts, faces: faces, outline: outline };
+  }
+
+  /* ---------------------------------------------------------- 内侧弧带片层
+   * 以胼胝体断面中心为极点，在矢状面内取 (θ, r) 网格 —— 与扣带回环绕
+   * 胼胝体的解剖形态一致。theta 以 +y（前）为 0°，向 +z（上）为正。
+   */
+  function arcBandSheet(spec, side) {
+    var nA = 26, nR = 10;
+    var cy = BRAIN.callosalCenter[0], cz = BRAIN.callosalCenter[1];
+    var t0 = spec.theta[0] * M.DEG, t1 = spec.theta[1] * M.DEG;
+    var r0 = spec.r[0], r1 = spec.r[1];
+    var clip = spec.ellipseClip === undefined ? 0.90 : spec.ellipseClip;
+    var sgn = side === 'L' ? -1 : 1;
+
+    function ellipseVal(y, z) {
+      var dy = (y - BRAIN.center[1]) / BRAIN.ay, dz = (z - BRAIN.center[2]) / BRAIN.az;
+      return dy * dy + dz * dz;
+    }
+    function mapFn(u, v) {
+      var th = M.mix(t0, t1, u);
+      var rr = M.mix(r0, r1, v);
+      var y = cy + rr * Math.cos(th);
+      var z = cz + rr * Math.sin(th);
+      // 越靠片层中部越向外鼓，模拟内侧壁的轻度外凸
+      var bulge = 1.8 * Math.sin(Math.PI * v) * Math.sin(Math.PI * u);
+      var x = sgn * (spec.xPlane + bulge);
+      return [x, y, z];
+    }
+    var grid = G.sheet(nA, nR, mapFn, function (u, v) {
+      var p = mapFn(u, v);
+      return ellipseVal(p[1], p[2]) < clip;
+    });
+    grid.outline = G.boundaryEdges(grid.faces);
+    return grid;
+  }
+
+  /* ------------------------------------------------------------- 岛叶板层 */
+  function insulaSheet(spec, side) {
+    var sgn = side === 'L' ? -1 : 1;
+    var cy = spec.center[0], cz = spec.center[1];
+    return discSheet(30, 7, function (u, v) {
+      var a = u * Math.PI * 2;
+      var y = cy + spec.radii[0] * v * Math.cos(a);
+      var z = cz + spec.radii[1] * v * Math.sin(a);
+      // 板层随 z 轻微外倾，并在中部略鼓（岛叶不是理想平面）
+      var x = sgn * (spec.xPlane + (spec.tiltY || 0) * (z - cz) + 1.4 * (1 - v * v));
+      return [x, y, z];
+    });
+  }
+
+  /* ---------------------------------------------- 单个脑区实例的几何构建 */
+  function buildRegionGeometry(region, side, shell, labels) {
+    var g = region.geom, mesh = null, outlineEdges = null;
+
+    if (g.type === 'cortexPatch') {
+      var sub = G.subsetByLabel(shell.verts, shell.faces, labels, g.rule + '_' + side);
+      if (!sub.faces.length) { return null; }
+      var nrm = G.computeNormals(sub.verts, sub.faces);
+      sub.verts = G.offsetVerts(sub.verts, nrm, 1.1);   // 抬离脑壳，避免共面
+      mesh = sub;
+      outlineEdges = G.boundaryEdges(sub.faces);
+    } else if (g.type === 'arcBand') {
+      var band = arcBandSheet(g, side);
+      if (!band.faces.length) { return null; }
+      mesh = band;
+      outlineEdges = band.outline;
+    } else if (g.type === 'insula') {
+      var ins = insulaSheet(g, side);
+      mesh = ins;
+      outlineEdges = ins.outline;
+    } else if (g.type === 'blob') {
+      var c = region.mni.slice();
+      if (side === 'L') { c[0] = -c[0]; }
+      var eul = g.euler || [0, 0, 0];
+      if (side === 'L') { eul = [eul[0], -eul[1], -eul[2]]; }
+      mesh = G.blob(c, g.radii, eul, {
+        subdiv: g.subdiv === undefined ? 3 : g.subdiv,
+        noiseAmp: g.noiseAmp, seed: (g.seed || 1) + (side === 'L' ? 100 : 0)
+      });
+      outlineEdges = [];
+    } else if (g.type === 'tube') {
+      var pts = g.points.map(function (p) { return side === 'L' ? [-p[0], p[1], p[2]] : p.slice(); });
+      var rs = G.catmullRomResample(pts, g.radii, g.samples || 16);
+      mesh = G.tube(rs.points, rs.radii, g.segs || 16, true, true);
+      outlineEdges = [];
+    } else {
+      throw new Error('未知脑区几何类型: ' + g.type);
+    }
+
+    var normals = G.computeNormals(mesh.verts, mesh.faces);
+    var bs = G.boundingSphere(mesh.verts);
+
+    /* 边界线：沿法线再抬 0.7mm，保证描边浮于面片之上 */
+    var outline = null;
+    if (outlineEdges && outlineEdges.length) {
+      var ov = G.offsetVerts(mesh.verts, normals, 0.7);
+      var seg = new Float32Array(outlineEdges.length * 6);
+      for (var e = 0; e < outlineEdges.length; e++) {
+        var a = ov[outlineEdges[e][0]], b = ov[outlineEdges[e][1]];
+        seg[e * 6] = a[0]; seg[e * 6 + 1] = a[1]; seg[e * 6 + 2] = a[2];
+        seg[e * 6 + 3] = b[0]; seg[e * 6 + 4] = b[1]; seg[e * 6 + 5] = b[2];
+      }
+      outline = { segments: seg, count: outlineEdges.length };
+    }
+
+    /* 锚点：距质心最近的网格顶点。C 形面片（如枕叶、海马、尾状核）的质心
+     * 位于结构之外，直接用质心会让标签、节点标记与连线端点脱离解剖结构。 */
+    var cen = G.centroid(mesh.verts);
+    var anchor = mesh.verts[0], bestD = Infinity;
+    for (var vi = 0; vi < mesh.verts.length; vi++) {
+      var dv = V.dist(cen, mesh.verts[vi]);
+      if (dv < bestD) { bestD = dv; anchor = mesh.verts[vi]; }
+    }
+
+    return {
+      packed: G.pack(mesh.verts, mesh.faces, normals),
+      verts: mesh.verts, faces: mesh.faces,
+      outline: outline,
+      centroid: cen,
+      anchor: [anchor[0], anchor[1], anchor[2]],
+      anchorOffsetFromCentroid: bestD,
+      bsphere: bs,
+      area: G.surfaceArea(mesh.verts, mesh.faces),
+      volume: (g.type === 'blob' || g.type === 'tube') ? G.meshVolume(mesh.verts, mesh.faces) : 0,
+      doubleSided: (g.type === 'arcBand' || g.type === 'insula' || g.type === 'cortexPatch')
+    };
+  }
+
+  /* -------------------------------------------------- 装饰性解剖参照结构 */
+  function buildStructures() {
+    var out = [];
+
+    /* 小脑：横向叶片（folia）微起伏 + 蚓部纵沟 */
+    var cbCenter = [0, -63, -35];
+    var cerebellum = G.blob(cbCenter, [37, 24, 19], [0.10, 0, 0], {
+      subdiv: 4, noiseAmp: 0.035, seed: 7,
+      warp: function (p) {
+        var out2 = p.slice();
+        var dirv = V.norm(V.sub(p, cbCenter));
+        var folia = 0.95 * Math.sin(p[2] * 0.85 + p[1] * 0.22);
+        var vermis = -3.4 * Math.exp(-Math.pow(p[0] / 5.5, 2));
+        var k = folia + vermis;
+        out2[0] += dirv[0] * k; out2[1] += dirv[1] * k; out2[2] += dirv[2] * k;
+        return out2;
+      }
+    });
+    out.push({ id: 'cerebellum', zh: '小脑', mesh: cerebellum });
+
+    /* 脑干：中脑 → 脑桥（膨大）→ 延髓 */
+    var stem = G.tube(
+      [[0, -15, -3], [0, -21, -17], [0, -26, -31], [0, -30, -45], [0, -32, -57]],
+      [11, 12.6, 9.2, 7.2, 6.0], 16, true, true
+    );
+    out.push({ id: 'brainstem', zh: '脑干', mesh: stem });
+
+    /* 胼胝体：矢状弧 + x 向展宽为板状 */
+    var cc = G.tube(
+      [[0, 27, 3], [0, 21, 15], [0, 7, 23], [0, -11, 24], [0, -27, 17], [0, -36, 6]],
+      [4.2, 5.0, 5.0, 5.0, 5.4, 4.6], 14, true, true
+    );
+    cc.verts = cc.verts.map(function (p) { return [p[0] * 4.8, p[1], p[2]]; });
+    out.push({ id: 'callosum', zh: '胼胝体', mesh: cc });
+
+    return out.map(function (s) {
+      var nrm = G.computeNormals(s.mesh.verts, s.mesh.faces);
+      return {
+        id: s.id, zh: s.zh,
+        packed: G.pack(s.mesh.verts, s.mesh.faces, nrm),
+        bsphere: G.boundingSphere(s.mesh.verts)
+      };
+    });
+  }
+
+  /* --------------------------------------------------------- 网络连线几何
+   * 锚点：脑区实例质心（皮层面片向脑内收 8mm，使连线走行于白质内部）
+   * 走线：二次贝塞尔，控制点向脑中心内收，模拟经白质的走行
+   */
+  function anchorOf(inst, region) {
+    var c = (inst.anchor || inst.centroid).slice();
+    var deep = (region.layer === 'deep' || region.layer === 'brainstem');
+    if (!deep) {
+      var toCenter = V.norm(V.sub(BRAIN.center, c));
+      var pull = region.layer === 'cortex-insular' ? 3 : 9;
+      c = [c[0] + toCenter[0] * pull, c[1] + toCenter[1] * pull, c[2] + toCenter[2] * pull];
+    }
+    return c;
+  }
+
+  function buildNetworkEdges(instances, atlas) {
+    var edges = [];
+    atlas.NETWORKS.forEach(function (net) {
+      net.edges.forEach(function (spec) {
+        var aId = spec[0], bId = spec[1], rule = spec[2];
+        var pairs = [];
+        if (rule === 'ipsi') { pairs = [['R', 'R'], ['L', 'L']]; }
+        else if (rule === 'contra') { pairs = [['R', 'L'], ['L', 'R']]; }
+        else if (rule === 'homo') { pairs = [['R', 'L']]; }
+        else { throw new Error('未知连接规则: ' + rule); }
+
+        pairs.forEach(function (pr) {
+          var ia = instances[aId + '_' + pr[0]], ib = instances[bId + '_' + pr[1]];
+          if (!ia || !ib) { return; }
+          var pa = anchorOf(ia, ia.region), pb = anchorOf(ib, ib.region);
+          var mid = V.scale(V.add(pa, pb), 0.5);
+          var toC = V.sub(BRAIN.center, mid);
+          var ctrl = V.add(mid, V.scale(toC, 0.20));
+          var pts = G.quadBezier(pa, ctrl, pb, 22);
+          var len = 0;
+          for (var i = 0; i < pts.length - 1; i++) { len += V.dist(pts[i], pts[i + 1]); }
+          edges.push({
+            network: net.id,
+            a: aId + '_' + pr[0], b: bId + '_' + pr[1],
+            regionA: aId, regionB: bId, rule: rule,
+            points: pts, length: len
+          });
+        });
+      });
+    });
+    return edges;
+  }
+
+  /* --------------------------------------------------------------- 构建全模型 */
+  function build(atlas) {
+    var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var shell = buildShell();
+    var labels = parcellate(shell);
+
+    var instances = {}, order = [];
+    atlas.REGIONS.forEach(function (region) {
+      var sides = region.symmetric ? ['R', 'L'] : ['M'];
+      sides.forEach(function (side) {
+        var geo = buildRegionGeometry(region, side, shell, labels);
+        if (!geo) {
+          throw new Error('脑区几何为空（分区判据未命中任何面）: ' + region.id + '_' + side);
+        }
+        var key = region.id + '_' + side;
+        geo.key = key; geo.regionId = region.id; geo.side = side; geo.region = region;
+        instances[key] = geo;
+        order.push(key);
+      });
+    });
+
+    var edges = buildNetworkEdges(instances, atlas);
+    var structures = buildStructures();
+
+    var shellNormals = shell.normals;
+    var shellPacked = G.pack(shell.verts, shell.faces, shellNormals);
+
+    var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+    /* 分区覆盖统计（用于自检与面板显示） */
+    var labelled = 0;
+    for (var i = 0; i < labels.length; i++) { if (labels[i]) { labelled++; } }
+
+    var triTotal = shellPacked.triCount;
+    order.forEach(function (k) { triTotal += instances[k].packed.triCount; });
+    structures.forEach(function (s) { triTotal += s.packed.triCount; });
+
+    return {
+      brain: BRAIN,
+      shell: { packed: shellPacked, verts: shell.verts, faces: shell.faces },
+      instances: instances,
+      order: order,
+      edges: edges,
+      structures: structures,
+      meta: {
+        buildMs: Math.round(t1 - t0),
+        shellVerts: shell.verts.length,
+        shellTris: shell.faces.length,
+        parcellatedVerts: labelled,
+        parcellationRatio: labelled / shell.verts.length,
+        instanceCount: order.length,
+        edgeCount: edges.length,
+        triangles: triTotal
+      }
+    };
+  }
+
+  NS.model = {
+    build: build,
+    BRAIN: BRAIN,
+    shellPoint: shellPoint,
+    CORTEX_RULES: CORTEX_RULES,
+    zSylvian: zSylvian,
+    yCentral: yCentral
+  };
+})(window.AUD);
+
+/* ==== js/40-renderer.js ==== */
+/* =============================================================================
+ * 40-renderer.js — 自研 WebGL 渲染内核（不依赖任何三方图形引擎）
+ *
+ * 四个着色程序：
+ *   bg        全屏渐变 + 暗角（医疗仿真底色）
+ *   surface   毛玻璃/磨砂半透明表面（半兰伯特次表面近似 + 菲涅尔边缘 + 颗粒噪声）
+ *   thickline 屏幕空间等宽粗线（脑区精确边界描边、网络连线、立方体框架、面网格）
+ *   sprite    点精灵（网络节点、刺激靶区环形标记）
+ *
+ * 透明度策略：全场景均为半透明，关闭深度写入与深度测试，改用
+ *   「脑壳背面 → 深度排序的物件 → 脑壳正面」的绘制顺序 + 面剔除拆分，
+ * 在不引入 A-buffer 的前提下获得稳定正确的层次感。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var M = NS.math;
+
+  /* ------------------------------------------------------------- 着色器源 */
+  var VS_BG = [
+    'attribute vec2 aPos;',
+    'varying vec2 vUv;',
+    'void main(){ vUv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }'
+  ].join('\n');
+
+  var FS_BG = [
+    'precision highp float;',
+    'varying vec2 vUv;',
+    'uniform vec3 uTop;',
+    'uniform vec3 uBottom;',
+    'uniform float uVignette;',
+    'void main(){',
+    '  vec3 c = mix(uBottom, uTop, pow(vUv.y, 0.85));',
+    '  vec2 d = (vUv - 0.5) * vec2(1.15, 1.0);',
+    '  float v = 1.0 - uVignette * dot(d, d) * 1.35;',
+    '  c *= clamp(v, 0.0, 1.0);',
+    '  gl_FragColor = vec4(c, 1.0);',
+    '}'
+  ].join('\n');
+
+  var VS_SURFACE = [
+    'attribute vec3 aPos;',
+    'attribute vec3 aNormal;',
+    'uniform mat4 uMVP;',
+    'uniform mat4 uModel;',
+    'uniform mat3 uNormalMat;',
+    'varying vec3 vWorld;',
+    'varying vec3 vNormal;',
+    'void main(){',
+    '  vec4 w = uModel * vec4(aPos, 1.0);',
+    '  vWorld = w.xyz;',
+    '  vNormal = uNormalMat * aNormal;',
+    '  gl_Position = uMVP * vec4(aPos, 1.0);',
+    '}'
+  ].join('\n');
+
+  var FS_SURFACE = [
+    'precision highp float;',
+    'varying vec3 vWorld;',
+    'varying vec3 vNormal;',
+    'uniform vec3 uCamPos;',
+    'uniform vec3 uColor;',
+    'uniform float uAlpha;',
+    'uniform float uBright;',
+    'uniform float uRim;',
+    'uniform float uSpecular;',
+    'uniform float uFresnelAlpha;',
+    'uniform float uFrost;',
+    'uniform float uDoubleSided;',
+    'uniform vec3 uFogColor;',
+    'uniform vec2 uFogRange;',
+    'void main(){',
+    '  vec3 N = normalize(vNormal);',
+    '  if (uDoubleSided > 0.5 && !gl_FrontFacing) { N = -N; }',
+    '  vec3 Vv = normalize(uCamPos - vWorld);',
+    '  vec3 L1 = normalize(vec3(-0.42, 0.58, 0.70));',   // 主光：左上前
+    '  vec3 L2 = normalize(vec3(0.62, -0.30, -0.52));',  // 补光：右下后
+    '  float ndv = abs(dot(N, Vv));',
+    '  float fres = pow(1.0 - ndv, 2.6);',
+    '  float wrap = 0.5 + 0.5 * dot(N, L1);',            // 半兰伯特：模拟次表面透光
+    '  float d1 = max(dot(N, L1), 0.0);',
+    '  float d2 = max(dot(N, L2), 0.0);',
+    '  vec3 H = normalize(L1 + Vv);',
+    '  float spec = pow(max(dot(N, H), 0.0), 46.0);',
+    /* 磨砂颗粒：世界坐标高频哈希，制造毛玻璃质感 */
+    '  float grain = fract(sin(dot(vWorld.xy * 0.83 + vWorld.z * 0.41, vec2(12.9898, 78.233))) * 43758.5453);',
+    '  vec3 base = uColor * uBright;',
+    '  vec3 col = base * (0.32 + 0.46 * wrap + 0.40 * d1 + 0.10 * d2);',
+    '  col += vec3(1.0) * spec * 0.30 * uSpecular;',
+    '  col += base * fres * uRim * 1.00;',
+    '  col += vec3(0.86, 0.91, 0.97) * fres * uRim * 0.22;',
+    '  float a = uAlpha * mix(1.0, fres, uFresnelAlpha);',
+    '  a *= (1.0 - uFrost * 0.30) + uFrost * 0.30 * grain;',
+    '  float dist = length(uCamPos - vWorld);',
+    '  float fog = clamp((dist - uFogRange.x) / max(uFogRange.y - uFogRange.x, 1e-3), 0.0, 1.0);',
+    '  col = mix(col, uFogColor, fog * 0.55);',
+    '  a *= (1.0 - fog * 0.38);',
+    '  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));',
+    '}'
+  ].join('\n');
+
+  var VS_LINE = [
+    'attribute vec3 aPos;',
+    'attribute vec3 aOther;',
+    'attribute vec3 aSideT;',            // x: 侧向 ±1, y: 沿线参数 t, z: 端点符号 ±1
+    'uniform mat4 uMVP;',
+    'uniform vec2 uViewport;',
+    'uniform float uWidth;',
+    'varying float vT;',
+    'varying float vSide;',
+    'void main(){',
+    '  vec4 cp = uMVP * vec4(aPos, 1.0);',
+    '  vec4 co = uMVP * vec4(aOther, 1.0);',
+    '  vec2 sp = cp.xy / max(cp.w, 1e-5) * uViewport;',
+    '  vec2 so = co.xy / max(co.w, 1e-5) * uViewport;',
+    '  vec2 dir = so - sp;',
+    '  float l = length(dir);',
+    '  dir = l > 1e-5 ? dir / l : vec2(1.0, 0.0);',
+    '  vec2 perp = vec2(-dir.y, dir.x) / uViewport;',
+    '  vec2 along = dir / uViewport;',
+    /* 沿线外扩半个线宽：相邻线段互相重叠，消除折线接缝处的缺口 */
+    '  vec2 off = (perp * aSideT.x + along * aSideT.z * 0.55) * uWidth;',
+    '  gl_Position = cp + vec4(off * cp.w, 0.0, 0.0);',
+    '  vT = aSideT.y;',
+    '  vSide = aSideT.x;',
+    '}'
+  ].join('\n');
+
+  var FS_LINE = [
+    'precision highp float;',
+    'varying float vT;',
+    'varying float vSide;',
+    'uniform vec3 uColor;',
+    'uniform float uAlpha;',
+    'uniform float uBright;',
+    'uniform float uFlow;',
+    'uniform float uTime;',
+    'uniform float uRepeat;',
+    'void main(){',
+    '  float prof = sqrt(max(0.0, 1.0 - vSide * vSide));',      // 圆截面软边
+    '  float w = fract(vT * uRepeat - uTime * 0.30);',
+    '  float pulse = smoothstep(0.0, 0.18, w) * smoothstep(0.62, 0.20, w);',
+    '  float amp = mix(1.0, 0.42 + 0.95 * pulse, uFlow);',
+    '  vec3 col = uColor * uBright * mix(1.0, 1.22, uFlow * pulse);',
+    '  gl_FragColor = vec4(col, clamp(uAlpha * amp * (0.35 + 0.65 * prof), 0.0, 1.0));',
+    '}'
+  ].join('\n');
+
+  var VS_SPRITE = [
+    'attribute vec3 aPos;',
+    'attribute vec2 aSizeKind;',
+    'uniform mat4 uMVP;',
+    'uniform float uScale;',
+    'varying float vKind;',
+    'void main(){',
+    '  vec4 cp = uMVP * vec4(aPos, 1.0);',
+    '  gl_Position = cp;',
+    '  gl_PointSize = clamp(aSizeKind.x * uScale / max(cp.w, 1e-3), 2.0, 96.0);',
+    '  vKind = aSizeKind.y;',
+    '}'
+  ].join('\n');
+
+  var FS_SPRITE = [
+    'precision highp float;',
+    'varying float vKind;',
+    'uniform vec3 uColor;',
+    'uniform float uAlpha;',
+    'void main(){',
+    '  vec2 q = gl_PointCoord - 0.5;',
+    '  float r = length(q) * 2.0;',
+    '  float a;',
+    '  if (vKind < 0.5) {',
+    /* 网络节点：实心软盘 + 深色描边环 */
+    '    float disc = smoothstep(1.0, 0.72, r);',
+    '    float ring = smoothstep(0.62, 0.86, r) * smoothstep(1.0, 0.88, r);',
+    '    a = disc * 0.85 + ring * 0.65;',
+    '  } else {',
+    /* 刺激靶区：双环 + 十字准线（医疗导航标记） */
+    '    float ring1 = smoothstep(0.52, 0.62, r) * smoothstep(0.80, 0.70, r);',
+    '    float ring2 = smoothstep(0.90, 0.97, r) * smoothstep(1.00, 0.98, r);',
+    '    float cross = (abs(q.x) < 0.035 || abs(q.y) < 0.035) ? smoothstep(1.0, 0.15, r) * 0.75 : 0.0;',
+    '    a = max(max(ring1, ring2 * 0.8), cross);',
+    '  }',
+    '  if (a < 0.01) { discard; }',
+    '  gl_FragColor = vec4(uColor, a * uAlpha);',
+    '}'
+  ].join('\n');
+
+  /* ------------------------------------------------------------ GL 辅助 */
+  function compile(gl, type, src, tag) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error('着色器编译失败 [' + tag + ']: ' + gl.getShaderInfoLog(sh));
+    }
+    return sh;
+  }
+
+  function program(gl, vs, fs, tag) {
+    var p = gl.createProgram();
+    gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vs, tag + '.vs'));
+    gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fs, tag + '.fs'));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error('着色器链接失败 [' + tag + ']: ' + gl.getProgramInfoLog(p));
+    }
+    var out = { prog: p, a: {}, u: {} };
+    var na = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES);
+    for (var i = 0; i < na; i++) {
+      var ai = gl.getActiveAttrib(p, i);
+      out.a[ai.name] = gl.getAttribLocation(p, ai.name);
+    }
+    var nu = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (var j = 0; j < nu; j++) {
+      var ui = gl.getActiveUniform(p, j);
+      out.u[ui.name] = gl.getUniformLocation(p, ui.name);
+    }
+    return out;
+  }
+
+  function buffer(gl, data, target) {
+    var b = gl.createBuffer();
+    gl.bindBuffer(target, b);
+    gl.bufferData(target, data, gl.STATIC_DRAW);
+    return b;
+  }
+
+  /* 由折线集合构造屏幕空间粗线的顶点数据
+   * polylines: [[p0,p1,...], ...]
+   * 返回 {pos, other, sideT, idx, ranges:[{start,count}]}
+   */
+  function buildLineGeometry(polylines) {
+    var pos = [], other = [], sideT = [], idx = [], ranges = [];
+    var vBase = 0;
+    for (var pi = 0; pi < polylines.length; pi++) {
+      var pts = polylines[pi];
+      var startIdx = idx.length;
+      var total = 0, cum = [0];
+      for (var s = 0; s < pts.length - 1; s++) {
+        var d = Math.sqrt(
+          Math.pow(pts[s + 1][0] - pts[s][0], 2) +
+          Math.pow(pts[s + 1][1] - pts[s][1], 2) +
+          Math.pow(pts[s + 1][2] - pts[s][2], 2)
+        );
+        total += d; cum.push(total);
+      }
+      if (total <= 0) { total = 1; }
+      for (var k = 0; k < pts.length - 1; k++) {
+        var a = pts[k], b = pts[k + 1];
+        var ta = cum[k] / total, tb = cum[k + 1] / total;
+        // 四个顶点：a(-1), a(+1), b(-1), b(+1)
+        pos.push(a[0], a[1], a[2], a[0], a[1], a[2], b[0], b[1], b[2], b[0], b[1], b[2]);
+        other.push(b[0], b[1], b[2], b[0], b[1], b[2], a[0], a[1], a[2], a[0], a[1], a[2]);
+        sideT.push(-1, ta, -1, 1, ta, -1, 1, tb, 1, -1, tb, 1);
+        idx.push(vBase, vBase + 1, vBase + 2, vBase, vBase + 2, vBase + 3);
+        vBase += 4;
+      }
+      ranges.push({ start: startIdx, count: idx.length - startIdx });
+    }
+    return {
+      pos: new Float32Array(pos), other: new Float32Array(other),
+      sideT: new Float32Array(sideT), idx: new Uint16Array(idx), ranges: ranges
+    };
+  }
+
+  /* 把线段数组（Float32Array，每 6 个浮点一段）转为折线集合 */
+  function segmentsToPolylines(seg, count) {
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      out.push([
+        [seg[i * 6], seg[i * 6 + 1], seg[i * 6 + 2]],
+        [seg[i * 6 + 3], seg[i * 6 + 4], seg[i * 6 + 5]]
+      ]);
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------- 渲染器 */
+  function create(canvas) {
+    var attrs = { alpha: false, antialias: true, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false };
+    var gl = canvas.getContext('webgl', attrs) || canvas.getContext('experimental-webgl', attrs);
+    if (!gl) { throw new Error('当前环境不支持 WebGL，无法渲染三维脑模型。'); }
+
+    var P = {
+      bg: program(gl, VS_BG, FS_BG, 'bg'),
+      surface: program(gl, VS_SURFACE, FS_SURFACE, 'surface'),
+      line: program(gl, VS_LINE, FS_LINE, 'line'),
+      sprite: program(gl, VS_SPRITE, FS_SPRITE, 'sprite')
+    };
+
+    var quadBuf = buffer(gl, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.ARRAY_BUFFER);
+
+    var R = {
+      gl: gl, canvas: canvas, programs: P,
+      dpr: 1, width: 1, height: 1,
+      surfaces: {},   // key → {pos,nrm,idx,count}
+      lines: {},      // key → {pos,other,sideT,idx,ranges}
+      sprites: {},    // key → {pos,sizeKind,count}
+      env: { fogColor: [0.90, 0.92, 0.94], fogNear: 1e9, fogFar: 1e9 },
+      stats: { drawCalls: 0, triangles: 0 }
+    };
+
+    /* 环境参数（空气透视）：每帧由应用层按缩放联动设置 */
+    R.setEnv = function (env) {
+      if (env.fogColor) { R.env.fogColor = env.fogColor; }
+      if (env.fogNear !== undefined) { R.env.fogNear = env.fogNear; }
+      if (env.fogFar !== undefined) { R.env.fogFar = env.fogFar; }
+    };
+
+    /* ---- 资源上传 ---- */
+    function uploadSurface(key, packed) {
+      R.surfaces[key] = {
+        pos: buffer(gl, packed.pos, gl.ARRAY_BUFFER),
+        nrm: buffer(gl, packed.nrm, gl.ARRAY_BUFFER),
+        idx: buffer(gl, packed.idx, gl.ELEMENT_ARRAY_BUFFER),
+        count: packed.idx.length,
+        tris: packed.triCount
+      };
+    }
+
+    function uploadLines(key, polylines) {
+      var g = buildLineGeometry(polylines);
+      R.lines[key] = {
+        pos: buffer(gl, g.pos, gl.ARRAY_BUFFER),
+        other: buffer(gl, g.other, gl.ARRAY_BUFFER),
+        sideT: buffer(gl, g.sideT, gl.ARRAY_BUFFER),
+        idx: buffer(gl, g.idx, gl.ELEMENT_ARRAY_BUFFER),
+        ranges: g.ranges,
+        count: g.idx.length
+      };
+      return R.lines[key];
+    }
+
+    function uploadSprites(key, list) {
+      var pos = new Float32Array(list.length * 3), sk = new Float32Array(list.length * 2);
+      for (var i = 0; i < list.length; i++) {
+        pos[i * 3] = list[i].p[0]; pos[i * 3 + 1] = list[i].p[1]; pos[i * 3 + 2] = list[i].p[2];
+        sk[i * 2] = list[i].size; sk[i * 2 + 1] = list[i].kind;
+      }
+      R.sprites[key] = {
+        pos: buffer(gl, pos, gl.ARRAY_BUFFER),
+        sizeKind: buffer(gl, sk, gl.ARRAY_BUFFER),
+        count: list.length,
+        items: list
+      };
+      return R.sprites[key];
+    }
+
+    R.uploadSurface = uploadSurface;
+    R.uploadLines = uploadLines;
+    R.uploadSprites = uploadSprites;
+
+    /* ---- 视口 ---- */
+    R.resize = function (cssW, cssH, dpr) {
+      R.dpr = Math.min(dpr || 1, 2);
+      R.width = Math.max(1, Math.round(cssW * R.dpr));
+      R.height = Math.max(1, Math.round(cssH * R.dpr));
+      canvas.width = R.width;
+      canvas.height = R.height;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      gl.viewport(0, 0, R.width, R.height);
+    };
+
+    /* ---- 绘制原语 ---- */
+    function drawBackground(top, bottom, vignette) {
+      var p = P.bg;
+      gl.useProgram(p.prog);
+      gl.disable(gl.BLEND);
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+      gl.enableVertexAttribArray(p.a.aPos);
+      gl.vertexAttribPointer(p.a.aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform3fv(p.u.uTop, top);
+      gl.uniform3fv(p.u.uBottom, bottom);
+      gl.uniform1f(p.u.uVignette, vignette);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      R.stats.drawCalls++;
+    }
+
+    var surfState = { bound: null };
+    function drawSurface(key, opt) {
+      var s = R.surfaces[key];
+      if (!s) { return; }
+      var p = P.surface;
+      if (surfState.bound !== 'surface') {
+        gl.useProgram(p.prog);
+        gl.enable(gl.BLEND);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        surfState.bound = 'surface';
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, s.pos);
+      gl.enableVertexAttribArray(p.a.aPos);
+      gl.vertexAttribPointer(p.a.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, s.nrm);
+      gl.enableVertexAttribArray(p.a.aNormal);
+      gl.vertexAttribPointer(p.a.aNormal, 3, gl.FLOAT, false, 0, 0);
+      gl.uniformMatrix4fv(p.u.uMVP, false, opt.mvp);
+      gl.uniformMatrix4fv(p.u.uModel, false, opt.model);
+      gl.uniformMatrix3fv(p.u.uNormalMat, false, opt.normalMat);
+      gl.uniform3fv(p.u.uCamPos, opt.camPos);
+      gl.uniform3fv(p.u.uColor, opt.color);
+      gl.uniform1f(p.u.uAlpha, opt.alpha);
+      gl.uniform1f(p.u.uBright, opt.bright);
+      gl.uniform1f(p.u.uRim, opt.rim === undefined ? 0.9 : opt.rim);
+      gl.uniform1f(p.u.uSpecular, opt.specular === undefined ? 1.0 : opt.specular);
+      gl.uniform1f(p.u.uFresnelAlpha, opt.fresnelAlpha === undefined ? 0.0 : opt.fresnelAlpha);
+      gl.uniform1f(p.u.uFrost, opt.frost === undefined ? 0.5 : opt.frost);
+      gl.uniform1f(p.u.uDoubleSided, opt.doubleSided ? 1 : 0);
+      gl.uniform3fv(p.u.uFogColor, R.env.fogColor);
+      gl.uniform2f(p.u.uFogRange, R.env.fogNear, R.env.fogFar);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, s.idx);
+
+      if (opt.cull === 'both' || opt.cull === undefined) {
+        gl.disable(gl.CULL_FACE);
+        gl.drawElements(gl.TRIANGLES, s.count, gl.UNSIGNED_SHORT, 0);
+        R.stats.drawCalls++; R.stats.triangles += s.tris;
+      } else if (opt.cull === 'sorted') {
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);   // 先画背面
+        gl.drawElements(gl.TRIANGLES, s.count, gl.UNSIGNED_SHORT, 0);
+        gl.cullFace(gl.BACK);    // 再画正面
+        gl.drawElements(gl.TRIANGLES, s.count, gl.UNSIGNED_SHORT, 0);
+        gl.disable(gl.CULL_FACE);
+        R.stats.drawCalls += 2; R.stats.triangles += s.tris;
+      } else {
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(opt.cull === 'front' ? gl.FRONT : gl.BACK);
+        gl.drawElements(gl.TRIANGLES, s.count, gl.UNSIGNED_SHORT, 0);
+        gl.disable(gl.CULL_FACE);
+        R.stats.drawCalls++; R.stats.triangles += s.tris;
+      }
+      surfState.bound = 'surface';
+    }
+
+    function drawLines(key, opt) {
+      var l = R.lines[key];
+      if (!l) { return; }
+      var p = P.line;
+      gl.useProgram(p.prog);
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.disable(gl.CULL_FACE);
+      gl.bindBuffer(gl.ARRAY_BUFFER, l.pos);
+      gl.enableVertexAttribArray(p.a.aPos);
+      gl.vertexAttribPointer(p.a.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, l.other);
+      gl.enableVertexAttribArray(p.a.aOther);
+      gl.vertexAttribPointer(p.a.aOther, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, l.sideT);
+      gl.enableVertexAttribArray(p.a.aSideT);
+      gl.vertexAttribPointer(p.a.aSideT, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, l.idx);
+      gl.uniformMatrix4fv(p.u.uMVP, false, opt.mvp);
+      gl.uniform2f(p.u.uViewport, R.width, R.height);
+      /* 线宽换算：uViewport 为设备像素，着色器内 nrm 已按 1/viewport 归一，
+       * 故 uWidth 直接取“设备像素宽度”即可得到恒定屏幕线宽。 */
+      gl.uniform1f(p.u.uWidth, (opt.width || 1.2) * R.dpr);
+      gl.uniform3fv(p.u.uColor, opt.color);
+      gl.uniform1f(p.u.uAlpha, opt.alpha);
+      gl.uniform1f(p.u.uBright, opt.bright === undefined ? 1 : opt.bright);
+      gl.uniform1f(p.u.uFlow, opt.flow || 0);
+      gl.uniform1f(p.u.uTime, opt.time || 0);
+      gl.uniform1f(p.u.uRepeat, opt.repeat === undefined ? 1.0 : opt.repeat);
+
+      if (opt.range) {
+        gl.drawElements(gl.TRIANGLES, opt.range.count, gl.UNSIGNED_SHORT, opt.range.start * 2);
+      } else if (opt.ranges) {
+        for (var i = 0; i < opt.ranges.length; i++) {
+          gl.drawElements(gl.TRIANGLES, opt.ranges[i].count, gl.UNSIGNED_SHORT, opt.ranges[i].start * 2);
+        }
+      } else {
+        gl.drawElements(gl.TRIANGLES, l.count, gl.UNSIGNED_SHORT, 0);
+      }
+      R.stats.drawCalls++;
+      surfState.bound = 'line';
+    }
+
+    function drawSprites(key, opt) {
+      var s = R.sprites[key];
+      if (!s || !s.count) { return; }
+      var p = P.sprite;
+      gl.useProgram(p.prog);
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.disable(gl.CULL_FACE);
+      gl.bindBuffer(gl.ARRAY_BUFFER, s.pos);
+      gl.enableVertexAttribArray(p.a.aPos);
+      gl.vertexAttribPointer(p.a.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, s.sizeKind);
+      gl.enableVertexAttribArray(p.a.aSizeKind);
+      gl.vertexAttribPointer(p.a.aSizeKind, 2, gl.FLOAT, false, 0, 0);
+      gl.uniformMatrix4fv(p.u.uMVP, false, opt.mvp);
+      gl.uniform1f(p.u.uScale, (opt.scale || 1) * R.dpr * 90);
+      gl.uniform3fv(p.u.uColor, opt.color);
+      gl.uniform1f(p.u.uAlpha, opt.alpha);
+      if (opt.first !== undefined) {
+        gl.drawArrays(gl.POINTS, opt.first, opt.pointCount);
+      } else {
+        gl.drawArrays(gl.POINTS, 0, s.count);
+      }
+      R.stats.drawCalls++;
+      surfState.bound = 'sprite';
+    }
+
+    R.drawBackground = drawBackground;
+    R.drawSurface = drawSurface;
+    R.drawLines = drawLines;
+    R.drawSprites = drawSprites;
+
+    R.beginFrame = function () {
+      R.stats.drawCalls = 0; R.stats.triangles = 0;
+      surfState.bound = null;
+      gl.viewport(0, 0, R.width, R.height);
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.clearColor(0.93, 0.94, 0.95, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    };
+
+    /* 上下文丢失提示（不静默失败） */
+    canvas.addEventListener('webglcontextlost', function (e) {
+      e.preventDefault();
+      if (NS.app && NS.app.onContextLost) { NS.app.onContextLost(); }
+    }, false);
+
+    return R;
+  }
+
+  NS.renderer = {
+    create: create,
+    buildLineGeometry: buildLineGeometry,
+    segmentsToPolylines: segmentsToPolylines
+  };
+})(window.AUD);
+
+/* ==== js/50-interaction.js ==== */
+/* =============================================================================
+ * 50-interaction.js — 相机、矩阵装配、鼠标绑定与 CPU 光线拾取
+ *
+ * 坐标约定：
+ *   MNI 空间（+x 右 / +y 前 / +z 上）→ 世界空间（+x 右 / +y 上 / +z 后）
+ *   由 AXIS 旋转矩阵完成，行列式为 +1（纯旋转，不产生左右镜像）。
+ * 拾取：屏幕坐标 → 反投影得到世界射线 → 逆模型矩阵变换回 MNI 空间 →
+ *   包围球剔除 + Möller–Trumbore 三角求交，取最近命中脑区实例。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var M = NS.math, V = M.V;
+
+  /* MNI → 世界：(x, y, z) → (x, z, -y) */
+  var AXIS = new Float32Array([
+    1, 0, 0, 0,
+    0, 0, -1, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1
+  ]);
+
+  function createCamera() {
+    return {
+      az: 120 * M.DEG,   // 方位角：0 = 正后位，90 = 右侧位
+      el: 14 * M.DEG,    // 仰角
+      dist: 520,
+      fov: 32,
+      pan: [0, 0],
+      home: { az: 120 * M.DEG, el: 14 * M.DEG, dist: 520, pan: [0, 0] }
+    };
+  }
+
+  function resetCamera(cam) {
+    cam.az = cam.home.az; cam.el = cam.home.el;
+    cam.dist = cam.home.dist; cam.pan = [cam.home.pan[0], cam.home.pan[1]];
+  }
+
+  /* 装配一帧所需的全部矩阵 */
+  function computeMatrices(cam, center, scale, aspect, shiftNDC) {
+    var ce = Math.cos(cam.el), se = Math.sin(cam.el);
+    var eye = [
+      cam.dist * ce * Math.sin(cam.az),
+      cam.dist * se,
+      cam.dist * ce * Math.cos(cam.az)
+    ];
+    /* 平移：在相机右向与上向平面内偏移 */
+    var fwd = V.norm(V.scale(eye, -1));
+    var right = V.norm(V.cross([0, 1, 0], fwd));
+    var up = V.cross(fwd, right);
+    var panOff = V.add(V.scale(right, cam.pan[0]), V.scale(up, cam.pan[1]));
+    var eyeP = V.add(eye, panOff);
+    var target = panOff;
+
+    var view = M.m4lookAt(eyeP, target, [0, 1, 0]);
+    var proj = M.m4perspective(cam.fov, aspect, 1, 6000);
+    if (shiftNDC) { proj[8] = -shiftNDC; }
+
+    /* 模型：MNI → 以脑中心为原点 → 缩放 → 轴向重映射 */
+    var t = M.m4translation([-center[0], -center[1], -center[2]]);
+    var s = M.m4scaling([scale, scale, scale]);
+    var model = M.m4multiply(AXIS, M.m4multiply(s, t));
+    var vp = M.m4multiply(proj, view);
+    var mvp = M.m4multiply(vp, model);
+    var normalMat = M.m3normalFromM4(model);
+    var invModel = M.m4invert(model);
+
+    return {
+      view: view, proj: proj, vp: vp, model: model, mvp: mvp,
+      normalMat: normalMat, invModel: invModel,
+      camPos: eyeP, eye: eyeP, target: target,
+      /* 视线方向（世界空间，指向场景） */
+      viewDir: V.norm(V.sub(target, eyeP))
+    };
+  }
+
+  /* MNI 点 → 视空间深度（越小越远，用于透明排序：从远到近绘制） */
+  function viewDepth(mtx, p) {
+    var w = M.m4transformPoint(mtx.model, p);
+    var v = M.m4transformPoint(mtx.view, w);
+    return v[2]; // 视空间 z 为负值，越远越小
+  }
+
+  /* MNI 点 → 屏幕像素（CSS 像素，左上原点） */
+  function projectToScreen(mtx, p, cssW, cssH) {
+    var wp = M.m4transformPoint(mtx.model, p);
+    var x = wp[0], y = wp[1], z = wp[2];
+    var m = mtx.vp;
+    var cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+    var cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+    var cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+    if (cw <= 1e-5) { return null; }
+    return {
+      x: (cx / cw * 0.5 + 0.5) * cssW,
+      y: (1 - (cy / cw * 0.5 + 0.5)) * cssH,
+      w: cw
+    };
+  }
+
+  /* 屏幕坐标 → MNI 空间射线 */
+  function screenRay(mtx, px, py, cssW, cssH) {
+    var ndcX = (px / cssW) * 2 - 1;
+    var ndcY = 1 - (py / cssH) * 2;
+    var invVP = M.m4invert(mtx.vp);
+    var pNear = unproject(invVP, ndcX, ndcY, -1);
+    var pFar = unproject(invVP, ndcX, ndcY, 1);
+    /* 世界 → MNI */
+    var oM = M.m4transformPoint(mtx.invModel, pNear);
+    var fM = M.m4transformPoint(mtx.invModel, pFar);
+    return { origin: oM, dir: V.norm(V.sub(fM, oM)) };
+  }
+
+  function unproject(invVP, x, y, z) {
+    var w = invVP[3] * x + invVP[7] * y + invVP[11] * z + invVP[15];
+    if (Math.abs(w) < 1e-9) { w = 1e-9; }
+    return [
+      (invVP[0] * x + invVP[4] * y + invVP[8] * z + invVP[12]) / w,
+      (invVP[1] * x + invVP[5] * y + invVP[9] * z + invVP[13]) / w,
+      (invVP[2] * x + invVP[6] * y + invVP[10] * z + invVP[14]) / w
+    ];
+  }
+
+  /* 光线拾取：返回 {key, t, point} 或 null。filter(inst) 决定是否参与拾取 */
+  function pick(model, ray, filter) {
+    var best = null;
+    for (var i = 0; i < model.order.length; i++) {
+      var key = model.order[i];
+      var inst = model.instances[key];
+      if (filter && !filter(inst)) { continue; }
+      var bs = inst.bsphere;
+      /* 包围球剔除（放宽 1mm，容忍描边抬升） */
+      if (M.raySphere(ray.origin, ray.dir, bs.center, bs.radius + 1) < 0) { continue; }
+      var verts = inst.verts, faces = inst.faces;
+      for (var f = 0; f < faces.length; f++) {
+        var t = M.rayTriangle(ray.origin, ray.dir, verts[faces[f][0]], verts[faces[f][1]], verts[faces[f][2]]);
+        if (t > 0 && (!best || t < best.t)) {
+          best = { key: key, t: t, regionId: inst.regionId, side: inst.side };
+        }
+      }
+    }
+    if (best) {
+      best.point = [
+        ray.origin[0] + ray.dir[0] * best.t,
+        ray.origin[1] + ray.dir[1] * best.t,
+        ray.origin[2] + ray.dir[2] * best.t
+      ];
+    }
+    return best;
+  }
+
+  /* ----------------------------------------------------------- 鼠标绑定
+   * hooks: { onOrbit, onZoom, onHover, onClick, onReset, getMatrices }
+   */
+  function bindControls(canvas, cam, hooks) {
+    var dragging = false, dragButton = 0, lastX = 0, lastY = 0, moved = 0;
+    var pointers = {}, pinchDist = 0;
+
+    function localPos(ev) {
+      var r = canvas.getBoundingClientRect();
+      return { x: ev.clientX - r.left, y: ev.clientY - r.top, w: r.width, h: r.height };
+    }
+
+    canvas.addEventListener('pointerdown', function (ev) {
+      canvas.setPointerCapture && canvas.setPointerCapture(ev.pointerId);
+      pointers[ev.pointerId] = localPos(ev);
+      var n = Object.keys(pointers).length;
+      if (n === 1) {
+        dragging = true; moved = 0;
+        dragButton = (ev.button === 2 || ev.shiftKey || ev.metaKey) ? 2 : 0;
+        var p = localPos(ev); lastX = p.x; lastY = p.y;
+      } else if (n === 2) {
+        var ks = Object.keys(pointers);
+        var a = pointers[ks[0]], b = pointers[ks[1]];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+        dragging = false;
+      }
+      ev.preventDefault();
+    });
+
+    canvas.addEventListener('pointermove', function (ev) {
+      var p = localPos(ev);
+      if (pointers[ev.pointerId]) { pointers[ev.pointerId] = p; }
+      var n = Object.keys(pointers).length;
+
+      if (n === 2) {
+        var ks = Object.keys(pointers);
+        var a = pointers[ks[0]], b = pointers[ks[1]];
+        var d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0 && Math.abs(d - pinchDist) > 0.5) {
+          hooks.onZoom(Math.pow(d / pinchDist, 1.0));
+          pinchDist = d;
+        }
+        return;
+      }
+
+      if (dragging) {
+        var dx = p.x - lastX, dy = p.y - lastY;
+        lastX = p.x; lastY = p.y;
+        moved += Math.abs(dx) + Math.abs(dy);
+        if (dragButton === 0) {
+          cam.az -= dx * 0.0075;
+          cam.el = M.clamp(cam.el + dy * 0.0068, -1.45, 1.45);
+          if (hooks.onOrbit) { hooks.onOrbit(); }
+        } else {
+          var k = cam.dist * 0.0016;
+          cam.pan[0] -= dx * k;
+          cam.pan[1] += dy * k;
+          if (hooks.onOrbit) { hooks.onOrbit(); }
+        }
+      } else if (hooks.onHover) {
+        hooks.onHover(p.x, p.y, p.w, p.h);
+      }
+    });
+
+    function endPointer(ev) {
+      delete pointers[ev.pointerId];
+      if (Object.keys(pointers).length < 2) { pinchDist = 0; }
+      if (dragging) {
+        dragging = false;
+        if (moved < 4 && hooks.onClick) {
+          var p = localPos(ev);
+          hooks.onClick(p.x, p.y, p.w, p.h);
+        }
+      }
+    }
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
+    canvas.addEventListener('pointerleave', function (ev) {
+      delete pointers[ev.pointerId];
+      if (!dragging && hooks.onLeave) { hooks.onLeave(); }
+    });
+
+    canvas.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      var f = Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.02 : 0.0014));
+      hooks.onZoom(f);
+    }, { passive: false });
+
+    canvas.addEventListener('dblclick', function (ev) {
+      ev.preventDefault();
+      if (hooks.onReset) { hooks.onReset(); }
+    });
+
+    canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  }
+
+  NS.controls = {
+    AXIS: AXIS,
+    createCamera: createCamera,
+    resetCamera: resetCamera,
+    computeMatrices: computeMatrices,
+    viewDepth: viewDepth,
+    projectToScreen: projectToScreen,
+    screenRay: screenRay,
+    pick: pick,
+    bindControls: bindControls
+  };
+})(window.AUD);
+
+/* ==== js/60-ui.js ==== */
+/* =============================================================================
+ * 60-ui.js — 状态模型、右侧控制面板、左上数据面板、诚实声明弹层
+ * 所有可视参数集中在 state 中，渲染层只消费 state 计算出的逐物件视觉参数。
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var A = NS.atlas;
+
+  /* --------------------------------------------------------------- 默认状态 */
+  var DEFAULTS = {
+    /* 显示开关 */
+    showRegionsAll: true,
+    hoverHighlight: true,
+    showNetworks: false,
+    hoverNetworks: true,
+    groupCraving: false,
+    groupControl: false,
+    groupAssociated: false,
+    showShell: true,
+    showStructures: true,
+    showCube: true,
+    showGrid: true,
+    showNodes: true,
+    showTargets: true,
+    showLabels: false,
+    flowAnim: true,
+    autoRotate: false,
+    /* 滑块 */
+    regionAlpha: 0.66,
+    regionBright: 1.00,
+    currentAlpha: 0.94,
+    currentBright: 1.22,
+    netAlpha: 0.45,
+    netBright: 1.00,
+    currentNetAlpha: 0.95,
+    currentNetBright: 1.18,
+    cravingAlpha: 0.80,
+    cravingBright: 0.96,
+    controlAlpha: 0.80,
+    controlBright: 1.04,
+    shellAlpha: 0.13,
+    lineWidth: 1.5,
+    zoom: 100
+  };
+
+  var CHECK_GROUPS = [
+    {
+      label: '高亮与网络显示 / HIGHLIGHT',
+      items: [
+        { k: 'showRegionsAll', zh: '全部脑区高亮显示', en: 'ALL REGIONS' },
+        { k: 'hoverHighlight', zh: '当前脑区高亮（悬停 / 点击锁定）', en: 'CURRENT' },
+        { k: 'showNetworks', zh: '显示脑功能网络', en: 'NETWORKS' },
+        { k: 'hoverNetworks', zh: '悬停时仅显示当前脑区所属网络', en: 'ISOLATE' },
+        { k: 'groupCraving', zh: '渴求驱动脑区集体高亮', en: 'CRAVING SET', swatch: '#8e2231' },
+        { k: 'groupControl', zh: '抑制控制脑区集体高亮', en: 'CONTROL SET', swatch: '#1e3a6e' },
+        { k: 'groupAssociated', zh: '伴随改变脑区集体高亮', en: 'ASSOC. SET', swatch: '#6b7b84' }
+      ]
+    },
+    {
+      label: '场景要素 / SCENE',
+      items: [
+        { k: 'showShell', zh: '毛玻璃脑壳（脑回形态）', en: 'GLASS SHELL' },
+        { k: 'showStructures', zh: '解剖参照：小脑 / 脑干 / 胼胝体', en: 'REFERENCE' },
+        { k: 'showCube', zh: '透明立方体框架', en: 'CUBE' },
+        { k: 'showGrid', zh: '立方体背面刻度网格', en: 'GRID' },
+        { k: 'showNodes', zh: '网络节点标记', en: 'NODES' },
+        { k: 'showTargets', zh: '刺激靶区导航标记', en: 'TARGETS' },
+        { k: 'showLabels', zh: '全部脑区名称标签', en: 'LABELS' },
+        { k: 'flowAnim', zh: '连线方向流动动画', en: 'FLOW' },
+        { k: 'autoRotate', zh: '自动旋转', en: 'AUTO-ROTATE' }
+      ]
+    }
+  ];
+
+  var SLIDER_GROUPS = [
+    {
+      label: '全部脑区 / ALL REGIONS',
+      items: [
+        { k: 'regionAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'regionBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '当前脑区 / CURRENT REGION',
+      items: [
+        { k: 'currentAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'currentBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '全部功能网络 / ALL NETWORKS',
+      items: [
+        { k: 'netAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'netBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '当前脑区网络 / CURRENT NETWORK',
+      items: [
+        { k: 'currentNetAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'currentNetBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '渴求驱动组 / CRAVING SET',
+      items: [
+        { k: 'cravingAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'cravingBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '抑制控制组 / CONTROL SET',
+      items: [
+        { k: 'controlAlpha', zh: '不透明度', min: 0.05, max: 1, step: 0.01, fmt: 'pct' },
+        { k: 'controlBright', zh: '亮度', min: 0.40, max: 1.80, step: 0.01, fmt: 'x' }
+      ]
+    },
+    {
+      label: '渲染细节 / RENDERING',
+      items: [
+        { k: 'shellAlpha', zh: '脑壳不透明度', min: 0.02, max: 0.60, step: 0.01, fmt: 'pct' },
+        { k: 'lineWidth', zh: '连线宽度', min: 0.60, max: 3.40, step: 0.05, fmt: 'px' }
+      ]
+    }
+  ];
+
+  var VIEW_PRESETS = [
+    { id: 'right', zh: '右侧位', az: 90, el: 0 },
+    { id: 'left', zh: '左侧位', az: -90, el: 0 },
+    { id: 'front', zh: '前位', az: 180, el: 0 },
+    { id: 'back', zh: '后位', az: 0, el: 0 },
+    { id: 'top', zh: '上位', az: 180, el: 84 },
+    { id: 'oblique', zh: '右前斜位', az: 120, el: 14 }
+  ];
+
+  function createState() {
+    var s = {};
+    for (var k in DEFAULTS) { if (DEFAULTS.hasOwnProperty(k)) { s[k] = DEFAULTS[k]; } }
+    s.regionEnabled = {};
+    s.networkEnabled = {};
+    A.REGIONS.forEach(function (r) { s.regionEnabled[r.id] = true; });
+    A.NETWORKS.forEach(function (n) { s.networkEnabled[n.id] = true; });
+    s.hoverKey = null;
+    s.lockKey = null;
+    return s;
+  }
+
+  function resetState(s) {
+    for (var k in DEFAULTS) { if (DEFAULTS.hasOwnProperty(k)) { s[k] = DEFAULTS[k]; } }
+    A.REGIONS.forEach(function (r) { s.regionEnabled[r.id] = true; });
+    A.NETWORKS.forEach(function (n) { s.networkEnabled[n.id] = true; });
+  }
+
+  /* ------------------------------------------------------------- DOM 辅助 */
+  function el(tag, cls, txt) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (txt !== undefined && txt !== null) { e.textContent = txt; }
+    return e;
+  }
+  function add(parent) {
+    for (var i = 1; i < arguments.length; i++) { if (arguments[i]) { parent.appendChild(arguments[i]); } }
+    return parent;
+  }
+  function fmtVal(v, fmt) {
+    if (fmt === 'pct') { return Math.round(v * 100) + '%'; }
+    if (fmt === 'x') { return v.toFixed(2) + '×'; }
+    if (fmt === 'px') { return v.toFixed(2) + ' px'; }
+    return String(v);
+  }
+  function evidenceClass(tag) {
+    if (tag.indexOf('[本地-报告]') === 0) { return 'chip tag-local'; }
+    if (tag.indexOf('[本地-文献]') === 0) { return 'chip tag-lit'; }
+    if (tag.indexOf('[联网-题录]') === 0) { return 'chip tag-web'; }
+    return 'chip tag-consensus';
+  }
+
+  /* ================================================================ 构建 UI */
+  function build(ctx) {
+    var state = ctx.state;
+    var hud = document.getElementById('hud');
+    var controls = document.getElementById('controls');
+    var refs = { checks: {}, sliders: {}, sliderVals: {}, regionRows: {}, netRows: {} };
+
+    /* ------------------------------------------------------ 左上：数据面板 */
+    var hudHead = add(el('div', 'panel-head'),
+      el('div', 'panel-title', '3D 脑功能网络仿真 · 酒精使用障碍'),
+      el('div', 'panel-sub', 'AUD ATLAS')
+    );
+    var hudBody = el('div', 'panel-body');
+    add(hud, hudHead, hudBody);
+
+    /* 概览统计 */
+    var st = A.stats();
+    var overview = el('div', 'section');
+    add(overview, sectionLabel('模型概览 / OVERVIEW'));
+    add(overview,
+      kv('脑区', st.regions + ' 个（左右对称 → ' + ctx.model.meta.instanceCount + ' 个实例）'),
+      kv('分类', '渴求驱动 ' + st.groups.craving + ' · 抑制控制 ' + st.groups.control + ' · 伴随 ' + st.groups.associated),
+      kv('功能网络', st.networks + ' 个 / 连线 ' + ctx.model.meta.edgeCount + ' 条'),
+      kv('刺激靶区', st.targets + ' 个脑区被文献报告为靶结构'),
+      kv('网格规模', ctx.model.meta.triangles.toLocaleString('en-US') + ' 三角面 · 脑壳 '
+        + ctx.model.meta.shellVerts.toLocaleString('en-US') + ' 顶点')
+    );
+    add(hudBody, overview);
+
+    /* 当前脑区 */
+    var cur = el('div', 'section');
+    add(cur, sectionLabel('当前高亮脑区 / CURRENT'));
+    var curEmpty = el('div', 'hint', '将指针悬停到任一脑区以读取实时数据；单击锁定，再次单击空白处解除锁定。');
+    var curBox = el('div');
+    curBox.style.display = 'none';
+    var nameEl = el('div', 'big-name', '—');
+    var enEl = el('div', 'big-en', '');
+    var swatchLine = el('div', 'swatch-line');
+    var swatch = el('span', 'swatch');
+    var badgeGroup = el('span', 'badge');
+    var badgeTarget = el('span', 'badge');
+    var badgeLock = el('span', 'badge badge-off', '悬停');
+    add(swatchLine, swatch, badgeGroup, badgeTarget, badgeLock);
+    var rowsBox = el('div');
+    add(curBox, nameEl, enEl, swatchLine, rowsBox);
+    add(cur, curEmpty, curBox);
+    add(hudBody, cur);
+
+    /* 参与网络 */
+    var netBox = el('div', 'section');
+    add(netBox, sectionLabel('连接的功能网络 / NETWORKS'));
+    var netList = el('div');
+    var netHint = el('div', 'hint', '未选定脑区。');
+    add(netBox, netHint, netList);
+    add(hudBody, netBox);
+
+    /* 实时读数 */
+    var readBox = el('div', 'section');
+    add(readBox, sectionLabel('实时读数 / TELEMETRY'));
+    var readRows = el('div');
+    add(readBox, readRows);
+    add(hudBody, readBox);
+
+    var readVals = {};
+    [['view', '视角'], ['zoom', '缩放'], ['visible', '可见脑区'], ['links', '显示连线'],
+      ['tris', '三角面 / 批次'], ['fps', '帧率']].forEach(function (p) {
+      var r = el('div', 'row');
+      add(r, el('div', 'row-k', p[1]));
+      var v = el('div', 'row-v mono-num', '—');
+      add(r, v);
+      add(readRows, r);
+      readVals[p[0]] = v;
+    });
+
+    /* -------------------------------------------------- 右侧：控制面板 */
+    var cHead = add(el('div', 'panel-head'),
+      el('div', 'panel-title', '控制台 / CONTROL'),
+      el('div', 'panel-sub', 'RENDER + SELECTION')
+    );
+    var cBody = el('div', 'panel-body');
+    add(controls, cHead, cBody);
+
+    /* 视角预设 */
+    add(cBody, sectionLabel('视角 / VIEW'));
+    var viewRow = el('div', 'btn-row');
+    VIEW_PRESETS.forEach(function (p) {
+      var b = el('button', 'btn', p.zh);
+      b.type = 'button';
+      b.addEventListener('click', function () { ctx.onViewPreset(p); });
+      add(viewRow, b);
+    });
+    var bReset = el('button', 'btn primary', '重置视角');
+    bReset.type = 'button';
+    bReset.addEventListener('click', function () { ctx.onResetView(); });
+    add(viewRow, bReset);
+    add(cBody, viewRow);
+
+    /* 勾选组 */
+    CHECK_GROUPS.forEach(function (g) {
+      add(cBody, sectionLabel(g.label));
+      var wrap = el('div', 'checks-grid');
+      g.items.forEach(function (it) {
+        var lab = el('label', 'check');
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!state[it.k];
+        input.addEventListener('change', function () {
+          state[it.k] = input.checked;
+          ctx.onChange(it.k);
+        });
+        add(lab, input, el('span', 'box'));
+        if (it.swatch) {
+          var sws = el('span', 'swatch');
+          sws.style.background = it.swatch;
+          sws.style.width = '9px'; sws.style.height = '9px';
+          add(lab, sws);
+        }
+        add(lab, el('span', 'lbl', it.zh), el('span', 'lbl-en', it.en));
+        refs.checks[it.k] = input;
+        add(wrap, lab);
+      });
+      add(cBody, wrap);
+    });
+
+    /* 缩放 */
+    add(cBody, sectionLabel('脑缩放倍率 / SCALE'));
+    var zoomSlider = document.createElement('input');
+    zoomSlider.type = 'range';
+    zoomSlider.min = 25; zoomSlider.max = 300; zoomSlider.step = 1;
+    zoomSlider.value = state.zoom;
+    var zoomNum = document.createElement('input');
+    zoomNum.type = 'number';
+    zoomNum.min = 25; zoomNum.max = 300; zoomNum.step = 1;
+    zoomNum.value = state.zoom;
+    var zoomWrap = el('div', 'slider');
+    var zHead = el('div', 'slider-head');
+    add(zHead, el('div', 'slider-name', '倍率（默认 100%，支持数值输入 / 滚轮）'));
+    var zVal = el('div', 'slider-val', state.zoom + '%');
+    add(zHead, zVal);
+    add(zoomWrap, zHead, zoomSlider);
+    var zRow = el('div', 'zoom-row');
+    add(zRow, el('span', 'hint', '数值输入'), zoomNum, el('span', 'hint', '%'));
+    var bZoomReset = el('button', 'btn', '100%');
+    bZoomReset.type = 'button';
+    bZoomReset.addEventListener('click', function () { setZoom(100); });
+    add(zRow, bZoomReset);
+    add(cBody, zoomWrap, zRow);
+
+    function setZoom(v) {
+      v = Math.max(25, Math.min(300, Math.round(v)));
+      state.zoom = v;
+      zoomSlider.value = v;
+      zoomNum.value = v;
+      zVal.textContent = v + '%';
+      ctx.onChange('zoom');
+    }
+    zoomSlider.addEventListener('input', function () { setZoom(parseFloat(zoomSlider.value)); });
+    zoomNum.addEventListener('change', function () { setZoom(parseFloat(zoomNum.value) || 100); });
+    refs.setZoom = setZoom;
+
+    /* 滑块组 */
+    SLIDER_GROUPS.forEach(function (g) {
+      add(cBody, sectionLabel(g.label));
+      g.items.forEach(function (it) {
+        var wrap = el('div', 'slider');
+        var head = el('div', 'slider-head');
+        add(head, el('div', 'slider-name', it.zh));
+        var val = el('div', 'slider-val', fmtVal(state[it.k], it.fmt));
+        add(head, val);
+        var input = document.createElement('input');
+        input.type = 'range';
+        input.min = it.min; input.max = it.max; input.step = it.step;
+        input.value = state[it.k];
+        input.addEventListener('input', function () {
+          state[it.k] = parseFloat(input.value);
+          val.textContent = fmtVal(state[it.k], it.fmt);
+          ctx.onChange(it.k);
+        });
+        refs.sliders[it.k] = input;
+        refs.sliderVals[it.k] = { el: val, fmt: it.fmt };
+        add(wrap, head, input);
+        add(cBody, wrap);
+      });
+    });
+
+    /* 脑区清单（按分类分组，可逐个框选） */
+    ['craving', 'control', 'associated'].forEach(function (gid) {
+      var g = A.GROUPS[gid];
+      add(cBody, sectionLabel('脑区清单 · ' + g.zh + ' / ' + gid.toUpperCase()));
+      var tools = el('div', 'btn-row');
+      var bAll = el('button', 'btn', '全选');
+      var bNone = el('button', 'btn', '全不选');
+      bAll.type = 'button'; bNone.type = 'button';
+      bAll.addEventListener('click', function () { setGroupEnabled(gid, true); });
+      bNone.addEventListener('click', function () { setGroupEnabled(gid, false); });
+      add(tools, bAll, bNone);
+      add(cBody, tools);
+      var wrap = el('div');
+      A.REGIONS.filter(function (r) { return r.group === gid; }).forEach(function (r) {
+        var lab = el('label', 'region-check');
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!state.regionEnabled[r.id];
+        input.style.position = 'absolute';
+        input.style.opacity = '0';
+        input.addEventListener('change', function () {
+          state.regionEnabled[r.id] = input.checked;
+          lab.classList.toggle('dim', !input.checked);
+          ctx.onChange('regionEnabled');
+        });
+        var box = el('span', 'box');
+        box.style.cssText = 'width:11px;height:11px;border-radius:3px;border:1px solid #b9c1c9;flex:none;position:relative;background:'
+          + (input.checked ? r.color : '#fff');
+        var sw = el('span', 'swatch');
+        sw.style.background = r.color;
+        sw.style.width = '9px'; sw.style.height = '9px';
+        add(lab, input, box, sw, el('span', 'abbr', r.abbr), el('span', 'zh', r.zh));
+        if (r.target && r.target.is) { add(lab, el('span', 'tgt', '靶区')); }
+        lab.addEventListener('mouseenter', function () { ctx.onRegionRowHover(r.id); });
+        lab.addEventListener('mouseleave', function () { ctx.onRegionRowHover(null); });
+        refs.regionRows[r.id] = { lab: lab, input: input, box: box, color: r.color };
+        add(wrap, lab);
+      });
+      add(cBody, wrap);
+    });
+
+    function setGroupEnabled(gid, on) {
+      A.REGIONS.forEach(function (r) {
+        if (r.group !== gid) { return; }
+        state.regionEnabled[r.id] = on;
+        var ref = refs.regionRows[r.id];
+        if (ref) {
+          ref.input.checked = on;
+          ref.box.style.background = on ? ref.color : '#fff';
+          ref.lab.classList.toggle('dim', !on);
+        }
+      });
+      ctx.onChange('regionEnabled');
+    }
+
+    /* 网络清单 */
+    add(cBody, sectionLabel('功能网络清单 / NETWORKS'));
+    var netTools = el('div', 'btn-row');
+    var bNAll = el('button', 'btn', '全选');
+    var bNNone = el('button', 'btn', '全不选');
+    bNAll.type = 'button'; bNNone.type = 'button';
+    bNAll.addEventListener('click', function () { setNetsEnabled(true); });
+    bNNone.addEventListener('click', function () { setNetsEnabled(false); });
+    add(netTools, bNAll, bNNone);
+    add(cBody, netTools);
+    var netWrap = el('div');
+    A.NETWORKS.forEach(function (n) {
+      var lab = el('label', 'region-check');
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!state.networkEnabled[n.id];
+      input.style.position = 'absolute'; input.style.opacity = '0';
+      var box = el('span', 'box');
+      box.style.cssText = 'width:11px;height:11px;border-radius:3px;border:1px solid #b9c1c9;flex:none;background:'
+        + (input.checked ? n.color : '#fff');
+      input.addEventListener('change', function () {
+        state.networkEnabled[n.id] = input.checked;
+        box.style.background = input.checked ? n.color : '#fff';
+        lab.classList.toggle('dim', !input.checked);
+        ctx.onChange('networkEnabled');
+      });
+      var sw = el('span', 'swatch');
+      sw.style.background = n.color; sw.style.width = '9px'; sw.style.height = '9px';
+      add(lab, input, box, sw, el('span', 'abbr', n.id.toUpperCase()), el('span', 'zh', n.zh),
+        el('span', 'tgt', '证据 ' + n.evidence));
+      refs.netRows[n.id] = { lab: lab, input: input, box: box, color: n.color };
+      add(netWrap, lab);
+    });
+    add(cBody, netWrap);
+
+    function setNetsEnabled(on) {
+      A.NETWORKS.forEach(function (n) {
+        state.networkEnabled[n.id] = on;
+        var ref = refs.netRows[n.id];
+        if (ref) {
+          ref.input.checked = on;
+          ref.box.style.background = on ? ref.color : '#fff';
+          ref.lab.classList.toggle('dim', !on);
+        }
+      });
+      ctx.onChange('networkEnabled');
+    }
+
+    /* 颜色映射图例 */
+    add(cBody, sectionLabel('颜色映射规则 / COLOR MAPPING'));
+    var legend = el('div', 'section small muted');
+    [
+      '色相分区：暖色（红—橙—品红）= 渴求驱动；冷色（蓝—青—靛）= 抑制控制；中性灰蓝 = 伴随改变。',
+      '明度编码解剖深度：皮层浅层用高明度低饱和（如 OFC、DLPFC），埋于沟内的岛叶/扣带用中等明度，深部核团用低明度高饱和（如 VTA、缰核）。',
+      '左右同名结构使用同一颜色，以体现双侧对称性；跨半球连线用同色细线。',
+      '勾选"集体高亮"时，同类脑区统一改用分类色（渴求 = 暗红 #8E2231，控制 = 深蓝 #1E3A6E），覆盖各自身份色。'
+    ].forEach(function (t) {
+      var p = el('div', 'hint');
+      p.style.marginBottom = '5px';
+      p.textContent = t;
+      add(legend, p);
+    });
+    add(cBody, legend);
+
+    /* 底部按钮 */
+    add(cBody, sectionLabel('其他 / MISC'));
+    var miscRow = el('div', 'btn-row');
+    var bResetAll = el('button', 'btn', '重置全部参数');
+    bResetAll.type = 'button';
+    bResetAll.addEventListener('click', function () { ctx.onResetParams(); });
+    var bDisc = el('button', 'btn solid', '数据来源与诚实声明');
+    bDisc.type = 'button';
+    bDisc.addEventListener('click', function () { openModal(); });
+    add(miscRow, bResetAll, bDisc);
+    add(cBody, miscRow);
+
+    /* ---------------------------------------------------------- 声明弹层 */
+    var modal = document.getElementById('modal');
+    var card = el('div', 'modal-card');
+    var mHead = add(el('div', 'panel-head'),
+      el('div', 'panel-title', A.DISCLOSURE.title),
+      el('div', 'panel-sub', 'DISCLOSURE')
+    );
+    var mBody = el('div', 'panel-body');
+    A.DISCLOSURE.paragraphs.forEach(function (t) {
+      add(mBody, el('p', null, t));
+    });
+    var closeRow = el('div', 'btn-row');
+    var bClose = el('button', 'btn primary', '关闭');
+    bClose.type = 'button';
+    bClose.addEventListener('click', closeModal);
+    add(closeRow, bClose);
+    add(mBody, closeRow);
+    add(card, mHead, mBody);
+    add(modal, card);
+    modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeModal(); } });
+    function openModal() { modal.classList.add('open'); }
+    function closeModal() { modal.classList.remove('open'); }
+
+    var footBtn = document.getElementById('footer-btn');
+    if (footBtn) { footBtn.addEventListener('click', openModal); }
+
+    /* -------------------------------------------------------- 面板更新接口 */
+    function sectionLabel(t) { return el('div', 'section-label', t); }
+    function kv(k, v) {
+      var r = el('div', 'row');
+      add(r, el('div', 'row-k', k), el('div', 'row-v', v));
+      return r;
+    }
+
+    function updateCurrent(info) {
+      if (!info) {
+        curBox.style.display = 'none';
+        curEmpty.style.display = '';
+        netHint.style.display = '';
+        netList.innerHTML = '';
+        return;
+      }
+      curBox.style.display = '';
+      curEmpty.style.display = 'none';
+      var r = info.region;
+      nameEl.textContent = r.zh + '（' + r.abbr + '）';
+      enEl.textContent = r.en;
+      swatch.style.background = r.color;
+      var g = A.GROUPS[r.group];
+      badgeGroup.className = 'badge badge-' + r.group;
+      badgeGroup.textContent = g.zh;
+      if (r.target && r.target.is) {
+        badgeTarget.className = 'badge badge-target';
+        badgeTarget.textContent = '刺激靶区 · ' + r.target.tech.join(' / ');
+      } else {
+        badgeTarget.className = 'badge badge-off';
+        badgeTarget.textContent = '非刺激靶区';
+      }
+      badgeLock.className = 'badge ' + (info.locked ? 'badge-control' : 'badge-off');
+      badgeLock.textContent = info.locked ? '已锁定' : '悬停';
+
+      rowsBox.innerHTML = '';
+      var layerZh = {
+        'cortex-lateral': '皮层浅层（外侧面）',
+        'cortex-medial': '皮层内侧壁（半球间裂内）',
+        'cortex-insular': '岛叶皮层（外侧裂深部）',
+        'deep': '深部灰质核团',
+        'brainstem': '中脑 / 脑干'
+      }[r.layer] || r.layer;
+      add(rowsBox,
+        kv('分类', g.zh + ' — ' + g.desc),
+        kv('解剖层次', layerZh),
+        kv('对称性', r.symmetric ? '双侧对称（左右同色）' : '单一结构'),
+        kv('参考 MNI', '[' + (info.side === 'L' ? -r.mni[0] : r.mni[0]) + ', ' + r.mni[1] + ', ' + r.mni[2] + ']'
+          + '（' + (info.side === 'L' ? '左' : info.side === 'R' ? '右' : '中线') + '）'),
+        kv('模型质心', '[' + info.centroid.map(function (v) { return Math.round(v); }).join(', ') + ']'
+          + (info.volume ? ' · 体积 ' + Math.round(info.volume) + ' mm³' : ' · 面积 ' + Math.round(info.area) + ' mm²')),
+        kv('功能', r.func),
+        kv('病变性质', r.lesion),
+        kv('刺激靶区', (r.target && r.target.is ? '是 — ' : '否 — ') + r.target.note)
+      );
+      var evRow = el('div', 'row');
+      add(evRow, el('div', 'row-k', '证据来源'));
+      var evV = el('div', 'row-v');
+      var chips = el('div', 'chips');
+      r.lesionRefs.forEach(function (t) { add(chips, el('span', evidenceClass(t), t)); });
+      add(evV, chips);
+      add(evRow, evV);
+      add(rowsBox, evRow);
+
+      /* 网络列表 */
+      netHint.style.display = 'none';
+      netList.innerHTML = '';
+      r.networks.forEach(function (nid) {
+        var n = A.networkById[nid];
+        var box = el('div', 'section');
+        box.style.margin = '0 0 8px';
+        var head = el('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:7px;';
+        var dot = el('span', 'swatch');
+        dot.style.background = n.color;
+        dot.style.width = '9px'; dot.style.height = '9px'; dot.style.borderRadius = '50%';
+        add(head, dot, el('span', null, n.zh), el('span', 'small muted', '· 证据 ' + n.evidence));
+        var func = el('div', 'hint');
+        func.textContent = '功能：' + n.func;
+        var les = el('div', 'hint');
+        les.style.marginTop = '2px';
+        les.textContent = '异常：' + n.lesion;
+        var chipsN = el('div', 'chips');
+        n.refs.forEach(function (t) { add(chipsN, el('span', evidenceClass(t), t)); });
+        add(box, head, func, les, chipsN);
+        add(netList, box);
+      });
+    }
+
+    function updateTelemetry(t) {
+      readVals.view.textContent = '方位 ' + t.az.toFixed(0) + '° / 仰角 ' + t.el.toFixed(0) + '°';
+      readVals.zoom.textContent = t.zoom + '%（距离 ' + Math.round(t.dist) + '）';
+      readVals.visible.textContent = t.visibleRegions + ' / ' + t.totalRegions + ' 实例';
+      readVals.links.textContent = t.links + ' 条' + (t.isolated ? '（已隔离当前脑区）' : '');
+      readVals.tris.textContent = t.triangles.toLocaleString('en-US') + ' / ' + t.drawCalls;
+      readVals.fps.textContent = t.fps.toFixed(0) + ' fps';
+    }
+
+    function markCurrentRow(regionId) {
+      for (var id in refs.regionRows) {
+        if (refs.regionRows.hasOwnProperty(id)) {
+          refs.regionRows[id].lab.classList.toggle('is-current', id === regionId);
+        }
+      }
+    }
+
+    function syncAll() {
+      for (var k in refs.checks) {
+        if (refs.checks.hasOwnProperty(k)) { refs.checks[k].checked = !!state[k]; }
+      }
+      for (var s in refs.sliders) {
+        if (refs.sliders.hasOwnProperty(s)) {
+          refs.sliders[s].value = state[s];
+          refs.sliderVals[s].el.textContent = fmtVal(state[s], refs.sliderVals[s].fmt);
+        }
+      }
+      for (var rid in refs.regionRows) {
+        if (refs.regionRows.hasOwnProperty(rid)) {
+          var ref = refs.regionRows[rid];
+          ref.input.checked = !!state.regionEnabled[rid];
+          ref.box.style.background = ref.input.checked ? ref.color : '#fff';
+          ref.lab.classList.toggle('dim', !ref.input.checked);
+        }
+      }
+      for (var nid in refs.netRows) {
+        if (refs.netRows.hasOwnProperty(nid)) {
+          var nref = refs.netRows[nid];
+          nref.input.checked = !!state.networkEnabled[nid];
+          nref.box.style.background = nref.input.checked ? nref.color : '#fff';
+          nref.lab.classList.toggle('dim', !nref.input.checked);
+        }
+      }
+      refs.setZoom(state.zoom);
+    }
+
+    return {
+      refs: refs,
+      updateCurrent: updateCurrent,
+      updateTelemetry: updateTelemetry,
+      markCurrentRow: markCurrentRow,
+      syncAll: syncAll,
+      openDisclosure: openModal
+    };
+  }
+
+  NS.ui = {
+    createState: createState,
+    resetState: resetState,
+    build: build,
+    VIEW_PRESETS: VIEW_PRESETS,
+    DEFAULTS: DEFAULTS
+  };
+})(window.AUD);
+
+/* ==== js/70-main.js ==== */
+/* =============================================================================
+ * 70-main.js — 应用装配：资源上传、逐帧视觉参数解析、拾取、标签、遥测
+ * ========================================================================== */
+(function (NS) {
+  'use strict';
+  var M = NS.math, G = NS.geom, A = NS.atlas, C = NS.controls;
+
+  var BG_TOP = M.hexToRgb('#f3f5f7');
+  var BG_BOTTOM = M.hexToRgb('#e2e7ec');
+  var SHELL_COLOR = M.hexToRgb('#c7d2db');
+  var CUBE_COLOR = M.hexToRgb('#7f8c99');
+  var GRID_COLOR = M.hexToRgb('#9aa6b2');
+  var TARGET_COLOR = M.hexToRgb('#0e7c86');
+  var STRUCT_COLORS = {
+    cerebellum: M.hexToRgb('#9db0bd'),
+    brainstem: M.hexToRgb('#93a3af'),
+    callosum: M.hexToRgb('#c4ccd4')
+  };
+
+  var CUBE_HALF = 90;
+
+  function showError(msg) {
+    var box = document.getElementById('errbox');
+    if (!box) { return; }
+    box.textContent = '运行时错误：' + msg;
+    box.classList.add('on');
+  }
+
+  window.addEventListener('error', function (e) {
+    showError((e && e.message) ? e.message : '未知错误');
+  });
+
+  /* ------------------------------------------------------ 立方体与网格几何 */
+  function cubeGeometry(center, half) {
+    var c = center, h = half;
+    var v = [];
+    for (var i = 0; i < 8; i++) {
+      v.push([
+        c[0] + ((i & 1) ? h : -h),
+        c[1] + ((i & 2) ? h : -h),
+        c[2] + ((i & 4) ? h : -h)
+      ]);
+    }
+    var e = [
+      [0, 1], [2, 3], [4, 5], [6, 7],
+      [0, 2], [1, 3], [4, 6], [5, 7],
+      [0, 4], [1, 5], [2, 6], [3, 7]
+    ];
+    var polylines = e.map(function (pair) { return [v[pair[0]], v[pair[1]]]; });
+    /* 角标：每个顶点向三个轴方向的短线，强化技术制图观感 */
+    var brackets = [];
+    var L = h * 0.22;
+    for (var k = 0; k < 8; k++) {
+      var p = v[k];
+      var sx = (k & 1) ? -1 : 1, sy = (k & 2) ? -1 : 1, sz = (k & 4) ? -1 : 1;
+      brackets.push([p, [p[0] + sx * L, p[1], p[2]]]);
+      brackets.push([p, [p[0], p[1] + sy * L, p[2]]]);
+      brackets.push([p, [p[0], p[1], p[2] + sz * L]]);
+    }
+    return { polylines: polylines, brackets: brackets, corners: v };
+  }
+
+  /* 六个面的刻度网格：返回 polylines 与每面的范围索引、面法线 */
+  function faceGrids(center, half, divisions) {
+    var faces = [], polylines = [], ranges = [];
+    var axes = [
+      { n: [1, 0, 0], u: [0, 1, 0], w: [0, 0, 1] },
+      { n: [0, 1, 0], u: [1, 0, 0], w: [0, 0, 1] },
+      { n: [0, 0, 1], u: [1, 0, 0], w: [0, 1, 0] }
+    ];
+    for (var a = 0; a < 3; a++) {
+      for (var s = -1; s <= 1; s += 2) {
+        var ax = axes[a];
+        var normal = [ax.n[0] * s, ax.n[1] * s, ax.n[2] * s];
+        var origin = [
+          center[0] + normal[0] * half,
+          center[1] + normal[1] * half,
+          center[2] + normal[2] * half
+        ];
+        var start = polylines.length;
+        for (var i = 0; i <= divisions; i++) {
+          var t = (i / divisions) * 2 - 1;
+          /* 沿 u 方向的线 */
+          polylines.push([
+            [origin[0] + ax.u[0] * t * half - ax.w[0] * half,
+              origin[1] + ax.u[1] * t * half - ax.w[1] * half,
+              origin[2] + ax.u[2] * t * half - ax.w[2] * half],
+            [origin[0] + ax.u[0] * t * half + ax.w[0] * half,
+              origin[1] + ax.u[1] * t * half + ax.w[1] * half,
+              origin[2] + ax.u[2] * t * half + ax.w[2] * half]
+          ]);
+          /* 沿 w 方向的线 */
+          polylines.push([
+            [origin[0] + ax.w[0] * t * half - ax.u[0] * half,
+              origin[1] + ax.w[1] * t * half - ax.u[1] * half,
+              origin[2] + ax.w[2] * t * half - ax.u[2] * half],
+            [origin[0] + ax.w[0] * t * half + ax.u[0] * half,
+              origin[1] + ax.w[1] * t * half + ax.u[1] * half,
+              origin[2] + ax.w[2] * t * half + ax.u[2] * half]
+          ]);
+        }
+        faces.push({ normal: normal, rangeIdx: ranges.length });
+        ranges.push({ start: start, end: polylines.length });
+      }
+    }
+    return { polylines: polylines, faces: faces, ranges: ranges };
+  }
+
+  /* ------------------------------------------------------ 视图预设（URL 哈希）
+   * 支持把当前视图写成可分享 / 可复现的链接，例如：
+   *   #lock=nac_R&networks=1&isolate=1&labels=1&az=118&el=12&zoom=140
+   * 键：lock(脑区键或脑区 id)、networks、isolate、labels、all、craving、control、
+   *     assoc、shell、cube、grid、flow、nodes、targets、zoom、az、el
+   */
+  function applyHash(state, cam, ui, model) {
+    var h = (window.location.hash || '').replace(/^#/, '');
+    if (!h) { return false; }
+    var q = {};
+    h.split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) { q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1)); }
+    });
+    function bool(k, target) {
+      if (q[k] === undefined) { return; }
+      state[target] = (q[k] === '1' || q[k] === 'true');
+    }
+    bool('networks', 'showNetworks');
+    bool('isolate', 'hoverNetworks');
+    bool('labels', 'showLabels');
+    bool('all', 'showRegionsAll');
+    bool('craving', 'groupCraving');
+    bool('control', 'groupControl');
+    bool('assoc', 'groupAssociated');
+    bool('shell', 'showShell');
+    bool('cube', 'showCube');
+    bool('grid', 'showGrid');
+    bool('flow', 'flowAnim');
+    bool('nodes', 'showNodes');
+    bool('targets', 'showTargets');
+    if (q.zoom) { state.zoom = M.clamp(parseFloat(q.zoom) || 100, 25, 300); }
+    if (q.az !== undefined) { cam.az = (parseFloat(q.az) || 0) * M.DEG; }
+    if (q.el !== undefined) { cam.el = M.clamp((parseFloat(q.el) || 0) * M.DEG, -1.45, 1.45); }
+    if (q.lock) {
+      var key = q.lock.indexOf('_') > 0 ? q.lock : q.lock + '_R';
+      if (model.instances[key]) { state.lockKey = key; }
+    }
+    ui.syncAll();
+    return true;
+  }
+
+  /* =============================================================== 启动 */
+  function boot() {
+    var canvas = document.getElementById('gl');
+    var bootEl = document.getElementById('boot');
+    var bootMsg = document.getElementById('boot-msg');
+    var labelLayer = document.getElementById('labels');
+
+    function setBootMsg(t) { if (bootMsg) { bootMsg.textContent = t; } }
+
+    var renderer;
+    try {
+      renderer = NS.renderer.create(canvas);
+    } catch (e) {
+      setBootMsg(e.message);
+      showError(e.message);
+      return;
+    }
+
+    setBootMsg('正在构建解剖网格（脑壳形变 / 皮层分区 / 深部核团）…');
+
+    /* 让浏览器先绘制启动界面，再进行重计算 */
+    setTimeout(function () {
+      var model;
+      try {
+        model = NS.model.build(A);
+      } catch (e) {
+        setBootMsg('模型构建失败：' + e.message);
+        showError(e.message);
+        return;
+      }
+      setBootMsg('正在上传 GPU 缓冲…');
+      setTimeout(function () {
+        try {
+          run(canvas, renderer, model, bootEl, labelLayer);
+        } catch (e) {
+          setBootMsg('初始化失败：' + e.message);
+          showError(e.message + (e.stack ? '\n' + e.stack.split('\n')[1] : ''));
+        }
+      }, 16);
+    }, 32);
+  }
+
+  /* ============================================================ 主循环 */
+  function run(canvas, renderer, model, bootEl, labelLayer) {
+    var state = NS.ui.createState();
+    var cam = C.createCamera();
+    var brainCenter = model.brain.center;
+
+    /* ---------------- 资源上传 ---------------- */
+    renderer.uploadSurface('shell', model.shell.packed);
+    model.structures.forEach(function (s) { renderer.uploadSurface('st_' + s.id, s.packed); });
+
+    model.order.forEach(function (key) {
+      var inst = model.instances[key];
+      renderer.uploadSurface('r_' + key, inst.packed);
+      if (inst.outline) {
+        renderer.uploadLines('o_' + key, NS.renderer.segmentsToPolylines(inst.outline.segments, inst.outline.count));
+      }
+    });
+
+    /* 网络连线：合并为单一缓冲，逐边索引范围 */
+    var edgeLines = renderer.uploadLines('edges', model.edges.map(function (e) { return e.points; }));
+
+    /* 立方体 / 角标 / 网格 */
+    var cube = cubeGeometry(brainCenter, CUBE_HALF);
+    renderer.uploadLines('cube', cube.polylines);
+    renderer.uploadLines('brackets', cube.brackets);
+    var grids = faceGrids(brainCenter, CUBE_HALF, 6);
+    var gridBuf = renderer.uploadLines('grid', grids.polylines);
+
+    /* 节点与靶区精灵 */
+    var degree = {};
+    model.edges.forEach(function (e) {
+      degree[e.a] = (degree[e.a] || 0) + 1;
+      degree[e.b] = (degree[e.b] || 0) + 1;
+    });
+    var nodeList = model.order.map(function (key) {
+      var inst = model.instances[key];
+      var d = degree[key] || 0;
+      return { p: inst.anchor || inst.centroid, size: 3.2 + Math.min(9, d) * 0.62, kind: 0, key: key };
+    });
+    renderer.uploadSprites('nodes', nodeList);
+    var nodeIndex = {};
+    nodeList.forEach(function (n, i) { nodeIndex[n.key] = i; });
+
+    var targetList = [], targetIndex = {};
+    model.order.forEach(function (key) {
+      var inst = model.instances[key];
+      if (inst.region.target && inst.region.target.is) {
+        targetIndex[key] = targetList.length;
+        targetList.push({ p: inst.anchor || inst.centroid, size: 12.5, kind: 1, key: key });
+      }
+    });
+    renderer.uploadSprites('targets', targetList);
+
+    /* ---------------- UI ---------------- */
+    var ui = NS.ui.build({
+      state: state,
+      model: model,
+      onChange: function () { dirty = true; },
+      onViewPreset: function (p) {
+        cam.az = p.az * M.DEG; cam.el = p.el * M.DEG; cam.pan = [0, 0];
+        dirty = true;
+      },
+      onResetView: function () { C.resetCamera(cam); dirty = true; },
+      onResetParams: function () {
+        NS.ui.resetState(state);
+        ui.syncAll();
+        dirty = true;
+      },
+      onRegionRowHover: function (regionId) {
+        rowHoverRegion = regionId;
+        dirty = true;
+      }
+    });
+
+    var rowHoverRegion = null;
+    var dirty = true;
+    var mtx = null;
+    var lastPointer = null;
+
+    /* URL 哈希预设（可复现视图 / 截图验收入口） */
+    applyHash(state, cam, ui, model);
+    window.addEventListener('hashchange', function () {
+      applyHash(state, cam, ui, model);
+      dirty = true;
+    });
+
+    /* ---------------- 视口 ---------------- */
+    function resize() {
+      renderer.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
+      dirty = true;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    /* ---------------- 交互绑定 ---------------- */
+    C.bindControls(canvas, cam, {
+      onOrbit: function () { dirty = true; },
+      onZoom: function (f) {
+        var z = M.clamp(state.zoom * f, 25, 300);
+        ui.refs.setZoom(z);
+      },
+      onHover: function (x, y, w, h) {
+        lastPointer = { x: x, y: y, w: w, h: h };
+        doPick(x, y, w, h, false);
+      },
+      onClick: function (x, y, w, h) {
+        var hit = doPick(x, y, w, h, false);
+        if (hit) {
+          state.lockKey = (state.lockKey === hit.key) ? null : hit.key;
+        } else {
+          state.lockKey = null;
+        }
+        dirty = true;
+      },
+      onLeave: function () {
+        state.hoverKey = null;
+        lastPointer = null;
+        dirty = true;
+      },
+      onReset: function () { C.resetCamera(cam); dirty = true; }
+    });
+
+    /* 拾取集合 = 当前帧真正绘制出来的脑区实例（与画面所见严格一致） */
+    var lastVisible = {};
+    function instanceVisibleForPick(inst) {
+      if (!state.regionEnabled[inst.regionId]) { return false; }
+      return lastVisible[inst.key] !== undefined ? lastVisible[inst.key] : true;
+    }
+
+    function doPick(x, y, w, h) {
+      if (!mtx) { return null; }
+      var ray = C.screenRay(mtx, x, y, w, h);
+      var hit = C.pick(model, ray, instanceVisibleForPick);
+      var newKey = hit ? hit.key : null;
+      if (newKey !== state.hoverKey) {
+        state.hoverKey = newKey;
+        dirty = true;
+      }
+      canvas.style.cursor = hit ? 'pointer' : 'crosshair';
+      return hit;
+    }
+
+    /* ---------------- 标签池 ---------------- */
+    var labelPool = [];
+    function getLabel(i) {
+      while (labelPool.length <= i) {
+        var d = document.createElement('div');
+        d.className = 'lab';
+        labelLayer.appendChild(d);
+        labelPool.push(d);
+      }
+      return labelPool[i];
+    }
+
+    /* ---------------- 逐帧视觉参数解析 ---------------- */
+    function currentRegionId() {
+      var key = state.lockKey || (state.hoverHighlight ? state.hoverKey : null) || rowHoverRegion;
+      if (!key) { return null; }
+      if (model.instances[key]) { return model.instances[key].regionId; }
+      return A.regionById[key] ? key : null;   // 来自右侧清单的悬停（传的是 regionId）
+    }
+
+    function groupHighlighted(group) {
+      if (group === 'craving') { return state.groupCraving; }
+      if (group === 'control') { return state.groupControl; }
+      return state.groupAssociated;
+    }
+
+    function groupSliders(group) {
+      if (group === 'craving') { return { a: state.cravingAlpha, b: state.cravingBright }; }
+      if (group === 'control') { return { a: state.controlAlpha, b: state.controlBright }; }
+      return { a: state.regionAlpha, b: state.regionBright };
+    }
+
+    function buildFrame() {
+      var curRegion = currentRegionId();
+      var curNets = {};
+      var coRegions = {};
+      if (curRegion) {
+        A.regionById[curRegion].networks.forEach(function (nid) {
+          if (!state.networkEnabled[nid]) { return; }
+          curNets[nid] = true;
+          A.networkById[nid].nodes.forEach(function (rid) { coRegions[rid] = true; });
+        });
+      }
+
+      var items = [];
+      var visibleCount = 0;
+
+      /* 脑区实例 */
+      for (var i = 0; i < model.order.length; i++) {
+        var key = model.order[i];
+        var inst = model.instances[key];
+        var region = inst.region;
+        if (!state.regionEnabled[region.id]) { continue; }
+        var gHi = groupHighlighted(region.group);
+        var isCur = !!curRegion && region.id === curRegion;
+        var inCo = !!coRegions[region.id] && !isCur;
+        var visible = state.showRegionsAll || gHi || isCur || inCo;
+        if (!visible) { continue; }
+
+        var color = gHi ? M.hexToRgb(A.GROUPS[region.group].color) : M.hexToRgb(region.color);
+        var alpha, bright, rim;
+        if (isCur && state.hoverHighlight) {
+          alpha = state.currentAlpha; bright = state.currentBright; rim = 1.55;
+        } else if (gHi) {
+          var gs = groupSliders(region.group);
+          alpha = gs.a; bright = gs.b; rim = 1.15;
+        } else if (inCo) {
+          alpha = M.clamp(state.regionAlpha * 1.42 + 0.10, 0, 1);
+          bright = state.regionBright * 1.10; rim = 1.30;
+        } else {
+          alpha = state.regionAlpha; bright = state.regionBright; rim = 0.95;
+        }
+
+        /* 解剖深度的不透明度编码：浅层皮层更透，深部核团更实 */
+        var layerMul = {
+          'cortex-lateral': 0.88, 'cortex-medial': 0.94,
+          'cortex-insular': 1.00, 'deep': 1.12, 'brainstem': 1.12
+        }[region.layer] || 1.0;
+        alpha = M.clamp(alpha * layerMul, 0.02, 1);
+
+        /* 深部核团略降菲涅尔透明度权重，使其看起来更"实"；皮层片层双面渲染 */
+        var deep = (region.layer === 'deep' || region.layer === 'brainstem');
+        items.push({
+          type: 'region', key: key, inst: inst, region: region,
+          depth: C.viewDepth(mtx, inst.bsphere.center),
+          color: color, alpha: alpha, bright: bright, rim: rim,
+          doubleSided: !!inst.doubleSided,
+          cull: deep ? 'sorted' : 'both',
+          frost: deep ? 0.35 : 0.62,
+          fresnelAlpha: deep ? 0.10 : 0.30,
+          isCurrent: isCur, groupHi: gHi
+        });
+        visibleCount++;
+      }
+
+      /* 网络连线 */
+      var drawAllEdges = state.showNetworks && !(state.hoverNetworks && curRegion);
+      var drawCurEdges = (state.showNetworks || state.hoverNetworks) && !!curRegion;
+      var curColor = null;
+      if (curRegion) {
+        var cr = A.regionById[curRegion];
+        curColor = groupHighlighted(cr.group) ? M.hexToRgb(A.GROUPS[cr.group].color) : M.hexToRgb(cr.color);
+      }
+      /* 连线按"当前脑区网络"与"各网络"分组批处理：把 92 次绘制降到 ≤9 次，
+       * 组内平均深度用于与脑区一起参与透明排序。 */
+      var linkCount = 0;
+      var curGroup = { ranges: [], depth: 0, n: 0 };
+      var netGroups = {};
+      for (var e = 0; e < model.edges.length; e++) {
+        var edge = model.edges[e];
+        if (!state.networkEnabled[edge.network]) { continue; }
+        if (!state.regionEnabled[edge.regionA] || !state.regionEnabled[edge.regionB]) { continue; }
+        var isCurEdge = !!curNets[edge.network];
+        var d = C.viewDepth(mtx, edge.points[11]);
+        if (isCurEdge && drawCurEdges) {
+          curGroup.ranges.push(edgeLines.ranges[e]);
+          curGroup.depth += d; curGroup.n++;
+          linkCount++;
+        } else if (drawAllEdges) {
+          var gk = edge.network;
+          if (!netGroups[gk]) { netGroups[gk] = { ranges: [], depth: 0, n: 0 }; }
+          netGroups[gk].ranges.push(edgeLines.ranges[e]);
+          netGroups[gk].depth += d; netGroups[gk].n++;
+          linkCount++;
+        }
+      }
+      if (curGroup.n) {
+        items.push({
+          type: 'edgeGroup', ranges: curGroup.ranges, depth: curGroup.depth / curGroup.n,
+          color: curColor, alpha: state.currentNetAlpha, bright: state.currentNetBright,
+          width: state.lineWidth * 1.30, flow: state.flowAnim ? 1.0 : 0.0, repeat: 1.8
+        });
+      }
+      for (var gid in netGroups) {
+        if (!netGroups.hasOwnProperty(gid)) { continue; }
+        var grp = netGroups[gid];
+        items.push({
+          type: 'edgeGroup', ranges: grp.ranges, depth: grp.depth / grp.n,
+          color: M.hexToRgb(A.networkById[gid].color),
+          alpha: state.netAlpha, bright: state.netBright,
+          width: state.lineWidth, flow: state.flowAnim ? 0.55 : 0.0, repeat: 1.5
+        });
+      }
+
+      /* 解剖参照结构 */
+      if (state.showStructures) {
+        model.structures.forEach(function (s) {
+          items.push({
+            type: 'struct', id: s.id, depth: C.viewDepth(mtx, s.bsphere.center),
+            color: STRUCT_COLORS[s.id] || [0.65, 0.7, 0.75],
+            alpha: 0.30, bright: 1.0, rim: 0.85
+          });
+        });
+      }
+
+      /* 记录本帧可见实例，供拾取过滤使用 */
+      lastVisible = {};
+      for (var vi = 0; vi < items.length; vi++) {
+        if (items[vi].type === 'region') { lastVisible[items[vi].key] = true; }
+      }
+      for (var oi = 0; oi < model.order.length; oi++) {
+        if (lastVisible[model.order[oi]] === undefined) { lastVisible[model.order[oi]] = false; }
+      }
+
+      /* 从远到近排序（视空间 z 越小越远） */
+      items.sort(function (p, q) { return p.depth - q.depth; });
+
+      return {
+        items: items, visibleCount: visibleCount, linkCount: linkCount,
+        curRegion: curRegion, coRegions: coRegions,
+        isolated: state.showNetworks && state.hoverNetworks && !!curRegion
+      };
+    }
+
+    /* ---------------- 绘制 ---------------- */
+    var time = 0, lastT = 0, fps = 60, fpsAcc = 0, fpsN = 0, lastTelemetry = 0;
+
+    function draw(ts) {
+      var dt = lastT ? Math.min(0.1, (ts - lastT) / 1000) : 0.016;
+      lastT = ts;
+      time += dt;
+      if (dt > 0) {
+        fpsAcc += 1 / dt; fpsN++;
+      }
+
+      if (state.autoRotate) { cam.az += dt * 0.18; dirty = true; }
+      if (state.flowAnim && state.showNetworks) { dirty = true; }
+
+      var cssW = window.innerWidth, cssH = window.innerHeight;
+      var scale = state.zoom / 100;
+      mtx = C.computeMatrices(cam, brainCenter, scale, cssW / cssH, 0);
+
+      var frame = buildFrame();
+
+      renderer.beginFrame();
+      renderer.drawBackground(BG_TOP, BG_BOTTOM, 0.42);
+      /* 景深范围随缩放联动：脑体前后各留过渡带，恢复远近层次 */
+      var radius = 105 * scale;
+      renderer.setEnv({
+        fogColor: [0.885, 0.905, 0.925],
+        fogNear: cam.dist - radius * 0.35,
+        fogFar: cam.dist + radius * 1.45
+      });
+
+      var base = { mvp: mtx.mvp, model: mtx.model, normalMat: mtx.normalMat, camPos: mtx.camPos };
+
+      /* 立方体框架（远侧） */
+      if (state.showCube) {
+        renderer.drawLines('cube', {
+          mvp: mtx.mvp, color: CUBE_COLOR, alpha: 0.30, bright: 1.0,
+          width: 1.0, flow: 0, time: 0
+        });
+        renderer.drawLines('brackets', {
+          mvp: mtx.mvp, color: CUBE_COLOR, alpha: 0.55, bright: 1.0,
+          width: 1.6, flow: 0, time: 0
+        });
+      }
+
+      /* 背面朝向的立方体面网格 */
+      if (state.showGrid) {
+        var rangesToDraw = [];
+        for (var f = 0; f < grids.faces.length; f++) {
+          var nw = M.m4transformDir(mtx.model, grids.faces[f].normal);
+          if (M.V.dot(M.V.norm(nw), mtx.viewDir) > 0.02) {
+            var rg = grids.ranges[grids.faces[f].rangeIdx];
+            for (var k = rg.start; k < rg.end; k++) { rangesToDraw.push(gridBuf.ranges[k]); }
+          }
+        }
+        if (rangesToDraw.length) {
+          renderer.drawLines('grid', {
+            mvp: mtx.mvp, color: GRID_COLOR, alpha: 0.17, bright: 1.0,
+            width: 0.8, flow: 0, time: 0, ranges: rangesToDraw
+          });
+        }
+      }
+
+      /* 脑壳背面 */
+      if (state.showShell) {
+        renderer.drawSurface('shell', {
+          mvp: base.mvp, model: base.model, normalMat: base.normalMat, camPos: base.camPos,
+          color: SHELL_COLOR, alpha: state.shellAlpha * 0.75, bright: 1.0,
+          rim: 1.10, specular: 0.35, fresnelAlpha: 0.62, frost: 0.9,
+          doubleSided: false, cull: 'front'
+        });
+      }
+
+      /* 主体：按深度排序的物件 */
+      for (var i = 0; i < frame.items.length; i++) {
+        var it = frame.items[i];
+        if (it.type === 'region') {
+          renderer.drawSurface('r_' + it.key, {
+            mvp: base.mvp, model: base.model, normalMat: base.normalMat, camPos: base.camPos,
+            color: it.color, alpha: it.alpha, bright: it.bright, rim: it.rim,
+            specular: 0.75, fresnelAlpha: it.fresnelAlpha, frost: it.frost,
+            doubleSided: it.doubleSided, cull: it.cull
+          });
+          if (it.inst.outline) {
+            renderer.drawLines('o_' + it.key, {
+              mvp: mtx.mvp,
+              color: [
+                Math.min(1, it.color[0] * 1.18 + 0.06),
+                Math.min(1, it.color[1] * 1.18 + 0.06),
+                Math.min(1, it.color[2] * 1.18 + 0.06)
+              ],
+              alpha: M.clamp(it.alpha * 1.15 + 0.22, 0, 1),
+              bright: it.bright,
+              width: it.isCurrent ? state.lineWidth * 1.7 : state.lineWidth * 0.95,
+              flow: 0, time: 0
+            });
+          }
+        } else if (it.type === 'edgeGroup') {
+          renderer.drawLines('edges', {
+            mvp: mtx.mvp, color: it.color, alpha: it.alpha, bright: it.bright,
+            width: it.width, flow: it.flow, time: time,
+            repeat: it.repeat, ranges: it.ranges
+          });
+        } else if (it.type === 'struct') {
+          renderer.drawSurface('st_' + it.id, {
+            mvp: base.mvp, model: base.model, normalMat: base.normalMat, camPos: base.camPos,
+            color: it.color, alpha: it.alpha, bright: it.bright, rim: it.rim,
+            specular: 0.40, fresnelAlpha: 0.30, frost: 0.55,
+            doubleSided: false, cull: 'sorted'
+          });
+        }
+      }
+
+      /* 脑壳正面 */
+      if (state.showShell) {
+        renderer.drawSurface('shell', {
+          mvp: base.mvp, model: base.model, normalMat: base.normalMat, camPos: base.camPos,
+          color: SHELL_COLOR, alpha: state.shellAlpha, bright: 1.05,
+          rim: 1.45, specular: 1.0, fresnelAlpha: 0.70, frost: 0.9,
+          doubleSided: false, cull: 'back'
+        });
+      }
+
+      /* 立方体近侧描边（叠加一层极淡线条，形成"玻璃箱"包裹感） */
+      if (state.showCube) {
+        renderer.drawLines('cube', {
+          mvp: mtx.mvp, color: CUBE_COLOR, alpha: 0.12, bright: 1.2,
+          width: 1.6, flow: 0, time: 0
+        });
+      }
+
+      /* 网络节点 */
+      if (state.showNodes) {
+        for (var n = 0; n < frame.items.length; n++) {
+          var itn = frame.items[n];
+          if (itn.type !== 'region') { continue; }
+          var ni = nodeIndex[itn.key];
+          if (ni === undefined) { continue; }
+          renderer.drawSprites('nodes', {
+            mvp: mtx.mvp, color: itn.color,
+            alpha: M.clamp(itn.alpha * 0.9 + 0.12, 0, 1),
+            scale: itn.isCurrent ? 1.35 : 1.0,
+            first: ni, pointCount: 1
+          });
+        }
+      }
+
+      /* 刺激靶区导航标记 */
+      if (state.showTargets) {
+        for (var t2 = 0; t2 < frame.items.length; t2++) {
+          var itt = frame.items[t2];
+          if (itt.type !== 'region') { continue; }
+          var ti = targetIndex[itt.key];
+          if (ti === undefined) { continue; }
+          renderer.drawSprites('targets', {
+            mvp: mtx.mvp, color: TARGET_COLOR,
+            alpha: itt.isCurrent ? 0.95 : 0.62,
+            scale: itt.isCurrent ? 1.25 : 1.0,
+            first: ti, pointCount: 1
+          });
+        }
+      }
+
+      /* ---------------- 标签 ---------------- */
+      var labelN = 0;
+      var placed = [];
+      var labelCandidates = [];
+      for (var L = 0; L < frame.items.length; L++) {
+        var it0 = frame.items[L];
+        if (it0.type !== 'region') { continue; }
+        if (!(state.showLabels || it0.isCurrent)) { continue; }
+        labelCandidates.push(it0);
+      }
+      /* 当前脑区最高优先，其余按近→远（depth 越大越近） */
+      labelCandidates.sort(function (p, q) {
+        if (p.isCurrent !== q.isCurrent) { return p.isCurrent ? -1 : 1; }
+        return q.depth - p.depth;
+      });
+      for (var L2 = 0; L2 < labelCandidates.length; L2++) {
+        var itl = labelCandidates[L2];
+        var sp = C.projectToScreen(mtx, itl.inst.anchor || itl.inst.centroid, cssW, cssH);
+        if (!sp) { continue; }
+        var txt = itl.region.abbr + (itl.inst.side === 'M' ? '' : (itl.inst.side === 'L' ? ' 左' : ' 右'));
+        /* 中日韩字符按 12px 估宽、拉丁按 6.8px，避免低估宽度导致标签压叠 */
+        var wPx = 24, hPx = 18;
+        for (var ci = 0; ci < txt.length; ci++) {
+          wPx += /[\u2e80-\u9fff\uff00-\uffef]/.test(txt.charAt(ci)) ? 12.0 : 6.8;
+        }
+        var x1 = sp.x - wPx / 2, y1 = sp.y - 14 - hPx / 2, x2 = x1 + wPx, y2 = y1 + hPx;
+        var clash = false;
+        if (!itl.isCurrent) {
+          for (var pz = 0; pz < placed.length; pz++) {
+            var r0 = placed[pz];
+            if (x1 < r0[2] && x2 > r0[0] && y1 < r0[3] && y2 > r0[1]) { clash = true; break; }
+          }
+        }
+        if (clash) { continue; }
+        placed.push([x1, y1, x2, y2]);
+        var d = getLabel(labelN++);
+        d.className = 'lab' + (itl.isCurrent ? ' cur' : '');
+        d.style.left = sp.x.toFixed(1) + 'px';
+        d.style.top = (sp.y - 14).toFixed(1) + 'px';
+        d.innerHTML = '';
+        var dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = M.rgbToHex(itl.color);
+        d.appendChild(dot);
+        d.appendChild(document.createTextNode(txt));
+        d.style.display = '';
+      }
+      for (var q = labelN; q < labelPool.length; q++) { labelPool[q].style.display = 'none'; }
+
+      /* ---------------- 面板同步 ---------------- */
+      var curKey = state.lockKey || state.hoverKey;
+      var curInst = curKey ? model.instances[curKey] : null;
+      if (!curInst && frame.curRegion) {
+        curInst = model.instances[frame.curRegion + '_R'] || model.instances[frame.curRegion + '_M'];
+      }
+      if (curInst) {
+        ui.updateCurrent({
+          region: curInst.region, side: curInst.side, centroid: curInst.centroid,
+          area: curInst.area, volume: curInst.volume,
+          locked: !!state.lockKey
+        });
+        ui.markCurrentRow(curInst.regionId);
+      } else {
+        ui.updateCurrent(null);
+        ui.markCurrentRow(null);
+      }
+
+      if (ts - lastTelemetry > 220) {
+        lastTelemetry = ts;
+        fps = fpsN ? fpsAcc / fpsN : 60;
+        fpsAcc = 0; fpsN = 0;
+        ui.updateTelemetry({
+          az: ((cam.az / M.DEG) % 360 + 360) % 360,
+          el: cam.el / M.DEG,
+          zoom: state.zoom,
+          dist: cam.dist / (state.zoom / 100),
+          visibleRegions: frame.visibleCount,
+          totalRegions: model.order.length,
+          links: frame.linkCount,
+          isolated: frame.isolated,
+          triangles: renderer.stats.triangles,
+          drawCalls: renderer.stats.drawCalls,
+          fps: fps
+        });
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    /* ---------------- 拾取管线自检（#selftest=1） ----------------
+     * 对每个脑区实例：质心投影到屏幕 → 由该像素反投射射线 → 检查是否命中几何。
+     * 用于在无法交互的环境（如无头截图）中验证矩阵、反投影与三角求交的正确性。
+     */
+    function runPickSelfTest() {
+      var cw = window.innerWidth, ch = window.innerHeight;
+      var total = 0, hits = 0, exact = 0, offscreen = 0, missed = [];
+      for (var i = 0; i < model.order.length; i++) {
+        var inst = model.instances[model.order[i]];
+        var sp = C.projectToScreen(mtx, inst.anchor || inst.centroid, cw, ch);
+        if (!sp || sp.x < 0 || sp.y < 0 || sp.x > cw || sp.y > ch) { offscreen++; continue; }
+        total++;
+        var ray = C.screenRay(mtx, sp.x, sp.y, cw, ch);
+        var hit = C.pick(model, ray, function () { return true; });
+        if (hit) {
+          hits++;
+          if (hit.regionId === inst.regionId) { exact++; }
+        } else {
+          missed.push(inst.key);
+        }
+      }
+      var box = document.getElementById('errbox');
+      if (box) {
+        box.className = 'on diag';
+        box.textContent = '拾取自检 · 参与实例 ' + total + '（视野外 ' + offscreen + '）'
+          + ' · 命中几何 ' + hits + ' · 与质心同脑区 ' + exact
+          + ' · 结论 ' + (hits === total ? '通过' : '未命中 ' + missed.join(','))
+          + '（"同脑区"计数偏低属正常：拾取按最前表面返回，深部核团常被半透明皮层面片遮在其后）';
+      }
+    }
+
+    /* 首帧后隐藏启动遮罩 */
+    requestAnimationFrame(function (ts) {
+      draw(ts);
+      if (/(^|&)selftest=1/.test((window.location.hash || '').replace(/^#/, ''))) {
+        setTimeout(runPickSelfTest, 80);
+      }
+      if (bootEl) {
+        bootEl.classList.add('done');
+        setTimeout(function () { bootEl.style.display = 'none'; }, 400);
+      }
+    });
+
+    NS.app = {
+      state: state, cam: cam, model: model, renderer: renderer, ui: ui,
+      onContextLost: function () { showError('WebGL 上下文丢失，请刷新页面。'); }
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})(window.AUD);
+
+</script>
+</body>
+</html>

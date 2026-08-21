@@ -1,0 +1,1146 @@
+// ============================================================================
+//  Polar Ice Cave — volumetric / subsurface path tracer  (WGSL compute kernel)
+//
+//  Physics
+//  -------
+//  * Geometry            : analytic SDF, sphere traced (0.62 step factor) with
+//                          bisection refine on genuine overshoots only; the
+//                          snow floor is an analytic plane
+//  * Lighting geometry   : eight ceiling apertures whose long axis is the solar
+//                          direction, so each one emits a collimated column of
+//                          light; two of them are aimed at subsurface blocks
+//  * Surfaces            : rough dielectric (GGX-perturbed microfacet normal +
+//                          exact Fresnel reflect/refract split), frost bump,
+//                          hero-wavelength dispersion on the crystal facets
+//  * Participating media : heterogeneous cave mist -> delta tracking (unbiased)
+//                          homogeneous ice interior -> analytic distance
+//                          sampling with spectral (chromatic) weights
+//  * Subsurface          : brute-force volumetric random walk inside the ice
+//                          bodies (no dipole, no BSSRDF fudge) with NEE at
+//                          every internal scattering vertex
+//  * Shadowing           : rays keep going straight through dielectric
+//                          boundaries while accumulating per-boundary Fresnel
+//                          transmission and per-segment Beer-Lambert
+//                          extinction; mist uses ratio tracking. This is what
+//                          makes thin walls glow and thick walls go dark.
+//  * Diffraction         : Airy forward corona + backward glory ("佛光") +
+//                          22 deg hexagonal-ice halo, as extra normalised
+//                          phase lobes with per-channel size parameters; the
+//                          sampler is a 4-lobe mixture so the spikes are
+//                          importance sampled (no bias, low variance).
+//                          tools/check_math.py verifies every normalisation.
+//
+//  Entry points
+//  ------------
+//     cs_render : progressive tiled accumulation (beauty + AOVs)
+//     cs_probe  : deterministic refraction-chain logger (one pixel)
+// ============================================================================
+
+const PI     : f32 = 3.141592653589793;
+const INV_PI : f32 = 0.3183098861837907;
+const BIG    : f32 = 1.0e9;
+
+// material / medium ids
+const MAT_NONE     : i32 = 0;
+const MAT_ICEWALL  : i32 = 1;   // cave shell: thick, frosted, deep blue
+const MAT_ICECLEAR  : i32 = 2;  // icicles + columns: clearer ice
+const MAT_ICEBLOCK : i32 = 3;   // floor blocks: strong subsurface scattering
+const MAT_CRYSTAL  : i32 = 4;   // thin crystal sheets / drifting flakes
+const MAT_SNOW     : i32 = 5;   // opaque diffuse snow (floor + exterior)
+const MED_AIR      : i32 = -1;
+
+// diffraction sampling lobes
+const G_CORONA  : f32 = 0.95;
+const G_GLORY   : f32 = -0.90;
+const HALO_TH   : f32 = 0.3840;   // 22 deg, green
+const HALO_SIG  : f32 = 0.030;
+
+struct Params {
+    cam_pos   : vec4<f32>,
+    cam_fwd   : vec4<f32>,
+    cam_right : vec4<f32>,
+    cam_up    : vec4<f32>,
+    sun_dir   : vec4<f32>,
+    sun_rad   : vec4<f32>,
+    sky_zen   : vec4<f32>,
+    sky_hor   : vec4<f32>,
+    fog       : vec4<f32>,
+    fog2      : vec4<f32>,
+    wall_ss   : vec4<f32>,
+    wall_sa   : vec4<f32>,
+    blk_ss    : vec4<f32>,
+    blk_sa    : vec4<f32>,
+    clr_ss    : vec4<f32>,
+    clr_sa    : vec4<f32>,
+    optics    : vec4<f32>,
+    diffr     : vec4<f32>,
+    anim      : vec4<f32>,
+    ctrl      : vec4<u32>,
+    ctrl2     : vec4<u32>,
+    ctrl3     : vec4<u32>,
+}
+
+struct Push {
+    tile : vec4<u32>,
+    ctl  : vec4<u32>,
+}
+
+@group(0) @binding(0) var<uniform>             P        : Params;
+@group(0) @binding(1) var<storage, read_write> accum    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> aovbuf   : array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> probebuf : array<vec4<f32>>;
+var<immediate>                                 pc       : Push;
+
+// ------------------------------------------------------------------- random
+var<private> rng_state : u32;
+
+fn rnd() -> f32 {
+    rng_state = rng_state * 747796405u + 2891336453u;
+    var w : u32 = ((rng_state >> ((rng_state >> 28u) + 4u)) ^ rng_state) * 277803737u;
+    w = (w >> 22u) ^ w;
+    return f32(w) * 2.3283064365386963e-10;
+}
+
+fn seed_rng(a: u32, b: u32, c: u32) {
+    var h : u32 = a * 0x9e3779b9u;
+    h = (h ^ b) * 0x85ebca6bu;
+    h = (h ^ (h >> 13u)) ^ (c * 0xc2b2ae35u);
+    h = h ^ (h >> 16u);
+    rng_state = h | 1u;
+    rng_state = rng_state * 747796405u + 2891336453u;
+    rng_state = rng_state * 747796405u + 2891336453u;
+}
+
+// ---------------------------------------------------------- per-thread cache
+// Values that are constant for a whole path but would otherwise be recomputed
+// (with transcendentals) inside every single SDF evaluation.
+var<private> g_sx    : vec3<f32>;   // solar frame, x = across the slot
+var<private> g_sy    : vec3<f32>;   // solar frame, y = along the sun
+var<private> g_sz    : vec3<f32>;
+var<private> g_drift : vec3<f32>;   // crystal lattice drift for this frame
+var<private> g_wob   : vec2<f32>;   // crystal tumble phase for this frame
+
+fn setup_globals() {
+    let t = P.anim.x;
+    g_sy = P.sun_dir.xyz;
+    g_sx = normalize(cross(g_sy, vec3<f32>(0.0, 1.0, 0.06)));
+    g_sz = cross(g_sx, g_sy);
+    g_drift = vec3<f32>(0.13 * sin(t * 0.21), -P.anim.y * t, 0.07 * sin(t * 0.17 + 1.0));
+    g_wob = vec2<f32>(sin(P.anim.w * t * 0.9), cos(P.anim.w * t * 1.1));
+}
+
+// ---------------------------------------------------------------- math utils
+fn sstep(e0: f32, e1: f32 , x: f32) -> f32 {
+    // smoothstep that also accepts e0 > e1 (WGSL's builtin does not)
+    let t = clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+fn lum(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722)); }
+fn avg3(c: vec3<f32>) -> f32 { return (c.x + c.y + c.z) * (1.0 / 3.0); }
+fn mx3(c: vec3<f32>) -> f32 { return max(c.x, max(c.y, c.z)); }
+
+fn safe_inv(v: vec3<f32>) -> vec3<f32> {
+    let a = max(abs(v), vec3<f32>(1.0e-9));
+    let s = select(vec3<f32>(-1.0), vec3<f32>(1.0), v >= vec3<f32>(0.0));
+    return s / a;
+}
+
+fn onb(n: vec3<f32>) -> mat3x3<f32> {
+    // Duff et al., branchless orthonormal basis
+    let s = select(-1.0, 1.0, n.z >= 0.0);
+    let a = -1.0 / (s + n.z);
+    let b = n.x * n.y * a;
+    let t = vec3<f32>(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+    let u = vec3<f32>(b, s + n.y * n.y * a, -n.y);
+    return mat3x3<f32>(t, u, n);
+}
+
+fn sample_cosine(n: vec3<f32>) -> vec3<f32> {
+    let u1 = rnd();
+    let u2 = rnd();
+    let r = sqrt(u1);
+    let phi = 2.0 * PI * u2;
+    let l = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u1)));
+    return normalize(onb(n) * l);
+}
+
+fn sample_cone(dir: vec3<f32>, cos_max: f32) -> vec3<f32> {
+    let u1 = rnd();
+    let u2 = rnd();
+    let ct = 1.0 - u1 * (1.0 - cos_max);
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    let phi = 2.0 * PI * u2;
+    let l = vec3<f32>(st * cos(phi), st * sin(phi), ct);
+    return normalize(onb(dir) * l);
+}
+
+fn hg_pdf(ct: f32, g: f32) -> f32 {
+    let d = max(1.0 + g * g - 2.0 * g * ct, 1.0e-6);
+    return (1.0 - g * g) / (4.0 * PI * d * sqrt(d));
+}
+
+fn sample_hg(wo: vec3<f32>, g: f32) -> vec3<f32> {
+    let u1 = rnd();
+    let u2 = rnd();
+    var ct : f32;
+    if (abs(g) < 1.0e-3) {
+        ct = 1.0 - 2.0 * u1;
+    } else {
+        let s = (1.0 - g * g) / (1.0 + g - 2.0 * g * u1);
+        ct = (1.0 + g * g - s * s) / (2.0 * g);
+    }
+    ct = clamp(ct, -1.0, 1.0);
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    let phi = 2.0 * PI * u2;
+    let l = vec3<f32>(st * cos(phi), st * sin(phi), ct);
+    return normalize(onb(wo) * l);
+}
+
+// Bessel J1: Abramowitz & Stegun 9.4.4 (|x|<3) and 9.4.6 (asymptotic, x>=3).
+fn bessel_j1(xin: f32) -> f32 {
+    let ax = abs(xin);
+    if (ax < 3.0) {
+        let y = (xin / 3.0) * (xin / 3.0);
+        return xin * (0.5 + y * (-0.56249985 + y * (0.21093573 + y * (-0.03954289
+                    + y * (0.00443319 + y * (-0.00031761 + y * 0.00001109))))));
+    }
+    // A&S 9.4.6:  J1(x) = f1(3/x) * cos(theta1) / sqrt(x)
+    let z = 3.0 / ax;
+    let f1 = 0.79788456 + z * (0.00000156 + z * (0.01659667 + z * (0.00017105
+             + z * (-0.00249511 + z * (0.00113653 - z * 0.00020033)))));
+    let th = ax - 2.35619449 + z * (0.12499612 + z * (0.00005650 + z * (-0.00637879
+             + z * (0.00074348 + z * (0.00079824 - z * 0.00029166)))));
+    let r = f1 * cos(th) / sqrt(ax);
+    return select(-r, r, xin > 0.0);
+}
+
+// ---------------------------------------------------------------- turbulence
+fn turb3(q: vec3<f32>) -> f32 {
+    var v = sin(q.x) * sin(q.y * 1.13 + 0.7) * sin(q.z * 0.87 - 1.1);
+    v = v + 0.50 * sin(q.x * 2.07 - 1.3) * sin(q.y * 1.91 + 2.2) * sin(q.z * 2.23 + 0.4);
+    return clamp(0.5 + 0.5 * v / 1.5, 0.0, 1.0);
+}
+
+// integer hash: three decorrelated uniforms per lattice cell, no transcendentals
+fn hash_cell(id: vec3<f32>) -> vec3<f32> {
+    let i = vec3<u32>(bitcast<u32>(i32(id.x)), bitcast<u32>(i32(id.y)), bitcast<u32>(i32(id.z)));
+    var h = (i.x * 0x9e3779b9u) ^ (i.y * 0x85ebca6bu) ^ (i.z * 0xc2b2ae35u);
+    h = (h ^ (h >> 15u)) * 0x2c1b3c6du;
+    let a = h;
+    h = (h ^ (h >> 12u)) * 0x297a2d39u;
+    let b = h;
+    h = (h ^ (h >> 15u)) * 0x1b56c4e9u;
+    return vec3<f32>(f32(a >> 8u), f32(b >> 8u), f32(h >> 8u)) * (1.0 / 16777216.0);
+}
+
+fn wall_relief(p: vec3<f32>) -> f32 {
+    var d = 0.22 * sin(p.x * 0.55 + 1.3) * sin(p.y * 0.62 - 0.4) * sin(p.z * 0.48 + 2.1);
+    d = d + 0.085 * sin(p.x * 1.30 - 0.7) * sin(p.y * 1.15 + 2.2) * sin(p.z * 1.05 - 1.1);
+    return d;
+}
+
+// ------------------------------------------------------------------ SDF prims
+fn sd_box(p: vec3<f32>, b: vec3<f32>) -> f32 {
+    let q = abs(p) - b;
+    return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+fn sd_rbox(p: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
+    return sd_box(p, b - vec3<f32>(r)) - r;
+}
+
+fn sd_capsule(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
+    let pa = p - a;
+    let ba = b - a;
+    let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h) - r;
+}
+
+// exact round cone (Inigo Quilez) — icicles
+fn sd_round_cone(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, r1: f32, r2: f32) -> f32 {
+    let ba = b - a;
+    let l2 = dot(ba, ba);
+    let rr = r1 - r2;
+    let a2 = l2 - rr * rr;
+    let il2 = 1.0 / l2;
+    let pa = p - a;
+    let y = dot(pa, ba);
+    let z = y - l2;
+    let xv = pa * l2 - ba * y;
+    let x2 = dot(xv, xv);
+    let y2 = y * y * l2;
+    let z2 = z * z * l2;
+    let k = sign(rr) * rr * rr * x2;
+    if (sign(z) * a2 * z2 > k) { return sqrt(x2 + z2) * il2 - r2; }
+    if (sign(y) * a2 * y2 < k) { return sqrt(x2 + y2) * il2 - r1; }
+    return (sqrt(x2 * a2 * il2) + y * rr) * il2 - r1;
+}
+
+// hexagonal plate, axis along local z (the natural habit of ice crystals)
+fn sd_hexplate(p: vec3<f32>, r: f32, hz: f32) -> f32 {
+    let k = vec3<f32>(-0.8660254, 0.5, 0.57735);
+    let q = abs(p);
+    let xy = q.xy - 2.0 * min(dot(k.xy, q.xy), 0.0) * k.xy;
+    let d1 = length(xy - vec2<f32>(clamp(xy.x, -k.z * r, k.z * r), r)) * sign(xy.y - r);
+    let d2 = q.z - hz;
+    return min(max(d1, d2), 0.0) + length(max(vec2<f32>(d1, d2), vec2<f32>(0.0)));
+}
+
+fn rot_y(p: vec3<f32>, a: f32) -> vec3<f32> {
+    let c = cos(a);
+    let s = sin(a);
+    return vec3<f32>(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+}
+
+fn rot_x(p: vec3<f32>, a: f32) -> vec3<f32> {
+    let c = cos(a);
+    let s = sin(a);
+    return vec3<f32>(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+}
+
+// -------------------------------------------------------------------- scene
+fn tube_center(z: f32) -> vec2<f32> {
+    let x = 1.20 * sin(z * 0.11) + 0.60 * sin(z * 0.27 + 1.3);
+    let y = 1.90 + 0.35 * sin(z * 0.19 + 0.7);
+    return vec2<f32>(x, y);
+}
+
+fn tube_radius(z: f32) -> f32 {
+    var r = 2.60 + 0.90 * sin(z * 0.15 + 2.1) + 0.25 * sin(z * 0.53);
+    r = r * clamp((z + 29.0) * 0.32, 0.0, 1.0);          // pinches shut deep inside
+    r = r + 0.55 * clamp((z - 4.0) * 0.28, 0.0, 1.0);    // flares at the mouth
+    return r;
+}
+
+// smooth cavity distance without the relief detail: used by the mist, where
+// the extra octaves would cost more than they show
+fn tube_sdf(p: vec3<f32>) -> f32 {
+    let c = tube_center(p.z);
+    return length(p.xy - c) - tube_radius(p.z);
+}
+
+// signed distance to the cavity boundary (< 0 inside the air volume)
+fn cavity_sdf(p: vec3<f32>) -> f32 {
+    return tube_sdf(p) + wall_relief(p);
+}
+
+// wall thickness: a few decimetres of translucent ice at the mouth, several
+// metres deep inside. Optical depth then spans ~2 to ~30, which is what
+// produces the "bright outside / dark inside" gradient and the isolated
+// glowing thin patches.
+fn shell_thickness(p: vec3<f32>) -> f32 {
+    let base = 1.15 + 0.185 * (9.0 - p.z);
+    let modu = 0.55 * sin(p.z * 0.37 + 1.1) + 0.35 * sin(p.x * 0.5 - 0.4);
+    return clamp(base + modu, 0.42, 8.0);
+}
+
+// Thin slot whose long axis is the solar direction, so light crosses the shell
+// without being clipped: this is what turns a crack into a crisp shaft.
+// c0 sits just under the cave ceiling and the box only extends *outwards*
+// along the sun, so the slot can never carve into the far side of the cavity.
+fn sun_slot(p: vec3<f32>, c0: vec3<f32>, hthin: f32, hlong: f32) -> f32 {
+    let c = c0 + g_sy * 4.35;
+    let d = p - c;
+    let q = vec3<f32>(dot(d, g_sx), dot(d, g_sy), dot(d, g_sz));
+    return sd_box(q, vec3<f32>(hthin, 4.65, hlong));
+}
+
+struct MapRes { d: f32, mat: i32 }
+
+fn map_pick(a: MapRes, d: f32, m: i32) -> MapRes {
+    if (d < a.d) { return MapRes(d, m); }
+    return a;
+}
+
+fn map(p: vec3<f32>) -> MapRes {
+    // ---- ice shell around the cavity --------------------------------------
+    let f = cavity_sdf(p);
+    let th = shell_thickness(p);
+    var shell = max(-f, f - th);
+    let jag = 0.30 * sin(p.x * 0.80 + 0.6) * sin(p.y * 0.70 - 0.4);
+    shell = max(shell, p.z - (9.0 + jag));      // jagged mouth arch
+    shell = max(shell, 0.06 - p.y);             // stop at the snow floor
+    // Eight sun-aligned apertures in the ceiling. Each is a narrow rectangular
+    // hole (0.2-0.3 m across) whose long axis follows the solar direction, so
+    // what enters the cave is a collimated column of light rather than a fan.
+    // A and C are aimed so their columns land on subsurface-scattering blocks.
+    let cr0 = sun_slot(p, vec3<f32>(-2.66, 4.80,  -5.83), 0.36, 1.10);
+    let cr1 = sun_slot(p, vec3<f32>(-2.20, 4.75,  -9.50), 0.13, 0.75);
+    let cr2 = sun_slot(p, vec3<f32>(-1.00, 4.90,  -2.60), 0.30, 1.00);
+    let cr3 = sun_slot(p, vec3<f32>(-1.60, 5.00,   0.60), 0.12, 0.70);
+    let cr4 = sun_slot(p, vec3<f32>( 1.30, 5.10,   3.50), 0.14, 0.85);
+    let cr5 = sun_slot(p, vec3<f32>(-1.80, 4.90,   6.50), 0.16, 0.95);
+    let cr6 = sun_slot(p, vec3<f32>( 0.60, 4.60,  -7.80), 0.11, 0.60);
+    let cr7 = sun_slot(p, vec3<f32>(-0.90, 4.40, -11.20), 0.10, 0.55);
+    var crev = min(min(min(cr0, cr1), min(cr2, cr3)), min(min(cr4, cr5), min(cr6, cr7)));
+    let br0 = sd_rbox(p - vec3<f32>(-3.17, 5.60, -5.10), vec3<f32>(0.40, 0.50, 0.32), 0.11);
+    let br1 = sd_rbox(p - vec3<f32>(-2.23, 5.57,  7.11), vec3<f32>(0.38, 0.45, 0.30), 0.10);
+    crev = max(crev, -min(br0, br1));           // ice bridges -> dappled beams
+    shell = max(shell, -crev);
+    var res = MapRes(shell, MAT_ICEWALL);
+
+    // ---- icicles ----------------------------------------------------------
+    let ice_bb = sd_box(p - vec3<f32>(0.0, 4.20, -1.60), vec3<f32>(5.2, 1.70, 10.6));
+    if (ice_bb < 0.35) {
+        var ic = BIG;
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 1.05, 5.05,  7.40), vec3<f32>( 1.12, 3.45,  7.30), 0.115, 0.012));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 1.95, 4.70,  6.55), vec3<f32>( 1.90, 3.90,  6.60), 0.090, 0.010));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 0.05, 5.20,  6.10), vec3<f32>( 0.10, 4.05,  6.05), 0.100, 0.011));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-0.95, 4.95,  6.90), vec3<f32>(-1.02, 3.20,  6.95), 0.130, 0.013));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-2.00, 4.60,  5.70), vec3<f32>(-2.05, 3.75,  5.65), 0.085, 0.010));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 2.60, 4.35,  4.60), vec3<f32>( 2.55, 3.55,  4.65), 0.080, 0.009));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-1.55, 5.15,  3.55), vec3<f32>(-1.60, 4.10,  3.50), 0.095, 0.010));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 0.70, 5.30,  2.40), vec3<f32>( 0.66, 4.15,  2.35), 0.105, 0.011));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-2.85, 4.70,  1.10), vec3<f32>(-2.90, 4.00,  1.05), 0.075, 0.009));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 2.10, 4.90,  0.10), vec3<f32>( 2.05, 3.60,  0.05), 0.110, 0.012));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-0.40, 5.05, -1.80), vec3<f32>(-0.45, 4.20, -1.85), 0.088, 0.010));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 1.40, 4.75, -3.40), vec3<f32>( 1.35, 4.05, -3.45), 0.078, 0.009));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-1.70, 4.90, -5.90), vec3<f32>(-1.75, 3.55, -5.95), 0.120, 0.013));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 0.60, 4.80, -7.60), vec3<f32>( 0.55, 3.95, -7.65), 0.092, 0.010));
+        ic = min(ic, sd_round_cone(p, vec3<f32>(-2.30, 4.55, -9.10), vec3<f32>(-2.35, 3.70, -9.15), 0.083, 0.009));
+        ic = min(ic, sd_round_cone(p, vec3<f32>( 1.15, 4.45, -10.80), vec3<f32>( 1.10, 3.30, -10.85), 0.105, 0.011));
+        res = map_pick(res, ic, MAT_ICECLEAR);
+    } else {
+        res = map_pick(res, ice_bb * 0.9, MAT_ICECLEAR);
+    }
+
+    // ---- columns ----------------------------------------------------------
+    var col = sd_capsule(p, vec3<f32>( 2.75, 0.0, 4.30), vec3<f32>( 2.55, 4.60, 4.55), 0.34);
+    col = min(col, sd_capsule(p, vec3<f32>(-2.55, 0.0, -0.40), vec3<f32>(-2.35, 4.35, -0.30), 0.26));
+    col = min(col, sd_capsule(p, vec3<f32>( 3.35, 0.0, 7.60), vec3<f32>( 3.20, 3.10, 7.70), 0.22));
+    col = min(col, sd_capsule(p, vec3<f32>( 0.90, 0.0, -7.20), vec3<f32>( 0.75, 4.20, -7.10), 0.30));
+    res = map_pick(res, col, MAT_ICECLEAR);
+
+    // ---- subsurface-scattering blocks on the floor ------------------------
+    // The first one sits exactly where aperture A's column lands: sunlight
+    // enters its top face, random-walks inside and leaves as a diffuse glow.
+    var blk = sd_rbox(rot_y(p - vec3<f32>(-0.30, 0.55, -9.20), 0.28), vec3<f32>(0.85, 0.58, 0.65), 0.20);
+    blk = min(blk, sd_rbox(rot_y(p - vec3<f32>( 1.90, 0.38, -6.40), -0.55), vec3<f32>(0.50, 0.40, 0.44), 0.13));
+    blk = min(blk, sd_rbox(rot_y(p - vec3<f32>(-2.10, 0.30, -4.60),  0.75), vec3<f32>(0.46, 0.32, 0.40), 0.11));
+    blk = min(blk, sd_rbox(rot_y(p - vec3<f32>( 0.45, 0.52, -1.15),  0.35), vec3<f32>(0.80, 0.56, 0.62), 0.20));
+    blk = min(blk, sd_rbox(rot_y(p - vec3<f32>(-1.85, 0.34,  1.70), -0.60), vec3<f32>(0.52, 0.36, 0.46), 0.14));
+    blk = min(blk, sd_rbox(rot_y(p - vec3<f32>( 2.05, 0.40,  2.55),  1.10), vec3<f32>(0.45, 0.42, 0.40), 0.12));
+    res = map_pick(res, blk, MAT_ICEBLOCK);
+
+    // ---- crystal sheets suspended in two of the light columns -------------
+    // Placed exactly where apertures A and E project their beams, so the
+    // columns refract through a 3 cm slab before continuing into the cave.
+    let sh_bb = sd_box(p - vec3<f32>(-1.83, 4.43, -3.05), vec3<f32>(1.7, 0.9, 4.0));
+    if (sh_bb < 0.30) {
+        var sh = sd_box(rot_x(rot_y(p - vec3<f32>(-2.37, 4.35, -6.24), 0.30), 0.55),
+                        vec3<f32>(0.60, 0.016, 0.52));
+        sh = min(sh, sd_box(rot_x(rot_y(p - vec3<f32>(-1.28, 4.50, 0.15), -0.42), 0.42),
+                        vec3<f32>(0.55, 0.014, 0.48)));
+        res = map_pick(res, sh, MAT_CRYSTAL);
+    } else {
+        res = map_pick(res, sh_bb * 0.9, MAT_CRYSTAL);
+    }
+
+    // ---- drifting crystal flakes (animated) -------------------------------
+    let fl_bb = sd_box(p - vec3<f32>(0.0, 2.60, -5.00), vec3<f32>(3.20, 1.80, 6.00));
+    if (fl_bb < 0.22) {
+        let cell = 0.90;
+        let pp = p + g_drift;
+        let id = floor(pp / cell);
+        let q = (pp / cell - id - vec3<f32>(0.5)) * cell;
+        let hh = hash_cell(id);
+        var fd = BIG;
+        if (hh.x > 0.52) {
+            // tumbling plate: orientation from a hashed axis (no trig) plus a
+            // slow per-cell wobble driven by the cached frame phase
+            let ax = normalize(vec3<f32>(hh.x - 0.5, hh.y - 0.5, hh.z - 0.5)
+                     + vec3<f32>(0.30 * g_wob.x * (hh.y - 0.5), 0.22 * g_wob.y,
+                                 0.30 * g_wob.x * (hh.z - 0.5)) + vec3<f32>(0.011, 0.007, 0.013));
+            let bs = onb(ax);
+            let q2 = q - (hh - vec3<f32>(0.5)) * 0.40;
+            let qq = vec3<f32>(dot(q2, bs[0]), dot(q2, bs[1]), dot(q2, bs[2]));
+            fd = sd_hexplate(qq, 0.045 + 0.075 * hh.y, 0.011 + 0.006 * hh.z);
+        }
+        res = map_pick(res, fd, MAT_CRYSTAL);
+    } else {
+        res = map_pick(res, fl_bb * 0.9, MAT_CRYSTAL);
+    }
+
+    // ---- exterior ridges beyond the mouth ---------------------------------
+    let ex_bb = sd_box(p - vec3<f32>(0.0, 1.4, 11.6), vec3<f32>(12.0, 3.0, 3.4));
+    if (ex_bb < 0.40) {
+        var ex = sd_rbox(rot_y(p - vec3<f32>(-6.40, 0.60, 11.20),  0.50), vec3<f32>(2.30, 1.05, 1.10), 0.45);
+        ex = min(ex, sd_rbox(rot_y(p - vec3<f32>( 6.90, 0.75, 12.40), -0.40), vec3<f32>(2.80, 1.25, 1.30), 0.50));
+        ex = min(ex, sd_rbox(rot_y(p - vec3<f32>( 0.20, 0.32, 12.90),  0.20), vec3<f32>(3.40, 0.55, 0.90), 0.30));
+        res = map_pick(res, ex, MAT_ICEWALL);
+    } else {
+        res = map_pick(res, ex_bb * 0.9, MAT_ICEWALL);
+    }
+
+    return res;
+}
+
+fn map_d(p: vec3<f32>) -> f32 { return map(p).d; }
+
+fn normal_at(p: vec3<f32>) -> vec3<f32> {
+    // tetrahedron sampling: 4 field evaluations instead of 6
+    let e = 0.0016;
+    let k0 = vec3<f32>( 1.0, -1.0, -1.0);
+    let k1 = vec3<f32>(-1.0, -1.0,  1.0);
+    let k2 = vec3<f32>(-1.0,  1.0, -1.0);
+    let k3 = vec3<f32>( 1.0,  1.0,  1.0);
+    let n = k0 * map_d(p + k0 * e) + k1 * map_d(p + k1 * e)
+          + k2 * map_d(p + k2 * e) + k3 * map_d(p + k3 * e);
+    let l = length(n);
+    if (l < 1.0e-12) { return vec3<f32>(0.0, 1.0, 0.0); }
+    return n / l;
+}
+
+// frost: high frequency normal perturbation, strongest on the shell
+fn frost_normal(n: vec3<f32>, p: vec3<f32>, mat: i32) -> vec3<f32> {
+    var amp = P.optics.z;
+    if (mat == MAT_ICECLEAR) { amp = amp * 0.35; }
+    if (mat == MAT_ICEBLOCK) { amp = amp * 0.55; }
+    if (mat == MAT_CRYSTAL)  { amp = amp * 0.10; }
+    if (amp <= 0.0) { return n; }
+    let f = 11.0;
+    let e = 0.02;
+    let c = turb3(p * f);
+    let gx = turb3((p + vec3<f32>(e, 0.0, 0.0)) * f) - c;
+    let gy = turb3((p + vec3<f32>(0.0, e, 0.0)) * f) - c;
+    let gz = turb3((p + vec3<f32>(0.0, 0.0, e)) * f) - c;
+    var g = vec3<f32>(gx, gy, gz) / e;
+    g = g - n * dot(g, n);
+    return normalize(n + amp * g * 0.16);
+}
+
+// ------------------------------------------------------------------ tracing
+struct Hit { t: f32, mat: i32, ok: bool }
+
+const SCENE_LO = vec3<f32>(-14.5, -1.30, -33.0);
+const SCENE_HI = vec3<f32>( 14.5, 13.50,  15.5);
+
+fn slab_span(ro: vec3<f32>, rd: vec3<f32>, lo: vec3<f32>, hi: vec3<f32>) -> vec2<f32> {
+    let inv = safe_inv(rd);
+    let a = (lo - ro) * inv;
+    let b = (hi - ro) * inv;
+    let tmin = min(a, b);
+    let tmax = max(a, b);
+    return vec2<f32>(max(max(tmin.x, tmin.y), tmin.z), min(min(tmax.x, tmax.y), tmax.z));
+}
+
+fn trace_sdf(ro: vec3<f32>, rd: vec3<f32>, inside: bool, tmax_in: f32) -> Hit {
+    let span = slab_span(ro, rd, SCENE_LO, SCENE_HI);
+    if (span.y <= 0.0 || span.x > tmax_in) { return Hit(tmax_in, MAT_NONE, false); }
+    let tmax = min(tmax_in, span.y);
+    var t = max(0.0035, span.x + 0.0015);
+    var prev_t = t;
+    let steps = i32(P.ctrl.w);
+    for (var i = 0; i < steps; i = i + 1) {
+        let p = ro + rd * t;
+        var d = map_d(p);
+        if (inside) { d = -d; }
+        // Tighter distance-proportional epsilon than the usual 3.5e-4/m: the
+        // crystal sheets are only ~1.4 cm thick, and a looser epsilon lets
+        // grazing rays step over them (visible as flicker in the flake field).
+        let eps = 0.0009 + 0.00025 * t;
+        if (d < eps) {
+            // Only a genuine overshoot (d < 0, i.e. the step jumped past the
+            // surface because the field is not perfectly Lipschitz) needs a
+            // bisection; a normal near-surface hit is already accurate.
+            if (d < 0.0) {
+                var a = prev_t;
+                var b = t;
+                for (var k = 0; k < 6; k = k + 1) {
+                    let mid = 0.5 * (a + b);
+                    var dm = map_d(ro + rd * mid);
+                    if (inside) { dm = -dm; }
+                    if (dm > eps * 0.5) { a = mid; } else { b = mid; }
+                }
+                return Hit(b, map(ro + rd * b).mat, true);
+            }
+            return Hit(t, map(p).mat, true);
+        }
+        prev_t = t;
+        t = t + max(d * 0.62, eps * 1.2);
+        if (t > tmax) { break; }
+    }
+    return Hit(tmax_in, MAT_NONE, false);
+}
+
+// analytic snow floor at y = 0, unified with the SDF geometry
+fn intersect_scene(ro: vec3<f32>, rd: vec3<f32>, inside: bool, tmax: f32) -> Hit {
+    let h = trace_sdf(ro, rd, inside, tmax);
+    let tbest = select(tmax, h.t, h.ok);
+    if (abs(rd.y) > 1.0e-7) {
+        let tp = -ro.y / rd.y;
+        if (tp > 0.0035 && tp < tbest) { return Hit(tp, MAT_SNOW, true); }
+    }
+    return h;
+}
+
+// The sphere tracer accepts a hit as soon as |d| < eps(t), so the hit point can
+// sit up to eps(t) *outside* the surface. Any "which medium is on the other
+// side" probe and any ray re-origin therefore has to step by more than that,
+// otherwise a boundary gets reported twice (with eta = 1) and the segment
+// between the two reports carries the wrong extinction. The step is always
+// taken along the surface *normal* rather than along the ray: at grazing
+// incidence a step along the ray barely changes the field.
+fn surf_offset(t: f32) -> f32 { return 0.0030 + 0.00060 * t; }
+
+fn probe_medium(p: vec3<f32>) -> i32 {
+    let m = map(p);
+    if (m.d < 0.0) { return m.mat; }
+    return MED_AIR;
+}
+
+// -------------------------------------------------------------------- media
+struct Medium { ss: vec3<f32>, sa: vec3<f32>, g: f32 }
+
+fn medium_of(mat: i32) -> Medium {
+    if (mat == MAT_ICEWALL)  { return Medium(P.wall_ss.xyz, P.wall_sa.xyz, P.wall_ss.w); }
+    if (mat == MAT_ICEBLOCK) { return Medium(P.blk_ss.xyz,  P.blk_sa.xyz,  P.blk_ss.w);  }
+    if (mat == MAT_ICECLEAR) { return Medium(P.clr_ss.xyz,  P.clr_sa.xyz,  P.clr_ss.w);  }
+    if (mat == MAT_CRYSTAL)  { return Medium(P.clr_ss.xyz * 0.35, P.clr_sa.xyz * 0.5, P.clr_ss.w); }
+    return Medium(vec3<f32>(0.0), vec3<f32>(0.0), 0.0);
+}
+
+fn ior_of(med: i32) -> f32 {
+    if (med == MED_AIR) { return 1.0; }
+    return P.optics.x;
+}
+
+const FOG_LO = vec3<f32>(-13.0, 0.0, -32.0);
+const FOG_HI = vec3<f32>( 13.0, 11.0,  12.0);
+
+// heterogeneous mist: wall-hugging frost fog + ground mist + advected turbulence
+fn fog_sigma_t(p: vec3<f32>) -> f32 {
+    if (any(p < FOG_LO) || any(p > FOG_HI)) { return 0.0; }
+    let f = tube_sdf(p);
+    let ins = sstep(0.25, -0.75, f);
+    if (ins <= 0.002) { return 0.0; }
+    let t = P.anim.x * P.anim.z;
+    let q = p * 0.55 + vec3<f32>(t * 0.05, -t * 0.03, t * 0.12);
+    let n = 0.55 + 0.45 * turb3(q);
+    let h = exp(-max(p.y, 0.0) * P.fog.z);
+    let wallmist = exp(min(f, 0.0) * 2.2);   // 1 at the wall, decaying inwards
+    // The height profile has almost no floor term: the mist must hug the ground
+    // (and the walls) so that a 20 m view down the tunnel stays optically thin
+    // while the light columns still have something dense to burn through.
+    var s = P.fog.x * ins * n * (0.10 + 0.90 * h);
+    s = s + P.fog.y * ins * n * wallmist;
+    return s;
+}
+
+// --------------------------------------------------------- phase / diffraction
+fn airy_lobe(sin_t: f32, x: f32) -> f32 {
+    let u = max(x * sin_t, 1.0e-4);
+    let j = bessel_j1(u);
+    let a = 2.0 * j / u;
+    return a * a * x * x / (4.0 * PI);      // normalised over the sphere
+}
+
+fn halo_ring(theta: f32, th0: f32, sig: f32) -> f32 {
+    let d = (theta - th0) / sig;
+    return exp(-d * d) / (2.0 * PI * max(sin(theta), 1.0e-3) * sig * 1.7724539);
+}
+
+fn phase_eval(wo: vec3<f32>, wi: vec3<f32>, g: f32, air: bool) -> vec3<f32> {
+    let ct = clamp(dot(wo, wi), -1.0, 1.0);
+    let base = hg_pdf(ct, g);
+    if (!air) { return vec3<f32>(base); }
+    let wc = P.diffr.x;
+    let wg = P.diffr.y;
+    let wh = P.diffr.z;
+    let wb = max(0.0, 1.0 - wc - wg - wh);
+    var v = vec3<f32>(base * wb);
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    if (wc > 0.0 && ct > 0.0) {
+        let x = P.diffr.w;
+        v = v + wc * vec3<f32>(airy_lobe(st, x * 0.742), airy_lobe(st, x * 0.876),
+                               airy_lobe(st, x * 1.043));
+    }
+    if (wg > 0.0 && ct < 0.0) {
+        let xb = P.diffr.w * 0.30;
+        v = v + wg * vec3<f32>(airy_lobe(st, xb * 0.742), airy_lobe(st, xb * 0.876),
+                               airy_lobe(st, xb * 1.043));
+    }
+    if (wh > 0.0) {
+        let th = acos(ct);
+        v = v + wh * vec3<f32>(halo_ring(th, 0.3752, 0.028), halo_ring(th, HALO_TH, HALO_SIG),
+                               halo_ring(th, 0.3944, 0.032));
+    }
+    return v;
+}
+
+fn phase_pdf(wo: vec3<f32>, wi: vec3<f32>, g: f32, air: bool) -> f32 {
+    let ct = clamp(dot(wo, wi), -1.0, 1.0);
+    if (!air) { return hg_pdf(ct, g); }
+    let wc = P.diffr.x;
+    let wg = P.diffr.y;
+    let wh = P.diffr.z;
+    let wb = max(0.0, 1.0 - wc - wg - wh);
+    var p = wb * hg_pdf(ct, g);
+    p = p + wc * hg_pdf(ct, G_CORONA);
+    p = p + wg * hg_pdf(ct, G_GLORY);
+    p = p + wh * halo_ring(acos(ct), HALO_TH, HALO_SIG);
+    return max(p, 1.0e-9);
+}
+
+fn sample_phase(wo: vec3<f32>, g: f32, air: bool) -> vec3<f32> {
+    if (!air) { return sample_hg(wo, g); }
+    let wc = P.diffr.x;
+    let wg = P.diffr.y;
+    let wh = P.diffr.z;
+    let wb = max(0.0, 1.0 - wc - wg - wh);
+    let u = rnd();
+    if (u < wb) { return sample_hg(wo, g); }
+    if (u < wb + wc) { return sample_hg(wo, G_CORONA); }
+    if (u < wb + wc + wg) { return sample_hg(wo, G_GLORY); }
+    // ring lobe: theta ~ N(HALO_TH, HALO_SIG/sqrt(2)) matches halo_ring exactly
+    let u1 = max(rnd(), 1.0e-7);
+    let u2 = rnd();
+    let gauss = sqrt(-2.0 * log(u1)) * cos(2.0 * PI * u2);
+    let th = clamp(HALO_TH + HALO_SIG * gauss * 0.70710678, 0.002, PI - 0.002);
+    let ct = cos(th);
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    let phi = 2.0 * PI * rnd();
+    return normalize(onb(wo) * vec3<f32>(st * cos(phi), st * sin(phi), ct));
+}
+
+// ----------------------------------------------------------------- lighting
+fn sun_cone_pdf() -> f32 {
+    return 1.0 / (2.0 * PI * max(1.0 - P.sun_dir.w, 1.0e-7));
+}
+
+fn sky_radiance(d: vec3<f32>) -> vec3<f32> {
+    let up = clamp(d.y, -1.0, 1.0);
+    let grad = pow(clamp(1.0 - abs(up), 0.0, 1.0), 2.2);
+    var c = mix(P.sky_zen.xyz, P.sky_hor.xyz, grad);
+    let cs = clamp(dot(d, P.sun_dir.xyz), -1.0, 1.0);
+    // circumsolar aureole of a hazy polar sky. The coefficient is deliberately
+    // small: at 5e-5 the whole aureole carries roughly half of the sky dome's
+    // irradiance, whereas a larger value turns it into a giant soft light that
+    // floods the cavity and destroys the shafts.
+    let aur = P.sky_hor.w * (pow(max(cs, 0.0), 24.0) * 0.75 + pow(max(cs, 0.0), 220.0) * 3.0);
+    c = c + P.sun_rad.xyz * aur * 0.00005;
+    let gnd = sstep(0.0, -0.25, up);
+    c = mix(c, P.sky_hor.xyz * 0.85, gnd);
+    return c * P.sky_zen.w;
+}
+
+// --------------------------------------------------------------- dielectrics
+fn fresnel_dielectric(cos_i: f32, eta: f32) -> f32 {
+    // eta = n_incident / n_transmitted
+    let s2 = eta * eta * max(0.0, 1.0 - cos_i * cos_i);
+    if (s2 >= 1.0) { return 1.0; }              // total internal reflection
+    let cos_t = sqrt(1.0 - s2);
+    let rs = (eta * cos_i - cos_t) / (eta * cos_i + cos_t);
+    let rp = (cos_i - eta * cos_t) / (cos_i + eta * cos_t);
+    return clamp(0.5 * (rs * rs + rp * rp), 0.0, 1.0);
+}
+
+fn refract_dir(d: vec3<f32>, n: vec3<f32>, eta: f32) -> vec3<f32> {
+    // d points into the surface, n faces d (dot(d, n) < 0)
+    let ci = -dot(d, n);
+    let s2 = eta * eta * (1.0 - ci * ci);
+    if (s2 >= 1.0) { return vec3<f32>(0.0); }
+    let ct = sqrt(1.0 - s2);
+    return normalize(eta * d + (eta * ci - ct) * n);
+}
+
+fn sample_ggx_normal(n: vec3<f32>, alpha: f32) -> vec3<f32> {
+    if (alpha < 1.0e-4) { return n; }
+    let u1 = rnd();
+    let u2 = rnd();
+    let ct = sqrt(max(0.0, (1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1)));
+    let st = sqrt(max(0.0, 1.0 - ct * ct));
+    let phi = 2.0 * PI * u2;
+    return normalize(onb(n) * vec3<f32>(st * cos(phi), st * sin(phi), ct));
+}
+
+fn roughness_of(mat: i32) -> f32 {
+    if (mat == MAT_ICEWALL)  { return P.wall_sa.w; }
+    if (mat == MAT_ICEBLOCK) { return P.wall_sa.w * 0.45; }
+    if (mat == MAT_ICECLEAR) { return P.wall_sa.w * 0.22; }
+    if (mat == MAT_CRYSTAL)  { return P.wall_sa.w * 0.06; }
+    return 0.0;
+}
+
+// Straight-through attenuated shadow ray. Dielectric boundaries contribute
+// (1 - Fresnel) and every ice segment contributes Beer-Lambert extinction;
+// the mist contributes an unbiased ratio-tracking estimate.
+fn shadow_transmittance(p0: vec3<f32>, wi: vec3<f32>, med0: i32) -> vec3<f32> {
+    var tr = vec3<f32>(1.0);
+    var p = p0;
+    var med = med0;
+    let cap = i32(P.ctrl2.x);
+    for (var i = 0; i < cap; i = i + 1) {
+        let h = intersect_scene(p, wi, med != MED_AIR, 400.0);
+        let seg = select(400.0, h.t, h.ok);
+        if (med == MED_AIR) {
+            if (P.fog.w > 1.0e-6) {
+                let fs = slab_span(p, wi, FOG_LO, FOG_HI);
+                let a = max(fs.x, 0.0);
+                let b = min(fs.y, seg);
+                if (b > a) {
+                    var tt = a;
+                    var guard = 0;
+                    loop {
+                        tt = tt - log(max(1.0 - rnd(), 1.0e-7)) / P.fog.w;
+                        if (tt >= b || guard > 192) { break; }
+                        tr = tr * (1.0 - fog_sigma_t(p + wi * tt) / P.fog.w);
+                        guard = guard + 1;
+                    }
+                }
+            }
+        } else {
+            let m = medium_of(med);
+            tr = tr * exp(-(m.ss + m.sa) * seg);
+        }
+        if (mx3(tr) < 1.0e-4) { return vec3<f32>(0.0); }
+        if (!h.ok) { return tr; }                      // reached the sky
+        if (h.mat == MAT_SNOW) { return vec3<f32>(0.0); }
+        let ph = p + wi * h.t;
+        let ng = normal_at(ph);
+        let nf = select(ng, -ng, dot(wi, ng) > 0.0);
+        let po = surf_offset(h.t);
+        let nxt = probe_medium(ph - nf * po);
+        let eta = ior_of(med) / max(ior_of(nxt), 1.0e-4);
+        tr = tr * (1.0 - fresnel_dielectric(abs(dot(wi, nf)), eta));
+        med = nxt;
+        p = ph - nf * po;
+    }
+    // The boundary budget is exhausted: the remaining ice on the way to the sun
+    // is unknown, so treat the path as blocked instead of leaking light.
+    return vec3<f32>(0.0);
+}
+
+// ------------------------------------------------------------ path integrator
+struct PathOut {
+    L    : vec3<f32>,
+    vol  : f32,
+    sss  : f32,
+    refr : f32,
+    dist : f32,
+}
+
+fn nee_sun(p: vec3<f32>, med: i32, beta: vec3<f32>, is_phase: bool,
+           wo: vec3<f32>, nrm: vec3<f32>, g: f32) -> vec3<f32> {
+    let wi = sample_cone(P.sun_dir.xyz, P.sun_dir.w);
+    let lpdf = sun_cone_pdf();
+    var fval : vec3<f32>;
+    var spdf : f32;
+    if (is_phase) {
+        fval = phase_eval(wo, wi, g, med == MED_AIR);
+        spdf = phase_pdf(wo, wi, g, med == MED_AIR);
+    } else {
+        let c = dot(wi, nrm);
+        if (c <= 0.0) { return vec3<f32>(0.0); }
+        fval = vec3<f32>(P.optics.w * INV_PI * c);
+        spdf = c * INV_PI;
+    }
+    if (mx3(fval) <= 0.0) { return vec3<f32>(0.0); }
+    let tr = shadow_transmittance(p, wi, med);
+    if (mx3(tr) <= 0.0) { return vec3<f32>(0.0); }
+    let mis = lpdf / (lpdf + spdf);
+    return beta * fval * tr * P.sun_rad.xyz * mis / lpdf;
+}
+
+fn trace_path(ro0: vec3<f32>, rd0: vec3<f32>) -> PathOut {
+    var out_ = PathOut(vec3<f32>(0.0), 0.0, 0.0, 0.0, -1.0);
+    var ro = ro0;
+    var rd = rd0;
+    var beta = vec3<f32>(1.0);
+    var med = probe_medium(ro0);
+    var spec_prev = true;
+    var prev_pdf = 1.0;
+    let maxb = i32(P.ctrl.z);
+    let rr_start = i32(P.ctrl2.y);
+
+    for (var bounce = 0; bounce < maxb; bounce = bounce + 1) {
+        let inside = (med != MED_AIR);
+        let hit = intersect_scene(ro, rd, inside, 500.0);
+        let tseg = select(500.0, hit.t, hit.ok);
+
+        // ---------------- distance sampling in the current medium ----------
+        var scattered = false;
+        var ts = 0.0;
+        if (med == MED_AIR) {
+            if (P.fog.w > 1.0e-6) {
+                let fs = slab_span(ro, rd, FOG_LO, FOG_HI);
+                let a = max(fs.x, 0.0);
+                let b = min(fs.y, tseg);
+                if (b > a) {
+                    var tt = a;
+                    var guard = 0;
+                    loop {
+                        tt = tt - log(max(1.0 - rnd(), 1.0e-7)) / P.fog.w;
+                        if (tt >= b || guard > 256) { break; }
+                        if (rnd() < fog_sigma_t(ro + rd * tt) / P.fog.w) {
+                            scattered = true;
+                            ts = tt;
+                            beta = beta * P.fog2.xyz;    // scattering albedo
+                            break;
+                        }
+                        guard = guard + 1;
+                    }
+                }
+            }
+        } else {
+            let m = medium_of(med);
+            let st = m.ss + m.sa;
+            let sbar = max(avg3(st), 1.0e-6);
+            let d = -log(max(1.0 - rnd(), 1.0e-7)) / sbar;
+            if (d < tseg) {
+                scattered = true;
+                ts = d;
+                beta = beta * (exp(-st * d) * m.ss) / (sbar * exp(-sbar * d));
+            } else {
+                beta = beta * exp(-st * tseg) / exp(-sbar * tseg);
+            }
+        }
+
+        if (scattered) {
+            // ---------------- volumetric scattering vertex -----------------
+            let p = ro + rd * ts;
+            let air = (med == MED_AIR);
+            var g = P.fog2.w;
+            if (!air) { g = medium_of(med).g; }
+            let contrib = nee_sun(p, med, beta, true, rd, vec3<f32>(0.0), g);
+            out_.L = out_.L + contrib;
+            let cl = lum(contrib);
+            if (air) { out_.vol = out_.vol + cl; } else { out_.sss = out_.sss + cl; }
+
+            let wi = sample_phase(rd, g, air);
+            let pdf = phase_pdf(rd, wi, g, air);
+            beta = beta * phase_eval(rd, wi, g, air) / pdf;
+            ro = p;
+            rd = wi;
+            spec_prev = false;
+            prev_pdf = pdf;
+        } else if (!hit.ok) {
+            // ---------------- escaped to the sky ---------------------------
+            var envr = sky_radiance(rd);
+            if (dot(rd, P.sun_dir.xyz) > P.sun_dir.w) {
+                var w = 1.0;
+                if (!spec_prev) { w = prev_pdf / (prev_pdf + sun_cone_pdf()); }
+                envr = envr + P.sun_rad.xyz * w;
+            }
+            out_.L = out_.L + beta * envr;
+            break;
+        } else {
+            // ---------------- surface interaction --------------------------
+            let p = ro + rd * hit.t;
+            if (out_.dist < 0.0) { out_.dist = hit.t; }
+            // Aerial perspective of the bright exterior. Only the part of the
+            // segment that lies *outside* the cave volume (the fog box) counts:
+            // applying it inside would quietly lift the dark cave interior.
+            if (med == MED_AIR && P.sun_rad.w > 0.0) {
+                let fs = slab_span(ro, rd, FOG_LO, FOG_HI);
+                let cave_len = clamp(min(fs.y, hit.t) - max(fs.x, 0.0), 0.0, hit.t);
+                let open_len = hit.t - cave_len;
+                if (open_len > 0.0) {
+                    let trh = exp(-P.sun_rad.w * open_len);
+                    out_.L = out_.L + beta * (1.0 - trh) * sky_radiance(rd) * 0.55;
+                    beta = beta * trh;
+                }
+            }
+            if (hit.mat == MAT_SNOW) {
+                let ng = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, -1.0, 0.0), rd.y > 0.0);
+                let n = frost_normal(ng, p * 1.7, MAT_ICECLEAR);
+                out_.L = out_.L + nee_sun(p + n * 0.003, med, beta, false, rd, n, 0.0);
+                let wi = sample_cosine(n);
+                beta = beta * P.optics.w;
+                ro = p + n * 0.003;
+                rd = wi;
+                spec_prev = false;
+                prev_pdf = max(dot(wi, n), 0.0) * INV_PI;
+            } else {
+                let ng0 = normal_at(p);
+                let ng = select(ng0, -ng0, dot(rd, ng0) > 0.0);
+                let n = frost_normal(ng, p, hit.mat);
+                let alpha = roughness_of(hit.mat);
+                var m = sample_ggx_normal(n, alpha * alpha);
+                if (dot(m, ng) < 0.06 || dot(rd, m) > 0.0) { m = ng; }
+
+                let po = surf_offset(hit.t);
+                let nxt = probe_medium(p - ng * po);
+                var ior_i = ior_of(med);
+                var ior_t = ior_of(nxt);
+                if (hit.mat == MAT_CRYSTAL && P.optics.y > 0.0) {
+                    // hero-wavelength dispersion on the crystal facets
+                    let u = rnd();
+                    var mask = vec3<f32>(0.0);
+                    var dn = 0.0;
+                    if (u < 0.3333333) {
+                        mask = vec3<f32>(3.0, 0.0, 0.0);
+                        dn = -P.optics.y;
+                    } else if (u < 0.6666666) {
+                        mask = vec3<f32>(0.0, 3.0, 0.0);
+                    } else {
+                        mask = vec3<f32>(0.0, 0.0, 3.0);
+                        dn = P.optics.y;
+                    }
+                    beta = beta * mask;
+                    if (nxt != MED_AIR) { ior_t = ior_t + dn; }
+                    if (med != MED_AIR) { ior_i = ior_i + dn; }
+                }
+                let eta = ior_i / max(ior_t, 1.0e-4);
+                let fr = fresnel_dielectric(abs(dot(rd, m)), eta);
+                if (rnd() < fr) {
+                    var wr = normalize(rd - 2.0 * dot(rd, m) * m);
+                    if (dot(wr, ng) < 0.0) { wr = normalize(wr - 2.0 * dot(wr, ng) * ng); }
+                    rd = wr;
+                    ro = p + ng * po;
+                } else {
+                    let wt = refract_dir(rd, m, eta);
+                    if (all(wt == vec3<f32>(0.0))) {
+                        rd = normalize(rd - 2.0 * dot(rd, m) * m);
+                        ro = p + ng * po;
+                    } else {
+                        rd = wt;
+                        ro = p - ng * po;
+                        med = nxt;
+                        out_.refr = out_.refr + 1.0;
+                    }
+                }
+                spec_prev = true;
+                prev_pdf = 1.0;
+            }
+        }
+
+        // ---------------- russian roulette --------------------------------
+        // The 0.88 ceiling also bounds the *length* of the subsurface random
+        // walk (albedo alone is ~0.99 there and would never terminate); the
+        // 1/q reweighting keeps the estimator unbiased.
+        if (bounce >= rr_start) {
+            let q = clamp(mx3(beta), 0.02, 0.88);
+            if (rnd() > q) { break; }
+            beta = beta / q;
+        }
+        if (mx3(beta) < 1.0e-5) { break; }
+    }
+    return out_;
+}
+
+// -------------------------------------------------------------- camera setup
+struct Ray { o: vec3<f32>, d: vec3<f32> }
+
+fn primary_ray(px: f32, py: f32, jitter: bool) -> Ray {
+    let w = f32(P.ctrl.x);
+    let h = f32(P.ctrl.y);
+    var jx = 0.5;
+    var jy = 0.5;
+    if (jitter) {
+        jx = rnd();
+        jy = rnd();
+    }
+    let sx = ((px + jx) / w * 2.0 - 1.0) * P.cam_pos.w * P.cam_fwd.w;
+    let sy = (1.0 - (py + jy) / h * 2.0) * P.cam_pos.w;
+    var org = P.cam_pos.xyz;
+    var dir = normalize(P.cam_fwd.xyz + P.cam_right.xyz * sx + P.cam_up.xyz * sy);
+    if (P.cam_right.w > 0.0) {
+        let r = P.cam_right.w * sqrt(rnd());
+        let a = 2.0 * PI * rnd();
+        let off = P.cam_right.xyz * (r * cos(a)) + P.cam_up.xyz * (r * sin(a));
+        let focus = org + dir * (P.cam_up.w / max(dot(dir, P.cam_fwd.xyz), 1.0e-4));
+        org = org + off;
+        dir = normalize(focus - org);
+    }
+    return Ray(org, dir);
+}
+
+// ------------------------------------------------------------- render kernel
+@compute @workgroup_size(8, 8, 1)
+fn cs_render(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= pc.tile.z || gid.y >= pc.tile.w) { return; }
+    let px = pc.tile.x + gid.x;
+    let py = pc.tile.y + gid.y;
+    if (px >= P.ctrl.x || py >= P.ctrl.y) { return; }
+    let idx = py * P.ctrl.x + px;
+    setup_globals();
+
+    var sum = vec3<f32>(0.0);
+    var aov = vec4<f32>(0.0);
+    let spp = pc.ctl.y;
+    for (var s = 0u; s < spp; s = s + 1u) {
+        seed_rng(px * 1973u + py * 9277u, pc.ctl.x + s, pc.ctl.z);
+        let cam = primary_ray(f32(px), f32(py), true);
+        let r = trace_path(cam.o, cam.d);
+        // firefly clamp: bounds a single sample, energy preserved below it
+        var c = r.L;
+        let cl = mx3(c);
+        if (cl > 900.0) { c = c * (900.0 / cl); }
+        sum = sum + c;
+        aov = aov + vec4<f32>(r.refr, r.vol, r.sss, max(r.dist, 0.0));
+    }
+    let prev = accum[idx];
+    accum[idx] = vec4<f32>(prev.xyz + sum, prev.w + f32(spp));
+    if (P.ctrl2.z != 0u) {
+        aovbuf[idx] = aovbuf[idx] + aov;
+    }
+}
+
+// ---------------------------------------------------- refraction-chain probe
+// Deterministically follows the refracted branch through every ice boundary
+// and records the direction history so multi-layer refraction is auditable.
+@compute @workgroup_size(1, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x != 0u || gid.y != 0u) { return; }
+    setup_globals();
+    seed_rng(12345u, 6789u, 2468u);
+    let cam = primary_ray(f32(P.ctrl2.w), f32(P.ctrl3.x), false);
+    var ro = cam.o;
+    var rd = cam.d;
+    let rd_start = rd;
+    var med = probe_medium(ro);
+    var count = 0u;
+    let maxe = P.ctrl3.y;
+    var optical = vec3<f32>(0.0);
+
+    for (var i = 0u; i < maxe * 3u; i = i + 1u) {
+        let hit = intersect_scene(ro, rd, med != MED_AIR, 500.0);
+        if (!hit.ok) { break; }
+        let p = ro + rd * hit.t;
+        if (med != MED_AIR) {
+            let m = medium_of(med);
+            optical = optical + (m.ss + m.sa) * hit.t;
+        }
+        let base = 1u + count * 5u;
+        if (hit.mat == MAT_SNOW) {
+            probebuf[base + 0u] = vec4<f32>(p, hit.t);
+            probebuf[base + 1u] = vec4<f32>(rd, ior_of(med));
+            probebuf[base + 2u] = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+            probebuf[base + 3u] = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            probebuf[base + 4u] = vec4<f32>(f32(MAT_SNOW), 2.0, 0.0, avg3(optical));
+            count = count + 1u;
+            break;
+        }
+        let ng0 = normal_at(p);
+        let ng = select(ng0, -ng0, dot(rd, ng0) > 0.0);
+        let po = surf_offset(hit.t);
+        let nxt = probe_medium(p - ng * po);
+        let eta = ior_of(med) / max(ior_of(nxt), 1.0e-4);
+        let fr = fresnel_dielectric(abs(dot(rd, ng)), eta);
+        let wt = refract_dir(rd, ng, eta);
+        var dir_out = wt;
+        var kind = 0.0;
+        if (all(wt == vec3<f32>(0.0))) {
+            dir_out = normalize(rd - 2.0 * dot(rd, ng) * ng);
+            kind = 1.0;
+        }
+        let dev = degrees(acos(clamp(dot(rd_start, dir_out), -1.0, 1.0)));
+        probebuf[base + 0u] = vec4<f32>(p, hit.t);
+        probebuf[base + 1u] = vec4<f32>(rd, ior_of(med));
+        probebuf[base + 2u] = vec4<f32>(ng, ior_of(nxt));
+        probebuf[base + 3u] = vec4<f32>(dir_out, dev);
+        probebuf[base + 4u] = vec4<f32>(f32(hit.mat), kind, fr, avg3(optical));
+        count = count + 1u;
+        if (kind == 0.0) {
+            med = nxt;
+            ro = p - ng * po;
+        } else {
+            ro = p + ng * po;
+        }
+        rd = dir_out;
+        if (count >= maxe) { break; }
+    }
+    probebuf[0] = vec4<f32>(f32(count), f32(med), avg3(optical), 0.0);
+}

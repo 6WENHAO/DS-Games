@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>红绿灯路口仿真 · 2D Traffic Intersection Simulator</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0d1117;color:#e6edf3;
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  #app{display:flex;height:100%;width:100%}
+  #stage{position:relative;flex:1;min-width:0;background:#11331f}
+  canvas{display:block;width:100%;height:100%;cursor:grab}
+  canvas.drag{cursor:grabbing}
+  #hint{position:absolute;left:12px;bottom:10px;font-size:11.5px;color:#8b98a5;
+    background:rgba(13,17,23,.55);padding:5px 9px;border-radius:7px;backdrop-filter:blur(4px);pointer-events:none}
+  #title{position:absolute;left:12px;top:10px;pointer-events:none}
+  #title h1{margin:0;font-size:15px;letter-spacing:.5px;color:#e6edf3;text-shadow:0 1px 4px #000}
+  #title p{margin:2px 0 0;font-size:11px;color:#93a1af;text-shadow:0 1px 4px #000}
+
+  #panel{width:312px;flex:none;height:100%;overflow-y:auto;padding:12px 12px 26px;
+    background:#161b22;border-left:1px solid #262d36}
+  #panel::-webkit-scrollbar{width:8px}
+  #panel::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+  .card{background:#1b2129;border:1px solid #272e37;border-radius:10px;padding:10px 11px;margin-bottom:10px}
+  .card h3{margin:0 0 9px;font-size:11.5px;letter-spacing:1.2px;color:#7d8b99;text-transform:uppercase;font-weight:600}
+  .row{display:flex;gap:6px;flex-wrap:wrap}
+  button{flex:1;min-width:56px;background:#222b35;color:#dbe4ee;border:1px solid #303a46;border-radius:7px;
+    padding:7px 6px;font-size:12.5px;cursor:pointer;transition:.15s;font-family:inherit}
+  button:hover{background:#2c3743;border-color:#3d4b5a}
+  button:active{transform:translateY(1px)}
+  button.pri{background:#1f6feb;border-color:#2b7bf5;color:#fff}
+  button.pri:hover{background:#2a7cf7}
+  .sl{margin:9px 0 2px}
+  .sl label{display:flex;justify-content:space-between;font-size:12px;color:#adb9c6;margin-bottom:3px}
+  .sl label b{color:#58a6ff;font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;width:100%;height:16px;background:transparent;cursor:pointer;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;background:#2f3945;border-radius:3px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;
+    border-radius:50%;background:#58a6ff;box-shadow:0 0 0 1px #0d1117}
+  .chk{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#c6d2de;padding:4px 0;cursor:pointer}
+  .chk input{accent-color:#58a6ff;width:14px;height:14px;cursor:pointer}
+  .seg{display:flex;background:#141a21;border:1px solid #2b333d;border-radius:7px;padding:2px;margin:4px 0 6px}
+  .seg button{background:transparent;border:0;padding:6px 4px;font-size:12px;color:#93a1af;border-radius:5px}
+  .seg button.on{background:#1f6feb;color:#fff}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .st{background:#141a21;border:1px solid #262e38;border-radius:7px;padding:6px 8px}
+  .st span{display:block;font-size:10.5px;color:#7d8b99;letter-spacing:.4px}
+  .st b{font-size:15px;color:#e6edf3;font-variant-numeric:tabular-nums;font-weight:600}
+  .st b i{font-size:10px;font-style:normal;color:#7d8b99;margin-left:2px}
+  .ph{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 7px;border-radius:6px;
+    background:#141a21;margin-bottom:4px;color:#93a1af;border:1px solid transparent}
+  .ph.on{background:#12291b;border-color:#1f7a3a;color:#e6edf3}
+  .ph i{width:8px;height:8px;border-radius:50%;background:#39414b;flex:none}
+  .ph.on i{background:#2ea043;box-shadow:0 0 7px #2ea043}
+  .ph em{margin-left:auto;font-style:normal;font-size:11px;color:#7d8b99;font-variant-numeric:tabular-nums}
+  .qrow{display:flex;gap:5px;margin-top:7px}
+  .q{flex:1;text-align:center;background:#141a21;border:1px solid #262e38;border-radius:6px;padding:4px 0}
+  .q span{display:block;font-size:10px;color:#7d8b99}
+  .q b{font-size:13px;font-variant-numeric:tabular-nums}
+  .foot{font-size:10.5px;color:#6b7784;line-height:1.6;padding:0 2px}
+  kbd{background:#222b35;border:1px solid #313b47;border-bottom-width:2px;border-radius:4px;padding:0 4px;font-size:10px;color:#adb9c6}
+  @media(max-width:820px){#app{flex-direction:column}#panel{width:100%;height:47%;border-left:0;border-top:1px solid #262d36}#stage{height:53%}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="title"><h1>十字路口信号控制仿真</h1><p>3 车道 · 四相位保护左转 · IDM 跟驰模型 · 行人过街</p></div>
+    <div id="hint">滚轮缩放 · 拖拽平移 · 双击复位视角 · <kbd>空格</kbd>暂停 <kbd>N</kbd>切换相位 <kbd>R</kbd>重置 <kbd>D</kbd>调试 <kbd>P</kbd>夜间</div>
+  </div>
+
+  <aside id="panel">
+    <div class="card">
+      <h3>运行控制</h3>
+      <div class="row">
+        <button id="bPlay" class="pri">⏸ 暂停</button>
+        <button id="bStep">单步</button>
+        <button id="bReset">重置</button>
+      </div>
+      <div class="sl"><label>仿真速度 <b id="vSpeed">1.0×</b></label>
+        <input type="range" id="rSpeed" min="0.25" max="4" step="0.25" value="1"></div>
+    </div>
+
+    <div class="card">
+      <h3>交通需求</h3>
+      <div class="sl"><label>各进口车流量 <b id="vFlow">700 辆/h</b></label>
+        <input type="range" id="rFlow" min="60" max="1500" step="20" value="700"></div>
+      <div class="sl"><label>左转比例 <b id="vLeft">18%</b></label>
+        <input type="range" id="rLeft" min="0" max="45" step="1" value="18"></div>
+      <div class="sl"><label>右转比例 <b id="vRight">22%</b></label>
+        <input type="range" id="rRight" min="0" max="45" step="1" value="22"></div>
+      <label class="chk"><input type="checkbox" id="cPeds" checked>启用行人过街</label>
+      <div class="sl"><label>行人流量 <b id="vPed">300 人/h</b></label>
+        <input type="range" id="rPed" min="0" max="1200" step="20" value="300"></div>
+    </div>
+
+    <div class="card">
+      <h3>信号配时</h3>
+      <div class="seg"><button id="bFixed" class="on">定时控制</button><button id="bAdapt">感应控制</button></div>
+      <div class="sl"><label>直行绿灯 <b id="vGT">22 s</b></label>
+        <input type="range" id="rGT" min="8" max="50" step="1" value="22"></div>
+      <div class="sl"><label>左转绿灯 <b id="vGL">12 s</b></label>
+        <input type="range" id="rGL" min="5" max="35" step="1" value="12"></div>
+      <div class="sl"><label>黄灯 <b id="vY">3 s</b></label>
+        <input type="range" id="rY" min="1" max="6" step="0.5" value="3"></div>
+      <div class="sl"><label>全红清空 <b id="vAR">2 s</b></label>
+        <input type="range" id="rAR" min="0" max="5" step="0.5" value="2"></div>
+      <label class="chk"><input type="checkbox" id="cROR" checked>红灯允许右转（让行）</label>
+      <div class="row" style="margin-top:6px"><button id="bNext">下一相位 ⟩</button></div>
+    </div>
+
+    <div class="card">
+      <h3>相位状态</h3>
+      <div id="phList"></div>
+      <div class="qrow">
+        <div class="q"><span>北</span><b id="qN">0</b></div>
+        <div class="q"><span>东</span><b id="qE">0</b></div>
+        <div class="q"><span>南</span><b id="qS">0</b></div>
+        <div class="q"><span>西</span><b id="qW">0</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>运行统计</h3>
+      <div class="stats">
+        <div class="st"><span>已通过车辆</span><b id="sDone">0</b></div>
+        <div class="st"><span>通行能力</span><b id="sThr">0<i>辆/h</i></b></div>
+        <div class="st"><span>平均延误</span><b id="sWait">0<i>s</i></b></div>
+        <div class="st"><span>最大排队</span><b id="sQmax">0<i>辆</i></b></div>
+        <div class="st"><span>在途车辆</span><b id="sVeh">0</b></div>
+        <div class="st"><span>过街行人</span><b id="sPed">0</b></div>
+        <div class="st"><span>冲突次数</span><b id="sCol">0</b></div>
+        <div class="st"><span>帧率</span><b id="sFps">0<i>fps</i></b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>视图</h3>
+      <label class="chk"><input type="checkbox" id="cNight">夜间模式（车灯 / 灯光）</label>
+      <label class="chk"><input type="checkbox" id="cDebug">调试：轨迹与感知</label>
+      <label class="chk"><input type="checkbox" id="cTrail">车辆轨迹残影</label>
+    </div>
+
+    <p class="foot">车辆遵循 IDM 智能驾驶员模型跟驰与停车线制动，转弯采用二次贝塞尔轨迹并限速；四相位保护左转，黄灯两难区自主决策，右转让行人与冲突车流。</p>
+  </aside>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* =========================================================
+   0. 基础工具
+   ========================================================= */
+const TAU = Math.PI * 2;
+const clamp = (x,a,b)=> x<a?a:(x>b?b:x);
+const rnd   = (a,b)=> a + Math.random()*(b-a);
+const rightOf = d => [-d[1], d[0]];
+const leftOf  = d => [ d[1],-d[0]];
+const rot = (ang,x,y)=>{ const c=Math.cos(ang), s=Math.sin(ang); return [x*c-y*s, x*s+y*c]; };
+function mulberry32(a){ return function(){ a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* =========================================================
+   1. 路口几何（单位：米，屏幕坐标 y 向下＝南）
+   ========================================================= */
+const LANE_W  = 3.4;            // 车道宽
+const LANES   = 3;              // 单向车道数：0=内侧左转 1=直行 2=直行+右转
+const H       = LANE_W*LANES;   // 10.2 半路宽 = 路口方框半边长
+const SIDEWK  = 3.4;            // 人行道宽
+const CW_IN   = H + 1.4;        // 斑马线内边
+const CW_OUT  = CW_IN + 3.6;    // 斑马线外边
+const STOP    = CW_OUT + 0.8;   // 停车线距路口中心
+const FAR     = 78;             // 车辆生成 / 消失距离
+const EDGE    = 150;            // 静态图形绘制范围
+const CURB_R  = 4.6;            // 路缘石转角半径
+const CRUISE  = 12.5;           // 路段自由流速度 m/s (45km/h)
+const V_LEFT  = 6.0;            // 左转限速（R=12m，侧向加速度≈3.0 m/s²）
+const V_RIGHT = 4.8;            // 右转限速（R=8m，侧向加速度≈2.9 m/s²）
+const R_LEFT  = 12.0;           // 左转圆弧半径
+const R_RIGHT = 8.0;            // 右转圆弧半径
+const PED_V   = 1.35;           // 行人速度
+const laneOff = i => LANE_W*(i+0.5);   // 车道中心线偏移 1.7 / 5.1 / 8.5
+
+// 四个进口：d=行驶方向, ang=由“标准进口(北进口, 向南行驶)”旋转到该进口的角度
+const DIRS = {
+  N:{ d:[0, 1], ang:0,          name:'北' },
+  E:{ d:[-1,0], ang: Math.PI/2, name:'东' },
+  S:{ d:[0,-1], ang: Math.PI,   name:'南' },
+  W:{ d:[1, 0], ang:-Math.PI/2, name:'西' },
+};
+const ARMS = ['N','E','S','W'];
+
+/* =========================================================
+   2. 轨迹（折线 + 弧长参数化）
+   ========================================================= */
+class Path {
+  constructor(pts, segV){
+    const n = pts.length;
+    this.xs = new Float64Array(n); this.ys = new Float64Array(n);
+    this.ss = new Float64Array(n);
+    this.tx = new Float64Array(n-1); this.ty = new Float64Array(n-1);
+    this.segV = Float64Array.from(segV);
+    for (let i=0;i<n;i++){ this.xs[i]=pts[i][0]; this.ys[i]=pts[i][1]; }
+    for (let i=0;i+1<n;i++){
+      const dx=this.xs[i+1]-this.xs[i], dy=this.ys[i+1]-this.ys[i];
+      const L=Math.hypot(dx,dy)||1e-6;
+      this.tx[i]=dx/L; this.ty[i]=dy/L; this.ss[i+1]=this.ss[i]+L;
+    }
+    this.len   = this.ss[n-1];
+    this.sStop = FAR - STOP;     // 停车线处的弧长
+    this.sBox  = FAR - H;        // 进入路口方框
+    // 车头驶出路口方框的弧长（用于“不占用路口”判断）
+    let out = this.sBox;
+    for (let s=this.sBox; s<=this.len; s+=0.5){
+      const p = this.at(s);
+      if (!p) break;
+      if (Math.abs(p.x) <= H+0.15 && Math.abs(p.y) <= H+0.15) out = s;
+    }
+    this.sOut = out;
+  }
+  seg(s){
+    const ss=this.ss; let lo=0, hi=ss.length-1;
+    if (s<=0) return 0;
+    if (s>=ss[hi]) return hi-1;
+    while (lo+1<hi){ const m=(lo+hi)>>1; if (ss[m]<=s) lo=m; else hi=m; }
+    return lo;
+  }
+  at(s){
+    if (s > this.len) return null;
+    if (s < 0) s = 0;
+    const i=this.seg(s), t=s-this.ss[i];
+    return { x:this.xs[i]+this.tx[i]*t, y:this.ys[i]+this.ty[i]*t, tx:this.tx[i], ty:this.ty[i] };
+  }
+  limitAt(s){ return this.segV[this.seg(s)]; }
+  // 前方限速造成的最大允许加速度
+  ahead(s, v, b){
+    let a = Infinity;
+    const look = Math.min(45, 6 + v*v/(2*b));
+    for (let i=this.seg(s); i<this.segV.length; i++){
+      const s0 = this.ss[i];
+      if (s0 > s+look) break;
+      const vl = this.segV[i];
+      if (vl < v){
+        const d = Math.max(0.7, s0 - s);
+        const aa = (vl*vl - v*v)/(2*d);
+        if (aa < a) a = aa;
+      }
+    }
+    return a;
+  }
+}
+
+const pathCache = new Map();
+function getPath(from, mv, lane){
+  const key = from+mv+lane;
+  let p = pathCache.get(key);
+  if (p) return p;
+  const d = DIRS[from].d, r = rightOf(d);
+  const offIn = laneOff(lane);
+  const dOut = mv==='T' ? d : (mv==='L' ? leftOf(d) : rightOf(d));
+  const laneOut = mv==='T' ? lane : (mv==='L' ? 0 : LANES-1);
+  const offOut = laneOff(laneOut);
+  const rOut = rightOf(dOut);
+  const A = t => [ -d[0]*t + r[0]*offIn,  -d[1]*t + r[1]*offIn ];   // 进口道上距中心 t 处
+  const B = t => [ dOut[0]*t + rOut[0]*offOut, dOut[1]*t + rOut[1]*offOut ]; // 出口道
+  let pts, segV;
+  if (mv === 'T'){
+    pts = [A(FAR), B(FAR)]; segV = [CRUISE];
+  } else {
+    /* 圆弧转弯：圆心同时与进口道、出口道中心线相切
+       side=+1 右转（圆心在行驶方向右侧），side=-1 左转 */
+    const dot = (a,b)=> a[0]*b[0]+a[1]*b[1];
+    const side = (mv==='R') ? 1 : -1;
+    const R  = (mv==='R') ? R_RIGHT : R_LEFT;
+    const vT = (mv==='R') ? V_RIGHT : V_LEFT;
+    const tA = (offIn*dot(r,rOut) + side*R*dot(r,rOut) - offOut - side*R) / dot(d,rOut);
+    const S  = A(tA);
+    const O  = [ S[0] + side*R*r[0], S[1] + side*R*r[1] ];      // 圆心
+    const uB = tA;                                              // 对称：出口切点同参数
+    const th0 = Math.atan2(S[1]-O[1], S[0]-O[0]);
+    const N = 36;
+    pts = [A(FAR)]; segV = [CRUISE];
+    for (let i=1;i<=N;i++){
+      const th = th0 + side*(Math.PI/2)*(i/N);
+      pts.push([ O[0] + R*Math.cos(th), O[1] + R*Math.sin(th) ]);
+      segV.push(vT);
+    }
+    pts.push(B(FAR)); segV.push(CRUISE);
+  }
+  p = new Path(pts, segV);
+  pathCache.set(key, p);
+  return p;
+}
+
+/* =========================================================
+   3. 配置 / 状态
+   ========================================================= */
+const cfg = {
+  running:true, speed:1,
+  flow:700, left:0.18, right:0.22,
+  peds:true, pedFlow:300,
+  gT:22, gL:12, yellow:3, allRed:2, adaptive:false, ror:true,
+  night:false, debug:false, trail:false,
+};
+
+const sim = {
+  time:0, vehs:[], peds:[], done:0, waitSum:0, colls:0, qmax:0,
+  spawnAcc:{N:0,E:0,S:0,W:0}, pedAcc:0, log:[], colKeys:new Map(), trails:[],
+};
+
+/* ---- 信号机：四相位保护左转 ---- */
+const PHASES = [
+  { name:'南北直行', mov:{N:'TR', S:'TR'}, ped:['E','W'], dur:()=>cfg.gT },
+  { name:'南北左转', mov:{N:'LR', S:'LR'}, ped:[],        dur:()=>cfg.gL },
+  { name:'东西直行', mov:{W:'TR', E:'TR'}, ped:['N','S'], dur:()=>cfg.gT },
+  { name:'东西左转', mov:{W:'LR', E:'LR'}, ped:[],        dur:()=>cfg.gL },
+];
+
+const sig = {
+  idx:0, sub:'green', t:0,
+  state(from, mv){
+    const al = PHASES[this.idx].mov[from];
+    if (!al || al.indexOf(mv) < 0) return 'r';
+    if (this.sub==='green')  return 'g';
+    if (this.sub==='yellow') return 'y';
+    return 'r';
+  },
+  pedGreen(arm){ return this.sub==='green' && PHASES[this.idx].ped.indexOf(arm)>=0; },
+  remain(){
+    if (this.sub==='green')  return (cfg.adaptive ? PHASES[this.idx].dur()*1.7 : PHASES[this.idx].dur()) - this.t;
+    if (this.sub==='yellow') return cfg.yellow - this.t;
+    return cfg.allRed - this.t;
+  },
+  update(dt){
+    this.t += dt;
+    if (this.sub==='green'){
+      const g = PHASES[this.idx].dur();
+      if (!cfg.adaptive){ if (this.t >= g) this.yellow(); }
+      else {
+        const minG = Math.max(6, g*0.4), maxG = g*1.7;
+        if (this.t >= maxG || (this.t >= minG && !demand(this.idx))) this.yellow();
+      }
+    } else if (this.sub==='yellow'){
+      if (this.t >= cfg.yellow){ this.sub='allred'; this.t=0; }
+    } else {
+      if (this.t >= cfg.allRed) this.next();
+    }
+  },
+  yellow(){ this.sub='yellow'; this.t=0; },
+  force(){ if (this.sub==='green') this.yellow(); else if (this.sub==='yellow'){ this.sub='allred'; this.t=0; } else this.next(); },
+  next(){
+    let n = (this.idx+1) % PHASES.length;
+    if (cfg.adaptive){
+      for (let k=0;k<PHASES.length;k++){
+        const c = (this.idx+1+k) % PHASES.length;
+        if (demand(c)){ n=c; break; }
+      }
+    }
+    this.idx = n; this.sub='green'; this.t=0;
+  },
+};
+
+function demand(i){
+  const ph = PHASES[i];
+  for (const v of sim.vehs){
+    const al = ph.mov[v.from];
+    if (!al || al.indexOf(v.mv) < 0) continue;
+    const d = v.path.sStop - v.s;
+    if (d > -3 && d < 55) return true;
+  }
+  if (cfg.peds) for (const p of sim.peds){ if (p.state==='wait' && ph.ped.indexOf(p.arm)>=0) return true; }
+  return false;
+}
+
+/* =========================================================
+   4. 车辆
+   ========================================================= */
+const CAR_COLORS = ['#e05a5a','#4f8ce9','#efc75e','#38cfa0','#eceff3','#9d7cf0',
+                    '#ef8f4e','#6b7a8c','#dd5f9b','#48b9d6','#c0c8d2','#7ec25b'];
+const TYPES = [
+  { t:'car',   p:.78, len:4.5, w:1.92, aM:2.6, bM:3.4, vf:1.00 },
+  { t:'truck', p:.12, len:6.8, w:2.34, aM:1.6, bM:2.9, vf:0.86 },
+  { t:'bus',   p:.10, len:8.6, w:2.50, aM:1.4, bM:2.7, vf:0.84 },
+];
+function pickType(){
+  let r = Math.random(), acc = 0;
+  for (const t of TYPES){ acc += t.p; if (r <= acc) return t; }
+  return TYPES[0];
+}
+
+class Veh {
+  constructor(from, mv, lane){
+    const T = pickType();
+    this.from=from; this.mv=mv; this.lane=lane;
+    this.path = getPath(from, mv, lane);
+    this.s = 0; this.v = CRUISE*T.vf*rnd(.75,.95); this.a = 0;
+    this.len=T.len; this.w=T.w; this.type=T.t; this.aMax=T.aM; this.bMax=T.bM;
+    this.desired = CRUISE*T.vf*rnd(.88,1.10);
+    this.color = T.t==='bus' ? '#f0a92e' : (T.t==='truck' ? '#7d8899' : CAR_COLORS[(Math.random()*CAR_COLORS.length)|0]);
+    this.pos=[0,0]; this.dir=[0,1]; this.rt=[0,0];
+    this.wait=0; this.braking=false; this.committed=false; this.hold=false; this.gap=Infinity;
+    // 车身用等距圆链近似（间距 0.78·车宽，保证包络连续）
+    this.nc = clamp(Math.ceil(this.len/(this.w*0.78)), 2, 9);
+    this.cr = this.w*0.52;
+    this.pose();
+  }
+  pose(){
+    const P = this.path.at(this.s);
+    if (!P) return false;
+    this.pos[0]=P.x; this.pos[1]=P.y; this.dir[0]=P.tx; this.dir[1]=P.ty;
+    this.rt[0]=-P.ty; this.rt[1]=P.tx;
+    return true;
+  }
+  // 车身近似为若干等距圆
+  circle(i, out){
+    const k = this.nc===1 ? 0 : (i/(this.nc-1) - .5)*2;   // -1 .. 1
+    const off = k*(this.len/2 - this.w/2);
+    out[0] = this.pos[0] + this.dir[0]*off;
+    out[1] = this.pos[1] + this.dir[1]*off;
+    return out;
+  }
+}
+
+/* ---- IDM 智能驾驶员模型 ---- */
+function idm(v, vDes, gap, dv, s0){
+  const T = 1.15, aM = v.aMax, b = v.bMax;
+  const sStar = s0 + Math.max(0, v.v*T + v.v*dv/(2*Math.sqrt(aM*b)));
+  const g = Math.max(0.25, gap);
+  return aM*(1 - Math.pow(v.v/Math.max(0.5,vDes),4) - (sStar/g)*(sStar/g));
+}
+
+const _c = [0,0];
+/* ---- 沿自身轨迹前探，找最近障碍（车 / 行人）----
+   对“闯灯滞留”的横向车流做 0.7s 位置预测，模拟驾驶员的预判避让 */
+function pathObstacle(v){
+  const step = 1.35;
+  const look = clamp(7 + v.v*1.4 + v.v*v.v/(2*v.bMax), 8, 34);
+  const front = v.len/2 - v.w/2, myR = v.w*0.52;
+  // 粗筛
+  const cand = [], lead = [];
+  const R2 = (look+10)*(look+10);
+  for (const o of sim.vehs){
+    if (o===v) continue;
+    const dx=o.pos[0]-v.pos[0], dy=o.pos[1]-v.pos[1];
+    if (dx*dx+dy*dy > R2) continue;
+    if (dx*v.dir[0]+dy*v.dir[1] < -(v.len/2+o.len/2)) continue;
+    const cross = Math.abs(o.dir[0]*v.dir[0]+o.dir[1]*v.dir[1]) < 0.84;
+    cand.push(o);
+    lead.push(cross && sig.state(o.from,o.mv)!=='g' ? Math.min(4.5, o.v*0.7) : 0);
+  }
+  const pd = [];
+  if (cfg.peds) for (const p of sim.peds){
+    if (p.state!=='walk') continue;
+    const dx=p.pos[0]-v.pos[0], dy=p.pos[1]-v.pos[1];
+    if (dx*dx+dy*dy > R2) continue;
+    if (dx*v.dir[0]+dy*v.dir[1] < -2) continue;
+    pd.push(p);
+  }
+  if (!cand.length && !pd.length) return null;
+  for (let k=0; k*step<=look; k++){
+    const sd = k*step;
+    const P = v.path.at(v.s + front + sd);
+    if (!P) break;
+    for (let ci=0; ci<cand.length; ci++){
+      const o = cand[ci], ld = lead[ci], rr = myR + o.cr + 0.32;
+      for (let i=0;i<o.nc;i++){
+        o.circle(i,_c);
+        const dx=_c[0]-P.x, dy=_c[1]-P.y;
+        let hit = dx*dx+dy*dy < rr*rr;
+        if (!hit && ld > 0){
+          const ex=dx+o.dir[0]*ld, ey=dy+o.dir[1]*ld;
+          hit = ex*ex+ey*ey < rr*rr;
+        }
+        if (hit){
+          const os = o.v*(o.dir[0]*P.tx + o.dir[1]*P.ty);
+          return { gap: sd, dv: v.v - os, ospd: o.v };
+        }
+      }
+    }
+    for (let pi=0; pi<pd.length; pi++){
+      const p = pd[pi];
+      // 行人按 0.8s 位置预测 + 较大安全包络，使让行更早更柔和
+      const px = p.pos[0] + p.vx*0.8, py = p.pos[1] + p.vy*0.8;
+      const rr = myR + 1.05;
+      let dx=p.pos[0]-P.x, dy=p.pos[1]-P.y;
+      if (dx*dx+dy*dy < rr*rr) return { gap: sd, dv: v.v, ospd: 0 };
+      dx = px-P.x; dy = py-P.y;
+      if (dx*dx+dy*dy < rr*rr) return { gap: sd, dv: v.v, ospd: 0 };
+    }
+  }
+  return null;
+}
+
+/* ---- 红灯右转 / 冲突车流间隙判断 ---- */
+function gapClear(v){
+  const P = v.path.at(Math.min(v.path.len-0.1, v.path.sStop + 14));
+  if (!P) return true;
+  for (const o of sim.vehs){
+    if (o===v || o.from===v.from) continue;
+    const dx=P.x-o.pos[0], dy=P.y-o.pos[1];
+    const along = dx*o.dir[0]+dy*o.dir[1];
+    if (along < -1 || along > 36) continue;
+    if (Math.abs(dx*o.rt[0]+dy*o.rt[1]) > 3.2) continue;
+    if (along/Math.max(2.5,o.v) < 4.2) return false;
+  }
+  if (cfg.peds) for (const p of sim.peds){
+    if (p.state!=='walk') continue;
+    const dx=P.x-p.pos[0], dy=P.y-p.pos[1];
+    if (dx*dx+dy*dy < 64) return false;
+  }
+  return true;
+}
+
+function accelFor(v){
+  const p = v.path;
+  const vDes = Math.min(v.desired, p.limitAt(v.s));
+  let a = v.aMax*(1 - Math.pow(v.v/Math.max(0.5,vDes),4));
+  a = Math.min(a, p.ahead(v.s, v.v, v.bMax));
+
+  const ob = pathObstacle(v);
+  v.gap = ob ? ob.gap : Infinity;
+  if (ob) a = Math.min(a, idm(v, vDes, ob.gap, ob.dv, 2.1));
+
+  // 不占用路口：前车停滞且自己会卡在路口内，则在停车线/路口边缘等待
+  v.hold = false;
+  if (ob && ob.ospd < 1.6 && v.s < p.sBox - 0.3){
+    const leadRear = v.s + (v.len/2 - v.w/2) + ob.gap;
+    if (leadRear < p.sOut + v.len/2 + 1.4){
+      const hs = (v.s < p.sStop) ? p.sStop : p.sBox;
+      const g2 = hs - v.s - v.len/2;
+      if (g2 > -0.5){
+        v.hold = true;
+        a = Math.min(a, idm(v, vDes, g2, v.v, 1.0));
+        if (g2 < 0.3) a = Math.min(a, -7);
+      }
+    }
+  }
+
+  if (v.s < p.sStop && !v.committed){
+    const st = sig.state(v.from, v.mv);
+    const gap = p.sStop - v.s - v.len/2;
+    let stopFor = (st !== 'g');
+    if (st === 'y'){
+      // 黄灯两难区：来不及安全停车则继续通过
+      if (gap < v.v*v.v/(2*v.bMax*0.85) + v.v*0.35){ stopFor = false; v.committed = true; }
+    } else if (st === 'r' && v.mv === 'R' && cfg.ror){
+      if (gap < 2.6 && v.v < 1.6 && gapClear(v)){ stopFor = false; v.committed = true; }
+    }
+    if (stopFor){
+      a = Math.min(a, idm(v, vDes, gap, v.v, 1.1));
+      if (gap < 0.35) a = Math.min(a, -7);
+    }
+  }
+  v.a = clamp(a, -9.5, v.aMax);
+}
+
+/* =========================================================
+   5. 行人
+   ========================================================= */
+const PED_COLORS = ['#ffd166','#f4978e','#a0e7e5','#c8f7c5','#dbc9ff','#ffc6ff','#e8e8e8'];
+const PED_HALF = H + 2.2;                       // 过街起终点（人行道上）
+const CW_MID = (CW_IN + CW_OUT)/2;
+class Ped {
+  constructor(arm, sgn){
+    this.arm=arm; this.sgn=sgn;                 // sgn=+1: 标准系下沿 +x 走
+    this.u = -sgn*PED_HALF;
+    this.off = rnd(-1.25, 1.25);
+    this.state='wait'; this.pos=[0,0];
+    this.vx=0; this.vy=0;
+    this.color = PED_COLORS[(Math.random()*PED_COLORS.length)|0];
+    this.ph = Math.random()*TAU;
+    this.pose();
+  }
+  pose(){
+    const ang = DIRS[this.arm].ang;
+    const P = rot(ang, this.u, -(CW_MID + this.off));
+    this.pos[0]=P[0]; this.pos[1]=P[1];
+    if (this.state==='walk'){
+      const V = rot(ang, this.sgn*PED_V, 0);
+      this.vx=V[0]; this.vy=V[1];
+    } else { this.vx=0; this.vy=0; }
+  }
+}
+function pedStep(dt){
+  const need = (2*PED_HALF)/PED_V;
+  const keep = [];
+  for (const p of sim.peds){
+    if (p.state==='wait'){
+      if (sig.pedGreen(p.arm) && sig.remain() > need*0.55) p.state='walk';
+    } else {
+      p.u += p.sgn*PED_V*dt*rnd(.9,1.1);
+      if (p.sgn*p.u > PED_HALF){ continue; }
+    }
+    p.pose(); keep.push(p);
+  }
+  sim.peds = keep;
+  if (!cfg.peds) return;
+  sim.pedAcc += cfg.pedFlow/3600*dt;
+  while (sim.pedAcc >= 1){
+    sim.pedAcc -= rnd(.6,1.5);
+    if (sim.peds.length < 90){
+      sim.peds.push(new Ped(ARMS[(Math.random()*4)|0], Math.random()<.5?1:-1));
+    }
+  }
+}
+
+/* =========================================================
+   6. 生成 / 步进
+   ========================================================= */
+function laneCount(from, lane){
+  let n=0, minS=Infinity;
+  for (const v of sim.vehs){
+    if (v.from===from && v.lane===lane){ n++; if (v.s<minS) minS=v.s; }
+  }
+  return { n, minS };
+}
+function trySpawn(from){
+  const r = Math.random();
+  let mv, lane;
+  if (r < cfg.left){ mv='L'; lane=0; }
+  else if (r < cfg.left + cfg.right){ mv='R'; lane=LANES-1; }
+  else {
+    mv='T';
+    const a = laneCount(from,1), b = laneCount(from,2);
+    lane = (a.n <= b.n) ? 1 : 2;
+  }
+  const st = laneCount(from, lane);
+  if (st.minS < 13) return false;          // 入口拥塞，放弃
+  if (sim.vehs.length > 260) return false;
+  sim.vehs.push(new Veh(from, mv, lane));
+  return true;
+}
+function spawnStep(dt){
+  for (const a of ARMS){
+    sim.spawnAcc[a] += cfg.flow/3600*dt;
+    while (sim.spawnAcc[a] >= 1){
+      sim.spawnAcc[a] -= rnd(.55,1.6);
+      trySpawn(a);
+    }
+    if (sim.spawnAcc[a] < -2) sim.spawnAcc[a] = -2;
+  }
+}
+
+function collisionStep(){
+  const ca=[0,0], cb=[0,0];
+  for (let i=0;i<sim.vehs.length;i++){
+    const A = sim.vehs[i];
+    for (let j=i+1;j<sim.vehs.length;j++){
+      const B = sim.vehs[j];
+      const dx=B.pos[0]-A.pos[0], dy=B.pos[1]-A.pos[1];
+      const lim = (A.len+B.len)/2;
+      if (dx*dx+dy*dy > lim*lim) continue;
+      let hit=false;
+      for (let m=0;m<A.nc && !hit;m++){
+        A.circle(m,ca);
+        for (let n=0;n<B.nc;n++){
+          B.circle(n,cb);
+          const ex=cb[0]-ca[0], ey=cb[1]-ca[1], rr=(A.cr+B.cr)*0.86;
+          if (ex*ex+ey*ey < rr*rr){ hit=true; break; }
+        }
+      }
+      if (hit){
+        const key = Math.min(A.id,B.id)+'-'+Math.max(A.id,B.id);
+        if (!sim.colKeys.has(key)){ sim.colls++; }
+        sim.colKeys.set(key, sim.time);
+      }
+    }
+  }
+  if (sim.colKeys.size){
+    for (const [k,t] of sim.colKeys){ if (sim.time - t > 2) sim.colKeys.delete(k); }
+  }
+}
+
+let vid = 1;
+function step(dt){
+  sim.time += dt;
+  sig.update(dt);
+  spawnStep(dt);
+  for (const v of sim.vehs){ if (!v.id) v.id = vid++; accelFor(v); }
+  const keep = [];
+  for (const v of sim.vehs){
+    v.v = Math.max(0, v.v + v.a*dt);
+    v.s += v.v*dt;
+    if (v.v < 0.6 && v.s < v.path.sStop + 3) v.wait += dt;
+    v.braking = (v.a < -0.9 && v.v > 0.15) || (v.v < 0.05 && v.a < -0.3);
+    if (!v.pose()){ sim.done++; sim.waitSum += v.wait; sim.log.push(sim.time); continue; }
+    keep.push(v);
+  }
+  sim.vehs = keep;
+  while (sim.log.length && sim.time - sim.log[0] > 120) sim.log.shift();
+  pedStep(dt);
+  collisionStep();
+  if (cfg.trail && sim.vehs.length){
+    for (const v of sim.vehs) if (Math.random()<0.25) sim.trails.push([v.pos[0],v.pos[1],sim.time,v.color]);
+    while (sim.trails.length > 1400) sim.trails.shift();
+  } else if (sim.trails.length) sim.trails.length = 0;
+  // 排队统计
+  let qmax=0;
+  for (const a of ARMS){ const q=queueOf(a); if (q>qmax) qmax=q; }
+  if (qmax > sim.qmax) sim.qmax = qmax;
+}
+function queueOf(arm){
+  let n=0;
+  for (const v of sim.vehs){
+    if (v.from===arm && v.v < 1.2 && v.s < v.path.sStop + 1 && v.path.sStop - v.s < 90) n++;
+  }
+  return n;
+}
+function reset(){
+  sim.time=0; sim.vehs=[]; sim.peds=[]; sim.done=0; sim.waitSum=0; sim.colls=0; sim.qmax=0;
+  sim.log=[]; sim.colKeys=new Map(); sim.trails=[];
+  sim.spawnAcc={N:0,E:0,S:0,W:0}; sim.pedAcc=0;
+  sig.idx=0; sig.sub='green'; sig.t=0; vid=1;
+}
+
+/* =========================================================
+   7. 画布 / 视图
+   ========================================================= */
+const CV  = document.getElementById('cv');
+const ctx = CV.getContext('2d');
+let CW=900, CH=650, dpr=1, base=6;
+const VIEW_M = 116;
+const view = { cx:0, cy:0, zoom:1 };
+let bg=null, bgDirty=true;
+
+function resize(){
+  const r = CV.getBoundingClientRect();
+  CW = Math.max(320, Math.round(r.width || 900));
+  CH = Math.max(260, Math.round(r.height || 650));
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  CV.width = Math.round(CW*dpr); CV.height = Math.round(CH*dpr);
+  base = Math.min(CW,CH)/VIEW_M;
+  bgDirty = true;
+}
+const sc = ()=> base*view.zoom;
+function applyWorld(g, d){
+  const s = sc();
+  g.setTransform(d*s, 0, 0, d*s, d*(CW/2 - view.cx*s), d*(CH/2 - view.cy*s));
+}
+const W2S = (x,y)=>[ CW/2 + (x-view.cx)*sc(), CH/2 + (y-view.cy)*sc() ];
+
+function rr(g,x,y,w,h,r){
+  r = Math.min(r, Math.abs(w)/2, Math.abs(h)/2);
+  g.beginPath();
+  g.moveTo(x+r,y); g.lineTo(x+w-r,y); g.arcTo(x+w,y,x+w,y+r,r);
+  g.lineTo(x+w,y+h-r); g.arcTo(x+w,y+h,x+w-r,y+h,r);
+  g.lineTo(x+r,y+h); g.arcTo(x,y+h,x,y+h-r,r);
+  g.lineTo(x,y+r); g.arcTo(x,y,x+r,y,r); g.closePath();
+}
+
+/* ---- 场景装饰（固定随机） ---- */
+const deco = (function(){
+  const R = mulberry32(20240607), b=[], t=[];
+  const far = H+SIDEWK;
+  for (const sx of [-1,1]) for (const sy of [-1,1]){
+    let tries=0, placed=0;
+    while (tries < 120 && placed < 7){
+      tries++;
+      const w = R()*13+7, h = R()*13+7;
+      const x = sx*(far + 3 + R()*44), y = sy*(far + 3 + R()*44);
+      const rect = { x:x-w/2, y:y-h/2, w, h };
+      if (rect.x < far+1.5 && rect.x+rect.w > -(far+1.5)) continue;
+      if (rect.y < far+1.5 && rect.y+rect.h > -(far+1.5)) continue;
+      let ok = true;
+      for (const o of b){ if (rect.x < o.x+o.w+3 && rect.x+rect.w+3 > o.x && rect.y < o.y+o.h+3 && rect.y+rect.h+3 > o.y){ ok=false; break; } }
+      if (!ok) continue;
+      const tone = R();
+      b.push({ x:rect.x, y:rect.y, w:rect.w, h:rect.h,
+               c: tone<.34?'#3c4654':(tone<.68?'#46505f':'#333d4a'),
+               roof: tone<.5?'#4d5867':'#3a4451', win: R()<.5?0.55:0.35, seed:R()*1000 });
+      placed++;
+    }
+  }
+  for (const arm of [0,1,2,3]){
+    const ang = arm*Math.PI/2;
+    for (let d=19; d<75; d+=7.2){
+      for (const s of [-1,1]){
+        const p = rot(ang, s*(H+SIDEWK*0.55), -d);
+        t.push({ x:p[0], y:p[1], r: 1.5+((d*7+arm)%5)*0.16 });
+      }
+    }
+  }
+  return { b, t };
+})();
+
+/* ---- 静态底图 ---- */
+function drawStatic(){
+  if (!bg || bg.width !== CV.width || bg.height !== CV.height){
+    bg = document.createElement('canvas');
+    bg.width = CV.width; bg.height = CV.height;
+  }
+  const g = bg.getContext('2d');
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0,0,bg.width,bg.height);
+  applyWorld(g, dpr);
+
+  // 草地 / 地面
+  g.fillStyle = cfg.night ? '#101a14' : '#1e3527';
+  g.fillRect(-420,-420,840,840);
+  // 地块纹理（棋盘格）
+  g.fillStyle = cfg.night ? 'rgba(255,255,255,0.014)' : 'rgba(255,255,255,0.022)';
+  for (let i=0;i<30;i++) for (let j=0;j<30;j++)
+    if ((i+j)%2===0) g.fillRect(-390+i*26, -390+j*26, 26, 26);
+
+  // 建筑
+  for (const B of deco.b){
+    g.fillStyle='rgba(0,0,0,.28)'; g.fillRect(B.x+1.4,B.y+1.8,B.w,B.h);
+    g.fillStyle=B.c; g.fillRect(B.x,B.y,B.w,B.h);
+    g.fillStyle=B.roof; g.fillRect(B.x+1,B.y+1,B.w-2,B.h-2);
+    const R = mulberry32(B.seed|0);
+    for (let x=B.x+2; x<B.x+B.w-2.4; x+=2.6)
+      for (let y=B.y+2; y<B.y+B.h-2.4; y+=2.6){
+        const on = R() < (cfg.night?0.55:0.9);
+        g.fillStyle = cfg.night
+          ? (on ? 'rgba(255,225,150,'+(0.35+R()*0.5)+')' : 'rgba(20,26,34,.85)')
+          : 'rgba(190,205,225,'+(B.win*R()+0.12)+')';
+        g.fillRect(x,y,1.5,1.5);
+      }
+  }
+  // 树
+  for (const T of deco.t){
+    g.fillStyle='rgba(0,0,0,.25)'; g.beginPath(); g.arc(T.x+.5,T.y+.6,T.r,0,TAU); g.fill();
+    g.fillStyle = cfg.night?'#14301f':'#27543a'; g.beginPath(); g.arc(T.x,T.y,T.r,0,TAU); g.fill();
+    g.fillStyle = cfg.night?'#1b3d28':'#31694a'; g.beginPath(); g.arc(T.x-T.r*.22,T.y-T.r*.25,T.r*.62,0,TAU); g.fill();
+  }
+
+  // 人行道
+  g.fillStyle = cfg.night ? '#565f68' : '#9aa2a9';
+  g.fillRect(-EDGE, -(H+SIDEWK), EDGE*2, (H+SIDEWK)*2);
+  g.fillRect(-(H+SIDEWK), -EDGE, (H+SIDEWK)*2, EDGE*2);
+  // 沥青
+  const asph = cfg.night ? '#23282e' : '#3a4046';
+  g.fillStyle = asph;
+  g.fillRect(-EDGE, -H, EDGE*2, H*2);
+  g.fillRect(-H, -EDGE, H*2, EDGE*2);
+  // 圆角路缘
+  for (const sx of [-1,1]) for (const sy of [-1,1]){
+    g.save();
+    g.beginPath();
+    g.rect(Math.min(sx*H, sx*(H+SIDEWK)), Math.min(sy*H, sy*(H+SIDEWK)), SIDEWK, SIDEWK);
+    g.clip();
+    g.fillStyle = asph;
+    g.fillRect(Math.min(sx*H,sx*(H+SIDEWK)), Math.min(sy*H,sy*(H+SIDEWK)), SIDEWK, SIDEWK);
+    g.fillStyle = cfg.night ? '#565f68' : '#9aa2a9';
+    g.beginPath(); g.arc(sx*(H+CURB_R), sy*(H+CURB_R), CURB_R, 0, TAU); g.fill();
+    g.restore();
+  }
+  // 路缘线
+  g.strokeStyle = cfg.night?'rgba(255,255,255,.10)':'rgba(255,255,255,.16)'; g.lineWidth=.22;
+  for (const sy of [-1,1]){ g.beginPath(); g.moveTo(-EDGE, sy*H); g.lineTo(-H, sy*H); g.moveTo(H, sy*H); g.lineTo(EDGE, sy*H); g.stroke(); }
+  for (const sx of [-1,1]){ g.beginPath(); g.moveTo(sx*H, -EDGE); g.lineTo(sx*H, -H); g.moveTo(sx*H, H); g.lineTo(sx*H, EDGE); g.stroke(); }
+
+  // 每个进口的标线（在“标准进口”坐标系里绘制后旋转）
+  for (const arm of ARMS){
+    g.save(); g.rotate(DIRS[arm].ang);
+    drawApproachMarks(g);
+    g.restore();
+  }
+  bgDirty = false;
+}
+
+/* 标准进口：车流沿 +y 行驶，车道中心 x = -1.7 / -5.1 / -8.5 */
+function drawApproachMarks(g){
+  const white = cfg.night ? 'rgba(226,232,240,.72)' : 'rgba(255,255,255,.86)';
+  const yellow= cfg.night ? 'rgba(240,200,90,.66)'  : 'rgba(247,203,70,.9)';
+  // 双黄中心线
+  g.fillStyle = yellow;
+  g.fillRect(-0.34, -EDGE, 0.22, EDGE-H);
+  g.fillRect( 0.12, -EDGE, 0.22, EDGE-H);
+  // 车道分界（近停车线实线，远处虚线）
+  g.fillStyle = white;
+  for (let i=1;i<LANES;i++){
+    const x = -LANE_W*i - 0.07;
+    g.fillRect(x, -(STOP+20), 0.14, STOP+20-H);
+    for (let y=-(STOP+20); y>-EDGE; y-=6.2) g.fillRect(x, y-3.4, 0.14, 3.4);
+  }
+  // 停车线
+  g.fillRect(-H+0.18, -STOP, H-0.42, 0.52);
+  // 斑马线
+  const n = Math.floor((2*H)/1.26);
+  for (let i=0;i<n;i++){
+    const x = -H + 0.32 + i*1.26;
+    g.fillStyle = cfg.night ? 'rgba(226,232,240,.62)' : 'rgba(255,255,255,.8)';
+    g.fillRect(x, -CW_OUT, 0.72, CW_OUT-CW_IN);
+  }
+  // 导向箭头
+  g.fillStyle = white;
+  drawArrow(g, -laneOff(0), -(STOP+6.5), 'L');
+  drawArrow(g, -laneOff(1), -(STOP+6.5), 'T');
+  drawArrow(g, -laneOff(2), -(STOP+6.5), 'TR');
+  drawArrow(g, -laneOff(0), -(STOP+19), 'L');
+  drawArrow(g, -laneOff(1), -(STOP+19), 'T');
+  drawArrow(g, -laneOff(2), -(STOP+19), 'TR');
+}
+/* 箭头：行驶方向 +y；左 = +x，右 = -x */
+function drawArrow(g, x, y, kind){
+  g.save(); g.translate(x,y);
+  const shaft=(y0,y1)=> g.fillRect(-0.24, y0, 0.48, y1-y0);
+  const tipY=(yy)=>{ g.beginPath(); g.moveTo(-0.78,yy); g.lineTo(0.78,yy); g.lineTo(0,yy+1.15); g.closePath(); g.fill(); };
+  const tipX=(xx,yy,s)=>{ g.beginPath(); g.moveTo(xx,yy-0.78); g.lineTo(xx,yy+0.78); g.lineTo(xx+s*1.15,yy); g.closePath(); g.fill(); };
+  if (kind==='T'){ shaft(-2.4,1.35); tipY(1.35); }
+  if (kind==='L'){ shaft(-2.4,0.95); g.fillRect(-0.24,0.47,1.62,0.48); tipX(1.38,0.71,1); }
+  if (kind==='R'){ shaft(-2.4,0.95); g.fillRect(-1.38,0.47,1.62,0.48); tipX(-1.38,0.71,-1); }
+  if (kind==='TR'){ shaft(-2.4,1.35); tipY(1.35); g.fillRect(-1.5,-0.62,1.3,0.42); tipX(-1.5,-0.41,-1); }
+  g.restore();
+}
+
+/* ---- 信号灯 ---- */
+const LAMP_R = 0.84, LAMP_GAP = 2.06;
+const POLE_X = -(H + SIDEWK*0.62);      // 灯杆（远端右侧路缘）
+const POLE_Y =   H + SIDEWK*0.62;
+const LAMP0  = POLE_X + 4.10;           // 第一个灯（红）
+const ARROW_X= POLE_X + 11.12;          // 左转箭头灯
+const CNT_X  = POLE_X + 13.60;          // 倒计时框
+function lampColor(kind, on){
+  if (kind==='r') return on ? '#ff4136' : '#3a1414';
+  if (kind==='y') return on ? '#ffcf33' : '#3a3014';
+  return on ? '#2ee66b' : '#123a20';
+}
+function drawSignals(g){
+  for (const arm of ARMS){
+    const ang = DIRS[arm].ang;
+    const stT = sig.state(arm,'T'), stL = sig.state(arm,'L');
+    g.save(); g.rotate(ang);
+    // 灯杆 + 悬臂
+    g.fillStyle = cfg.night?'#2c3238':'#4a525b';
+    g.beginPath(); g.arc(POLE_X,POLE_Y,0.62,0,TAU); g.fill();
+    g.fillRect(POLE_X, POLE_Y-0.19, 15.1, 0.38);
+    // 主灯箱（直行 红/黄/绿）
+    g.fillStyle = cfg.night?'#14181d':'#1b2026';
+    rr(g, LAMP0-1.25, POLE_Y-1.32, LAMP_GAP*2+2.5, 2.64, 0.5); g.fill();
+    const lamps = [['r', stT==='r'], ['y', stT==='y'], ['g', stT==='g']];
+    for (let i=0;i<3;i++){
+      const lx = LAMP0 + i*LAMP_GAP, ly = POLE_Y, on = lamps[i][1];
+      g.fillStyle = lampColor(lamps[i][0], on);
+      g.beginPath(); g.arc(lx,ly,LAMP_R,0,TAU); g.fill();
+      if (on){
+        const grd = g.createRadialGradient(lx,ly,LAMP_R*0.4,lx,ly,LAMP_R*3.2);
+        grd.addColorStop(0, hexA(lampColor(lamps[i][0],true), 0.42));
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle=grd; g.beginPath(); g.arc(lx,ly,LAMP_R*3.2,0,TAU); g.fill();
+      }
+    }
+    // 左转箭头灯
+    const ax = ARROW_X, ay = POLE_Y;
+    g.fillStyle = cfg.night?'#14181d':'#1b2026';
+    rr(g, ax-1.28, ay-1.32, 2.56, 2.64, 0.5); g.fill();
+    const lk = stL==='g' ? 'g' : (stL==='y' ? 'y' : 'r');
+    g.fillStyle = lampColor(lk, true);
+    // 箭头指向该进口的左转方向（标准系下为 +x）
+    g.save(); g.translate(ax,ay);
+    g.beginPath();
+    g.moveTo(0.66,0); g.lineTo(-0.06,-0.66); g.lineTo(-0.06,-0.22);
+    g.lineTo(-0.74,-0.22); g.lineTo(-0.74,0.22); g.lineTo(-0.06,0.22); g.lineTo(-0.06,0.66);
+    g.closePath(); g.fill();
+    g.restore();
+    if (stL !== 'r'){
+      const grd = g.createRadialGradient(ax,ay,0.3,ax,ay,2.6);
+      grd.addColorStop(0, hexA(lampColor(lk,true), 0.4)); grd.addColorStop(1,'rgba(0,0,0,0)');
+      g.fillStyle=grd; g.beginPath(); g.arc(ax,ay,2.6,0,TAU); g.fill();
+    }
+    // 倒计时框（数字在屏幕层绘制）
+    g.fillStyle = cfg.night?'#14181d':'#1b2026';
+    rr(g, CNT_X-1.32, POLE_Y-1.32, 2.64, 2.64, 0.5); g.fill();
+    // 行人信号
+    const pg = sig.pedGreen(arm);
+    for (const s of [-1,1]){
+      const bx = s*(H+1.1), by = -(CW_MID);
+      g.fillStyle = cfg.night?'#14181d':'#1b2026';
+      rr(g, bx-0.55, by-0.75, 1.1, 1.5, 0.24); g.fill();
+      g.fillStyle = pg ? '#2ee66b' : '#ff4136';
+      g.beginPath(); g.arc(bx, by-0.34, 0.3, 0, TAU); g.fill();
+      g.globalAlpha=.45; g.beginPath(); g.arc(bx, by+0.34, 0.26, 0, TAU); g.fill(); g.globalAlpha=1;
+    }
+    g.restore();
+  }
+}
+function hexA(hex, a){
+  const h = hex.replace('#','');
+  const n = parseInt(h.length===3 ? h.split('').map(c=>c+c).join('') : h, 16);
+  return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
+}
+
+/* ---- 倒计时（屏幕坐标） ---- */
+function drawCountdown(g){
+  const rm = Math.max(0, sig.remain());
+  for (const arm of ARMS){
+    const ang = DIRS[arm].ang;
+    const P = rot(ang, CNT_X, POLE_Y);
+    const [sx,sy] = W2S(P[0],P[1]);
+    const stT = sig.state(arm,'T'), stL = sig.state(arm,'L');
+    const active = (stT!=='r') || (stL!=='r');
+    const col = sig.sub==='allred' ? '#ff6b6b'
+      : (active ? (sig.sub==='yellow' ? '#ffcf33' : '#2ee66b') : '#ff6b6b');
+    const size = clamp(sc()*1.9, 9, 26);
+    g.font = '600 '+size.toFixed(1)+'px ui-monospace,Consolas,monospace';
+    g.textAlign='center'; g.textBaseline='middle';
+    g.lineWidth = Math.max(2, size*0.22); g.strokeStyle='rgba(0,0,0,.72)';
+    const txt = (cfg.adaptive && sig.sub==='green' ? '~' : '') + Math.ceil(rm);
+    g.strokeText(txt, sx, sy); g.fillStyle=col; g.fillText(txt, sx, sy);
+  }
+}
+
+/* ---- 车辆 ---- */
+function drawVeh(g, v){
+  const ang = Math.atan2(v.dir[1], v.dir[0]);
+  const L=v.len, Wd=v.w, hl=L/2, hw=Wd/2;
+  g.save(); g.translate(v.pos[0], v.pos[1]); g.rotate(ang);
+  // 阴影
+  g.fillStyle='rgba(0,0,0,.3)'; rr(g,-hl+0.18,-hw+0.34,L,Wd,hw*0.55); g.fill();
+  // 车身
+  g.fillStyle = v.color; rr(g,-hl,-hw,L,Wd, Math.min(0.85,hw*0.62)); g.fill();
+  g.strokeStyle='rgba(0,0,0,.35)'; g.lineWidth=0.09; g.stroke();
+  // 车顶 / 窗
+  if (v.type==='bus' || v.type==='truck'){
+    g.fillStyle='rgba(0,0,0,.24)'; rr(g,-hl+0.5,-hw+0.26,L-2.2,Wd-0.52,0.3); g.fill();
+    g.fillStyle='rgba(180,215,245,.4)';
+    for (let x=-hl+0.9; x<hl-2.0; x+=1.5){ g.fillRect(x,-hw+0.3,0.9,0.34); g.fillRect(x,hw-0.64,0.9,0.34); }
+  } else {
+    g.fillStyle='rgba(0,0,0,.26)'; rr(g,-hl+L*0.24,-hw+0.28,L*0.42,Wd-0.56,0.3); g.fill();
+  }
+  g.fillStyle='rgba(185,220,250,.55)';
+  rr(g, hl-L*0.30, -hw+0.32, L*0.11, Wd-0.64, 0.12); g.fill();
+  rr(g, -hl+L*0.16, -hw+0.32, L*0.08, Wd-0.64, 0.12); g.fill();
+  // 车灯
+  g.fillStyle = cfg.night ? '#fffbe0' : 'rgba(255,250,215,.92)';
+  g.fillRect(hl-0.30,-hw+0.20,0.26,0.44); g.fillRect(hl-0.30,hw-0.64,0.26,0.44);
+  g.fillStyle = v.braking ? '#ff3b30' : 'rgba(170,45,40,.8)';
+  g.fillRect(-hl+0.05,-hw+0.20,0.22,0.44); g.fillRect(-hl+0.05,hw-0.64,0.22,0.44);
+  if (v.braking){
+    g.fillStyle='rgba(255,60,50,.30)';
+    g.beginPath(); g.arc(-hl+0.15,-hw+0.42,0.75,0,TAU); g.arc(-hl+0.15,hw-0.42,0.75,0,TAU); g.fill();
+  }
+  // 转向灯
+  if (v.mv!=='T'){
+    const dS = v.path.sStop - v.s;
+    if (dS < 34 && v.s < v.path.sOut + 7 && (Math.sin(sim.time*7)>0)){
+      const sy = v.mv==='L' ? -hw+0.12 : hw-0.42;
+      g.fillStyle='#ffb228';
+      g.fillRect(hl-0.36, sy, 0.32, 0.3); g.fillRect(-hl+0.06, sy, 0.32, 0.3);
+    }
+  }
+  g.restore();
+}
+function drawHeadlight(g, v){
+  const ang = Math.atan2(v.dir[1], v.dir[0]);
+  g.save(); g.translate(v.pos[0], v.pos[1]); g.rotate(ang);
+  const hl=v.len/2, hw=v.w/2, R=17;
+  const grd = g.createLinearGradient(hl,0,hl+R,0);
+  grd.addColorStop(0,'rgba(255,240,190,.22)'); grd.addColorStop(0.55,'rgba(255,240,190,.09)');
+  grd.addColorStop(1,'rgba(255,240,190,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.moveTo(hl,-hw+0.2); g.lineTo(hl+R,-4.2); g.lineTo(hl+R,4.2); g.lineTo(hl,hw-0.2); g.closePath(); g.fill();
+  if (v.braking){
+    const g2 = g.createRadialGradient(-hl,0,0.2,-hl,0,3.2);
+    g2.addColorStop(0,'rgba(255,50,40,.35)'); g2.addColorStop(1,'rgba(255,50,40,0)');
+    g.fillStyle=g2; g.beginPath(); g.arc(-hl,0,3.2,0,TAU); g.fill();
+  }
+  g.restore();
+}
+function drawPed(g,p){
+  const bob = Math.sin(sim.time*6 + p.ph) * (p.state==='walk'?0.16:0.03);
+  g.fillStyle='rgba(0,0,0,.3)';
+  g.beginPath(); g.arc(p.pos[0]+0.15,p.pos[1]+0.2,0.34,0,TAU); g.fill();
+  g.fillStyle=p.color;
+  g.beginPath(); g.arc(p.pos[0],p.pos[1]+bob,0.36,0,TAU); g.fill();
+  g.fillStyle='rgba(0,0,0,.28)';
+  g.beginPath(); g.arc(p.pos[0],p.pos[1]+bob,0.17,0,TAU); g.fill();
+}
+
+/* ---- 调试层 ---- */
+function drawDebug(g){
+  g.lineWidth = 0.12; g.strokeStyle='rgba(88,166,255,.32)';
+  for (const p of pathCache.values()){
+    g.beginPath(); g.moveTo(p.xs[0],p.ys[0]);
+    for (let i=1;i<p.xs.length;i++) g.lineTo(p.xs[i],p.ys[i]);
+    g.stroke();
+  }
+  for (const v of sim.vehs){
+    if (v.gap < 40){
+      const P = v.path.at(Math.min(v.path.len, v.s + v.len/2 - v.w/2 + v.gap));
+      if (P){
+        g.strokeStyle='rgba(255,120,80,.75)'; g.lineWidth=0.11;
+        g.beginPath(); g.moveTo(v.pos[0],v.pos[1]); g.lineTo(P.x,P.y); g.stroke();
+      }
+    }
+    g.strokeStyle='rgba(120,255,180,.28)'; g.lineWidth=0.07;
+    const c=[0,0];
+    for (let i=0;i<v.nc;i++){ v.circle(i,c); g.beginPath(); g.arc(c[0],c[1],v.cr,0,TAU); g.stroke(); }
+  }
+}
+
+/* ---- 主绘制 ---- */
+let fps=60, lastFrame=0;
+function draw(){
+  if (bgDirty || !bg) drawStatic();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,CV.width,CV.height);
+  ctx.drawImage(bg,0,0);
+  applyWorld(ctx, dpr);
+
+  // 残影
+  if (cfg.trail){
+    for (const t of sim.trails){
+      const age = sim.time - t[2];
+      if (age > 6) continue;
+      ctx.globalAlpha = 0.3*(1-age/6);
+      ctx.fillStyle = t[3];
+      ctx.beginPath(); ctx.arc(t[0],t[1],0.5,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+  if (cfg.night){
+    ctx.fillStyle='rgba(8,12,26,.55)'; ctx.fillRect(-420,-420,840,840);
+    ctx.globalCompositeOperation='lighter';
+    for (const v of sim.vehs) drawHeadlight(ctx, v);
+    ctx.globalCompositeOperation='source-over';
+  }
+  for (const v of sim.vehs) drawVeh(ctx, v);
+  if (cfg.peds) for (const p of sim.peds) drawPed(ctx, p);
+  drawSignals(ctx);
+  if (cfg.debug) drawDebug(ctx);
+
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  drawCountdown(ctx);
+  // 进口标注
+  ctx.font='600 11px ui-sans-serif,system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for (const arm of ARMS){
+    const d = DIRS[arm].d;
+    const [sx,sy] = W2S(-d[0]*(H+SIDEWK+7), -d[1]*(H+SIDEWK+7));
+    ctx.fillStyle='rgba(230,237,243,.55)';
+    ctx.fillText(DIRS[arm].name, sx, sy);
+  }
+  if (!cfg.running){
+    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.font='600 14px ui-sans-serif,system-ui';
+    ctx.fillText('已暂停', CW/2, 22);
+  }
+}
+
+/* =========================================================
+   8. UI 绑定
+   ========================================================= */
+const $ = id => document.getElementById(id);
+function bindRange(rid, vid2, fn, fmt){
+  const el = $(rid), out = $(vid2);
+  if (!el) return;
+  const upd = ()=>{ const val = parseFloat(el.value); fn(val); if (out) out.textContent = fmt(val); };
+  el.addEventListener('input', upd); upd();
+}
+bindRange('rSpeed','vSpeed', v=>cfg.speed=v,  v=>v.toFixed(2).replace(/0$/,'')+'×');
+bindRange('rFlow','vFlow',   v=>cfg.flow=v,   v=>v+' 辆/h');
+bindRange('rLeft','vLeft',   v=>cfg.left=v/100,  v=>v+'%');
+bindRange('rRight','vRight', v=>cfg.right=v/100, v=>v+'%');
+bindRange('rPed','vPed',     v=>cfg.pedFlow=v,v=>v+' 人/h');
+bindRange('rGT','vGT',       v=>cfg.gT=v,     v=>v+' s');
+bindRange('rGL','vGL',       v=>cfg.gL=v,     v=>v+' s');
+bindRange('rY','vY',         v=>cfg.yellow=v, v=>v+' s');
+bindRange('rAR','vAR',       v=>cfg.allRed=v, v=>v+' s');
+
+function bindChk(id, fn){ const el=$(id); if (el) el.addEventListener('change', ()=>fn(el.checked)); }
+bindChk('cPeds', v=>{ cfg.peds=v; if(!v) sim.peds=[]; });
+bindChk('cROR',  v=>cfg.ror=v);
+bindChk('cNight',v=>{ cfg.night=v; bgDirty=true; });
+bindChk('cDebug',v=>cfg.debug=v);
+bindChk('cTrail',v=>cfg.trail=v);
+
+const bPlay=$('bPlay');
+function setRun(r){ cfg.running=r; if (bPlay) bPlay.textContent = r ? '⏸ 暂停' : '▶ 运行'; }
+if (bPlay) bPlay.addEventListener('click', ()=>setRun(!cfg.running));
+if ($('bStep')) $('bStep').addEventListener('click', ()=>{ setRun(false); for(let i=0;i<10;i++) step(0.05); draw(); });
+if ($('bReset')) $('bReset').addEventListener('click', ()=>{ reset(); draw(); });
+if ($('bNext')) $('bNext').addEventListener('click', ()=>sig.force());
+function setMode(ad){
+  cfg.adaptive=ad;
+  if ($('bFixed')) $('bFixed').className = ad?'':'on';
+  if ($('bAdapt')) $('bAdapt').className = ad?'on':'';
+}
+if ($('bFixed')) $('bFixed').addEventListener('click', ()=>setMode(false));
+if ($('bAdapt')) $('bAdapt').addEventListener('click', ()=>setMode(true));
+
+// 相位列表
+const phList = $('phList');
+const phRows = [];
+if (phList){
+  PHASES.forEach((p,i)=>{
+    const d = document.createElement('div');
+    d.className='ph';
+    d.innerHTML = '<i></i><span>'+(i+1)+'. '+p.name+'</span><em></em>';
+    phList.appendChild(d); phRows.push(d);
+  });
+}
+
+// 视图交互
+let dragging=false, lastX=0, lastY=0;
+CV.addEventListener('mousedown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; CV.classList.add('drag'); });
+window.addEventListener('mouseup', ()=>{ dragging=false; CV.classList.remove('drag'); });
+window.addEventListener('mousemove', e=>{
+  if (!dragging) return;
+  view.cx -= (e.clientX-lastX)/sc(); view.cy -= (e.clientY-lastY)/sc();
+  lastX=e.clientX; lastY=e.clientY; bgDirty=true;
+});
+CV.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const k = Math.exp(-e.deltaY*0.0014);
+  view.zoom = clamp(view.zoom*k, 0.42, 5);
+  bgDirty=true;
+}, {passive:false});
+CV.addEventListener('dblclick', ()=>{ view.cx=0; view.cy=0; view.zoom=1; bgDirty=true; });
+document.addEventListener('keydown', e=>{
+  const tn = e.target && e.target.tagName;
+  if (tn==='INPUT' || tn==='BUTTON' || tn==='TEXTAREA' || tn==='SELECT'){
+    if (e.key===' ') e.target.blur();      // 避免空格既触发按钮又触发快捷键
+    else return;
+  }
+  const k = e.key.toLowerCase();
+  if (k===' '){ e.preventDefault(); setRun(!cfg.running); }
+  else if (k==='r'){ reset(); }
+  else if (k==='n'){ sig.force(); }
+  else if (k==='d'){ cfg.debug=!cfg.debug; const c=$('cDebug'); if(c) c.checked=cfg.debug; }
+  else if (k==='p'){ cfg.night=!cfg.night; bgDirty=true; const c=$('cNight'); if(c) c.checked=cfg.night; }
+});
+
+/* ---- 统计面板 ---- */
+let statT = 0;
+function updateStats(){
+  const set=(id,v)=>{ const e=$(id); if (e) e.textContent=v; };
+  const setU=(id,v,u)=>{ const e=$(id); if (e) e.innerHTML = v+'<i>'+u+'</i>'; };
+  const win = Math.min(120, Math.max(8, sim.time));
+  set('sDone', sim.done);
+  set('sVeh', sim.vehs.length);
+  set('sPed', sim.peds.length);
+  set('sCol', sim.colls);
+  setU('sThr', Math.round(sim.log.length/win*3600), '辆/h');
+  setU('sWait', sim.done ? (sim.waitSum/sim.done).toFixed(1) : '0', 's');
+  setU('sQmax', sim.qmax, '辆');
+  setU('sFps', Math.round(fps), 'fps');
+  for (const a of ARMS) set('q'+a, queueOf(a));
+  const rm = Math.max(0, sig.remain());
+  for (let i=0;i<phRows.length;i++){
+    const d = phRows[i], on = i===sig.idx;
+    d.className = 'ph' + (on?' on':'');
+    const em = d.querySelector ? d.querySelector('em') : null;
+    if (em) em.textContent = on
+      ? (sig.sub==='green'?'绿灯 ':(sig.sub==='yellow'?'黄灯 ':'全红 ')) + rm.toFixed(1) + 's'
+      : '';
+  }
+}
+
+/* =========================================================
+   9. 主循环
+   ========================================================= */
+function frame(ts){
+  if (!lastFrame) lastFrame = ts;
+  let real = (ts - lastFrame)/1000;
+  lastFrame = ts;
+  if (!(real>0)) real = 0.016;
+  fps = fps*0.9 + (1/Math.max(0.001,real))*0.1;
+  real = Math.min(real, 0.06);
+  if (cfg.running){
+    let t = real*cfg.speed;
+    const n = Math.min(16, Math.max(1, Math.ceil(t/0.032)));
+    const h = t/n;
+    for (let i=0;i<n;i++) step(h);
+  }
+  draw();
+  statT += real;
+  if (statT > 0.2){ statT=0; updateStats(); }
+  window.requestAnimationFrame(frame);
+}
+
+if (window.ResizeObserver){ new window.ResizeObserver(resize).observe(CV); }
+window.addEventListener('resize', resize);
+resize();
+setMode(false);
+// 预热：让路口一开始就有车流
+for (let i=0;i<600;i++) step(0.05);
+updateStats();
+window.requestAnimationFrame(frame);
+
+// 供自动化检查使用
+window.__SIM = { sim, sig, cfg, step, draw, reset, PHASES, getPath, resize };
+})();
+</script>
+</body>
+</html>

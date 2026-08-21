@@ -1,0 +1,248 @@
+/* ==========================================================================
+   SALTWAKE — page shell.
+   The canvas fills the viewport and is point-upscaled from a 200-line buffer.
+   Cards are torn paper on a dark ground: flat fills, hard edges, no blur.
+   ========================================================================== */
+
+:root {
+  --ink: #0d1413;
+  --shadow: #16211f;
+  --damp: #4a4136;
+  --damp-lo: #2b2620;
+  --paper: #d3c8ab;
+  --paper-hi: #e9dfc2;
+  --paper-lo: #b3a688;
+  --amber: #c98b2e;
+  --amber-hi: #e8b45a;
+  --blood: #7a1f14;
+  --brass: #9a7434;
+  --teal: #24413c;
+  --font-pixel: ui-monospace, 'Courier New', monospace;
+  --font-body: 'Georgia', 'Times New Roman', serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #05090a;
+  color: var(--paper);
+  font-family: var(--font-body);
+  overflow: hidden;
+  cursor: default;
+}
+
+/*
+ * One stage for both layers.
+ *
+ * styles/hud.css pins the HUD canvas to the largest centred 16:10 rectangle that
+ * fits the viewport, because the HUD is authored at 320x200 and its gauges have
+ * to stay circular. The 3D view is given the identical rectangle, so the two
+ * layers line up exactly and the bottom paper strip sits flush with the bottom of
+ * the picture.
+ *
+ * The pleasant consequence: Stage.resize() derives its buffer from the canvas
+ * client size, so a 200-line target in a 16:10 frame comes out at literally
+ * 320x200 — the resolution this whole look is built around.
+ */
+#view {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, 160vh);
+  height: auto;
+  aspect-ratio: 16 / 10;
+  display: block;
+  /* The 3D layer is upscaled from a 200-line buffer: keep the pixels hard. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: none;
+  z-index: 5;
+}
+
+#hud-root {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, 160vh);
+  height: auto;
+  aspect-ratio: 16 / 10;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Inside the stage the HUD canvas simply fills it; hud.css already sized it. */
+#hud-root > canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  left: auto;
+  top: auto;
+}
+
+/* ---------------------------------------------------------------- cards */
+
+.card {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Scanline wash only. Each card supplies its own base layer, because the boot
+     card has nothing behind it to show and the pause card has the whole town. */
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.45) 0 2px, rgba(0,0,0,0.62) 2px 4px);
+  cursor: pointer;
+}
+.card[hidden] { display: none; }
+
+/* Nothing to see behind the boot card, so it is solid. */
+.card--boot {
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.55) 0 2px, rgba(0,0,0,0.72) 2px 4px),
+    #070c0c;
+}
+
+/* The pause card sits over a live frame: the town stays visible through it, which
+   is also how the player can tell the game loaded before clicking. */
+.card--pause {
+  background: repeating-linear-gradient(0deg, rgba(6,10,10,0.52) 0 2px, rgba(6,10,10,0.70) 2px 4px);
+}
+
+.card__inner {
+  position: relative;
+  width: min(660px, 92vw);
+  padding: 30px 34px 34px;
+  background: var(--paper);
+  color: var(--ink);
+  /* Torn edge, cut with clip-path rather than an image. */
+  clip-path: polygon(
+    0 6px, 12px 0, 34% 5px, 56% 0, 78% 6px, 100% 2px,
+    calc(100% - 4px) 40%, 100% 72%, calc(100% - 8px) 100%,
+    72% calc(100% - 5px), 44% 100%, 18% calc(100% - 6px), 0 100%,
+    5px 66%, 0 34%
+  );
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.5);
+}
+.card__inner::after {
+  /* Water staining, drawn with two radial washes. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120px 70px at 12% 88%, rgba(90, 70, 40, 0.30), transparent 70%),
+    radial-gradient(160px 90px at 88% 10%, rgba(70, 60, 35, 0.22), transparent 72%);
+  mix-blend-mode: multiply;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #6b5c48;
+}
+
+.wordmark {
+  margin: 0 0 14px;
+  font-family: var(--font-pixel);
+  font-size: clamp(38px, 8vmin, 74px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 0.94;
+  color: var(--ink);
+  text-shadow: 3px 3px 0 var(--amber), 6px 6px 0 rgba(13, 20, 19, 0.22);
+}
+
+.boot__step {
+  margin: 0 0 10px;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  color: #4a4136;
+}
+.boot__note {
+  margin: 16px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #3a342a;
+  max-width: 52ch;
+}
+
+.meter {
+  height: 12px;
+  background: var(--paper-lo);
+  border: 2px solid var(--damp-lo);
+  padding: 2px;
+}
+.meter__fill {
+  height: 100%;
+  width: 4%;
+  background: repeating-linear-gradient(90deg,
+    var(--amber) 0 6px, var(--brass) 6px 8px);
+  transition: width 180ms steps(5);
+}
+
+.card--boot { transition: opacity 380ms steps(4); }
+.card--boot.is-done { opacity: 0; }
+
+/* ---------------------------------------------------------------- pause */
+
+.pause__title {
+  margin: 0 0 4px;
+  font-family: var(--font-pixel);
+  font-size: clamp(26px, 4.4vmin, 40px);
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+.pause__line {
+  margin: 0 0 18px;
+  font-size: 16px;
+  color: #3a342a;
+}
+.pause__foot {
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #4a4136;
+  border-top: 2px solid var(--paper-lo);
+  padding-top: 12px;
+  max-width: 56ch;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 4px 20px;
+  margin: 0;
+}
+.controls > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dotted #8d8168;
+}
+.controls dt {
+  font-size: 13px;
+  color: #3a342a;
+}
+.controls dd {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter__fill, .card--boot { transition: none; }
+}

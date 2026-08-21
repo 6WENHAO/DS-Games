@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>虚拟内存与物理内存管理 · 操作系统内核可视化教具</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1115'/%3E%3Crect x='5' y='6' width='9' height='9' rx='1' fill='%2354d1a0'/%3E%3Crect x='18' y='6' width='9' height='9' rx='1' fill='%236aa9ff'/%3E%3Crect x='5' y='18' width='9' height='9' rx='1' fill='%23b98bff'/%3E%3Crect x='18' y='18' width='9' height='9' rx='1' fill='%23252d3d'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0f1115; --bg2:#151922; --bg3:#1b2130; --line:#252d3d; --line2:#323c50;
+  --fg:#e6ebf4; --fg2:#a7b3c7; --fg3:#6f7d94;
+  --accent:#ffcf4a;
+  --anon:#54d1a0; --file:#6aa9ff; --pt:#b98bff; --kern:#e8b64c; --swapc:#4fd0d8;
+  --bad:#ef5f6b; --good:#54d1a0; --warn:#e8b64c; --maint:#7f93b5;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+.app{max-width:1620px;margin:0 auto;padding:14px 16px 40px}
+h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.3px}
+h1 small{font-weight:400;color:var(--fg3);font-size:12px;margin-left:8px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:11px 13px;min-width:0}
+.card>.ch{font-size:12px;color:var(--fg3);margin:0 0 9px;display:flex;
+  justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.hdr{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:11px}
+.badge{font-size:10.5px;border:1px solid var(--line2);border-radius:4px;padding:1px 6px;color:var(--fg3);
+  font-family:var(--mono)}
+.badge.err{border-color:#5e3038;color:#e08590;background:#2a1418}
+
+/* 目标状态 */
+.goal{background:linear-gradient(180deg,#1a2030,#151a26);border:1px solid var(--line2);
+  border-left:3px solid var(--accent);border-radius:9px;padding:10px 14px;margin-bottom:11px}
+.goal .gl{font-size:12px;color:var(--fg3);margin-bottom:7px}
+.goal .gv{font-family:var(--mono);font-size:14px;display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.pill{border-radius:5px;padding:2px 9px;font-size:12px;border:1px solid var(--line2);background:var(--bg3)}
+.pill.no{color:var(--warn);border-color:#4d4020}
+.pill.yes{color:var(--good);border-color:#2f5a48}
+.pill.err{color:var(--bad);border-color:#5e3038}
+.count{display:flex;flex-wrap:wrap;gap:18px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.count div{font-size:11.5px;color:var(--fg3)}
+.count b{display:block;font-family:var(--mono);font-size:18px;color:var(--fg);font-weight:600;letter-spacing:-.3px}
+.count .hi b{color:var(--accent)}
+.count .sm b{font-size:14px;color:var(--fg2)}
+
+/* 控制条 */
+.ctl{display:flex;flex-wrap:wrap;gap:8px 13px;align-items:center;margin-bottom:11px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+button,select,input[type=text]{background:var(--bg3);color:var(--fg);border:1px solid var(--line2);
+  border-radius:6px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+input[type=text]{cursor:text;font-family:var(--mono)}
+button:hover,select:hover{border-color:#4a5876}
+button:active{transform:translateY(1px)}
+button.pri{background:var(--accent);color:#1a1400;border-color:var(--accent);font-weight:600}
+button.sm{padding:3px 8px;font-size:12px}
+button:disabled{opacity:.4;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sep{width:1px;height:22px;background:var(--line2)}
+.ctl .lbl{font-size:12px;color:var(--fg3)}
+.ctl .grp{display:flex;align-items:center;gap:6px}
+label.sw{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fg2);cursor:pointer;user-select:none}
+label.sw input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.tag{font-size:9.5px;padding:1px 5px;border-radius:4px;border:1px solid var(--line2);color:var(--fg3)}
+.tag.perf{border-color:#2f5a48;color:#6fc79f}
+.tag.corr{border-color:#5e3038;color:#e08590}
+
+/* 位域条 */
+.bits{display:flex;gap:4px;align-items:stretch;font-family:var(--mono);flex-wrap:wrap}
+.bf{flex:1 1 0;min-width:96px;background:var(--bg3);border:1px solid var(--line);border-radius:6px;
+  padding:5px 7px;transition:border-color .12s,background .12s}
+.bf.on{border-color:var(--accent);background:#2b2410}
+.bf .bn{font-size:10px;color:var(--fg3);display:flex;justify-content:space-between}
+.bf .bv{font-size:15px;font-weight:600;margin-top:1px}
+.bf.on .bv{color:var(--accent)}
+.bf .bb{font-size:9.5px;color:var(--fg3);letter-spacing:.5px}
+.bf.off{flex:0 0 118px;opacity:.55}
+
+/* 布局 */
+.g3v{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr) minmax(0,410px);gap:11px;margin-top:11px}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:11px}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:11px;margin-top:11px}
+@media(max-width:1400px){.g3v{grid-template-columns:1fr 1fr}}
+@media(max-width:1000px){.g3v,.g3,.g2{grid-template-columns:1fr}}
+
+/* VMA */
+.vma{background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px}
+.vma .vh{display:flex;justify-content:space-between;gap:6px;font-size:11.5px;align-items:baseline}
+.vma .vh b{font-size:12px}
+.vma .va{font-family:var(--mono);font-size:10px;color:var(--fg3)}
+.strip{display:flex;flex-wrap:wrap;gap:1.5px;margin-top:5px}
+.pg{width:9px;height:9px;border-radius:1.5px;background:#232b3a;border:1px solid transparent}
+.pg.anon{background:var(--anon)}.pg.file{background:var(--file)}
+.pg.swap{background:var(--swapc)}.pg.ro{background:#2f6a52}
+.pg.cur{border-color:#fff;box-shadow:0 0 4px rgba(255,255,255,.7)}
+.pg.corrupt{background:var(--bad)}
+.leg{display:flex;flex-wrap:wrap;gap:4px 11px;font-size:10.5px;color:var(--fg3);margin-top:7px}
+.leg span{display:flex;align-items:center;gap:4px}
+.leg i{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+/* 页表 */
+.walk{display:flex;gap:7px;align-items:stretch;flex-wrap:wrap}
+.lvl{flex:1 1 118px;min-width:0;background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:6px}
+.lvl.on{border-color:var(--accent)}
+.lvl .lh{font-size:11px;color:var(--fg3);display:flex;justify-content:space-between;margin-bottom:4px}
+.lvl .lh b{color:var(--fg2);font-family:var(--mono)}
+.lvl .ent{font-family:var(--mono);font-size:10.5px;padding:1.5px 3px;border-radius:3px;
+  display:flex;justify-content:space-between;gap:4px;white-space:nowrap;overflow:hidden}
+.lvl .ent.hit{background:#2b2410;color:var(--accent)}
+.lvl .ent.miss{color:var(--bad)}
+.lvl .ent .f{color:var(--fg3);font-size:9.5px}
+.lvl .none{font-size:10.5px;color:var(--fg3);padding:2px}
+.tlb{margin-top:8px}
+.tlb table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10.5px}
+.tlb th{color:var(--fg3);font-weight:400;font-size:10px;text-align:left;padding:1px 4px}
+.tlb td{padding:1px 4px;border-top:1px solid #1c2130}
+.tlb tr.hit td{background:#1d2b22;color:var(--good)}
+.tlb tr.ev td{color:var(--fg3)}
+
+/* 物理内存 */
+canvas{display:block;width:100%;border-radius:6px;background:#11151d}
+.mstat{display:flex;flex-wrap:wrap;gap:3px 14px;font-size:11px;color:var(--fg3);margin-top:7px}
+.mstat b{color:var(--fg2);font-family:var(--mono)}
+.wm{height:8px;border-radius:3px;background:#20273a;position:relative;overflow:hidden;margin-top:7px}
+.wm i{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#54d1a0,#3fae82)}
+.wm u{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+.wm u.min{background:var(--bad)}
+
+/* 流程图 */
+svg#flow{width:100%;height:auto;display:block}
+.fl-box{fill:var(--bg3);stroke:var(--line2);stroke-width:1}
+.fl-box.main{fill:#1e2433;stroke:#465370}
+.fl-box.acc{fill:#3a2f0d;stroke:var(--accent);stroke-width:1.6}
+.fl-box.fail{stroke:#5e3038}
+.fl-t{fill:var(--fg2);font-size:11px}
+.fl-t.main{fill:var(--fg)}
+.fl-t.acc{fill:var(--accent);font-weight:650;font-size:12px}
+.fl-t.fail{fill:#e08590}
+.fl-n{fill:var(--fg3);font-size:10px;font-family:var(--mono)}
+.fl-n.acc{fill:var(--accent);font-size:11px}
+.fl-e{fill:none;stroke:#4a5876;stroke-width:1.7}
+.fl-e.acc{stroke:var(--accent);stroke-width:2.4}
+.fl-e.br{stroke-width:1.1;stroke-dasharray:3.5 3.5}
+.fl-e.fast{stroke:#3fae82;stroke-width:1.5;stroke-dasharray:5 3}
+.fl-e.bad{stroke:#8c4048;stroke-width:1.1;stroke-dasharray:3 3}
+.fl-lg{fill:var(--fg3);font-size:10px}
+.fl-flash .fl-box{stroke:#8fa4c8}
+.fl-flash .fl-box.acc{stroke:#fff0b8;filter:drop-shadow(0 0 7px rgba(255,207,74,.55))}
+
+/* 讲解 */
+.exp{display:flex;flex-direction:column;gap:7px}
+.exp .ev{font-family:var(--mono);font-size:11.5px;color:var(--accent)}
+.exp .q{border-left:2px solid var(--line2);padding-left:9px}
+.exp .q .k{font-size:10.5px;color:var(--fg3);display:block}
+.exp .q .v{font-size:12.5px;color:var(--fg2)}
+.exp .q.r{border-color:#8c4048}
+
+/* 指标 */
+.mt{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:12px;align-items:baseline}
+.mt .k{color:var(--fg3)}
+.mt .v{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mt .v.warn{color:var(--warn)}.mt .v.bad{color:var(--bad)}.mt .v.good{color:var(--good)}
+.mt hr{grid-column:1/-1;border:0;border-top:1px solid var(--line);margin:4px 0}
+.lat{margin-top:8px}
+.lat .lr{display:grid;grid-template-columns:82px 1fr 62px;gap:6px;align-items:center;font-size:10.5px;margin-bottom:2px}
+.lat .bar{height:9px;background:#20273a;border-radius:2px;overflow:hidden}
+.lat .bar i{display:block;height:100%}
+.lat .v{font-family:var(--mono);text-align:right;color:var(--fg2)}
+
+/* 日志 */
+.log ul{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:10.5px;
+  max-height:250px;overflow:auto}
+.log li{padding:1px 0;border-bottom:1px solid #1a1f2c;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;color:var(--fg2)}
+.log li.main{color:var(--accent)}
+.log li.bad{color:var(--bad)}
+.log li.mt{color:var(--maint)}
+.log li .t{color:var(--fg3)}
+
+/* 伙伴 / LRU / swap */
+.bd{display:grid;grid-template-columns:auto 1fr auto;gap:3px 8px;font-size:11.5px;align-items:center}
+.bd .o{font-family:var(--mono);color:var(--fg3)}
+.bd .blocks{display:flex;gap:2px;flex-wrap:wrap}
+.bd .blk{height:11px;border-radius:2px;background:#3b4a66}
+.bd .c{font-family:var(--mono);color:var(--fg2)}
+.lru{margin-bottom:7px}
+.lru .lh{display:flex;justify-content:space-between;font-size:11px;color:var(--fg3);margin-bottom:2px}
+.lru .row{display:flex;gap:1.5px;flex-wrap:wrap;min-height:11px}
+.lru .c{width:9px;height:9px;border-radius:1.5px}
+.lru .c.ref{outline:1px solid var(--accent);outline-offset:-1px}
+.swapg{display:flex;gap:2px;flex-wrap:wrap}
+.swapg .s{width:10px;height:10px;border-radius:2px;background:#232b3a}
+.swapg .s.used{background:var(--swapc)}
+
+/* 对比 */
+table.cmp{width:100%;border-collapse:collapse;font-size:12px}
+table.cmp th,table.cmp td{padding:4px 6px;border-bottom:1px solid #1c2130;text-align:right}
+table.cmp th:first-child,table.cmp td:first-child{text-align:left;color:var(--fg3);font-size:11.5px}
+table.cmp th{color:var(--fg3);font-weight:400;font-size:11px}
+table.cmp td{font-family:var(--mono);font-variant-numeric:tabular-nums}
+table.cmp td.w{color:var(--bad)}table.cmp td.b{color:var(--good)}
+.hint{font-size:11.5px;color:var(--fg3);margin-top:8px;line-height:1.6}
+.concl{border-left:2px solid var(--accent);padding-left:9px;margin-top:8px;font-size:11.5px;color:var(--fg2);line-height:1.65}
+.notes ol{margin:0;padding-left:17px;font-size:11.5px;color:var(--fg2);line-height:1.65}
+.notes li{margin-bottom:3px}
+.notes b{color:var(--fg)}
+.gl-t{display:grid;grid-template-columns:auto auto 1fr;gap:2px 9px;font-size:11.5px;align-items:baseline}
+.gl-t .c{font-family:var(--mono);color:var(--fg)}
+.gl-t .e{color:var(--fg3);font-size:10.5px;font-family:var(--mono)}
+.gl-t .d{color:var(--fg2)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="hdr">
+  <h1>虚拟内存与物理内存管理<small>x86-64 四级分页 · 缺页 · 伙伴系统 · 页面回收 · 教学示意缩比</small></h1>
+  <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+    <span class="badge" id="clock">t = 0 ns</span>
+    <span class="badge" id="prog">程序 0 / 0</span>
+    <span class="badge err" id="corrupt" style="display:none"></span>
+  </div>
+</div>
+
+<!-- 目标状态 -->
+<div class="goal">
+  <div class="gl">目标状态 —— 这个子系统存在的唯一理由：<b style="color:var(--fg)">进程能按被允许的方式访问它的虚拟地址，并读到应有的字节</b></div>
+  <div class="gv" id="goalv"></div>
+  <div class="count">
+    <div>本次访问执行<b id="cSteps">0</b>步</div>
+    <div class="hi">其中改变目标状态<b id="cMain">0</b>步</div>
+    <div class="sm">本次耗时<b id="cLat">—</b></div>
+    <div class="sm">累计 步数 / 改变目标<b id="cTot">0 / 0</b></div>
+    <div class="sm">占比<b id="cRatio">—</b></div>
+  </div>
+</div>
+
+<!-- 控制条 -->
+<div class="ctl">
+  <button class="pri" id="play">▶ 播放</button>
+  <button id="step">单步 ›</button>
+  <button id="acc">走完这次访问 ››</button>
+  <button id="reset">重置</button>
+  <div class="grp"><span class="lbl">速度</span><select id="speed">
+    <option value="1">1 步/帧</option><option value="3" selected>3 步/帧</option>
+    <option value="10">10 步/帧</option><option value="40">40 步/帧</option></select></div>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">场景</span><select id="preset"></select></div>
+  <div class="grp"><span class="lbl">物理帧</span><select id="nframes">
+    <option>64</option><option value="128" selected>128</option><option>256</option></select></div>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">手动访问</span>
+    <input type="text" id="va" size="15" value="0x00007f0000000000">
+    <select id="rw"><option value="r">读</option><option value="w">写</option></select>
+    <button id="go">访问</button></div>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">内核连续分配</span>
+    <select id="korder"><option value="0">1 帧</option><option value="1">2 帧</option>
+      <option value="2">4 帧</option><option value="3">8 帧</option><option value="4" selected>16 帧</option></select>
+    <button id="kalloc">申请</button><button id="kfree">全部释放</button></div>
+</div>
+<div class="ctl" style="margin-top:-4px">
+  <span class="lbl">拆掉它试试：</span>
+  <label class="sw"><input type="checkbox" id="t-tlb" checked>TLB<span class="tag perf">只影响性能</span>
+    <button class="sm" data-cmp="tlb">对比</button></label>
+  <label class="sw"><input type="checkbox" id="t-pc" checked>页缓存<span class="tag perf">只影响性能</span>
+    <button class="sm" data-cmp="pc">对比</button></label>
+  <label class="sw"><input type="checkbox" id="t-twolru" checked>两级 LRU<span class="tag perf">只影响性能</span>
+    <button class="sm" data-cmp="twolru">对比</button></label>
+  <label class="sw"><input type="checkbox" id="t-rmap" checked>反向映射 rmap<span class="tag corr">影响正确性</span>
+    <button class="sm" data-cmp="rmap">对比</button></label>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">swappiness</span>
+    <select id="swappiness"><option>0</option><option selected>60</option><option>100</option></select></div>
+  <label class="sw"><input type="checkbox" id="t-static">静态模式</label>
+</div>
+
+<!-- 位域 -->
+<div class="card">
+  <div class="ch"><span>虚拟地址位域分解 —— 48 位有效地址被硬件切成 4 个 9 位索引加 12 位页内偏移</span>
+    <span class="mono" id="vainfo"></span></div>
+  <div class="bits" id="bits"></div>
+</div>
+
+<!-- 三列主视图 -->
+<div class="g3v">
+  <div class="card">
+    <div class="ch"><span>进程地址空间（VMA）</span><span class="mono" id="rss"></span></div>
+    <div id="vmas"></div>
+    <div class="leg">
+      <span><i style="background:#232b3a"></i>未映射</span>
+      <span><i style="background:var(--anon)"></i>匿名页</span>
+      <span><i style="background:var(--file)"></i>文件页</span>
+      <span><i style="background:#2f6a52"></i>只读共享（待 CoW）</span>
+      <span><i style="background:var(--swapc)"></i>已换出</span>
+      <span><i style="background:var(--bad)"></i>数据损坏</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span>四级页表遍历</span><span class="mono" id="walkinfo"></span></div>
+    <div class="walk" id="walk"></div>
+    <div class="tlb">
+      <div class="ch" style="margin:9px 0 4px"><span>TLB（16 项，全相联，LRU 替换）</span>
+        <span class="mono" id="tlbinfo"></span></div>
+      <table id="tlbt"></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><span>物理内存帧</span><span class="mono" id="pminfo"></span></div>
+    <canvas id="pm" height="220"></canvas>
+    <div class="wm" id="wm"></div>
+    <div class="mstat" id="mstat"></div>
+    <div class="leg">
+      <span><i style="background:#1a2130;border:1px solid #2f3a4e"></i>空闲</span>
+      <span><i style="background:var(--anon)"></i>匿名</span>
+      <span><i style="background:var(--file)"></i>文件</span>
+      <span><i style="background:var(--pt)"></i>页表页</span>
+      <span><i style="background:var(--kern)"></i>内核连续块</span>
+      <span><i style="background:#3d4c66"></i>回写中</span>
+    </div>
+  </div>
+</div>
+
+<!-- 主链路 -->
+<div class="card" style="margin-top:11px">
+  <div class="ch"><span>主链路与支线 —— 中间是主流程；只有黄色那一步真正改变了目标状态，其余全是配套设施</span>
+    <span class="mono" style="color:var(--fg3)">括号内为累计次数</span></div>
+  <svg id="flow" viewBox="0 0 1200 452" role="img" aria-label="缺页处理主链路与支线示意图"></svg>
+</div>
+
+<!-- 讲解 / 指标 / 日志 -->
+<div class="g3">
+  <div class="card"><div class="ch"><span>刚刚发生了什么</span></div><div class="exp" id="exp"></div></div>
+  <div class="card"><div class="ch"><span>指标</span></div>
+    <div class="mt" id="mt"></div>
+    <div class="lat" id="lat"></div></div>
+  <div class="card log"><div class="ch"><span>事件日志</span><button class="sm" id="clr">清空</button></div>
+    <ul id="log"></ul></div>
+</div>
+
+<!-- 伙伴 / LRU / swap -->
+<div class="g3">
+  <div class="card"><div class="ch"><span>伙伴系统空闲链表</span><span class="mono" id="bdinfo"></span></div>
+    <div class="bd" id="bd"></div>
+    <div class="hint" id="fragnote"></div></div>
+  <div class="card"><div class="ch"><span>LRU 链表（老化与回收的依据）</span><span class="mono" id="lruinfo"></span></div>
+    <div id="lru"></div></div>
+  <div class="card"><div class="ch"><span>交换区 / 页缓存</span><span class="mono" id="swinfo"></span></div>
+    <div class="swapg" id="swapg"></div>
+    <div class="ch" style="margin:10px 0 5px"><span>页缓存（文件页 → 物理帧）</span>
+      <span class="mono" id="pcinfo"></span></div>
+    <div class="swapg" id="pcg"></div>
+    <div class="hint">页缓存被两个进程共享：同一文件页只占一个物理帧，各进程页表分别指向它。
+      这也是为什么回收它之前必须先通过反向映射找到所有指向它的页表项。</div></div>
+</div>
+
+<!-- 对比 / 说明 -->
+<div class="g2">
+  <div class="card"><div class="ch"><span>拆掉它试试 —— 同一程序、同一随机种子，跑完整个访问序列</span></div>
+    <div id="cmp"><div class="hint">点上方任意机制旁的「对比」按钮。<br>
+      预期：关掉<b style="color:#6fc79f">只影响性能</b>的机制，最终结果仍然正确，只是慢得多；
+      关掉<b style="color:#e08590">影响正确性</b>的机制，会出现具体的错误现象（进程读到不属于它的物理页）。</div></div></div>
+  <div class="card notes"><div class="ch"><span>这个演示简化了什么</span></div>
+    <ol id="notes"></ol>
+    <div class="ch" style="margin:11px 0 7px">术语对照</div>
+    <div class="gl-t" id="glo"></div></div>
+</div>
+
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════
+   第一部分：常量 —— x86-64 四级分页与内核参数
+   ══════════════════════════════════════════════════════════════════════ */
+const PAGE_SHIFT = 12, PAGE = 4096;
+/* 硬件规定的地址切法：47:39 / 38:30 / 29:21 / 20:12 / 11:0 */
+const LEVELS = [
+  { n:'PML4', full:'页映射 4 级表', hi:47, lo:39 },
+  { n:'PDPT', full:'页目录指针表',  hi:38, lo:30 },
+  { n:'PD',   full:'页目录',        hi:29, lo:21 },
+  { n:'PT',   full:'页表',          hi:20, lo:12 },
+];
+const MAX_ORDER   = 4;    /* 伙伴系统最大块 = 2^4 = 16 帧 = 64 KiB */
+const TLB_ENTRIES = 16;
+const GRID_COLS   = 16;   /* 物理内存网格列数，与 2^MAX_ORDER 对齐，块边界才不会跨行 */
+const SWAP_SLOTS  = 96;
+
+/* 各步骤的时间代价（纳秒，量级示意） */
+const COST = {
+  tlbHit:1, tlbMiss:2, tlbFill:2, tlbFlush:120, walk:20, fault:400, ret:150,
+  zero:250, copy:520, buddy:80, split:35, merge:35, ptAlloc:140, pcLookup:30,
+  scan:60, unmap:130, free:35, misc:15, diskRead:90000, swapRead:70000, swapWrite:70000,
+};
+/* 水位线（占总帧数的比例）—— 真实内核由 zone 大小算出 */
+const WM = { min:0.08, low:0.16, high:0.26 };
+
+/* ══════════════════════════════════════════════════════════════════════
+   第二部分：步骤字典 —— 角色分类 + 三句话讲解
+   role: main 改变目标状态 | spine 主流程但不改变 | fast 快路径 | slow 慢路径
+         maintain 维护 | coherence 一致性 | defer 延迟 | fail 失败
+   ══════════════════════════════════════════════════════════════════════ */
+const S = {
+  cpu:{ r:'spine', node:'n1', l:'CPU 发出访存',
+    why:'一切从一条普通的 load/store 指令开始。进程完全不知道自己用的是虚拟地址。',
+    wo:'程序就得自己管物理地址，任意两个程序都可能踩到对方的内存。' },
+  tlbLookup:{ r:'spine', node:'n2', l:'MMU 查 TLB',
+    why:'页表在内存里，走一趟要访存 4 次。TLB 把最近用过的翻译结果缓存在 MMU 内部。',
+    wo:'每次访存都要额外 4 次访存，程序直接慢好几倍。' },
+  tlbHit:{ r:'fast', node:'l1', l:'TLB 命中 —— 整条主链路都省了',
+    why:'绝大多数访存都命中 TLB。这条快路径的存在，正是为了让下面那一长串工作绝大部分时候不必发生。',
+    wo:'没有捷径可走，每次都得老老实实走完四级页表。' },
+  tlbMiss:{ r:'spine', node:'n2', l:'TLB 未命中，开始遍历页表',
+    why:'缓存里没有，只能回到内存中的页表逐级查找。注意 TLB 只有 16 项：顺序扫过一大片内存时，等回头再访问第一页，它早被挤出去了，命中率会掉到 0。',
+    wo:'—（这一步是快路径失败后的必经之路）' },
+  walk:{ r:'spine', node:'n3', l:'读页表项',
+    why:'四级结构是为了让稀疏的地址空间不必为没用到的区域准备页表 —— 平铺一张表要 512 GiB。',
+    wo:'每个进程光页表就要占掉几百 GiB 内存，完全不可行。' },
+  ptMissing:{ r:'spine', node:'n3', l:'该级页表不存在',
+    why:'页表本身也是按需建立的。第一次用到某个区域时，中间层级才被创建。这也是四级结构省内存的关键：没碰过的区域连页表都不存在。',
+    wo:'每个进程都要预先铺满四级页表，仅此一项就吃掉几百 GiB。' },
+  ptAlloc:{ r:'maintain', node:'u1', l:'为页表分配一个物理页',
+    why:'页表自己也要占物理内存 —— 这是"为了维护映射关系"而付出的额外内存代价，不是进程的数据。',
+    wo:'没地方存映射关系，翻译无从进行。' },
+  ptLink:{ r:'maintain', node:'u1', l:'把新页表挂到上一级',
+    why:'上一级表项要填入新页表的物理帧号，硬件才能顺着走下来。',
+    wo:'新建的页表游离在外，硬件找不到它。' },
+  fault:{ r:'spine', node:'n4', l:'触发缺页异常 #PF，陷入内核',
+    why:'硬件发现映射缺失或权限不足，把控制权交给内核，并把出错地址留在 CR2。',
+    wo:'硬件只能报错终止进程，惰性分配、写时复制、换页全都无法实现。' },
+  vmaFind:{ r:'spine', node:'n5', l:'在 VMA 树里查这个地址',
+    why:'页表只知道"有没有映射"，不知道"该不该有映射"。后者记在 VMA 里：哪段区间是堆、是栈、是文件映射、允许什么权限。',
+    wo:'内核无法区分"合法但尚未分配"和"根本就是野指针"。' },
+  vmaNone:{ r:'fail', node:'l8', l:'地址不属于任何 VMA → SIGSEGV',
+    why:'这正是段错误的来源：访问了从未申请过的地址。',
+    wo:'越界访问会被当成合法缺页，内核给它凭空分配内存，错误被静默掩盖。' },
+  protFail:{ r:'fail', node:'l8', l:'权限不符 → SIGSEGV',
+    why:'例如往只读的代码段写数据。VMA 的权限位是最终裁决。',
+    wo:'任何进程都能改写自己的代码段，也能写只读映射的共享文件。' },
+  classify:{ r:'spine', node:'n5', l:'判定缺页类型',
+    why:'同一个 #PF 异常有好几种截然不同的成因：匿名页首次访问、文件页映射、写时复制、换入。处理路径完全不同，分类错了后面全错。',
+    wo:'内核只能用一种办法处理所有缺页，惰性分配、写时复制、换页三者无法共存。' },
+  pcLookupHit:{ r:'fast', node:'l2', l:'页缓存命中 —— 免去一次磁盘 I/O',
+    why:'文件页可能已被别的进程读进来了。同一文件页在全系统只留一份，谁都能直接映射。',
+    wo:'每个进程读同一个文件都要各读一遍磁盘，还各占一份内存。' },
+  pcLookupMiss:{ r:'slow', node:'l2', l:'页缓存未命中，必须读磁盘',
+    why:'内容还不在内存里，只能发起真正的 I/O —— 这就是"主缺页"。它和次缺页的差别几乎全在这一步。',
+    wo:'—（这一步是页缓存未命中后的必经之路）' },
+  watermark:{ r:'spine', node:'n6', l:'检查空闲水位',
+    why:'内核不能等到一帧不剩才回收，那时已经来不及了。水位线让回收提前启动。',
+    wo:'内存耗尽时才开始回收，而回收本身可能还需要内存，容易直接死锁。' },
+  kswapd:{ r:'defer', node:'l6', l:'唤醒 kswapd 后台回收',
+    why:'把回收挪到后台线程，当前进程不必等待。这是"延迟处理"型支线的典型。',
+    wo:'每次内存偏紧都得让正在跑的进程停下来做回收，延迟抖动剧烈。' },
+  buddyAlloc:{ r:'spine', node:'n6', l:'伙伴系统分配物理页',
+    why:'按 2 的幂管理空闲块，使分配、释放、合并都是 O(log n)，并且天然保住大块的连续性。',
+    wo:'只能线性扫描空闲页链表，分配变慢，而且没有任何机制维护连续大块。' },
+  buddySplit:{ r:'maintain', node:'l3', l:'分裂大块以满足小请求',
+    why:'没有正好合适的块时，把大块一分为二，留一半在下一级链表里。',
+    wo:'只能整块给出，几 KiB 的请求也要占满 64 KiB。' },
+  buddyMerge:{ r:'maintain', node:'l3', l:'与伙伴合并成更大块',
+    why:'释放时立刻检查同级伙伴是否也空闲，能合就合 —— 这是对抗外部碎片的唯一手段。',
+    wo:'内存很快碎成一地零散小块，总空闲量充足却申请不到连续大块。' },
+  allocFail:{ r:'slow', node:'n6', l:'分配失败，转入直接回收',
+    why:'快路径拿不到内存时，当前进程只能自己动手回收，代价是被阻塞在缺页里。',
+    wo:'内存不足就直接返回失败，程序会在毫无预兆的地方拿不到内存。' },
+  reclaimBegin:{ r:'maintain', node:'l4', l:'开始直接回收（阻塞本进程）',
+    why:'与 kswapd 相对：这条路上回收的代价直接算在触发缺页的进程头上。',
+    wo:'内存不足时只能失败返回，程序莫名其妙拿不到内存。' },
+  lruAge:{ r:'maintain', node:'l4', l:'把活跃链表尾部降级到不活跃链表',
+    why:'"老化"是估计冷热的手段：一直没被再次访问的页会逐步下沉到不活跃链表尾部。',
+    wo:'内核无从判断哪些页还有用，只能瞎猜。' },
+  lruScan:{ r:'maintain', node:'l4', l:'扫描不活跃链表尾部',
+    why:'尾部就是"最久没被再次访问"的一端。从这里下手，回收对性能的伤害最小。',
+    wo:'只能随机挑页回收，很可能扔掉正在热用的页，立刻又要读回来。' },
+  lruRef:{ r:'maintain', node:'l4', l:'页被访问过 → 放回链表头（第二次机会）',
+    why:'硬件在页表项里置访问位，内核据此给页一次赦免。这就是"时钟算法"。',
+    wo:'刚刚还在用的页也会被扔掉，马上又要读回来，形成抖动。' },
+  tryUnmap:{ r:'maintain', node:'u3', l:'反向映射：找出并清除所有指向它的页表项',
+    why:'正向映射只能从虚址找物理页。回收需要反过来问"谁在用这一帧"，所以内核额外维护了一套反向映射。',
+    wo:'物理页被回收后，各进程页表里仍留着指向它的表项 —— 一旦该帧被分给别人，进程就会读到别人的数据。' },
+  swapOut:{ r:'maintain', node:'l7', l:'把匿名页写到交换区',
+    why:'匿名页在磁盘上没有对应文件，只能先写进交换区才能腾出这一帧。',
+    wo:'匿名页永远不可回收，物理内存一满就只能 OOM。' },
+  writeback:{ r:'maintain', node:'l7', l:'脏文件页回写（异步，本轮不释放）',
+    why:'脏页里有尚未落盘的修改，必须先写回文件。回写是异步的，这一帧本轮还不能用。',
+    wo:'直接丢弃脏页会造成文件内容丢失。' },
+  freeFrame:{ r:'maintain', node:'l4', l:'释放物理帧，归还伙伴系统',
+    why:'走到这一步，这一帧才真正变成可用内存。前面的老化、扫描、撤销映射、换出，全是为了能安全地走到这里。',
+    wo:'—' },
+  oom:{ r:'fail', node:'l8', l:'回收无果 → OOM 终止进程',
+    why:'所有页都在用、都脏、或都被锁住时，内核只能选一个进程杀掉以保全系统。',
+    wo:'系统整体卡死在无内存可用的状态，连内核自己都无法推进。' },
+  zero:{ r:'spine', node:'n6', l:'把新页清零',
+    why:'新分配的匿名页必须清零，否则会把上一个使用者残留的数据泄露给这个进程。',
+    wo:'进程能读到别的进程释放掉的内存内容，是严重的信息泄露。' },
+  copyPage:{ r:'spine', node:'n6', l:'复制页内容（写时复制）',
+    why:'fork 之后父子共享同一份物理页；谁先写谁负责复制出自己的副本。',
+    wo:'fork 必须立刻复制整个地址空间，而其中绝大部分页在 exec 之后马上被丢弃。' },
+  ioSubmit:{ r:'slow', node:'l5', l:'提交磁盘读请求',
+    why:'把请求交给块设备层排队，然后当前进程进入睡眠、让出 CPU 给别人。',
+    wo:'缺页的进程只能自旋等磁盘，白白占着 CPU 几十微秒。' },
+  ioWait:{ r:'slow', node:'l5', l:'等待 I/O 完成（进程睡眠）',
+    why:'这是整条路上最慢的一步，比 TLB 命中慢约十万倍。主缺页与次缺页的差别几乎全在这里。',
+    wo:'进程只能自旋等磁盘，白白占着 CPU。' },
+  ioDone:{ r:'slow', node:'l5', l:'I/O 完成，数据已在物理页里',
+    why:'磁盘中断唤醒等待的进程。此刻内容已经就位，但映射还没建立 —— 目标状态仍未成立。',
+    wo:'—' },
+  pcInsert:{ r:'maintain', node:'l2', l:'把该页登记进页缓存',
+    why:'登记之后，其它进程再访问同一文件页就能直接命中，不必重读磁盘。',
+    wo:'刚读进来的页无人知晓，下一次访问又要读一遍磁盘。' },
+  swapIn:{ r:'slow', node:'l5', l:'从交换区读回页面',
+    why:'页表项里记的不是帧号而是交换槽位。读回来后需要重新建立映射。',
+    wo:'—' },
+  rmapAdd:{ r:'maintain', node:'u3', l:'在反向映射中登记这条映射',
+    why:'每建立一条映射，就要在物理页那一侧记下"谁在用我"，供将来回收时逐个撤销。',
+    wo:'回收时找不到使用者，只能盲目释放。' },
+  mapcount:{ r:'maintain', node:'u3', l:'增加引用计数 / 映射计数',
+    why:'一帧可能被多个进程映射。计数为零之前绝不能释放。',
+    wo:'仍在被使用的物理页被释放并重新分配，两个进程写到同一块内存。' },
+  setPte:{ r:'main', node:'n7', l:'★ 写入页表项，使该虚址真正可访问',
+    why:'这是整条路上唯一改变目标状态的一步。前面所有工作都只是在决定"往这个表项里填什么"。',
+    wo:'不填这个表项，进程再试一次还是缺页 —— 目标状态永远不会成立。' },
+  tlbFlush:{ r:'coherence', node:'n7', l:'刷新该地址的 TLB 项',
+    why:'改了页表就必须让 TLB 里的旧翻译失效，否则硬件还按老映射走。多核上还要给别的核发核间中断。',
+    wo:'CPU 继续使用已经作废的翻译，写到已经不属于自己的物理页上。' },
+  tlbFill:{ r:'spine', node:'n2', l:'把翻译结果填入 TLB',
+    why:'为下一次访问同一页留下捷径。局部性越好，这一步的收益越大。',
+    wo:'每次访问同一页都要重新走四级页表。' },
+  retry:{ r:'spine', node:'n8', l:'从内核返回，硬件重新执行原指令',
+    why:'注意：内核并不代替 CPU 完成这次访存。它只是把映射补好，然后让那条指令原样重跑一遍 —— 这次就能走通了。',
+    wo:'内核得自己模拟那条指令的语义，每种寻址方式都要实现一遍。' },
+  done:{ r:'spine', node:'n8', l:'访存完成',
+    why:'目标状态到这里才算成立：这条指令拿到了它要的字节。回头看看上面的步数统计 —— 其中真正改变目标状态的只有一步。',
+    wo:'—' },
+  corrupt:{ r:'fail', node:'l8', l:'读到了不属于本进程的物理页！',
+    why:'页表项还指向那一帧，但这一帧已被回收并分配给别人了 —— 陈旧映射造成的数据损坏。这正是关掉反向映射的后果：回收时没人去清除这些页表项。',
+    wo:'—（这本身就是缺少反向映射的后果）' },
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+   第三部分：工具
+   ══════════════════════════════════════════════════════════════════════ */
+function mulberry32(a){ return function(){ a=(a+0x6D2B79F5)|0;
+  let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
+  return ((t^(t>>>14))>>>0)/4294967296; }; }
+/* 48 位地址取字段：不能用 >>，会被截成 32 位 */
+function fieldOf(va, lo){ return Math.floor(va / Math.pow(2, lo)) % 512; }
+function vpnOf(va){ return Math.floor(va / PAGE); }
+function hex(v, w){ let s = Math.floor(v).toString(16); while (s.length < (w||12)) s = '0' + s;
+  return '0x' + s.replace(/(.{4})(?=.)/g, '$1_'); }
+function bin9(v){ let s = (v>>>0).toString(2); while (s.length < 9) s = '0' + s; return s; }
+function ns(v){
+  if (v < 1000) return Math.round(v) + ' ns';
+  if (v < 1e6)  return (v/1000).toFixed(v < 1e4 ? 2 : 1) + ' µs';
+  return (v/1e6).toFixed(2) + ' ms';
+}
+const $ = s => document.querySelector(s);
+
+/* ══════════════════════════════════════════════════════════════════════
+   第四部分：内存管理模型
+   ══════════════════════════════════════════════════════════════════════ */
+class MM {
+  constructor(cfg){
+    this.cfg = Object.assign({ nframes:128, tlb:true, pageCache:true, twoLru:true,
+      rmap:true, swappiness:60, seed:20240607 }, cfg);
+    this.rng = mulberry32(this.cfg.seed);
+    this.now = 0;
+    const N = this.cfg.nframes;
+    this.frames = [];
+    for (let i = 0; i < N; i++) this.frames.push({
+      pfn:i, free:true, head:false, order:0, owner:null, content:null,
+      refcount:0, mapcount:0, dirty:false, referenced:false, active:false,
+      lruKind:null, writeback:0, io:0 });
+    this.freeLists = []; for (let o = 0; o <= MAX_ORDER; o++) this.freeLists.push([]);
+    /* 初始：整块内存按最大阶铺满空闲链表 */
+    for (let i = 0; i < N; i += (1 << MAX_ORDER)){
+      const o = Math.min(MAX_ORDER, Math.floor(Math.log2(N - i)));
+      this.frames[i].head = true; this.frames[i].order = o;
+      this.freeLists[o].push(i);
+    }
+    this.wmMin  = Math.max(4, Math.round(N * WM.min));
+    this.wmLow  = Math.max(8, Math.round(N * WM.low));
+    this.wmHigh = Math.max(12, Math.round(N * WM.high));
+
+    this.procs = [];
+    this.pageCache = new Map();       /* "fid:idx" → pfn */
+    this.rmapTbl   = new Map();       /* pfn → [{pid,va}] */
+    this.lru = { anon:{ active:[], inactive:[] }, file:{ active:[], inactive:[] } };
+    this.swap = []; for (let i = 0; i < SWAP_SLOTS; i++) this.swap.push(null);
+    this.tlb = [];
+    this.kAllocs = [];
+    this.kswapdPending = false;
+    this.logs = [];
+    this.stat = { steps:0, mainSteps:0, access:0, minorFault:0, majorFault:0, cow:0,
+      swapIn:0, swapOut:0, segv:0, oom:0, corrupt:0, tlbHit:0, tlbMiss:0,
+      pcHit:0, pcMiss:0, reclaimDirect:0, reclaimKswapd:0, freed:0, ptFrames:0,
+      splits:0, merges:0, fragFail:0, timeTotal:0, byRole:{} };
+  }
+
+  /* ── 日志 ────────────────────────────────────────────────────────── */
+  log(kind, text){ this.logs.push({ t:this.now, kind, text });
+    if (this.logs.length > 400) this.logs.splice(0, 120); }
+  free(){ let n = 0; for (const f of this.frames) if (f.free) n++; return n; }
+  used(kind){ let n = 0; for (const f of this.frames) if (!f.free && f.owner && f.owner.kind === kind) n++; return n; }
+
+  /* ── 伙伴系统 ────────────────────────────────────────────────────── */
+  buddyAlloc(order){
+    for (let o = order; o <= MAX_ORDER; o++){
+      if (!this.freeLists[o].length) continue;
+      let pfn = this.freeLists[o].shift();
+      this.frames[pfn].head = false;
+      let cur = o;
+      while (cur > order){                       /* 分裂 */
+        cur--;
+        const buddy = pfn + (1 << cur);
+        this.frames[buddy].head = true; this.frames[buddy].order = cur;
+        this.freeLists[cur].push(buddy);
+        this.stat.splits++;
+      }
+      for (let i = 0; i < (1 << order); i++){
+        const f = this.frames[pfn + i];
+        f.free = false; f.order = order; f.head = (i === 0);
+      }
+      return pfn;
+    }
+    return null;
+  }
+  buddyFree(pfn, order){
+    for (let i = 0; i < (1 << order); i++){
+      const f = this.frames[pfn + i];
+      f.free = true; f.owner = null; f.content = null; f.refcount = 0; f.mapcount = 0;
+      f.dirty = false; f.referenced = false; f.active = false; f.lruKind = null;
+      f.writeback = 0; f.head = false;
+    }
+    while (order < MAX_ORDER){
+      const buddy = pfn ^ (1 << order);
+      if (buddy + (1 << order) > this.frames.length) break;
+      const idx = this.freeLists[order].indexOf(buddy);
+      if (idx < 0) break;
+      const bf = this.frames[buddy];
+      if (!bf.free || !bf.head || bf.order !== order) break;
+      this.freeLists[order].splice(idx, 1);
+      bf.head = false;
+      pfn = Math.min(pfn, buddy);
+      order++;
+      this.stat.merges++;
+    }
+    this.frames[pfn].head = true; this.frames[pfn].order = order;
+    this.freeLists[order].push(pfn);
+  }
+  /* 最大可分配阶 —— 用来判断外部碎片 */
+  maxFreeOrder(){ for (let o = MAX_ORDER; o >= 0; o--) if (this.freeLists[o].length) return o; return -1; }
+
+  /* ── TLB ─────────────────────────────────────────────────────────── */
+  tlbLookup(pid, vpn){
+    if (!this.cfg.tlb) return null;
+    for (const e of this.tlb) if (e.pid === pid && e.vpn === vpn){ e.use = ++this.tlbClock; return e; }
+    return null;
+  }
+  tlbInsert(pid, vpn, pfn, w){
+    if (!this.cfg.tlb) return null;
+    this.tlbClock = (this.tlbClock || 0) + 1;
+    let ev = null;
+    if (this.tlb.length >= TLB_ENTRIES){
+      let worst = 0; for (let i = 1; i < this.tlb.length; i++) if (this.tlb[i].use < this.tlb[worst].use) worst = i;
+      ev = this.tlb.splice(worst, 1)[0];
+    }
+    this.tlb.push({ pid, vpn, pfn, w, use:this.tlbClock });
+    return ev;
+  }
+  tlbInvalidate(pid, vpn){
+    for (let i = this.tlb.length - 1; i >= 0; i--){
+      const e = this.tlb[i];
+      if (e.pid === pid && (vpn === undefined || e.vpn === vpn)) this.tlb.splice(i, 1);
+    }
+  }
+
+  /* ── 进程与 VMA ──────────────────────────────────────────────────── */
+  addProc(name, vmas){
+    const p = { pid:this.procs.length + 1, name, vmas:vmas.map(v => Object.assign({}, v)),
+      pgd:{ ents:{} }, alive:true, rssAnon:0, rssFile:0 };
+    /* 顶级页表（PML4）本身也要占一个物理帧 —— 进程刚创建、一个字节都没碰，
+       就已经消耗了内存。CR3 指向的就是这一帧。 */
+    const pf = this.buddyAlloc(0);
+    if (pf != null){
+      this.frames[pf].owner = { kind:'pagetable', pid:p.pid, level:0 };
+      this.frames[pf].content = 'pt:' + p.pid + ':pml4';
+      this.frames[pf].refcount = 1;
+      p.pgd.pfn = pf;
+      this.stat.ptFrames++;
+    }
+    this.procs.push(p);
+    return p;
+  }
+  proc(pid){ return this.procs.find(p => p.pid === pid); }
+  findVma(p, va){ for (const v of p.vmas) if (va >= v.start && va < v.end) return v; return null; }
+
+  /* 页表遍历。create=true 时缺失层级由调用方逐级补齐（步骤里体现） */
+  walk(p, va){
+    const out = { levels:[], pte:null, missingAt:-1 };
+    let node = p.pgd;
+    for (let i = 0; i < 4; i++){
+      const idx = fieldOf(va, LEVELS[i].lo);
+      const ent = node.ents[idx];
+      out.levels.push({ lvl:i, idx, node, ent: ent || null });
+      if (i === 3){ out.pte = ent || null; break; }
+      if (!ent){ out.missingAt = i; break; }
+      node = ent;
+    }
+    return out;
+  }
+  ptePresent(pte){ return !!(pte && pte.present); }
+
+  /* ── 反向映射 ────────────────────────────────────────────────────── */
+  rmapAdd(pfn, pid, va){
+    if (!this.cfg.rmap) return;
+    let l = this.rmapTbl.get(pfn); if (!l){ l = []; this.rmapTbl.set(pfn, l); }
+    l.push({ pid, va });
+  }
+  rmapDel(pfn, pid, va){
+    const l = this.rmapTbl.get(pfn); if (!l) return;
+    const i = l.findIndex(e => e.pid === pid && e.va === va);
+    if (i >= 0) l.splice(i, 1);
+    if (!l.length) this.rmapTbl.delete(pfn);
+  }
+  rmapOf(pfn){ return this.rmapTbl.get(pfn) || []; }
+
+  /* ── LRU ─────────────────────────────────────────────────────────── */
+  lruAdd(pfn, kind){
+    const f = this.frames[pfn];
+    f.lruKind = kind; f.active = false; f.referenced = false;
+    this.lru[kind].inactive.unshift(pfn);
+  }
+  lruDel(pfn){
+    const f = this.frames[pfn]; if (!f.lruKind) return;
+    for (const st of ['active','inactive']){
+      const a = this.lru[f.lruKind][st], i = a.indexOf(pfn);
+      if (i >= 0) a.splice(i, 1);
+    }
+    f.lruKind = null;
+  }
+  touchPage(pfn){
+    const f = this.frames[pfn]; if (!f || f.free) return;
+    f.referenced = true;
+    /* 单链表模式：直接把页移到链表头（纯 LRU），没有"第二次机会"这一层 */
+    if (!this.cfg.twoLru && f.lruKind){
+      const a = this.lru[f.lruKind].inactive, i = a.indexOf(pfn);
+      if (i >= 0){ a.splice(i, 1); a.unshift(pfn); }
+    }
+  }
+
+  /* 建立一条映射 */
+  mapPage(p, va, pfn, writable, content, lruKind){
+    const w = this.walk(p, va);
+    const ptNode = w.levels[3] ? w.levels[3].node : null;
+    if (!ptNode) return false;
+    const idx = fieldOf(va, 12);
+    ptNode.ents[idx] = { present:true, pfn, w:writable, accessed:false, dirty:false,
+      swap:null, content };
+    const f = this.frames[pfn];
+    f.mapcount++; f.refcount++;
+    if (lruKind && !f.lruKind) this.lruAdd(pfn, lruKind);
+    if (f.owner && f.owner.kind === 'anon') p.rssAnon++; else if (f.owner) p.rssFile++;
+    return true;
+  }
+  unmapPage(p, va, swapSlot){
+    const w = this.walk(p, va);
+    const pte = w.pte; if (!pte || !pte.present) return;
+    const f = this.frames[pte.pfn];
+    f.mapcount = Math.max(0, f.mapcount - 1);
+    f.refcount = Math.max(0, f.refcount - 1);
+    if (f.owner && f.owner.kind === 'anon') p.rssAnon = Math.max(0, p.rssAnon - 1);
+    else if (f.owner) p.rssFile = Math.max(0, p.rssFile - 1);
+    const idx = fieldOf(va, 12);
+    w.levels[3].node.ents[idx] = swapSlot != null
+      ? { present:false, pfn:null, swap:swapSlot, content:pte.content, w:pte.w }
+      : { present:false, pfn:null, swap:null, content:pte.content, w:pte.w };
+    this.tlbInvalidate(p.pid, vpnOf(va));
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第五部分：步骤生成器 —— 用生成器把"单步"做成语言级能力
+   ══════════════════════════════════════════════════════════════════════ */
+function mk(mm, id, detail, extra){
+  const d = S[id];
+  mm.stat.steps++;
+  mm.stat.byRole[d.r] = (mm.stat.byRole[d.r] || 0) + 1;
+  if (d.r === 'main') mm.stat.mainSteps++;
+  const cost = (extra && extra.cost) || 0;
+  mm.now += cost;
+  return Object.assign({ id, role:d.r, node:d.node, label:d.l, detail:detail || '', cost }, extra || {});
+}
+
+/* 分配一个物理帧，可能内含回收 */
+function* allocFrame(mm, why, order){
+  order = order || 0;
+  yield mk(mm, 'watermark', '空闲 ' + mm.free() + ' 帧，低水位 ' + mm.wmLow + '，最低水位 ' + mm.wmMin,
+    { cost:COST.misc });
+  if (mm.free() <= mm.wmLow && !mm.kswapdPending){
+    mm.kswapdPending = true;
+    yield mk(mm, 'kswapd', '空闲已低于低水位，标记后台回收（不阻塞本次访问）', { cost:COST.misc });
+  }
+  /* 最低水位以下的内存是留给内核紧急用途的储备，普通分配不允许动用；
+     真实内核在 get_page_from_freelist 里就是这样卡住的，于是被迫转入直接回收。 */
+  if (mm.free() - (1 << order) < mm.wmMin){
+    yield mk(mm, 'allocFail', '拿走 ' + (1 << order) + ' 帧就会跌破最低水位 ' + mm.wmMin +
+      '（那是留给内核的储备），普通分配不许动用', { cost:COST.misc });
+    yield* reclaim(mm, Math.max(1 << order, 4), 'direct');
+  }
+  const before = { sp:mm.stat.splits, mg:mm.stat.merges };
+  let pfn = mm.buddyAlloc(order);
+  if (pfn == null){
+    const total = mm.free();
+    yield mk(mm, 'allocFail',
+      '空闲 ' + total + ' 帧，但拿不到 2^' + order + ' 连续帧（最大可用块 2^' +
+      mm.maxFreeOrder() + '）' + (total >= (1 << order) ? ' —— 外部碎片' : ''),
+      { cost:COST.misc, bad: total >= (1 << order) });
+    if (total >= (1 << order)) mm.stat.fragFail++;
+    const got = yield* reclaim(mm, Math.max(1 << order, 4), 'direct');
+    pfn = mm.buddyAlloc(order);
+    if (pfn == null){
+      yield mk(mm, 'oom', got ? '回收到了页，但仍凑不出连续块' : '无页可回收', { cost:COST.misc, bad:true });
+      mm.stat.oom++;
+      return null;
+    }
+  }
+  if (mm.stat.splits > before.sp)
+    yield mk(mm, 'buddySplit', '分裂 ' + (mm.stat.splits - before.sp) + ' 次，得到 2^' + order + ' 块',
+      { cost:COST.split * (mm.stat.splits - before.sp) });
+  yield mk(mm, 'buddyAlloc', '得到物理帧 #' + pfn + (order ? '..#' + (pfn + (1 << order) - 1) : '') +
+    '（' + why + '）', { cost:COST.buddy, pfn });
+  return pfn;
+}
+
+/* 回收：老化 → 扫描 → 反向映射撤销 → 换出/回写 → 释放 */
+function* reclaim(mm, need, mode){
+  yield mk(mm, 'reclaimBegin',
+    (mode === 'direct' ? '直接回收' : 'kswapd 后台回收') + '，目标 ' + need + ' 帧',
+    { cost:COST.misc, bg: mode !== 'direct' });
+  if (mode === 'direct') mm.stat.reclaimDirect++; else mm.stat.reclaimKswapd++;
+  let got = 0, guard = 0;
+  /* swappiness 决定优先扫文件页还是匿名页 */
+  const sw = mm.cfg.swappiness;
+  const order = sw >= 100 ? ['anon','file'] : sw <= 0 ? ['file'] : ['file','anon'];
+  while (got < need && guard++ < 400){
+    let progressed = false;
+    for (const kind of order){
+      if (got >= need) break;
+      const L = mm.lru[kind];
+      /* 老化：不活跃链表太短时，把活跃链表尾部降级 */
+      if (mm.cfg.twoLru && L.inactive.length < L.active.length && L.active.length){
+        const n = Math.min(3, L.active.length);
+        for (let i = 0; i < n; i++){
+          const pfn = L.active.pop(); mm.frames[pfn].active = false; L.inactive.unshift(pfn);
+        }
+        yield mk(mm, 'lruAge', kind === 'anon' ? '匿名页：活跃 → 不活跃 ' + n + ' 页'
+                                              : '文件页：活跃 → 不活跃 ' + n + ' 页', { cost:COST.scan });
+        progressed = true;
+      }
+      if (!L.inactive.length) continue;
+      const pfn = L.inactive.pop();
+      const f = mm.frames[pfn];
+      progressed = true;
+      yield mk(mm, 'lruScan', '检查帧 #' + pfn + '（' + (kind === 'anon' ? '匿名' : '文件') +
+        '，映射数 ' + f.mapcount + (f.dirty ? '，脏' : '') + '）', { cost:COST.scan, pfn });
+      if (f.writeback > 0){ L.inactive.unshift(pfn); continue; }
+      if (f.referenced){
+        f.referenced = false;
+        if (mm.cfg.twoLru){ f.active = true; L.active.unshift(pfn); }
+        else L.inactive.unshift(pfn);
+        yield mk(mm, 'lruRef', '帧 #' + pfn + ' 访问位为 1' +
+          (mm.cfg.twoLru ? '，提升到活跃链表' : '，放回链表头') + '，本轮跳过', { cost:COST.misc, pfn });
+        continue;
+      }
+      /* 撤销所有映射 */
+      const users = mm.rmapOf(pfn);
+      let slot = null;
+      if (kind === 'anon'){
+        slot = mm.swap.indexOf(null);
+        if (slot < 0){ L.inactive.unshift(pfn); continue; }
+      }
+      if (mm.cfg.rmap){
+        yield mk(mm, 'tryUnmap', '帧 #' + pfn + ' 被 ' + users.length + ' 处映射，逐个清除页表项',
+          { cost:COST.unmap * Math.max(1, users.length), pfn });
+        for (const u of users.slice()){
+          const p = mm.proc(u.pid); if (!p) continue;
+          mm.unmapPage(p, u.va, slot);
+        }
+        mm.rmapTbl.delete(pfn);
+      } else {
+        yield mk(mm, 'tryUnmap', '反向映射已关闭：无法得知谁在用帧 #' + pfn + '，直接释放（陈旧映射将留在页表里）',
+          { cost:COST.misc, pfn, bad:true });
+      }
+      if (kind === 'anon'){
+        mm.swap[slot] = { refs:Math.max(1, users.length), content:f.content };
+        mm.stat.swapOut++;
+        yield mk(mm, 'swapOut', '帧 #' + pfn + ' → 交换槽 ' + slot, { cost:COST.swapWrite, pfn });
+      } else if (f.dirty){
+        f.writeback = 3; f.dirty = false;
+        L.inactive.unshift(pfn);
+        yield mk(mm, 'writeback', '帧 #' + pfn + ' 是脏文件页，发起回写，本轮不释放', { cost:COST.misc, pfn });
+        continue;
+      } else if (f.owner && f.owner.kind === 'file'){
+        mm.pageCache.delete(f.owner.file + ':' + f.owner.idx);
+      }
+      mm.lruDel(pfn);
+      mm.buddyFree(pfn, 0);
+      mm.stat.freed++; got++;
+      yield mk(mm, 'freeFrame', '帧 #' + pfn + ' 已释放，空闲 ' + mm.free() + ' 帧', { cost:COST.free, pfn });
+      if (mm.stat.merges > 0)
+        yield mk(mm, 'buddyMerge', '当前最大可用块 2^' + mm.maxFreeOrder(), { cost:COST.merge });
+    }
+    if (!progressed) break;
+  }
+  return got;
+}
+
+/* 补齐缺失的页表层级 */
+function* buildPageTables(mm, p, va){
+  for (;;){
+    const w = mm.walk(p, va);
+    if (w.missingAt < 0) return true;
+    const L = LEVELS[w.missingAt];
+    yield mk(mm, 'ptMissing', L.n + ' 第 ' + w.levels[w.missingAt].idx + ' 项为空，需要新建下一级页表',
+      { cost:COST.misc, level:w.missingAt });
+    const pfn = yield* allocFrame(mm, L.n + ' 的下一级页表', 0);
+    if (pfn == null) return false;
+    const f = mm.frames[pfn];
+    f.owner = { kind:'pagetable', pid:p.pid, level:w.missingAt + 1 };
+    f.content = 'pt:' + p.pid + ':' + w.missingAt;
+    f.refcount = 1;
+    mm.stat.ptFrames++;
+    yield mk(mm, 'ptAlloc', '帧 #' + pfn + ' 用作 ' + LEVELS[w.missingAt + 1].n + '（页表自己也吃内存）',
+      { cost:COST.ptAlloc, pfn });
+    w.levels[w.missingAt].node.ents[w.levels[w.missingAt].idx] = { ents:{}, pfn };
+    yield mk(mm, 'ptLink', '填入 ' + L.n + '[' + w.levels[w.missingAt].idx + '] → 帧 #' + pfn,
+      { cost:COST.misc });
+  }
+}
+
+/* 一次完整访存 */
+function* doAccess(mm, pid, va, isWrite){
+  const p = mm.proc(pid);
+  const vpn = vpnOf(va);
+  mm.stat.access++;
+  const t0 = mm.now;
+  const ctx = { pid, va, isWrite, ok:false, kind:null, t0 };
+  /* 发出访存本身不计耗时：它是请求，不是工作 */
+  yield mk(mm, 'cpu', (isWrite ? '写' : '读') + ' ' + hex(va) + '（进程 ' + (p ? p.name : pid) + '）',
+    { cost:0, ctx });
+
+  /* 1. TLB */
+  yield mk(mm, 'tlbLookup', 'VPN = ' + hex(vpn, 9), { cost:COST.tlbHit });
+  const te = mm.tlbLookup(pid, vpn);
+  if (te && (!isWrite || te.w)){
+    mm.stat.tlbHit++;
+    const f = mm.frames[te.pfn];
+    const pte = mm.walk(p, va).pte;
+    if (pte && f.content !== pte.content){
+      mm.stat.corrupt++;
+      yield mk(mm, 'corrupt', '帧 #' + te.pfn + ' 现在存的是 ' + (f.content || '空') +
+        '，而页表项以为它是 ' + pte.content, { cost:COST.misc, bad:true, pfn:te.pfn });
+      ctx.corrupt = true;
+    }
+    mm.touchPage(te.pfn);
+    yield mk(mm, 'tlbHit', 'VPN ' + hex(vpn, 9) + ' → 帧 #' + te.pfn + '，直接完成',
+      { cost:COST.tlbHit, pfn:te.pfn });
+    ctx.ok = true; ctx.kind = 'tlb-hit';
+    yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true });
+    return ctx;
+  }
+  mm.stat.tlbMiss++;
+  yield mk(mm, 'tlbMiss', mm.cfg.tlb ? '缓存里没有这条翻译' : 'TLB 已关闭，每次都必须走页表',
+    { cost:COST.tlbMiss });
+
+  /* 2. 遍历页表 */
+  let w = mm.walk(p, va);
+  for (let i = 0; i < w.levels.length; i++){
+    const L = w.levels[i];
+    yield mk(mm, 'walk', LEVELS[i].n + '[' + L.idx + ']' +
+      (L.ent ? (i === 3 ? (L.ent.present ? ' → 帧 #' + L.ent.pfn : (L.ent.swap != null ? ' → 交换槽 ' + L.ent.swap : ' 不存在'))
+                        : ' → 下一级') : ' 为空'),
+      { cost:COST.walk, level:i });
+    if (i < 3 && !L.ent) break;
+  }
+  let pte = w.pte;
+  const present = mm.ptePresent(pte);
+  const permOk  = present && (!isWrite || pte.w);
+
+  if (present && permOk){
+    const f = mm.frames[pte.pfn];
+    if (f.content !== pte.content){
+      mm.stat.corrupt++;
+      yield mk(mm, 'corrupt', '帧 #' + pte.pfn + ' 现在存的是 ' + (f.content || '空') +
+        '，而页表项以为它是 ' + pte.content, { cost:COST.misc, bad:true, pfn:pte.pfn });
+      ctx.corrupt = true;
+    }
+    pte.accessed = true; if (isWrite){ pte.dirty = true; f.dirty = true; }
+    mm.touchPage(pte.pfn);
+    mm.tlbInsert(pid, vpn, pte.pfn, pte.w);
+    yield mk(mm, 'tlbFill', 'VPN ' + hex(vpn, 9) + ' → 帧 #' + pte.pfn, { cost:COST.tlbFill });
+    ctx.ok = true; ctx.kind = 'walk-hit';
+    yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true });
+    return ctx;
+  }
+
+  /* 3. 缺页 */
+  yield mk(mm, 'fault', present ? '页存在但不可写（写保护缺页）' : '映射缺失（CR2 = ' + hex(va) + '）',
+    { cost:COST.fault });
+  const vma = mm.findVma(p, va);
+  yield mk(mm, 'vmaFind', vma ? '命中 VMA「' + vma.name + '」' + hex(vma.start) + '–' + hex(vma.end) +
+    ' 权限 ' + vma.prot : '没有任何 VMA 覆盖这个地址', { cost:COST.misc });
+  if (!vma){
+    mm.stat.segv++;
+    yield mk(mm, 'vmaNone', '进程 ' + p.name + ' 收到 SIGSEGV', { cost:COST.misc, bad:true });
+    ctx.kind = 'segv';
+    yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true });
+    return ctx;
+  }
+  if (isWrite && vma.prot.indexOf('w') < 0){
+    mm.stat.segv++;
+    yield mk(mm, 'protFail', 'VMA 权限为 ' + vma.prot + '，不允许写', { cost:COST.misc, bad:true });
+    ctx.kind = 'segv';
+    yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true });
+    return ctx;
+  }
+
+  /* 分类 */
+  let type;
+  if (pte && pte.swap != null) type = 'swap';
+  else if (present && !pte.w && isWrite) type = 'cow';
+  else if (vma.kind === 'file') type = 'file';
+  else type = 'anon';
+  const TYPE_TXT = { anon:'匿名页首次访问（次缺页）', file:'文件页映射', cow:'写时复制',
+    swap:'从交换区换入（主缺页）' };
+  yield mk(mm, 'classify', TYPE_TXT[type], { cost:COST.misc, ftype:type });
+
+  /* 补页表层级（写保护/换入时层级已存在） */
+  const built = yield* buildPageTables(mm, p, va);
+  if (!built){ ctx.kind = 'oom';
+    yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true }); return ctx; }
+
+  let pfn = null, content = null, lruKind = null, writable = vma.prot.indexOf('w') >= 0;
+
+  if (type === 'anon'){
+    mm.stat.minorFault++;
+    pfn = yield* allocFrame(mm, '匿名页', 0);
+    if (pfn == null){ ctx.kind = 'oom';
+      yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true }); return ctx; }
+    content = 'anon:' + pid + ':' + vpn;
+    mm.frames[pfn].owner = { kind:'anon', pid, va };
+    mm.frames[pfn].content = content;
+    yield mk(mm, 'zero', '帧 #' + pfn + ' 全部写 0', { cost:COST.zero, pfn });
+    lruKind = 'anon';
+
+  } else if (type === 'file'){
+    const key = vma.file + ':' + (vma.fileOff + Math.floor((va - vma.start) / PAGE));
+    const cached = mm.cfg.pageCache ? mm.pageCache.get(key) : undefined;
+    if (cached !== undefined && !mm.frames[cached].free){
+      mm.stat.pcHit++; mm.stat.minorFault++;
+      pfn = cached; content = 'file:' + key;
+      yield mk(mm, 'pcLookupHit', key + ' 已在页缓存，位于帧 #' + pfn, { cost:COST.pcLookup, pfn });
+    } else {
+      mm.stat.pcMiss++; mm.stat.majorFault++;
+      yield mk(mm, 'pcLookupMiss', key + (mm.cfg.pageCache ? ' 不在页缓存' : '（页缓存已关闭）'),
+        { cost:COST.pcLookup });
+      pfn = yield* allocFrame(mm, '文件页', 0);
+      if (pfn == null){ ctx.kind = 'oom';
+        yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true }); return ctx; }
+      content = 'file:' + key;
+      mm.frames[pfn].owner = { kind:'file', file:vma.file, idx:parseInt(key.split(':')[1], 10) };
+      mm.frames[pfn].content = content;
+      mm.frames[pfn].io = 1;
+      yield mk(mm, 'ioSubmit', '向块设备提交读请求：' + key, { cost:COST.misc, pfn });
+      yield mk(mm, 'ioWait', '进程睡眠等待磁盘', { cost:COST.diskRead, pfn });
+      mm.frames[pfn].io = 0;
+      yield mk(mm, 'ioDone', '数据已落入帧 #' + pfn, { cost:COST.misc, pfn });
+      if (mm.cfg.pageCache){
+        mm.pageCache.set(key, pfn);
+        yield mk(mm, 'pcInsert', key + ' → 帧 #' + pfn + '，其他进程今后可直接命中', { cost:COST.misc, pfn });
+      }
+    }
+    lruKind = 'file';
+    if (!vma.shared) writable = vma.prot.indexOf('w') >= 0;
+
+  } else if (type === 'cow'){
+    mm.stat.cow++; mm.stat.minorFault++;
+    const old = pte.pfn;
+    const shared = mm.frames[old].mapcount;
+    if (shared <= 1){
+      /* 只剩自己在用，直接改成可写，不必复制 —— 真实内核也走这条捷径 */
+      pfn = old; content = mm.frames[old].content;
+      yield mk(mm, 'copyPage', '帧 #' + old + ' 映射数已降为 1，无需复制，直接改为可写',
+        { cost:COST.misc, pfn });
+    } else {
+      pfn = yield* allocFrame(mm, '写时复制副本', 0);
+      if (pfn == null){ ctx.kind = 'oom';
+        yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true }); return ctx; }
+      content = 'anon:' + pid + ':' + vpn;
+      mm.frames[pfn].owner = { kind:'anon', pid, va };
+      mm.frames[pfn].content = content;
+      yield mk(mm, 'copyPage', '帧 #' + old + ' → 帧 #' + pfn + '（原页仍被另外 ' + (shared - 1) + ' 处映射）',
+        { cost:COST.copy, pfn });
+      mm.unmapPage(p, va, null);
+      mm.rmapDel(old, pid, va);
+      yield mk(mm, 'mapcount', '帧 #' + old + ' 映射数 ' + shared + ' → ' + mm.frames[old].mapcount,
+        { cost:COST.misc, pfn:old });
+      lruKind = 'anon';
+    }
+    writable = true;
+
+  } else { /* swap */
+    mm.stat.swapIn++; mm.stat.majorFault++;
+    const slot = pte.swap;
+    pfn = yield* allocFrame(mm, '换入目标', 0);
+    if (pfn == null){ ctx.kind = 'oom';
+      yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0), { cost:0, ctx, final:true }); return ctx; }
+    const rec = mm.swap[slot];
+    content = (rec && rec.content) || pte.content;
+    mm.frames[pfn].owner = { kind:'anon', pid, va };
+    mm.frames[pfn].content = content;
+    yield mk(mm, 'swapIn', '交换槽 ' + slot + ' → 帧 #' + pfn, { cost:COST.swapRead, pfn });
+    if (rec){ rec.refs--; if (rec.refs <= 0) mm.swap[slot] = null; }
+    lruKind = 'anon';
+    writable = vma.prot.indexOf('w') >= 0;
+  }
+
+  /* 登记反向映射与引用计数 */
+  if (pfn != null){
+    mm.rmapAdd(pfn, pid, va);
+    yield mk(mm, 'rmapAdd', mm.cfg.rmap
+      ? '帧 #' + pfn + ' 的使用者列表 +1（共 ' + mm.rmapOf(pfn).length + ' 处）'
+      : '反向映射已关闭，这一步被跳过', { cost:COST.misc, pfn, bad:!mm.cfg.rmap });
+    /* ★ 主链路 */
+    mm.mapPage(p, va, pfn, writable, content, lruKind);
+    const npte = mm.walk(p, va).pte;
+    npte.accessed = true; if (isWrite){ npte.dirty = true; mm.frames[pfn].dirty = true; }
+    mm.touchPage(pfn);
+    yield mk(mm, 'setPte', 'PT[' + fieldOf(va, 12) + '] ← 帧 #' + pfn +
+      '，权限 ' + (writable ? 'rw' : 'r-') + '。目标状态在这一刻成立',
+      { cost:COST.misc, pfn, main:true });
+    yield mk(mm, 'tlbFlush', 'invlpg ' + hex(va) + '（多核上还要给其他核发 IPI）', { cost:COST.tlbFlush });
+    mm.tlbInsert(pid, vpn, pfn, writable);
+  }
+  yield mk(mm, 'retry', 'iret 返回用户态，CPU 重新执行那条指令', { cost:COST.ret });
+  ctx.ok = true; ctx.kind = type;
+  yield mk(mm, 'done', '耗时 ' + ns(mm.now - t0) + '（' + TYPE_TXT[type] + '）',
+    { cost:0, ctx, final:true });
+  return ctx;
+}
+
+/* kswapd：后台回收到高水位 */
+/* kswapd 是一个要和进程抢 CPU 的后台线程，不是无限量的清扫机。
+   这两个数字刻意调成"单靠它扛不住持续压力"：每 5 次前台访问才轮到它一次，
+   每次最多回收 4 帧。于是持续分配下空闲量会缓慢下滑，缺口最终由
+   触发缺页的进程自己用直接回收补上 —— 这正是真实系统里的分工。 */
+const KSWAPD_BATCH = 4;
+const KSWAPD_EVERY = 5;
+function* kswapdRun(mm){
+  const need = Math.min(KSWAPD_BATCH, Math.max(1, mm.wmHigh - mm.free()));
+  yield* reclaim(mm, need, 'kswapd');
+  if (mm.free() >= mm.wmHigh) mm.kswapdPending = false;
+}
+
+/* 推进异步回写 */
+function tickWriteback(mm){
+  for (const f of mm.frames){
+    if (f.writeback > 0){
+      f.writeback--;
+      if (f.writeback === 0 && f.owner && f.owner.kind === 'file') f.dirty = false;
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第六部分：场景
+   ══════════════════════════════════════════════════════════════════════ */
+const TEXT_BASE  = 0x00400000;
+const DATA_BASE  = 0x00408000;
+const HEAP_BASE  = 0x00600000;
+const MMAP_BASE  = 0x00007f0000000000;
+const STACK_TOP  = 0x00007ffffffff000;
+
+function baseVmas(mmapPages, heapPages){
+  return [
+    { name:'代码段 .text', start:TEXT_BASE, end:TEXT_BASE + 8*PAGE, prot:'r-x',
+      kind:'file', file:'a.out', fileOff:0, shared:true },
+    { name:'数据段 .data', start:DATA_BASE, end:DATA_BASE + 4*PAGE, prot:'rw-',
+      kind:'file', file:'a.out', fileOff:8, shared:false },
+    { name:'堆 heap',      start:HEAP_BASE, end:HEAP_BASE + heapPages*PAGE, prot:'rw-',
+      kind:'anon' },
+    { name:'文件映射 mmap', start:MMAP_BASE, end:MMAP_BASE + mmapPages*PAGE, prot:'rw-',
+      kind:'file', file:'data.bin', fileOff:0, shared:true },
+    { name:'栈 stack',     start:STACK_TOP - 8*PAGE, end:STACK_TOP, prot:'rw-', kind:'anon' },
+  ];
+}
+const A = (va, w) => ({ va, w:!!w });
+function scan(base, n, w, stride){
+  const out = []; stride = stride || PAGE;
+  for (let i = 0; i < n; i++) out.push(A(base + i*stride, w));
+  return out;
+}
+const PRESETS = {
+  lazy: { name:'惰性分配：malloc 不给物理内存', frames:128, mmap:32, heap:16,
+    desc:'先 malloc 16 页，观察物理内存一帧未动；然后逐页触碰，每一次都是一次次缺页。',
+    build(){ return [].concat(
+      [{ note:'malloc(64 KiB)：只是把堆 VMA 的上界抬高，没有分配任何物理页' }],
+      scan(HEAP_BASE, 16, true),
+      scan(HEAP_BASE, 16, false)); } },
+
+  filemap: { name:'文件映射与页缓存', frames:128, mmap:40, heap:8,
+    desc:'顺序读 40 页文件映射两遍：第一遍全是主缺页要读磁盘，第二遍全在页表命中。' +
+      '然后另起一个进程映射同一个文件 —— 有页缓存则一次磁盘 I/O 都不用，且不多占一帧内存。',
+    build(){ return [].concat(
+      scan(MMAP_BASE, 40, false),
+      [{ note:'第二遍：同样这 40 页，这次页表里已经有映射，一次缺页都不会发生' }],
+      scan(MMAP_BASE, 40, false),
+      [{ note:'现在另起一个进程，它也 mmap 同一个文件的同样 40 页' }],
+      [{ spawn:'P2' }],
+      scan(MMAP_BASE, 40, false).map(a => Object.assign({ pid:2 }, a))); } },
+
+  cow: { name:'fork 与写时复制', frames:128, mmap:16, heap:16,
+    desc:'先在堆上写满 12 页，fork 出子进程，父子读同一批页（共享），然后父进程逐页写入，触发写时复制。',
+    build(){ return [].concat(
+      scan(HEAP_BASE, 12, true),
+      [{ fork:true }],
+      scan(HEAP_BASE, 12, false).map(a => Object.assign({ pid:2 }, a)),
+      scan(HEAP_BASE, 12, true)); } },
+
+  pressure: { name:'内存压力：回收与换出', frames:64, mmap:96, heap:24,
+    desc:'物理内存只有 64 帧，却要访问 96 页文件映射加 24 页堆。会依次看到水位告警、kswapd 后台回收、直接回收、匿名页换出。',
+    build(){ return [].concat(
+      scan(HEAP_BASE, 24, true),
+      scan(MMAP_BASE, 96, false),
+      scan(HEAP_BASE, 24, false)); } },
+
+  pollute: { name:'流式扫描污染工作集', frames:64, mmap:80, heap:12,
+    desc:'先反复访问 12 页的工作集把它捂热，然后一次性流式扫过 80 页文件（只读一遍），再回来访问工作集。两级 LRU 能保住工作集，单链表纯 LRU 保不住。',
+    build(){ return [].concat(
+      scan(HEAP_BASE, 12, true), scan(HEAP_BASE, 12, false), scan(HEAP_BASE, 12, false),
+      [{ note:'下面开始一次性流式扫描 —— 这些页读完就再也不用了' }],
+      scan(MMAP_BASE, 80, false),
+      [{ note:'扫描结束，回来访问原来的工作集：还在内存里吗？' }],
+      scan(HEAP_BASE, 12, false), scan(HEAP_BASE, 12, false)); } },
+
+  frag: { name:'外部碎片：够用却申请不到', frames:128, mmap:8, heap:8,
+    desc:'内核把内存全部按单帧分出去，再隔一个释放一个。空闲帧回到约一半，但全是零散单帧 —— ' +
+      '这时申请 16 帧连续内存（比如 DMA 缓冲区）就会失败。空闲总量够，连续性不够。',
+    build(){ return [].concat(
+      scan(HEAP_BASE, 4, true),
+      [{ note:'内核把剩余内存全部按单帧分配出去（模拟大量小对象）' }],
+      [{ kallocAll:0 }],
+      [{ note:'隔一个释放一个：伙伴仍被占用，所以一个都合并不了' }],
+      [{ kfreeEvery:2 }],
+      [{ note:'现在申请 16 帧连续内存 —— 空闲够，但拼不出来' }],
+      [{ kalloc:4 }]); } },
+
+  segv: { name:'野指针与权限违规', frames:128, mmap:16, heap:8,
+    desc:'依次访问：合法堆地址、从未映射的地址（SIGSEGV）、向只读代码段写入（SIGSEGV）。',
+    build(){ return [
+      A(HEAP_BASE, true),
+      { note:'下面这个地址不属于任何 VMA' },
+      A(0x00001234000, false),
+      { note:'下面往只读的代码段写' },
+      A(TEXT_BASE, true),
+      A(TEXT_BASE, false)]; } },
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+   第七部分：驱动器 —— 把程序、生成器、后台回收串起来
+   ══════════════════════════════════════════════════════════════════════ */
+class Driver {
+  constructor(presetKey, cfgOverride){
+    const P = PRESETS[presetKey];
+    this.preset = presetKey;
+    this.cfg = Object.assign({ nframes:P.frames }, cfgOverride || {});
+    this.mm = new MM(this.cfg);
+    this.mm.addProc('P1', baseVmas(P.mmap, P.heap));
+    this.program = P.build();
+    this.pc = 0;
+    this.gen = null;
+    this.kgen = null;
+    this.last = null;
+    this.lastAccess = null;
+    this.accSteps = 0; this.accMain = 0; this.accT0 = 0;
+    this.latHist = [];
+    this.finished = false;
+    this.kTurn = 0;
+    this.notes = [];
+  }
+  /* 取下一条程序项；非访问项当场执行 */
+  advanceProgram(){
+    const mm = this.mm;
+    while (this.pc < this.program.length){
+      const op = this.program[this.pc++];
+      if (op.note){ mm.log('note', op.note); this.notes.push(op.note); continue; }
+      if (op.fork){
+        const p1 = mm.proc(1);
+        const p2 = mm.addProc('P2', p1.vmas);
+        /* 复制页表结构，匿名页改为只读共享（写时复制） */
+        let shared = 0;
+        const copy = (src, dst, lvl, prefix) => {
+          for (const k in src.ents){
+            const e = src.ents[k];
+            if (lvl < 3){ dst.ents[k] = { ents:{}, pfn:null }; copy(e, dst.ents[k], lvl+1, prefix); }
+            else {
+              if (e.present){
+                const f = mm.frames[e.pfn];
+                const isAnon = f.owner && f.owner.kind === 'anon';
+                const w = isAnon ? false : e.w;
+                dst.ents[k] = { present:true, pfn:e.pfn, w, accessed:false, dirty:false,
+                  swap:null, content:e.content };
+                if (isAnon){ e.w = false; mm.tlbInvalidate(1, vpnOf(prefix)); }
+                f.mapcount++; f.refcount++;
+                const va = e.va != null ? e.va : null;
+                shared++;
+              } else dst.ents[k] = Object.assign({}, e);
+            }
+          }
+        };
+        /* 逐个已映射虚址复制，便于同时登记反向映射 */
+        p2.pgd = { ents:{} };
+        let cnt = 0;
+        for (const v of p1.vmas){
+          for (let va = v.start; va < v.end; va += PAGE){
+            const pte = mm.walk(p1, va).pte;
+            if (!pte || !pte.present) continue;
+            const f = mm.frames[pte.pfn];
+            const isAnon = f.owner && f.owner.kind === 'anon';
+            /* 为 P2 建好页表层级（也要真的花物理帧） */
+            let node = p2.pgd, okAll = true;
+            for (let i = 0; i < 3; i++){
+              const idx = fieldOf(va, LEVELS[i].lo);
+              if (!node.ents[idx]){
+                const pf = mm.buddyAlloc(0);
+                if (pf == null){ okAll = false; break; }
+                mm.frames[pf].owner = { kind:'pagetable', pid:2, level:i+1 };
+                mm.frames[pf].content = 'pt:2:' + i;
+                mm.frames[pf].refcount = 1; mm.stat.ptFrames++;
+                node.ents[idx] = { ents:{}, pfn:pf };
+              }
+              node = node.ents[idx];
+            }
+            if (!okAll) break;
+            const w = isAnon ? false : pte.w;
+            node.ents[fieldOf(va, 12)] = { present:true, pfn:pte.pfn, w, accessed:false,
+              dirty:false, swap:null, content:pte.content };
+            f.mapcount++; f.refcount++;
+            mm.rmapAdd(pte.pfn, 2, va);
+            if (isAnon){ pte.w = false; mm.tlbInvalidate(1, vpnOf(va)); }
+            if (isAnon) p2.rssAnon++; else p2.rssFile++;
+            cnt++;
+          }
+        }
+        mm.log('fork', 'fork() 完成：P2 与 P1 共享 ' + cnt +
+          ' 个物理页，其中匿名页两侧都被改成只读，等待写时复制');
+        this.last = { id:'__fork', role:'maintain', node:'u3', label:'fork()：复制页表、共享物理页',
+          detail:'共享 ' + cnt + ' 页；匿名页两侧一律改成只读，谁先写谁复制',
+          cost:0 };
+        return 'imm';
+      }
+      if (op.spawn){
+        const p1 = mm.proc(1);
+        const np = mm.addProc(op.spawn, p1.vmas);
+        mm.log('spawn', '启动新进程 ' + np.name + '：独立的页表（顶级页表已占 1 帧），' +
+          '映射同一个文件 —— 它能否免去磁盘 I/O，全看页缓存');
+        this.last = { id:'__spawn', role:'maintain', node:'u1',
+          label:'启动新进程：独立页表，共用页缓存',
+          detail:np.name + ' 的页表从零开始建，但文件内容不必重读',
+          cost:0 };
+        return 'imm';
+      }
+      if (op.kallocAll != null){
+        let n = 0;
+        for (;;){ const pfn = mm.buddyAlloc(op.kallocAll); if (pfn == null) break;
+          for (let i = 0; i < (1 << op.kallocAll); i++){
+            mm.frames[pfn+i].owner = { kind:'kernel', order:op.kallocAll };
+            mm.frames[pfn+i].content = 'kernel:' + pfn; }
+          mm.kAllocs.push({ pfn, order:op.kallocAll }); n++; }
+        mm.log('kalloc', '内核把剩余空闲内存全部按 ' + (1 << op.kallocAll) +
+          ' 帧一块分了出去，共 ' + n + ' 块，空闲归零');
+        this.last = { id:'__kallocAll', role:'maintain', node:'l3',
+          label:'内核批量申请小块内存', detail:n + ' 块 × ' + (1 << op.kallocAll) + ' 帧', cost:0 };
+        return 'imm';
+      }
+      if (op.kfreeEvery != null){
+        let n = 0;
+        const keep = [];
+        mm.kAllocs.forEach((k, i) => { if (i % op.kfreeEvery === 0){ mm.buddyFree(k.pfn, k.order); n++; }
+          else keep.push(k); });
+        mm.kAllocs = keep;
+        mm.log('kalloc', '隔 ' + op.kfreeEvery + ' 个释放一个，共释放 ' + n +
+          ' 块。空闲 ' + mm.free() + ' 帧，但最大连续块只有 ' + (1 << Math.max(0, mm.maxFreeOrder())) + ' 帧');
+        this.last = { id:'__kfreeEvery', role:'maintain', node:'l3',
+          label:'零散释放：伙伴不空闲就合并不了',
+          detail:'释放 ' + n + ' 块，空闲 ' + mm.free() + ' 帧，最大连续块 2^' + mm.maxFreeOrder(),
+          cost:0 };
+        return 'imm';
+      }
+      if (op.kalloc != null){
+        const g = (function*(mm, order){
+          const pfn = yield* allocFrame(mm, '内核连续块 2^' + order, order);
+          if (pfn != null){
+            for (let i = 0; i < (1 << order); i++){
+              mm.frames[pfn+i].owner = { kind:'kernel', order };
+              mm.frames[pfn+i].content = 'kernel:' + pfn;
+            }
+            mm.kAllocs.push({ pfn, order });
+            mm.log('kalloc', '内核取得连续 ' + (1<<order) + ' 帧，起始 #' + pfn);
+          }
+        })(mm, op.kalloc);
+        this.gen = g; this.genKind = 'kalloc';
+        this.accSteps = 0; this.accMain = 0; this.accT0 = mm.now;
+        return 'gen';
+      }
+      /* 访问 */
+      const pid = op.pid || 1;
+      this.gen = doAccess(mm, pid, op.va, op.w);
+      this.genKind = 'access';
+      this.curAccess = { pid, va:op.va, w:op.w };
+      this.accSteps = 0; this.accMain = 0; this.accT0 = mm.now;
+      return 'gen';
+    }
+    this.finished = true;
+    return false;
+  }
+  manualAccess(pid, va, w){
+    this.gen = doAccess(this.mm, pid, va, w);
+    this.genKind = 'access';
+    this.curAccess = { pid, va, w };
+    this.accSteps = 0; this.accMain = 0; this.accT0 = this.mm.now;
+    this.finished = false;
+  }
+  manualKalloc(order){
+    const mm = this.mm;
+    this.gen = (function*(){
+      const pfn = yield* allocFrame(mm, '内核连续块 2^' + order, order);
+      if (pfn != null){
+        for (let i = 0; i < (1 << order); i++){
+          mm.frames[pfn+i].owner = { kind:'kernel', order };
+          mm.frames[pfn+i].content = 'kernel:' + pfn;
+        }
+        mm.kAllocs.push({ pfn, order });
+        mm.log('kalloc', '内核取得连续 ' + (1<<order) + ' 帧，起始 #' + pfn);
+      }
+    })();
+    this.genKind = 'kalloc';
+    this.accSteps = 0; this.accMain = 0; this.accT0 = mm.now;
+    this.finished = false;
+  }
+  kfreeAll(){
+    for (const k of this.mm.kAllocs) this.mm.buddyFree(k.pfn, k.order);
+    const n = this.mm.kAllocs.length;
+    this.mm.kAllocs = [];
+    this.mm.log('kalloc', '释放全部 ' + n + ' 个内核连续块，伙伴系统开始合并');
+  }
+  /* 一步 */
+  step(){
+    const mm = this.mm;
+    tickWriteback(mm);
+    if (this.gen){
+      const r = this.gen.next();
+      /* 当前这段工作做完了就到此为止，不要顺手推进程序 ——
+         否则外部"走完这次访问"的循环会一路溜进下一条指令。 */
+      if (r.done){ this.gen = null; return null; }
+      this.last = r.value;
+      this.accSteps++;
+      if (r.value.role === 'main') this.accMain++;
+      mm.log(r.value.role, r.value.label + (r.value.detail ? '：' + r.value.detail : ''));
+      if (r.value.final){
+        this.kTurn++;                     /* 一次前台访问结束，kswapd 的机会 +1 */
+        this.lastAccess = Object.assign({}, r.value.ctx, {
+          steps:this.accSteps, main:this.accMain, lat:mm.now - this.accT0 });
+        this.latHist.push({ kind:r.value.ctx.kind, lat:mm.now - this.accT0 });
+        if (this.latHist.length > 6) this.latHist.shift();
+        this.gen = null;
+      }
+      return this.last;
+    }
+    if (this.kgen){
+      const r = this.kgen.next();
+      if (r.done){ this.kgen = null; return this.step(); }
+      this.last = r.value; this.accSteps++;
+      mm.log('bg', '[kswapd] ' + r.value.label + (r.value.detail ? '：' + r.value.detail : ''));
+      return this.last;
+    }
+    if (mm.kswapdPending && mm.free() < mm.wmHigh && this.kTurn >= KSWAPD_EVERY){
+      this.kTurn = 0; this.kgen = kswapdRun(mm); return this.step();
+    }
+    if (mm.free() >= mm.wmHigh) mm.kswapdPending = false;
+    const a = this.advanceProgram();
+    if (a === 'gen') return this.step();     /* 新开了一段工作，走它的第一步 */
+    if (a === 'imm') return this.last;       /* fork / spawn 这类当场完成的操作 */
+    return null;
+  }
+  /* 把当前这一段工作走完，绝不越界到下一条程序指令 */
+  drain(limit){ let n = 0; while (this.gen && n++ < (limit || 8000)) this.step(); }
+  /* 走完当前访问 */
+  finishAccess(){
+    if (!this.gen && !this.advanceProgram()) return;
+    this.drain();
+  }
+  runAll(limit){
+    let guard = 0;
+    while (!this.finished && guard++ < (limit || 400000)) this.step();
+    return this.mm.stat;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第八部分：主链路 / 支线 图
+   ══════════════════════════════════════════════════════════════════════ */
+const FN = [
+  { id:'n1', x:66,  y:212, w:104, cls:'main', t:['CPU 访存'],                 k:['cpu'] },
+  { id:'n2', x:206, y:212, w:104, cls:'main', t:['查 TLB'],                   k:['tlbLookup'] },
+  { id:'n3', x:346, y:212, w:112, cls:'main', t:['四级页表遍历'],             k:['walk'] },
+  { id:'n4', x:490, y:212, w:112, cls:'main', t:['缺页异常 #PF'],             k:['fault'] },
+  { id:'n5', x:634, y:212, w:118, cls:'main', t:['定位 VMA','判权限与类型'],   k:['vmaFind'] },
+  { id:'n6', x:784, y:212, w:118, cls:'main', t:['取得物理页'],               k:['buddyAlloc'] },
+  { id:'n7', x:942, y:212, w:140, cls:'acc',  t:['★ 写入页表项','目标状态成立'], k:['setPte'] },
+  { id:'n8', x:1116,y:212, w:106, cls:'main', t:['重执行指令'],               k:['retry'] },
+  /* 上方：为了算得对、为了安全 */
+  { id:'u1', x:346, y:80,  w:132, cls:'', t:['页表页按需分配','页表本身也占内存'], k:['ptAlloc'] },
+  { id:'u2', x:560, y:80,  w:126, cls:'', t:['VMA 与权限检查'],               k:['vmaFind'] },
+  { id:'u3', x:830, y:80,  w:146, cls:'', t:['反向映射登记','引用 / 映射计数'], k:['rmapAdd','mapcount'] },
+  /* 下方一层：为了够快 */
+  { id:'l1', x:196, y:330, w:168, cls:'', t:['TLB 命中','整条主链路都省了'],   k:['tlbHit'] },
+  { id:'l2', x:626, y:330, w:132, cls:'', t:['页缓存命中','省掉一次磁盘 I/O'], k:['pcLookupHit'] },
+  { id:'l3', x:790, y:330, w:126, cls:'', t:['伙伴系统分裂 / 合并'],          k:['buddySplit','buddyMerge'] },
+  { id:'l4', x:962, y:330, w:140, cls:'', t:['直接回收','阻塞本进程'],        k:['reclaimBegin'] },
+  /* 下方二层：为了装得下、异步、失败 */
+  { id:'l5', x:626, y:404, w:132, cls:'', t:['磁盘 / 交换区 I/O'],            k:['ioWait','swapIn'] },
+  { id:'l6', x:790, y:404, w:126, cls:'', t:['kswapd 后台回收'],              k:['kswapd'] },
+  { id:'l7', x:962, y:404, w:140, cls:'', t:['回写 / 换出（异步）'],          k:['writeback','swapOut'] },
+  { id:'l8', x:420, y:404, w:150, cls:'fail', t:['SIGSEGV / OOM'],            k:['vmaNone','protFail','oom','corrupt'] },
+];
+const FE = [
+  ['n1','n2','main'],['n2','n3','main'],['n3','n4','main'],['n4','n5','main'],
+  ['n5','n6','main'],['n6','n7','acc'],['n7','n8','acc'],
+  ['u1','n3','br'],['u2','n5','br'],['u3','n7','br'],
+  ['n2','l1','fast'],['l1','n8','fast'],
+  ['n6','l2','br'],['n6','l3','br'],['n6','l4','br'],
+  ['l2','l5','br'],['l4','l7','br'],['l6','l7','br'],
+  ['n5','l8','bad'],['l4','l8','bad'],
+];
+const NH = 42;
+let flowEls = {};
+function buildFlow(){
+  const svg = $('#flow'); svg.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (n,a) => { const e = document.createElementNS(NS,n);
+    for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const by = {}; FN.forEach(n => by[n.id] = n);
+  for (const [x,y,t] of [[14,50,'为了算得对 / 为了安全'],[14,300,'为了够快'],[14,374,'为了装得下 · 异步 · 失败']]){
+    const e = el('text',{x,y,class:'fl-lg'}); e.textContent = t; svg.appendChild(e);
+  }
+  const sp = el('text',{x:14,y:188,class:'fl-lg'}); sp.textContent = '主流程'; svg.appendChild(sp);
+  for (const [a,b,cls] of FE){
+    const A = by[a], B = by[b];
+    let d;
+    if (A.y === B.y){
+      const ax = A.x + A.w/2, bx = B.x - B.w/2;
+      d = 'M' + ax + ' ' + A.y + ' L' + bx + ' ' + B.y;
+    } else {
+      const ay = A.y + (B.y > A.y ? NH/2 : -NH/2), by2 = B.y + (B.y > A.y ? -NH/2 : NH/2);
+      d = 'M' + A.x + ' ' + ay + ' C' + A.x + ' ' + ((ay+by2)/2) + ' ' + B.x + ' ' + ((ay+by2)/2) +
+          ' ' + B.x + ' ' + by2;
+    }
+    svg.appendChild(el('path',{ d, class:'fl-e ' + cls }));
+  }
+  for (const n of FN){
+    const g = el('g',{}); g.dataset.id = n.id;
+    g.appendChild(el('rect',{ x:n.x-n.w/2, y:n.y-NH/2, width:n.w, height:NH, rx:6,
+      class:'fl-box ' + n.cls }));
+    const t1 = el('text',{ x:n.x, y:n.y - (n.t[1] ? 4 : 1), 'text-anchor':'middle',
+      class:'fl-t ' + n.cls }); t1.textContent = n.t[0]; g.appendChild(t1);
+    if (n.t[1]){ const t2 = el('text',{ x:n.x, y:n.y + 9, 'text-anchor':'middle', class:'fl-lg' });
+      t2.textContent = n.t[1]; g.appendChild(t2); }
+    const c = el('text',{ x:n.x, y:n.y + NH/2 + 13, 'text-anchor':'middle',
+      class:'fl-n ' + (n.cls === 'acc' ? 'acc' : '') }); c.textContent = '0'; g.appendChild(c);
+    svg.appendChild(g);
+    flowEls[n.id] = { g, c, prev:-1 };
+  }
+}
+function updateFlow(){
+  const cnt = drv.mm.stepCount || (drv.mm.stepCount = {});
+  for (const n of FN){
+    const e = flowEls[n.id];
+    let v = 0; for (const k of n.k) v += (cnt[k] || 0);
+    e.c.textContent = String(v);
+    if (v > e.prev && e.prev >= 0){ e.g.classList.add('fl-flash'); e.until = performance.now() + 300; }
+    else if (e.until && performance.now() > e.until){ e.g.classList.remove('fl-flash'); e.until = 0; }
+    e.prev = v;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第九部分：渲染
+   ══════════════════════════════════════════════════════════════════════ */
+let drv, playing = false, stepsPerFrame = 3, staticMode = false, lastPanel = -1e9;
+const PANEL_MS = 70;
+
+const ROLE_TXT = { main:'★ 主链路', spine:'主流程（不改变目标）', fast:'快路径（支线）',
+  slow:'慢路径（支线）', maintain:'维护（支线）', coherence:'一致性（支线）',
+  defer:'延迟处理（支线）', fail:'失败路径（支线）' };
+
+function renderGoal(){
+  const mm = drv.mm, a = drv.curAccess, la = drv.lastAccess;
+  const box = $('#goalv');
+  let html = '';
+  if (a){
+    const p = mm.proc(a.pid);
+    html += '<span>进程 ' + (p ? p.name : a.pid) + ' 对 ' + hex(a.va) + ' 的' +
+      (a.w ? '写' : '读') + '访问</span>';
+    let st = '<span class="pill no">尚未成立</span>';
+    if (la && la.va === a.va && la.pid === a.pid){
+      if (la.corrupt) st = '<span class="pill err">已成立但数据错误</span>';
+      else if (la.kind === 'segv') st = '<span class="pill err">被拒绝（SIGSEGV）</span>';
+      else if (la.kind === 'oom') st = '<span class="pill err">失败（OOM）</span>';
+      else if (la.ok) st = '<span class="pill yes">已成立</span>';
+    } else if (!drv.gen && la) st = '<span class="pill yes">已成立</span>';
+    html += st;
+    if (la && la.va === a.va) html += '<span class="pill">' +
+      ({ 'tlb-hit':'TLB 命中', 'walk-hit':'页表命中', anon:'匿名次缺页', file:'文件页缺页',
+         cow:'写时复制', swap:'换入主缺页', segv:'段错误', oom:'OOM' }[la.kind] || la.kind) + '</span>';
+  } else html += '<span style="color:var(--fg3)">尚未开始</span>';
+  box.innerHTML = html;
+
+  $('#cSteps').textContent = drv.accSteps;
+  $('#cMain').textContent  = drv.accMain;
+  $('#cLat').textContent   = la ? ns(la.lat) : '—';
+  $('#cTot').textContent   = mm.stat.steps.toLocaleString('en-US') + ' / ' + mm.stat.mainSteps;
+  $('#cRatio').textContent = mm.stat.steps ? (mm.stat.mainSteps / mm.stat.steps * 100).toFixed(2) + '%' : '—';
+  $('#clock').textContent  = 't = ' + ns(mm.now);
+  $('#prog').textContent   = '程序 ' + Math.min(drv.pc, drv.program.length) + ' / ' + drv.program.length +
+    (drv.finished ? ' · 已跑完' : '');
+  const c = $('#corrupt');
+  if (mm.stat.corrupt){ c.style.display = ''; c.textContent = '数据损坏 ' + mm.stat.corrupt + ' 次'; }
+  else c.style.display = 'none';
+}
+
+function renderBits(){
+  const a = drv.curAccess, va = a ? a.va : 0;
+  const st = drv.last;
+  const active = st && st.level != null ? st.level : (st && st.id === 'walk' ? 0 : -1);
+  let h = '<div class="bf off"><div class="bn"><span>63:48 符号扩展</span></div>' +
+    '<div class="bv">' + (Math.floor(va / Math.pow(2,47)) % 2 ? 'FFFF' : '0000') + '</div>' +
+    '<div class="bb">规范地址要求这 16 位全等于第 47 位</div></div>';
+  for (let i = 0; i < 4; i++){
+    const L = LEVELS[i], v = fieldOf(va, L.lo);
+    h += '<div class="bf' + (active === i ? ' on' : '') + '">' +
+      '<div class="bn"><span>' + L.hi + ':' + L.lo + ' ' + L.n + '</span><span>索引</span></div>' +
+      '<div class="bv">' + v + '</div><div class="bb">' + bin9(v) + '</div></div>';
+  }
+  const off = va % PAGE;
+  h += '<div class="bf' + (st && (st.id === 'done' || st.id === 'tlbHit') ? ' on' : '') + '">' +
+    '<div class="bn"><span>11:0 页内偏移</span><span>字节</span></div>' +
+    '<div class="bv">' + off + '</div><div class="bb">' + hex(off, 3) + ' / 4096</div></div>';
+  $('#bits').innerHTML = h;
+  $('#vainfo').textContent = a ? hex(a.va) + ' · VPN ' + vpnOf(a.va) : '';
+}
+
+function renderVmas(){
+  const mm = drv.mm;
+  let h = '';
+  for (const p of mm.procs){
+    if (mm.procs.length > 1)
+      h += '<div style="font-size:11.5px;color:var(--fg2);margin:6px 0 4px">进程 ' + p.name +
+        '　<span class="mono" style="color:var(--fg3)">匿名 ' + p.rssAnon + ' 页 · 文件 ' + p.rssFile + ' 页</span></div>';
+    for (const v of p.vmas){
+      const n = Math.round((v.end - v.start) / PAGE);
+      h += '<div class="vma"><div class="vh"><b>' + v.name + '</b><span class="mono">' +
+        v.prot + ' · ' + n + ' 页 · ' + (v.kind === 'file' ? (v.shared ? '共享文件' : '私有文件') : '匿名') +
+        '</span></div><div class="va">' + hex(v.start) + ' – ' + hex(v.end) + '</div><div class="strip">';
+      const cap = Math.min(n, 56);
+      for (let i = 0; i < cap; i++){
+        const va = v.start + i * PAGE;
+        const pte = mm.walk(p, va).pte;
+        let cls = '';
+        if (pte && pte.present){
+          const f = mm.frames[pte.pfn];
+          if (f.content !== pte.content) cls = 'corrupt';
+          else if (!pte.w && f.mapcount > 1) cls = 'ro';
+          else cls = (f.owner && f.owner.kind === 'anon') ? 'anon' : 'file';
+        } else if (pte && pte.swap != null) cls = 'swap';
+        const cur = drv.curAccess && drv.curAccess.pid === p.pid && vpnOf(drv.curAccess.va) === vpnOf(va);
+        h += '<span class="pg ' + cls + (cur ? ' cur' : '') + '"></span>';
+      }
+      if (n > cap) h += '<span style="color:var(--fg3);font-size:9px">+' + (n - cap) + '</span>';
+      h += '</div></div>';
+    }
+  }
+  $('#vmas').innerHTML = h;
+  const p1 = mm.proc(1);
+  $('#rss').textContent = 'RSS 匿名 ' + p1.rssAnon + ' · 文件 ' + p1.rssFile + ' 页';
+}
+
+function renderWalk(){
+  const mm = drv.mm, a = drv.curAccess;
+  const st = drv.last;
+  let h = '';
+  if (!a){ $('#walk').innerHTML = '<div class="hint">尚未发起访问。</div>'; }
+  else {
+    const p = mm.proc(a.pid), w = mm.walk(p, a.va);
+    for (let i = 0; i < 4; i++){
+      const L = LEVELS[i], idx = fieldOf(a.va, L.lo);
+      const lv = w.levels[i];
+      const on = st && st.level === i;
+      h += '<div class="lvl' + (on ? ' on' : '') + '"><div class="lh"><span>' + L.n +
+        '</span><b>[' + idx + ']</b></div>';
+      if (!lv || (i > 0 && !w.levels[i-1].ent && i - 1 < 3)){
+        h += '<div class="none">上级缺失，未到达</div>';
+      } else if (i < 3){
+        const e = lv.ent;
+        h += '<div class="ent ' + (e ? 'hit' : 'miss') + '"><span>[' + idx + ']</span><span>' +
+          (e ? '→ 帧 #' + (e.pfn != null ? e.pfn : '?') : '空') + '</span></div>';
+        if (e){
+          const kids = Object.keys(e.ents).length;
+          h += '<div class="ent"><span class="f">本级已用</span><span class="f">' + kids + ' / 512 项</span></div>';
+        }
+      } else {
+        const e = lv.ent;
+        if (!e) h += '<div class="ent miss"><span>[' + idx + ']</span><span>不存在</span></div>';
+        else if (e.present) h += '<div class="ent hit"><span>[' + idx + ']</span><span>帧 #' + e.pfn + '</span></div>' +
+          '<div class="ent"><span class="f">标志位</span><span class="f">' +
+          (e.w ? 'RW' : 'RO') + ' ' + (e.accessed ? 'A' : '-') + ' ' + (e.dirty ? 'D' : '-') + ' U</span></div>';
+        else if (e.swap != null) h += '<div class="ent"><span>[' + idx + ']</span><span style="color:var(--swapc)">交换槽 ' + e.swap + '</span></div>';
+        else h += '<div class="ent miss"><span>[' + idx + ']</span><span>不存在</span></div>';
+      }
+      h += '</div>';
+    }
+    $('#walk').innerHTML = h;
+    const lv = mm.walk(p, a.va);
+    $('#walkinfo').textContent = lv.missingAt >= 0 ? LEVELS[lv.missingAt].n + ' 层缺失' :
+      (mm.ptePresent(lv.pte) ? '已映射到帧 #' + lv.pte.pfn : '页表已建但未映射');
+  }
+  /* TLB */
+  let t = '<tr><th>进程</th><th>VPN</th><th>帧</th><th>权限</th><th>最近使用</th></tr>';
+  const sorted = mm.tlb.slice().sort((x,y) => y.use - x.use);
+  for (const e of sorted){
+    const hit = st && st.id === 'tlbHit' && a && e.vpn === vpnOf(a.va) && e.pid === a.pid;
+    t += '<tr class="' + (hit ? 'hit' : '') + '"><td>P' + e.pid + '</td><td>' + e.vpn +
+      '</td><td>#' + e.pfn + '</td><td>' + (e.w ? 'rw' : 'r-') + '</td><td>' + e.use + '</td></tr>';
+  }
+  if (!mm.tlb.length) t += '<tr><td colspan="5" style="color:var(--fg3)">' +
+    (mm.cfg.tlb ? '空' : 'TLB 已关闭') + '</td></tr>';
+  $('#tlbt').innerHTML = t;
+  const hr = mm.stat.tlbHit + mm.stat.tlbMiss;
+  $('#tlbinfo').textContent = mm.tlb.length + ' / ' + TLB_ENTRIES + ' 项 · 命中率 ' +
+    (hr ? (mm.stat.tlbHit / hr * 100).toFixed(1) + '%' : '—');
+}
+
+const pmc = $('#pm'), pctx = pmc.getContext('2d');
+function resizePm(){
+  const rows = Math.ceil(drv.mm.frames.length / GRID_COLS);
+  const cssH = rows * 17 + 6;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  pmc.style.height = cssH + 'px';
+  pmc.width = Math.max(200, Math.round(pmc.clientWidth * dpr));
+  pmc.height = Math.round(cssH * dpr);
+  pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+const OWNER_COL = { anon:'#54d1a0', file:'#6aa9ff', pagetable:'#b98bff', kernel:'#e8b64c' };
+function drawPm(){
+  const mm = drv.mm, W = pmc.clientWidth;
+  const rows = Math.ceil(mm.frames.length / GRID_COLS);
+  const cw = (W - 4) / GRID_COLS, ch = 15;
+  pctx.clearRect(0, 0, W, pmc.height);
+  const cur = drv.last && drv.last.pfn != null ? drv.last.pfn : -1;
+  for (let i = 0; i < mm.frames.length; i++){
+    const f = mm.frames[i];
+    const x = 2 + (i % GRID_COLS) * cw, y = 3 + Math.floor(i / GRID_COLS) * 17;
+    if (f.free){ pctx.fillStyle = '#1a2130'; pctx.fillRect(x, y, cw - 1.5, ch);
+      pctx.strokeStyle = '#2a3346'; pctx.lineWidth = 1;
+      pctx.strokeRect(x + .5, y + .5, cw - 2.5, ch - 1); }
+    else {
+      let col = (f.owner && OWNER_COL[f.owner.kind]) || '#3d4c66';
+      if (f.writeback > 0) col = '#3d4c66';
+      pctx.fillStyle = col;
+      pctx.globalAlpha = f.io ? 0.55 : (f.active ? 1 : 0.82);
+      pctx.fillRect(x, y, cw - 1.5, ch);
+      pctx.globalAlpha = 1;
+      if (f.referenced){ pctx.strokeStyle = '#ffcf4a'; pctx.lineWidth = 1;
+        pctx.strokeRect(x + .5, y + .5, cw - 2.5, ch - 1); }
+      if (f.mapcount > 1){ pctx.fillStyle = 'rgba(0,0,0,.45)';
+        pctx.fillRect(x + cw - 6, y + ch - 5, 3.5, 3.5); }
+    }
+    if (i === cur){ pctx.strokeStyle = '#fff'; pctx.lineWidth = 1.6;
+      pctx.strokeRect(x - .5, y - .5, cw - .5, ch + 1); }
+  }
+  /* 空闲块边框（阶 ≥ 1 才画，展示伙伴块） */
+  for (let o = 1; o <= MAX_ORDER; o++){
+    for (const pfn of mm.freeLists[o]){
+      const n = 1 << o;
+      const r0 = Math.floor(pfn / GRID_COLS), r1 = Math.floor((pfn + n - 1) / GRID_COLS);
+      if (r0 !== r1) continue;
+      const x = 2 + (pfn % GRID_COLS) * cw, y = 3 + r0 * 17;
+      pctx.strokeStyle = 'rgba(84,209,160,.55)'; pctx.lineWidth = 1.4;
+      pctx.strokeRect(x - 1, y - 1, n * cw - .5, ch + 2);
+      if (n >= 4){
+        pctx.fillStyle = 'rgba(84,209,160,.85)';
+        pctx.font = '9px ' + getComputedStyle(document.body).fontFamily;
+        pctx.textAlign = 'center';
+        pctx.fillText('2^' + o, x + n*cw/2, y + ch - 4);
+      }
+    }
+  }
+  const free = mm.free(), N = mm.frames.length;
+  $('#pminfo').textContent = N + ' 帧 × 4 KiB = ' + (N*4/1024).toFixed(0) + ' MiB · 空闲 ' + free;
+  const wm = $('#wm');
+  wm.innerHTML = '<i style="width:' + (free/N*100).toFixed(1) + '%"></i>' +
+    '<u class="min" style="left:' + (mm.wmMin/N*100).toFixed(1) + '%"></u>' +
+    '<u style="left:' + (mm.wmLow/N*100).toFixed(1) + '%"></u>' +
+    '<u style="left:' + (mm.wmHigh/N*100).toFixed(1) + '%;background:#54d1a0"></u>';
+  $('#mstat').innerHTML =
+    '空闲 <b>' + free + '</b>　匿名 <b>' + mm.used('anon') + '</b>　文件 <b>' + mm.used('file') +
+    '</b>　页表 <b>' + mm.used('pagetable') + '</b>　内核 <b>' + mm.used('kernel') + '</b>' +
+    '　水位 <b>' + mm.wmMin + ' / ' + mm.wmLow + ' / ' + mm.wmHigh + '</b>';
+}
+
+function renderBuddy(){
+  const mm = drv.mm;
+  let h = '';
+  for (let o = MAX_ORDER; o >= 0; o--){
+    const list = mm.freeLists[o];
+    h += '<span class="o">2^' + o + ' = ' + (1<<o) + ' 帧</span><span class="blocks">';
+    for (let i = 0; i < Math.min(list.length, 26); i++)
+      h += '<span class="blk" style="width:' + Math.min(46, 4 + (1<<o) * 2.4) + 'px"></span>';
+    if (list.length > 26) h += '<span class="o" style="font-size:10px">+' + (list.length-26) + '</span>';
+    h += '</span><span class="c">' + list.length + ' 块</span>';
+  }
+  $('#bd').innerHTML = h;
+  const mo = mm.maxFreeOrder();
+  $('#bdinfo').textContent = '最大可用块 ' + (mo < 0 ? '无' : '2^' + mo + ' = ' + (1<<mo) + ' 帧');
+  const free = mm.free();
+  let note = '空闲共 ' + free + ' 帧，最大连续块 ' + (mo < 0 ? 0 : (1<<mo)) + ' 帧。';
+  if (mo >= 0 && free > (1 << mo) * 1.5)
+    note += ' 空闲总量远大于最大连续块 —— 这就是外部碎片：<b style="color:var(--warn)">够用，但不连续</b>。';
+  if (mm.stat.fragFail) note += ' 已因碎片失败 ' + mm.stat.fragFail + ' 次。';
+  $('#fragnote').innerHTML = note;
+}
+
+function renderLru(){
+  const mm = drv.mm;
+  let h = '';
+  const rows = mm.cfg.twoLru
+    ? [['file','active','文件页 · 活跃'],['file','inactive','文件页 · 不活跃'],
+       ['anon','active','匿名页 · 活跃'],['anon','inactive','匿名页 · 不活跃']]
+    : [['file','inactive','文件页 · 单链表纯 LRU'],['anon','inactive','匿名页 · 单链表纯 LRU']];
+  for (const [k, st, label] of rows){
+    const a = mm.lru[k][st];
+    h += '<div class="lru"><div class="lh"><span>' + label + '</span><span class="mono">' +
+      a.length + ' 页　' + (st === 'inactive' ? '尾部先被回收 →' : '') + '</span></div><div class="row">';
+    for (let i = 0; i < Math.min(a.length, 60); i++){
+      const f = mm.frames[a[i]];
+      h += '<span class="c' + (f && f.referenced ? ' ref' : '') + '" style="background:' +
+        (k === 'anon' ? 'var(--anon)' : 'var(--file)') + '"></span>';
+    }
+    if (a.length > 60) h += '<span style="color:var(--fg3);font-size:9px">+' + (a.length-60) + '</span>';
+    h += '</div></div>';
+  }
+  $('#lru').innerHTML = h;
+  $('#lruinfo').textContent = mm.cfg.twoLru ? '两级：活跃 + 不活跃' : '单链表（已关掉两级）';
+  /* swap + page cache */
+  let s = '';
+  for (let i = 0; i < SWAP_SLOTS; i++)
+    s += '<span class="s' + (mm.swap[i] ? ' used' : '') + '"></span>';
+  $('#swapg').innerHTML = s;
+  const used = mm.swap.filter(Boolean).length;
+  $('#swinfo').textContent = '已用 ' + used + ' / ' + SWAP_SLOTS + ' 槽 · 换出 ' +
+    mm.stat.swapOut + ' · 换入 ' + mm.stat.swapIn;
+  let pc = '';
+  const keys = [...mm.pageCache.keys()];
+  for (let i = 0; i < Math.min(keys.length, 96); i++){
+    const pfn = mm.pageCache.get(keys[i]);
+    const shared = mm.frames[pfn] && mm.frames[pfn].mapcount > 1;
+    pc += '<span class="s used" style="background:' + (shared ? '#8fc4ff' : 'var(--file)') + '"></span>';
+  }
+  $('#pcg').innerHTML = pc || '<span style="color:var(--fg3);font-size:11px">空</span>';
+  const tot = mm.stat.pcHit + mm.stat.pcMiss;
+  $('#pcinfo').textContent = keys.length + ' 页 · 命中率 ' +
+    (tot ? (mm.stat.pcHit / tot * 100).toFixed(1) + '%' : '—');
+}
+
+function renderExp(){
+  const st = drv.last, box = $('#exp');
+  if (!st){ box.innerHTML = '<div class="hint">点「单步」或「播放」开始。</div>'; return; }
+  const d = S[st.id];
+  const head = (d ? ROLE_TXT[st.role] : '事件');
+  const what = (st.label || '') + (st.detail ? '　' + st.detail : '');
+  const why = d ? d.why : '—', wo = d ? d.wo : '—';
+  let h = '<div class="ev">' + ns(drv.mm.now) + ' · ' + head + '</div>' +
+    '<div class="q' + (st.bad ? ' r' : '') + '"><span class="k">这一步在做什么</span><span class="v">' + what + '</span></div>';
+  const NA = '<span class="v" style="color:var(--fg3)">不适用：这一步不是一个可以拿掉的机制，' +
+    '而是前一步的自然结果。</span>';
+  h += '<div class="q"><span class="k">它为什么必须存在</span>' +
+    (why === '—' ? NA : '<span class="v">' + why + '</span>') + '</div>';
+  h += '<div class="q"><span class="k">如果没有它会怎样</span>' +
+    (wo === '—' ? NA : '<span class="v">' + wo.replace(/^—（(.*)）$/, '$1') + '</span>') + '</div>';
+  if (drv.notes.length) h += '<div class="hint" style="border-left:2px solid var(--line2);padding-left:9px">' +
+    drv.notes[drv.notes.length-1] + '</div>';
+  box.innerHTML = h;
+}
+
+function renderMetrics(){
+  const mm = drv.mm, s = mm.stat;
+  const row = (k, v, c) => '<div class="k">' + k + '</div><div class="v' + (c||'') + '">' + v + '</div>';
+  const tot = s.tlbHit + s.tlbMiss, pct = s.pcHit + s.pcMiss;
+  let h = '';
+  h += row('访存次数', s.access);
+  h += row('TLB 命中 / 未命中', s.tlbHit + ' / ' + s.tlbMiss,
+    tot && s.tlbHit/tot > 0.7 ? ' good' : '');
+  h += row('页缓存 命中 / 未命中', s.pcHit + ' / ' + s.pcMiss, '');
+  h += '<hr>';
+  h += row('次缺页（无需 I/O）', s.minorFault);
+  h += row('主缺页（需要 I/O）', s.majorFault, s.majorFault > s.minorFault ? ' warn' : '');
+  h += row('写时复制', s.cow);
+  h += row('换出 / 换入', s.swapOut + ' / ' + s.swapIn, s.swapOut ? ' warn' : '');
+  h += row('SIGSEGV / OOM', s.segv + ' / ' + s.oom, (s.segv||s.oom) ? ' bad' : '');
+  h += row('数据损坏', s.corrupt, s.corrupt ? ' bad' : ' good');
+  h += '<hr>';
+  h += row('回收：直接 / kswapd', s.reclaimDirect + ' / ' + s.reclaimKswapd,
+    s.reclaimDirect ? ' warn' : '');
+  h += row('已回收帧数', s.freed);
+  h += row('页表占用帧数', s.ptFrames, '');
+  h += row('伙伴 分裂 / 合并', s.splits + ' / ' + s.merges);
+  h += row('因碎片分配失败', s.fragFail, s.fragFail ? ' bad' : '');
+  h += '<hr>';
+  h += row('模拟总耗时', ns(mm.now));
+  h += row('平均每次访存', s.access ? ns(mm.now / s.access) : '—');
+  $('#mt').innerHTML = h;
+
+  /* 延迟对比（对数刻度） */
+  const KN = { 'tlb-hit':'TLB 命中', 'walk-hit':'页表命中', anon:'匿名次缺页', file:'文件页',
+    cow:'写时复制', swap:'换入主缺页', segv:'段错误', oom:'OOM' };
+  const COL = { 'tlb-hit':'#54d1a0', 'walk-hit':'#8fc4ff', anon:'#e8b64c', file:'#ef8f6b',
+    cow:'#b98bff', swap:'#ef5f6b', segv:'#8c4048', oom:'#8c4048' };
+  let l = '<div class="hint" style="margin:0 0 5px">最近几次访存的耗时（对数刻度，跨度可达五个数量级）</div>';
+  for (const e of drv.latHist.slice().reverse()){
+    const w = Math.max(2, Math.min(100, (Math.log10(Math.max(1, e.lat)) / 5.2) * 100));
+    l += '<div class="lr"><span style="color:' + (COL[e.kind]||'#888') + '">' + (KN[e.kind]||e.kind) +
+      '</span><span class="bar"><i style="width:' + w.toFixed(0) + '%;background:' +
+      (COL[e.kind]||'#888') + '"></i></span><span class="v">' + ns(e.lat) + '</span></div>';
+  }
+  $('#lat').innerHTML = l;
+}
+
+function renderLog(){
+  const cls = { main:'main', fail:'bad', maintain:'mt', defer:'mt', bg:'mt', note:'main',
+    fork:'main', kalloc:'mt' };
+  $('#log').innerHTML = drv.mm.logs.slice(-90).reverse().map(l =>
+    '<li class="' + (cls[l.kind] || '') + '"><span class="t">' + ns(l.t) + '</span> ' + l.text + '</li>').join('');
+}
+
+function renderAll(force){
+  /* 统计每个步骤 id 的累计次数，供流程图用 */
+  renderGoal(); drawPm();
+  const t = performance.now();
+  if (force || t - lastPanel >= PANEL_MS){
+    lastPanel = t;
+    renderBits(); renderVmas(); renderWalk(); renderBuddy(); renderLru();
+    renderExp(); renderMetrics(); renderLog(); updateFlow();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第十部分：对比实验
+   ══════════════════════════════════════════════════════════════════════ */
+const CMP = {
+  tlb: { key:'tlb', name:'TLB（地址翻译缓存）', kind:'perf',
+    claim:'TLB 影响的是<b>性能</b>：关掉之后每次访存都要额外走四级页表，结果完全一样。' },
+  pc: { key:'pageCache', name:'页缓存（文件页共享缓存）', kind:'perf',
+    claim:'页缓存影响的是<b>性能</b>：关掉之后每次文件页缺页都要真读磁盘，结果仍然正确。' },
+  twolru: { key:'twoLru', name:'两级 LRU（活跃 / 不活跃双链表）', kind:'perf',
+    claim:'两级 LRU 影响的是<b>性能</b>：它的作用是让"只用一次"的流式页不要挤掉真正的工作集。' },
+  rmap: { key:'rmap', name:'反向映射（物理页 → 使用它的页表项）', kind:'corr',
+    claim:'反向映射影响的是<b>正确性</b>：回收物理页之前必须清除所有指向它的页表项。' },
+};
+function runCompare(id){
+  const m = CMP[id];
+  const preset = $('#preset').value;
+  const base = currentCfg();
+  const on  = Object.assign({}, base); on[m.key]  = true;
+  const off = Object.assign({}, base); off[m.key] = false;
+  const A = new Driver(preset, on);  A.runAll();
+  const B = new Driver(preset, off); B.runAll();
+  const sa = A.mm.stat, sb = B.mm.stat;
+  const rows = [
+    ['总耗时',            x => ns(x.mm.now),                              (a,b) => b.mm.now > a.mm.now * 1.3],
+    ['平均每次访存',      x => ns(x.mm.now / Math.max(1, x.mm.stat.access)), (a,b) => b.mm.now > a.mm.now * 1.3],
+    ['TLB 命中率',        x => rate(x.mm.stat.tlbHit, x.mm.stat.tlbMiss),  () => false],
+    ['次缺页',            x => x.mm.stat.minorFault,                      () => false],
+    ['主缺页（要读盘）',  x => x.mm.stat.majorFault, (a,b) => b.mm.stat.majorFault > a.mm.stat.majorFault * 1.2],
+    ['换出 / 换入',       x => x.mm.stat.swapOut + ' / ' + x.mm.stat.swapIn, () => false],
+    ['回收帧数',          x => x.mm.stat.freed,                           () => false],
+    ['执行步数',          x => x.mm.stat.steps.toLocaleString('en-US'),    () => false],
+    ['其中改变目标状态',  x => x.mm.stat.mainSteps,                        () => false],
+    ['数据损坏次数',      x => x.mm.stat.corrupt, (a,b) => b.mm.stat.corrupt > a.mm.stat.corrupt],
+  ];
+  let h = '<div style="font-size:12.5px;margin-bottom:8px">机制：<b>' + m.name + '</b>　' +
+    '<span class="tag ' + m.kind + '">' + (m.kind === 'perf' ? '只影响性能' : '影响正确性') + '</span>' +
+    '<br><span style="color:var(--fg3)">' + m.claim + '</span></div>' +
+    '<div class="hint" style="margin:0 0 7px">场景「' + PRESETS[preset].name + '」，共 ' +
+    A.program.length + ' 条程序项，两侧同种子跑到结束。</div>' +
+    '<table class="cmp"><tr><th>指标</th><th>开启</th><th>关闭</th></tr>';
+  for (const [k, f, worse] of rows)
+    h += '<tr><td>' + k + '</td><td>' + f(A) + '</td><td class="' + (worse(A,B) ? 'w' : '') + '">' +
+      f(B) + '</td></tr>';
+  h += '</table>';
+
+  /* 结论 —— 区分"变慢"与"变错" */
+  const slow = B.mm.now / Math.max(1, A.mm.now);
+  const sameResult = sb.corrupt === 0 && sb.segv === sa.segv && sb.mainSteps > 0;
+  let c;
+  if (id === 'rmap'){
+    c = sb.corrupt > 0
+      ? '关掉之后出现了具体的错误现象：<b style="color:var(--bad)">' + sb.corrupt +
+        ' 次数据损坏</b>。进程的页表项仍指向某个物理帧，而那一帧已被回收并分配给了别人。' +
+        '目标状态看起来"成立"了（访问没报错），但读到的字节是错的 —— 这不是慢，是错。' +
+        '开启时损坏次数为 ' + sa.corrupt + '。'
+      : '本场景没有触发回收，所以关掉反向映射也看不出差别。换到「内存压力」或「流式扫描」场景再试 —— ' +
+        '只有真的要回收物理页时，才需要反过来找"谁在用我"。';
+  } else if (id === 'twolru'){
+    const wsFault = sb.majorFault - sa.majorFault;
+    c = wsFault > 0
+      ? '关掉之后主缺页从 ' + sa.majorFault + ' 涨到 ' + sb.majorFault + '（多了 ' + wsFault +
+        ' 次读盘）：一次性的流式扫描把真正的工作集挤出了内存，扫描结束后工作集只能重新读回来。' +
+        '两级链表的作用就是让"只用过一次"的页先待在不活跃链表里，不去打扰已被反复访问的页。' +
+        '注意最终结果依然正确（数据损坏 0 次），只是慢了 ' + slow.toFixed(2) + ' 倍 —— 变慢，不变错。'
+      : '本场景的访问模式没有形成"工作集 + 流式扫描"的冲突，两种链表结构表现接近。换到「流式扫描污染工作集」场景再试。';
+  } else {
+    c = slow > 1.2
+      ? '关掉之后目标状态依然被<b>正确</b>维持：每次访问最终都拿到了正确的字节，数据损坏 ' + sb.corrupt +
+        ' 次，段错误次数与开启时一致。代价只是总耗时变成 <b>' + slow.toFixed(2) +
+        ' 倍</b>。这就是"只影响性能"的样子：变慢，不变错。'
+      : '本场景下这个机制没有被充分用到，关掉看不出差别。换一个访问更密集的场景再试。';
+  }
+  h += '<div class="concl">' + c + '</div>';
+  $('#cmp').innerHTML = h;
+  function rate(a, b){ return (a+b) ? (a/(a+b)*100).toFixed(1) + '%' : '—'; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第十一部分：交互
+   ══════════════════════════════════════════════════════════════════════ */
+function currentCfg(){
+  return { nframes:+$('#nframes').value, tlb:$('#t-tlb').checked, pageCache:$('#t-pc').checked,
+    twoLru:$('#t-twolru').checked, rmap:$('#t-rmap').checked,
+    swappiness:+$('#swappiness').value, seed:20240607 };
+}
+function build(presetKey){
+  drv = new Driver(presetKey, currentCfg());
+  drv.mm.stepCount = {};
+  resizePm(); renderAll(true);
+  $('#cmp').innerHTML = '<div class="hint">场景「' + PRESETS[presetKey].name + '」：' +
+    PRESETS[presetKey].desc + '</div>';
+}
+function tally(st){ if (st && st.id){ const c = drv.mm.stepCount;
+  c[st.id] = (c[st.id] || 0) + 1; } }
+function one(){ const st = drv.step(); tally(st); return st; }
+function setPlaying(v){
+  playing = v && !staticMode && !drv.finished;
+  $('#play').textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  $('#play').classList.toggle('pri', !playing);
+}
+let raf = 0;
+function frame(){
+  raf = requestAnimationFrame(frame);
+  if (!playing) return;
+  for (let i = 0; i < stepsPerFrame; i++){
+    if (drv.finished && !drv.gen && !drv.kgen){ setPlaying(false); break; }
+    one();
+  }
+  renderAll();
+}
+
+window.__mm = {};
+(function init(){
+  const ps = $('#preset');
+  for (const k in PRESETS){ const o = document.createElement('option'); o.value = k;
+    o.textContent = PRESETS[k].name; ps.appendChild(o); }
+  buildFlow();
+  build('lazy');
+
+  $('#play').onclick = () => setPlaying(!playing);
+  $('#step').onclick = () => { one(); renderAll(true); };
+  $('#acc').onclick  = () => {
+    if (!drv.gen) one();
+    let guard = 0;
+    while (drv.gen && guard++ < 8000) one();
+    renderAll(true);
+  };
+  $('#reset').onclick = () => { build(ps.value); setPlaying(false); };
+  $('#speed').onchange = e => stepsPerFrame = +e.target.value;
+  ps.onchange = () => { $('#nframes').value = String(PRESETS[ps.value].frames);
+    build(ps.value); setPlaying(false); };
+  $('#nframes').onchange = () => build(ps.value);
+  for (const id of ['t-tlb','t-pc','t-twolru','t-rmap'])
+    $('#' + id).onchange = () => { const k = { 't-tlb':'tlb', 't-pc':'pageCache',
+      't-twolru':'twoLru', 't-rmap':'rmap' }[id]; drv.mm.cfg[k] = $('#' + id).checked;
+      if (k === 'tlb' && !drv.mm.cfg.tlb) drv.mm.tlb.length = 0;
+      renderAll(true); };
+  $('#swappiness').onchange = e => { drv.mm.cfg.swappiness = +e.target.value; renderAll(true); };
+  $('#t-static').onchange = e => { staticMode = e.target.checked; if (staticMode) setPlaying(false); };
+  $('#go').onclick = () => {
+    const raw = $('#va').value.trim();
+    const va = Number(raw.startsWith('0x') || raw.startsWith('0X') ? raw : '0x' + raw);
+    if (!isFinite(va) || va < 0){ drv.mm.log('fail', '地址无法解析：' + raw); renderAll(true); return; }
+    drv.manualAccess(1, Math.floor(va / PAGE) * PAGE + (va % PAGE), $('#rw').value === 'w');
+    while (drv.gen){ if (!one() && !drv.gen) break; }
+    renderAll(true);
+  };
+  $('#kalloc').onclick = () => { drv.manualKalloc(+$('#korder').value);
+    while (drv.gen){ if (!one() && !drv.gen) break; } renderAll(true); };
+  $('#kfree').onclick = () => { drv.kfreeAll(); renderAll(true); };
+  $('#clr').onclick = () => { drv.mm.logs.length = 0; renderLog(); };
+  document.querySelectorAll('[data-cmp]').forEach(b =>
+    b.onclick = ev => { ev.preventDefault(); runCompare(b.dataset.cmp); });
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space'){ e.preventDefault(); setPlaying(!playing); }
+    else if (e.code === 'ArrowRight'){ e.preventDefault(); one(); renderAll(true); }
+    else if (e.key === 'r' || e.key === 'R') $('#reset').click();
+  });
+  window.addEventListener('resize', () => { resizePm(); drawPm(); });
+
+  $('#notes').innerHTML = [
+    '进程一创建，顶级页表（PML4，CR3 指向的那一页）就已经占掉一帧 —— 还没碰过任何数据。'+
+    '',
+    'TLB 只有 16 项。顺序扫过远大于 16 页的区域时，回头再访问第一页它早被挤出去了，<b>TLB 命中率会掉到 0</b> —— 这是真实现象，也是大页对大数据集有用的原因。本演示可以在「文件映射」场景里直接看到。',
+    '物理内存只有 <b>64–256 帧</b>（256 KiB–1 MiB），交换区 96 槽。真实机器是它的百万倍，缩比只为把每一帧都画出来。',
+    '页表用 JS 对象稀疏表示，只有<b>层级结构、索引宽度、按需分配</b>是真的；页表项的完整标志位（NX/PCD/PWT/全局位等）与大页（2 MiB / 1 GiB）未建模。',
+    '缺页后是<b>硬件重新执行原指令</b>，内核只负责把映射补好 —— 演示严格按这个顺序，没有让内核代替 CPU 完成访存。',
+    '伙伴系统的分裂与合并是真实算法（伙伴 = <span class="mono">pfn ^ (1&lt;&lt;order)</span>），但最大阶只到 2^4；真实内核到 2^10，且有 pageblock 迁移类型与内存规整（compaction）来对抗碎片，本演示都没有。',
+    '回收沿用 CFS 时代的<b>双链表 + 访问位</b>模型（active/inactive、第二次机会）。真实内核 5.x 起可选 <b>MGLRU</b> 多代 LRU，机制不同但目的一致。',
+    '未建模：<b>swap cache</b>，所以换出后再换入的共享匿名页会各自得到独立副本；真实内核会重新共享。',
+    '未建模：slab / kmalloc 分配器、透明大页、内存规整、NUMA、cgroup 内存限制、mmap 预读、写回的脏页比例控制。',
+    'kswapd 的调度被简化成"每 5 次前台访问轮到一次、每次最多回收 4 帧"。真实内核里它是一个正常参与调度的内核线程，能否跟上取决于 CPU 竞争与回收难度。这两个数字刻意调成让它扛不住持续压力，好让<b>直接回收</b>这条支线也能被看到。',
+    '关掉「反向映射」后出现的数据损坏是<b>刻意模拟</b>的：模型比较物理帧的实际内容标签与页表项记录的标签，不一致就报损坏。真实内核里这类 bug 表现为随机崩溃或静默数据错误。',
+    '各步骤的耗时（TLB 命中 1 ns、页表访问 20 ns、磁盘读 90 µs）是<b>量级示意</b>，用于展示主缺页与次缺页相差约五个数量级，不是某台具体机器的实测值。',
+  ].map(s => '<li>' + s + '</li>').join('');
+
+  $('#glo').innerHTML = [
+    ['VMA','虚拟内存区域','记录"哪段地址该有什么"：区间、权限、后备文件。页表只记"有没有映射"。'],
+    ['PTE','页表项','最后一级表项，存物理帧号加权限、访问位、脏位。'],
+    ['次缺页','minor fault','映射缺失但内容已在内存里（或只需清零），不需要磁盘 I/O。'],
+    ['主缺页','major fault','必须读磁盘或交换区，比次缺页慢约五个数量级。'],
+    ['写时复制','copy-on-write','fork 后父子共享物理页并都改为只读，谁先写谁复制出副本。'],
+    ['页缓存','page cache','文件内容在内存里的唯一副本，全系统共享，各进程页表分别指向它。'],
+    ['反向映射','rmap','从物理页反查"哪些页表项指向我"，回收时必须靠它逐个撤销。'],
+    ['伙伴系统','buddy allocator','按 2 的幂管理空闲块，释放时与同级伙伴合并，对抗外部碎片。'],
+    ['外部碎片','fragmentation','空闲总量充足却拼不出连续大块，导致高阶分配失败。'],
+    ['水位线','watermark','空闲页的三条警戒线：高位停止回收、低位唤醒 kswapd、最低位启动直接回收。'],
+    ['kswapd','后台回收线程','在后台把空闲页补回高水位，让进程不必自己停下来回收。'],
+    ['直接回收','direct reclaim','分配失败时由触发的进程自己做回收，代价是被阻塞。'],
+    ['swappiness','换出倾向','0 偏向丢文件页，100 偏向换出匿名页，决定回收时先动谁。'],
+    ['TLB','地址翻译缓存','MMU 内部缓存最近的翻译结果；改页表后必须失效，多核还要发 IPI。'],
+  ].map(r => '<span class="c">' + r[0] + '</span><span class="e">' + r[1] + '</span><span class="d">' + r[2] + '</span>').join('');
+
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    staticMode = true; $('#t-static').checked = true;
+  }
+  raf = requestAnimationFrame(frame);
+
+  Object.assign(window.__mm, {
+    MM, Driver, PRESETS, S, FN, LEVELS, fieldOf, vpnOf, hex, currentCfg,
+    build, step:one, setPlaying, render:renderAll,
+    runAll:(p,c) => { const base = currentCfg(); delete base.nframes;   /* 用场景自带的帧数 */
+      const d = new Driver(p, Object.assign(base, c||{})); d.runAll(); return d; },
+    finishAccess:() => { if (!drv.gen) one(); drv.drain(); renderAll(true); },
+    ready:true,
+  });
+  /* 必须用活的访问器：Object.assign 会把 getter 求值成快照，
+     导致重建场景后外部读到的还是旧模型 */
+  Object.defineProperty(window.__mm, 'drv', { get(){ return drv; } });
+  Object.defineProperty(window.__mm, 'mm',  { get(){ return drv.mm; } });
+})();
+</script>
+</body>
+</html>

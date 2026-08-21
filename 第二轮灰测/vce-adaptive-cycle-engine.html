@@ -1,0 +1,2650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>三涵道自适应循环航空发动机 · 工业级动态剖面可视化 / ADAPTIVE CYCLE ENGINE</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05070a;overflow:hidden;
+    font-family:"Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;color:#cfe6ee}
+  #cv{display:block;width:100vw;height:100vh;cursor:grab}
+  #cv:active{cursor:grabbing}
+  #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#05070a;z-index:9;letter-spacing:.18em;font:600 13px/1.9 "JetBrains Mono",Consolas,monospace;
+    color:#5fe9ff;text-align:center}
+  #boot b{display:block;font-size:19px;letter-spacing:.28em;margin-bottom:10px;color:#e8f8ff}
+  #boot i{display:block;font-style:normal;color:rgba(170,206,220,.6);font-size:11px;margin-top:12px}
+  .frameEdge{position:fixed;pointer-events:none;inset:6px;border:1px solid rgba(95,233,255,.16);z-index:5}
+  .frameEdge:before,.frameEdge:after{content:"";position:absolute;width:26px;height:26px;
+    border:2px solid rgba(95,233,255,.5)}
+  .frameEdge:before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+  .frameEdge:after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="frameEdge"></div>
+<div id="boot"><b>ADAPTIVE CYCLE ENGINE · 三涵道自适应循环</b>
+BUILDING SECTIONED DIGITAL MOCK-UP …
+<i>1/4 CUTAWAY · X-RAY SHELL · 3-STREAM FLOW FIELD · HUD TELEMETRY</i></div>
+<script>
+/* ==== kit.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   kit.js
+   math · camera · projection · materials · shading · colour ramps · noise
+   no dependencies, no DOM, safe to eval in node for headless tests
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+
+  var D2R = Math.PI / 180, R2D = 180 / Math.PI, TAU = Math.PI * 2;
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function sat(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function smooth(t) { t = sat(t); return t * t * (3 - 2 * t); }
+  function ramp(a, b, t) { return smooth((t - a) / ((b - a) || 1e-9)); }
+  /* trapezoid window: 0 before a, 1 between b..c, 0 after d */
+  function win(a, b, c, d, t) { return sat(Math.min(ramp(a, b, t), 1 - ramp(c, d, t))); }
+
+  /* ---- deterministic noise (identical in browser and node) ----------------*/
+  function hash(n) {
+    n = (n << 13) ^ n;
+    n = (n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff;
+    return n / 1073741823 - 1;
+  }
+  function noise1(x) { var i = Math.floor(x); return lerp(hash(i), hash(i + 1), smooth(x - i)); }
+  function fbm(x, oct) {
+    oct = oct || 3; var s = 0, a = 0.5, f = 1;
+    for (var i = 0; i < oct; i++) { s += a * noise1(x * f + i * 31.7); a *= 0.5; f *= 2.03; }
+    return s;
+  }
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---- camera -------------------------------------------------------------
+     world: +x = aft along engine axis, +y = up, +z = toward viewer at yaw 0.
+     the camera orbits the target (tx,ty,tz) by yaw/pitch at radius dist.     */
+  function makeCam() {
+    return {
+      yaw: -34 * D2R, pitch: -16 * D2R, dist: 2450, fov: 1500,
+      tx: 720, ty: 0, tz: 0, cx: 0, cy: 0, roll: 0,
+      _cy: 1, _sy: 0, _cp: 1, _sp: 0, _cr: 1, _sr: 0
+    };
+  }
+  function camPrep(c) {
+    c._cy = Math.cos(c.yaw); c._sy = Math.sin(c.yaw);
+    c._cp = Math.cos(c.pitch); c._sp = Math.sin(c.pitch);
+    c._cr = Math.cos(c.roll || 0); c._sr = Math.sin(c.roll || 0);
+  }
+  /* project world point -> out[0]=sx, out[1]=sy, out[2]=camera-space depth */
+  function proj(c, x, y, z, out) {
+    var dx = x - c.tx, dy = y - c.ty, dz = z - c.tz;
+    var x1 = dx * c._cy - dz * c._sy, z1 = dx * c._sy + dz * c._cy;
+    var y2 = dy * c._cp - z1 * c._sp, z2 = dy * c._sp + z1 * c._cp;
+    var zc = z2 + c.dist;
+    if (!(zc > 200)) zc = 200;                 /* near-plane guard (also NaN) */
+    var s = c.fov / zc;
+    var px = x1 * s, py = -y2 * s;
+    if (c.roll) { var t = px * c._cr - py * c._sr; py = px * c._sr + py * c._cr; px = t; }
+    out[0] = c.cx + px; out[1] = c.cy + py; out[2] = zc;
+    return out;
+  }
+  /* rotate a direction into camera space (z>0 => pointing at the viewer) */
+  function projDir(c, x, y, z, out) {
+    var x1 = x * c._cy - z * c._sy, z1 = x * c._sy + z * c._cy;
+    var y2 = y * c._cp - z1 * c._sp, z2 = y * c._sp + z1 * c._cp;
+    out[0] = x1; out[1] = y2; out[2] = z2;
+    return out;
+  }
+  /* cylindrical helper: theta measured from +y, positive toward +z */
+  function cyl(x, r, th, out) {
+    out[0] = x; out[1] = r * Math.cos(th); out[2] = r * Math.sin(th); return out;
+  }
+
+  /* ---- lighting -----------------------------------------------------------*/
+  /* camera space +z points away from the lens, so a surface is turned toward
+     the viewer when its transformed normal has z < 0. the key light sits on
+     the camera side (upper-front-left), the fill bounces from the far side. */
+  var KEY = [-0.40, 0.80, -0.45];
+  var FILL = [0.50, -0.25, 0.72];
+  (function norm(v) { var m = Math.hypot(v[0], v[1], v[2]); v[0] /= m; v[1] /= m; v[2] /= m; })(KEY);
+  (function norm(v) { var m = Math.hypot(v[0], v[1], v[2]); v[0] /= m; v[1] /= m; v[2] /= m; })(FILL);
+
+  /* materials: base rgb + response. gloss high = tight highlight.
+     brush  = anisotropic brushed-metal streak depth
+     hatch  = section face, renderer adds engineering hatching
+     glow   = self-illuminated (hot metal / flame washed parts)             */
+  var MAT = {
+    skin:    { base: [104, 113, 122], amb: 0.26, kd: 0.80, spec: 0.50, gloss: 26, brush: 0.13, edge: 'rgba(6,10,14,0.55)' },
+    matte:   { base: [58, 64, 71],    amb: 0.28, kd: 0.60, spec: 0.08, gloss: 5,  brush: 0.04, edge: 'rgba(4,7,10,0.55)' },
+    duct:    { base: [74, 88, 100],   amb: 0.24, kd: 0.70, spec: 0.26, gloss: 14, brush: 0.09, edge: 'rgba(6,10,14,0.5)' },
+    titan:   { base: [126, 130, 136], amb: 0.25, kd: 0.82, spec: 0.62, gloss: 34, brush: 0.16, edge: 'rgba(8,12,16,0.5)' },
+    steel:   { base: [88, 96, 106],   amb: 0.24, kd: 0.78, spec: 0.55, gloss: 30, brush: 0.11, edge: 'rgba(6,10,14,0.5)' },
+    cmc:     { base: [42, 44, 47],    amb: 0.30, kd: 0.46, spec: 0.05, gloss: 3,  brush: 0.02, weave: true, edge: 'rgba(10,8,6,0.6)' },
+    hotmet:  { base: [92, 70, 62],    amb: 0.30, kd: 0.62, spec: 0.22, gloss: 12, brush: 0.06, edge: 'rgba(20,8,4,0.5)' },
+    cut:     { base: [158, 166, 174], amb: 0.62, kd: 0.34, spec: 0.10, gloss: 8,  hatch: true, edge: 'rgba(180,225,240,0.55)' },
+    cutcore: { base: [128, 138, 148], amb: 0.58, kd: 0.34, spec: 0.08, gloss: 8,  hatch: true, edge: 'rgba(150,210,230,0.5)' },
+    copper:  { base: [150, 104, 66],  amb: 0.26, kd: 0.76, spec: 0.46, gloss: 22, brush: 0.10, edge: 'rgba(30,12,4,0.5)' },
+    fuel:    { base: [176, 138, 62],  amb: 0.28, kd: 0.74, spec: 0.40, gloss: 20, brush: 0.06, edge: 'rgba(30,20,4,0.5)' },
+    oil:     { base: [70, 104, 120],  amb: 0.28, kd: 0.72, spec: 0.34, gloss: 18, brush: 0.06, edge: 'rgba(6,18,24,0.5)' },
+    hx:      { base: [96, 122, 134],  amb: 0.26, kd: 0.70, spec: 0.30, gloss: 16, brush: 0.05, edge: 'rgba(6,14,20,0.55)' },
+    seal:    { base: [64, 60, 56],    amb: 0.30, kd: 0.55, spec: 0.10, gloss: 6,  edge: 'rgba(6,6,6,0.5)' },
+    dark:    { base: [22, 26, 30],    amb: 0.34, kd: 0.30, spec: 0.04, gloss: 4,  edge: 'rgba(0,0,0,0.5)' }
+  };
+
+  /* face shading -> css colour string.
+     nx,ny,nz  world normal (need not be unit)
+     seed      stable per-face scalar used for brushed streaks / weave      */
+  function shade(mat, nx, ny, nz, seed, extra) {
+    var m = Math.hypot(nx, ny, nz) || 1; nx /= m; ny /= m; nz /= m;
+    var d = nx * KEY[0] + ny * KEY[1] + nz * KEY[2];
+    var f = nx * FILL[0] + ny * FILL[1] + nz * FILL[2];
+    var twoSided = d < 0 ? -d * 0.45 : d;              // interior surfaces stay readable
+    var i = mat.amb + mat.kd * sat(twoSided) + 0.17 * sat(f);
+    if (mat.brush) i *= 1 + mat.brush * fbm(seed * 2.7, 2);
+    if (mat.weave) i *= 1 + 0.10 * noise1(seed * 9.1) + 0.06 * noise1(seed * 41.3);
+    var sp = mat.spec * Math.pow(sat(twoSided), mat.gloss);
+    var g = extra && extra.glow ? extra.glow : 0;
+    var r = mat.base[0] * i + 250 * sp + 12 * (1 - i);
+    var gg = mat.base[1] * i + 250 * sp + 18 * (1 - i);
+    var b = mat.base[2] * i + 250 * sp + 26 * (1 - i);
+    if (g) { r += 210 * g; gg += 92 * g; b += 26 * g; }
+    return 'rgb(' + (r > 255 ? 255 : r | 0) + ',' + (gg > 255 ? 255 : gg | 0) + ',' + (b > 255 ? 255 : b | 0) + ')';
+  }
+
+  /* ---- colour ramps -------------------------------------------------------*/
+  function rampColor(stops, t) {
+    t = sat(t);
+    for (var i = 0; i < stops.length - 1; i++) {
+      var a = stops[i], b = stops[i + 1];
+      if (t >= a[0] && t <= b[0]) {
+        var u = (t - a[0]) / ((b[0] - a[0]) || 1e-9);
+        return [lerp(a[1], b[1], u) | 0, lerp(a[2], b[2], u) | 0, lerp(a[3], b[3], u) | 0];
+      }
+    }
+    var l = stops[stops.length - 1];
+    return [l[1], l[2], l[3]];
+  }
+  /* pseudo-colour temperature field: deep blue -> cyan -> green -> yellow -> red -> white */
+  var TEMP_STOPS = [
+    [0.00, 14, 22, 96], [0.16, 20, 96, 190], [0.32, 34, 200, 214],
+    [0.48, 96, 220, 110], [0.64, 240, 216, 60], [0.80, 246, 122, 30],
+    [0.92, 232, 44, 26], [1.00, 255, 232, 210]
+  ];
+  /* Mach / velocity ramp: blue (low) -> cyan (mid) -> amber -> red (supersonic) */
+  var MACH_STOPS = [
+    [0.00, 40, 78, 214], [0.30, 44, 176, 236], [0.52, 66, 232, 226],
+    [0.72, 236, 190, 62], [0.88, 244, 108, 40], [1.00, 236, 42, 34]
+  ];
+  /* static pressure ramp: cold blue (low) -> violet -> warm (high) */
+  var PRESS_STOPS = [
+    [0.00, 16, 34, 88], [0.28, 26, 110, 176], [0.52, 96, 96, 200],
+    [0.74, 226, 150, 70], [1.00, 244, 74, 48]
+  ];
+  function tempColor(k) { return rampColor(TEMP_STOPS, (k - 280) / (2320 - 280)); }
+  function machColor(m) { return rampColor(MACH_STOPS, m / 2.4); }
+  function pressColor(p) { return rampColor(PRESS_STOPS, p); }
+  function css(rgb, a) { return a === undefined ? 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')' : 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')'; }
+
+  /* ---- number formatting for the telemetry layer -------------------------*/
+  function fx(v, d) { if (!isFinite(v)) v = 0; return v.toFixed(d === undefined ? 1 : d); }
+  function pad(v, w, d) { var s = fx(v, d); while (s.length < w) s = ' ' + s; return s; }
+  function pad0(v, w) { var s = String(Math.round(v)); while (s.length < w) s = '0' + s; return s; }
+
+  V.D2R = D2R; V.R2D = R2D; V.TAU = TAU;
+  V.clamp = clamp; V.sat = sat; V.lerp = lerp; V.smooth = smooth; V.ramp = ramp; V.win = win;
+  V.hash = hash; V.noise1 = noise1; V.fbm = fbm; V.mulberry32 = mulberry32;
+  V.makeCam = makeCam; V.camPrep = camPrep; V.proj = proj; V.projDir = projDir; V.cyl = cyl;
+  V.MAT = MAT; V.shade = shade; V.KEY = KEY;
+  V.rampColor = rampColor; V.tempColor = tempColor; V.machColor = machColor; V.pressColor = pressColor;
+  V.TEMP_STOPS = TEMP_STOPS; V.MACH_STOPS = MACH_STOPS; V.PRESS_STOPS = PRESS_STOPS;
+  V.css = css; V.fx = fx; V.pad = pad; V.pad0 = pad0;
+
+  /* palette used by the whole HUD / blueprint layer */
+  V.UI = {
+    cy: '#5fe9ff', cyDim: 'rgba(95,233,255,0.35)', cyFaint: 'rgba(95,233,255,0.13)',
+    am: '#ffb02e', amDim: 'rgba(255,176,46,0.38)',
+    hot: '#ff6a3c', ok: '#7cf08a', warn: '#ffd166', bad: '#ff4f4f',
+    ink: '#0a0e12', panel: 'rgba(9,14,19,0.80)', panelEdge: 'rgba(95,233,255,0.28)',
+    grid: 'rgba(95,233,255,0.055)', text: '#cfe6ee', textDim: 'rgba(180,208,220,0.55)',
+    mono: '"JetBrains Mono","DejaVu Sans Mono",Consolas,"Courier New",monospace',
+    sans: '"Microsoft YaHei","Noto Sans SC","PingFang SC",system-ui,sans-serif'
+  };
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+/* ==== geom.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   geom.js
+   three-stream adaptive-cycle turbofan, meridional profile tables + mesh build
+   architecture reference class: AETP / NGAP adaptive engines
+   (adaptive fan -> CDFS -> mode-select valve -> HPC -> annular combustor ->
+    CMC HPT/LPT -> fwd/aft VABI -> 3rd stream + heat exchanger -> augmentor ->
+    2-D thrust-vectoring convergent-divergent nozzle)
+   model units: 1 unit ~ 2.2 mm.  x = 0 inlet lip .. 1570 nozzle exit
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+  var clamp = V.clamp, lerp = V.lerp, TAU = V.TAU, D2R = V.D2R;
+
+  /* =========================================================================
+     1.  MERIDIONAL PROFILE TABLES  [x, r]
+     ========================================================================*/
+  var PROF = {
+    /* nacelle / outer casing */
+    nacOut: [[0, 197], [26, 213], [80, 222], [190, 223], [380, 218], [620, 211], [860, 205], [1090, 199], [1240, 196], [1330, 192]],
+    nacIn: [[0, 197], [34, 184], [96, 180], [190, 184], [300, 188], [420, 190], [700, 191], [980, 190], [1150, 188], [1250, 186]],
+    /* third stream: inner wall (tsIn) .. nacIn */
+    tsIn: [[330, 152], [420, 155], [620, 159], [860, 166], [1060, 174], [1180, 180], [1250, 183]],
+    /* second (bypass) stream: coreCase .. bypOut */
+    bypOut: [[330, 145], [420, 148], [620, 152], [860, 159], [1060, 167], [1180, 173], [1250, 176]],
+    coreCase: [[300, 124], [360, 128], [520, 124], [720, 112], [770, 120], [830, 136], [950, 136], [1010, 142], [1130, 156], [1200, 164], [1250, 170]],
+    /* core stream outer boundary (blade tip line) */
+    coreTip: [[300, 116], [330, 117], [420, 113], [520, 107], [620, 101], [720, 96], [770, 102], [830, 120], [950, 120], [1010, 128], [1130, 146], [1200, 154], [1250, 162]],
+    /* supersonic centre-body (shock cone) -> spinner -> shaft fairing -> tail cone */
+    hub: [[-190, 0], [-140, 34], [-90, 64], [-40, 90], [0, 106], [40, 110], [90, 92], [130, 62], [150, 50], [300, 64], [330, 66], [420, 72], [520, 76], [620, 79], [720, 82], [770, 80], [830, 76], [950, 78], [1010, 86], [1130, 92], [1200, 86], [1250, 62], [1320, 30], [1372, 0]],
+    /* combustor liner (annular) */
+    linO: [[778, 114], [802, 122], [900, 122], [946, 113]],
+    linI: [[778, 92], [802, 84], [900, 84], [946, 92]],
+    /* augmentor liner + case, then round-to-rectangle transition */
+    abLin: [[1250, 176], [1300, 174], [1360, 171], [1420, 168]],
+    abCase: [[1250, 190], [1300, 188], [1360, 186], [1420, 183]]
+  };
+
+  var STA = {                     /* engineering station scale, x positions   */
+    s0: 0, s1: 150, s2: 300, s21: 330, s25: 470, s3: 740, s4: 946,
+    s45: 1010, s5: 1180, s6: 1250, s7: 1420, s8: 1500, s9: 1570
+  };
+
+  var NOZ = {                     /* 2-D vectoring nozzle (rectangular)       */
+    xTrans0: 1330, xTrans1: 1420, xThroat: 1500, xExit: 1570,
+    halfW: 148, hIn: 168, hThroatMin: 86, hThroatMax: 128, hExitMin: 112, hExitMax: 182
+  };
+
+  function interpR(prof, x) {
+    var n = prof.length;
+    if (x <= prof[0][0]) return prof[0][1];
+    if (x >= prof[n - 1][0]) return prof[n - 1][1];
+    for (var i = 0; i < n - 1; i++) {
+      if (x <= prof[i + 1][0]) {
+        var a = prof[i], b = prof[i + 1];
+        return lerp(a[1], b[1], (x - a[0]) / ((b[0] - a[0]) || 1e-9));
+      }
+    }
+    return prof[n - 1][1];
+  }
+  /* resample a profile between x0..x1 into n+1 [x,r] samples */
+  function sample(prof, x0, x1, n) {
+    var out = [];
+    for (var i = 0; i <= n; i++) { var x = lerp(x0, x1, i / n); out.push([x, interpR(prof, x)]); }
+    return out;
+  }
+  function offsetProf(prof, d) { return prof.map(function (p) { return [p[0], p[1] + d]; }); }
+
+  /* =========================================================================
+     2.  MESH PRIMITIVES
+     a face = { v:[[x,y,z],..], n:[x,y,z], mat, g, seed, glow?, alpha?, tag }
+     g = group index; the renderer applies group transforms at project time so
+     spools/vanes/flaps/exploded modules animate without rebuilding geometry.
+     ========================================================================*/
+  function face(v, n, mat, g, seed, opt) {
+    var f = { v: v, n: n, mat: mat, g: g || 0, seed: seed || 0 };
+    if (opt) { for (var k in opt) f[k] = opt[k]; }
+    return f;
+  }
+  function pt(x, r, th) { return [x, r * Math.cos(th), r * Math.sin(th)]; }
+  function nrm(th, inward) { var s = inward ? -1 : 1; return [0, s * Math.cos(th), s * Math.sin(th)]; }
+
+  /* surface of revolution between theta t0..t1 following [x,r] samples */
+  function revolve(out, prof, t0, t1, nth, opt) {
+    opt = opt || {};
+    var mat = opt.mat || V.MAT.skin, g = opt.g || 0, inward = !!opt.inward;
+    var i, j, th0, th1, a, b;
+    for (i = 0; i < prof.length - 1; i++) {
+      a = prof[i]; b = prof[i + 1];
+      if (Math.abs(a[0] - b[0]) < 0.01 && Math.abs(a[1] - b[1]) < 0.01) continue;
+      for (j = 0; j < nth; j++) {
+        th0 = lerp(t0, t1, j / nth); th1 = lerp(t0, t1, (j + 1) / nth);
+        var thm = (th0 + th1) * 0.5;
+        /* slope-aware normal so cones/lips read correctly */
+        var dr = b[1] - a[1], dx = b[0] - a[0], m = Math.hypot(dr, dx) || 1;
+        var nAx = (inward ? 1 : -1) * dr / m, nRa = (inward ? -1 : 1) * dx / m;
+        var n = [nAx, nRa * Math.cos(thm), nRa * Math.sin(thm)];
+        out.push(face([pt(a[0], a[1], th0), pt(b[0], b[1], th0), pt(b[0], b[1], th1), pt(a[0], a[1], th1)],
+          n, mat, g, (a[0] * 0.021 + thm * 3.3), opt.extra));
+      }
+    }
+  }
+  /* annular cap (faces +x or -x) */
+  function annulus(out, x, rIn, rOut, t0, t1, nth, opt) {
+    opt = opt || {};
+    var mat = opt.mat || V.MAT.cut, g = opt.g || 0, sgn = opt.aft ? 1 : -1;
+    for (var j = 0; j < nth; j++) {
+      var th0 = lerp(t0, t1, j / nth), th1 = lerp(t0, t1, (j + 1) / nth);
+      out.push(face([pt(x, rIn, th0), pt(x, rOut, th0), pt(x, rOut, th1), pt(x, rIn, th1)],
+        [sgn, 0, 0], mat, g, x * 0.03 + th0 * 2.1, opt.extra));
+    }
+  }
+  /* meridional section face in the plane theta=const, between two profiles.
+     this is what makes the quarter-cut read as a real cut through material. */
+  function meridian(out, profO, profI, th, x0, x1, nx, opt) {
+    opt = opt || {};
+    var mat = opt.mat || V.MAT.cut, g = opt.g || 0;
+    var so = sample(profO, x0, x1, nx), si = sample(profI, x0, x1, nx);
+    var v = [], i;
+    for (i = 0; i < so.length; i++) v.push(pt(so[i][0], so[i][1], th));
+    for (i = si.length - 1; i >= 0; i--) v.push(pt(si[i][0], si[i][1], th));
+    var s = Math.sin(th), c = Math.cos(th);
+    out.push(face(v, [0, (opt.flip ? -1 : 1) * s, (opt.flip ? 1 : -1) * c], mat, g, x0 * 0.02, opt.extra));
+  }
+  /* rectangular box from origin + 3 edge vectors (actuators, pads, bars) */
+  function box(out, o, e1, e2, e3, opt) {
+    opt = opt || {}; var mat = opt.mat || V.MAT.steel, g = opt.g || 0;
+    function P(a, b, c) { return [o[0] + e1[0] * a + e2[0] * b + e3[0] * c, o[1] + e1[1] * a + e2[1] * b + e3[1] * c, o[2] + e1[2] * a + e2[2] * b + e3[2] * c]; }
+    function cross(u, w) { return [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]; }
+    function neg(u) { return [-u[0], -u[1], -u[2]]; }
+    var quads = [
+      [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], cross(e1, e2)],
+      [[0, 0, 1], [0, 1, 1], [1, 1, 1], [1, 0, 1], neg(cross(e1, e2))],
+      [[0, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0], neg(cross(e1, e3))],
+      [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1], cross(e1, e3)],
+      [[0, 0, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], neg(cross(e2, e3))],
+      [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0], cross(e2, e3)]
+    ];
+    for (var q = 0; q < quads.length; q++) {
+      var Q = quads[q];
+      out.push(face([P.apply(null, Q[0]), P.apply(null, Q[1]), P.apply(null, Q[2]), P.apply(null, Q[3])],
+        Q[4], mat, g, (o[0] + q * 7) * 0.03, opt.extra));
+    }
+  }
+  /* pipe run through waypoints (x,r,theta) — fuel/oil/HX plumbing */
+  function tube(out, wpts, rad, opt) {
+    opt = opt || {}; var mat = opt.mat || V.MAT.fuel, g = opt.g || 0, seg = opt.seg || 6;
+    var pts = wpts.map(function (w) { return pt(w[0], w[1], w[2]); });
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      var ax = b[0] - a[0], ay = b[1] - a[1], az = b[2] - a[2];
+      var L = Math.hypot(ax, ay, az) || 1; ax /= L; ay /= L; az /= L;
+      /* two perpendiculars */
+      var ux = 0, uy = 0, uz = 0;
+      if (Math.abs(ax) < 0.9) { ux = 1; } else { uy = 1; }
+      var px = uy * az - uz * ay, py = uz * ax - ux * az, pz = ux * ay - uy * ax;
+      var pm = Math.hypot(px, py, pz) || 1; px /= pm; py /= pm; pz /= pm;
+      var qx = ay * pz - az * py, qy = az * px - ax * pz, qz = ax * py - ay * px;
+      for (var j = 0; j < seg; j++) {
+        var t0 = j / seg * TAU, t1 = (j + 1) / seg * TAU;
+        var c0 = Math.cos(t0), s0 = Math.sin(t0), c1 = Math.cos(t1), s1 = Math.sin(t1);
+        var n0 = [px * c0 + qx * s0, py * c0 + qy * s0, pz * c0 + qz * s0];
+        var n1 = [px * c1 + qx * s1, py * c1 + qy * s1, pz * c1 + qz * s1];
+        out.push(face([
+          [a[0] + n0[0] * rad, a[1] + n0[1] * rad, a[2] + n0[2] * rad],
+          [b[0] + n0[0] * rad, b[1] + n0[1] * rad, b[2] + n0[2] * rad],
+          [b[0] + n1[0] * rad, b[1] + n1[1] * rad, b[2] + n1[2] * rad],
+          [a[0] + n1[0] * rad, a[1] + n1[1] * rad, a[2] + n1[2] * rad]
+        ], [(n0[0] + n1[0]) / 2, (n0[1] + n1[1]) / 2, (n0[2] + n1[2]) / 2], mat, g, (a[0] + j * 3) * 0.04, opt.extra));
+      }
+    }
+  }
+
+  /* ---- blades / vanes ----------------------------------------------------
+     spec: {xLE,xTE,rHub,rTip,count,twist,twistTip,sweep,bow,mat,g}
+     twist  = stagger at hub (deg of arc across the chord)
+     bow    = camber (deg), used for variable-camber vanes                   */
+  function bladeRow(out, spec, opt) {
+    opt = opt || {};
+    var mat = spec.mat || V.MAT.titan, g = spec.g || 0;
+    var count = spec.count || 20, nu = spec.nu || 3, nc = spec.nc || 2;
+    var tw = (spec.twist || -22) * D2R, twT = (spec.twistTip === undefined ? (spec.twist || -22) * 0.55 : spec.twistTip) * D2R;
+    var bow = (spec.bow || 0) * D2R, sweep = spec.sweep || 0, lean = spec.lean || 0;
+    var thickTint = spec.thickTint || 0;
+    for (var k = 0; k < count; k++) {
+      var th0 = k / count * TAU + (spec.phase || 0);
+      for (var iu = 0; iu < nu; iu++) {
+        for (var ic = 0; ic < nc; ic++) {
+          var uv = [[iu / nu, ic / nc], [(iu + 1) / nu, ic / nc], [(iu + 1) / nu, (ic + 1) / nc], [iu / nu, (ic + 1) / nc]];
+          var v = [], nAcc = [0, 0, 0];
+          for (var q = 0; q < 4; q++) {
+            var u = uv[q][0], c = uv[q][1];
+            var stag = lerp(tw, twT, u);
+            var r = lerp(spec.rHub, spec.rTip, u);
+            var x = lerp(spec.xLE, spec.xTE, c) + sweep * u * u;
+            var th = th0 + stag * (c - 0.5) + bow * Math.sin(Math.PI * c) * (0.35 + 0.65 * u) + lean * u * D2R;
+            v.push(pt(x, r, th));
+          }
+          /* face normal from the quad */
+          var e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+          var e2 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
+          nAcc = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+          out.push(face(v, nAcc, mat, g, (k * 0.7 + iu * 1.9 + ic * 0.31 + spec.xLE * 0.01), opt.extra || (thickTint ? { glow: thickTint } : null)));
+        }
+      }
+    }
+  }
+  /* louver / door ring: variable-geometry valves (mode-select, VABI) */
+  function louverRing(out, spec) {
+    var count = spec.count || 14, mat = spec.mat || V.MAT.steel;
+    var open = spec.open === undefined ? 0.5 : spec.open;          /* 0..1 */
+    var ang = lerp(spec.angClosed || 0, spec.angOpen || 55, open) * D2R;
+    var len = spec.len || 46, wid = (spec.wid || 0.7);
+    for (var k = 0; k < count; k++) {
+      var th = k / count * TAU + (spec.phase || 0);
+      var dth = TAU / count * wid;
+      var r0 = spec.r0, x0 = spec.x0;
+      /* hinge at (x0, r0); door swings inward/outward by ang */
+      var r1 = r0 - Math.sin(ang) * len * (spec.inward === false ? -1 : 1);
+      var x1 = x0 + Math.cos(ang) * len;
+      var v = [pt(x0, r0, th - dth / 2), pt(x1, r1, th - dth / 2), pt(x1, r1, th + dth / 2), pt(x0, r0, th + dth / 2)];
+      var e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+      var e2 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
+      out.push(face(v, [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]],
+        mat, spec.g || 0, k * 0.63 + x0 * 0.01, spec.extra));
+    }
+  }
+
+  /* =========================================================================
+     3.  GROUPS (animated transforms applied at project time)
+     ========================================================================*/
+  var G = { STATIC: 0, N1: 1, N2: 2, NOZ_UP: 3, NOZ_DN: 4, EXP_FAN: 5, EXP_MSV: 6, EXP_HX: 7, EXP_TURB: 8, EXP_NOZ: 9, EXP_COMB: 10, N1B: 11, N2B: 12 };
+
+  function makeGroups() {
+    var arr = [];
+    for (var i = 0; i <= 12; i++) arr.push({ rotX: 0, tx: 0, ty: 0, tz: 0, hinge: null });
+    return arr;
+  }
+
+  /* =========================================================================
+     4.  CUT GEOMETRY CONVENTION
+     quarter cut: material is removed for theta in (cutA .. cutB).
+     theta = 0 is straight up (+y); positive theta rotates toward the viewer.
+     ========================================================================*/
+  /* theta: 0 = up (+y), 90 = far (+z), 180 = down, 270 = near (-z).
+     the camera sits front-left-above, so the near-upper quadrant
+     (270..360 deg) is removed and the two section planes are
+     CUT_A = 0 (vertical, faces the viewer) and CUT_B = 270 (horizontal). */
+  var CUT_A = 0, CUT_B = Math.PI * 1.5;
+  var KEEP_A = 0, KEEP_B = Math.PI * 1.5;      /* drawn azimuth range         */
+
+  /* =========================================================================
+     5.  STATIC ENGINE ASSEMBLY
+     ========================================================================*/
+  function buildStatic(q) {
+    q = q || 1;
+    var nthFull = Math.max(18, Math.round(34 * q));      /* over 270 deg      */
+    var nthHalf = Math.max(10, Math.round(18 * q));
+    var F = [];
+    var M = V.MAT;
+    var kA = KEEP_A, kB = KEEP_B;
+
+    /* ---- 5.1 nacelle: outer skin (X-ray on the near side) + inner wall ----*/
+    revolve(F, sample(PROF.nacOut, 0, 1330, 12), kA, kB, nthFull, { mat: M.skin, extra: { tag: 'nacelle', xray: 1 } });
+    revolve(F, sample(PROF.nacIn, 0, 1250, 12), kA, kB, nthFull, { mat: M.duct, inward: true, extra: { tag: 'nacelle' } });
+    /* inlet lip torus-ish rounding */
+    revolve(F, [[0, 197], [6, 203], [14, 208], [26, 213]], kA, kB, nthFull, { mat: M.titan, extra: { tag: 'inlet' } });
+    /* cut faces of the nacelle wall on both meridional planes */
+    meridian(F, sample(PROF.nacOut, 0, 1330, 26), sample(PROF.nacIn, 0, 1330, 26), CUT_A, 0, 1330, 26, { mat: M.cut, extra: { tag: 'cut' } });
+    meridian(F, sample(PROF.nacOut, 0, 1330, 26), sample(PROF.nacIn, 0, 1330, 26), CUT_B, 0, 1330, 26, { mat: M.cut, flip: true, extra: { tag: 'cut' } });
+    annulus(F, 1330, interpR(PROF.nacIn, 1330), interpR(PROF.nacOut, 1330), kA, kB, nthFull, { mat: M.cut, aft: true });
+
+    /* ---- 5.2 third stream duct: inner wall + splitter nose ----------------*/
+    revolve(F, sample(PROF.tsIn, 330, 1250, 10), kA, kB, nthFull, { mat: M.duct, extra: { tag: 'third' } });
+    revolve(F, sample(PROF.bypOut, 330, 1250, 10), kA, kB, nthFull, { mat: M.duct, inward: true, extra: { tag: 'bypass' } });
+    revolve(F, [[326, 148.5], [330, 150], [334, 152.2]], kA, kB, nthFull, { mat: M.titan, extra: { tag: 'splitter3' } });
+    meridian(F, sample(PROF.tsIn, 330, 1250, 18), sample(PROF.bypOut, 330, 1250, 18), CUT_A, 330, 1250, 18, { mat: M.cutcore, extra: { tag: 'cut' } });
+    meridian(F, sample(PROF.tsIn, 330, 1250, 18), sample(PROF.bypOut, 330, 1250, 18), CUT_B, 330, 1250, 18, { mat: M.cutcore, flip: true, extra: { tag: 'cut' } });
+
+    /* ---- 5.3 core casing + core cowl nose --------------------------------*/
+    revolve(F, sample(PROF.coreCase, 300, 1250, 12), kA, kB, nthFull, { mat: M.steel, extra: { tag: 'corecase', xray: 0.55 } });
+    revolve(F, sample(PROF.coreTip, 300, 1250, 14), kA, kB, nthFull, { mat: M.steel, inward: true, extra: { tag: 'coreflow' } });
+    revolve(F, [[296, 118], [300, 120], [304, 123]], kA, kB, nthFull, { mat: M.titan, extra: { tag: 'splitter2' } });
+    meridian(F, sample(PROF.coreCase, 300, 1250, 20), sample(PROF.coreTip, 300, 1250, 20), CUT_A, 300, 1250, 20, { mat: M.cutcore, extra: { tag: 'cut' } });
+    meridian(F, sample(PROF.coreCase, 300, 1250, 20), sample(PROF.coreTip, 300, 1250, 20), CUT_B, 300, 1250, 20, { mat: M.cutcore, flip: true, extra: { tag: 'cut' } });
+
+    /* ---- 5.4 spinner / hub / tail cone ----------------------------------*/
+    revolve(F, sample(PROF.hub, -190, 1372, 26), kA, kB, nthFull, { mat: M.titan, extra: { tag: 'hub' } });
+    meridian(F, sample(PROF.hub, -190, 1372, 26), sample(PROF.hub, -190, 1372, 26).map(function (p) { return [p[0], 0]; }), CUT_A, -190, 1372, 26, { mat: M.cutcore, extra: { tag: 'cut', exp: 'hub' } });
+
+    /* ---- 5.5 adaptive fan: variable IGV handled dynamically; rotors here --*/
+    bladeRow(F, { xLE: 176, xTE: 214, rHub: 58, rTip: 179, count: 20, twist: -30, twistTip: -13, sweep: -16, mat: M.titan, g: G.N1, nu: 4, nc: 2 });
+    bladeRow(F, { xLE: 248, xTE: 280, rHub: 62, rTip: 177, count: 22, twist: -27, twistTip: -12, sweep: -11, mat: M.titan, g: G.N1, nu: 4, nc: 2, phase: 0.07 });
+    /* fan discs (visible through the cut) */
+    revolve(F, [[214, 40], [222, 44], [240, 44], [248, 40]], kA, kB, nthHalf, { mat: M.steel, g: G.N1 });
+
+    /* ---- 5.6 CDFS (core driven fan stage) on the HP spool ----------------*/
+    bladeRow(F, { xLE: 358, xTE: 392, rHub: 72, rTip: 114, count: 24, twist: -25, twistTip: -14, sweep: -6, mat: M.titan, g: G.N2, nu: 3, nc: 2 });
+    bladeRow(F, { xLE: 398, xTE: 412, rHub: 74, rTip: 112, count: 28, twist: -10, twistTip: -6, mat: M.steel, nu: 2, nc: 2 });
+
+    /* ---- 5.7 HPC 6 stages ------------------------------------------------*/
+    var hpc = [[500, 512, 516, 540], [546, 556, 560, 582], [588, 597, 601, 620],
+    [626, 634, 638, 655], [661, 668, 672, 687], [693, 700, 704, 718]];
+    for (var s = 0; s < hpc.length; s++) {
+      var h = hpc[s], u = s / (hpc.length - 1);
+      var rh = lerp(78, 88, u), rt = lerp(106, 95, u);
+      bladeRow(F, { xLE: h[0], xTE: h[1], rHub: rh, rTip: rt, count: 30 + s * 4, twist: -9, twistTip: -5, mat: M.steel, nu: 2, nc: 1 });
+      bladeRow(F, { xLE: h[2], xTE: h[3], rHub: rh + 1, rTip: rt - 2, count: 32 + s * 4, twist: -17, twistTip: -9, sweep: -2, mat: M.titan, g: G.N2, nu: 3, nc: 2, phase: 0.03 * s });
+    }
+    bladeRow(F, { xLE: 724, xTE: 736, rHub: 86, rTip: 94, count: 44, twist: -6, twistTip: -4, mat: M.steel, nu: 2, nc: 1 });
+
+    /* ---- 5.8 annular combustor ------------------------------------------*/
+    revolve(F, sample(PROF.linO, 778, 946, 8), kA, kB, nthFull, { mat: M.hotmet, extra: { tag: 'liner' } });
+    revolve(F, sample(PROF.linI, 778, 946, 8), kA, kB, nthFull, { mat: M.hotmet, inward: true, extra: { tag: 'liner' } });
+    revolve(F, [[772, 96], [778, 104], [778, 114]], kA, kB, nthHalf, { mat: M.hotmet, extra: { tag: 'dome' } });
+    meridian(F, sample(PROF.linO, 778, 946, 10), sample(PROF.linI, 778, 946, 10), CUT_A, 778, 946, 10, { mat: M.cutcore, extra: { tag: 'cut' } });
+    /* diffuser + pre-diffuser struts */
+    revolve(F, [[740, 96], [760, 100], [778, 104]], kA, kB, nthHalf, { mat: M.steel });
+
+    /* ---- 5.9 CMC HP turbine + LP turbine --------------------------------*/
+    bladeRow(F, { xLE: 950, xTE: 974, rHub: 84, rTip: 118, count: 42, twist: -14, twistTip: -8, mat: M.cmc, nu: 3, nc: 2, thickTint: 0.10 });
+    bladeRow(F, { xLE: 978, xTE: 1002, rHub: 86, rTip: 120, count: 46, twist: -28, twistTip: -15, sweep: 3, mat: M.cmc, g: G.N2, nu: 3, nc: 2, thickTint: 0.16 });
+    var lpt = [[1012, 1030, 1034, 1058, 88, 126], [1066, 1084, 1088, 1112, 92, 134], [1120, 1138, 1142, 1166, 96, 142]];
+    for (var l = 0; l < lpt.length; l++) {
+      var L = lpt[l];
+      bladeRow(F, { xLE: L[0], xTE: L[1], rHub: L[4], rTip: L[5], count: 40 + l * 4, twist: -12, twistTip: -7, mat: M.cmc, nu: 3, nc: 2, thickTint: 0.07 - l * 0.02 });
+      bladeRow(F, { xLE: L[2], xTE: L[3], rHub: L[4] + 1, rTip: L[5] + 2, count: 44 + l * 4, twist: -24, twistTip: -13, mat: M.cmc, g: G.N1, nu: 3, nc: 2, thickTint: 0.09 - l * 0.02 });
+    }
+
+    /* ---- 5.10 augmentor liner + case, round->rect transition -------------*/
+    revolve(F, sample(PROF.abLin, 1250, 1420, 6), kA, kB, nthFull, { mat: M.hotmet, inward: true, extra: { tag: 'ab' } });
+    revolve(F, sample(PROF.abCase, 1250, 1420, 6), kA, kB, nthFull, { mat: M.skin, extra: { tag: 'ab', xray: 0.7 } });
+    meridian(F, sample(PROF.abCase, 1250, 1420, 8), sample(PROF.abLin, 1250, 1420, 8), CUT_A, 1250, 1420, 8, { mat: M.cut, extra: { tag: 'cut' } });
+    meridian(F, sample(PROF.abCase, 1250, 1420, 8), sample(PROF.abLin, 1250, 1420, 8), CUT_B, 1250, 1420, 8, { mat: M.cut, flip: true, extra: { tag: 'cut' } });
+    /* augmentor spray bars + V-gutter flame stabilisers */
+    for (var b2 = 0; b2 < 14; b2++) {
+      var tb = b2 / 14 * TAU;
+      if (tb > KEEP_B - 0.06) continue;
+      var rr0 = 70, rr1 = 168;
+      out_sprayBar(F, 1262, rr0, rr1, tb, M.steel);
+      out_vGutter(F, 1300, rr0 + 6, rr1 - 8, tb, M.hotmet);
+    }
+
+    /* ---- 5.11 external plumbing / actuators / accessories ---------------*/
+    externalPlumbing(F, nthHalf);
+
+    /* ---- 5.12 heat exchanger core in the third stream --------------------*/
+    hxCore(F, nthHalf);
+
+    return F;
+  }
+
+  /* radial spray bar in the augmentor */
+  function out_sprayBar(F, x, r0, r1, th, mat) {
+    var n = 4, w = 5;
+    for (var i = 0; i < n; i++) {
+      var ra = lerp(r0, r1, i / n), rb = lerp(r0, r1, (i + 1) / n);
+      var v = [pt(x - w, ra, th), pt(x + w, ra, th), pt(x + w, rb, th), pt(x - w, rb, th)];
+      F.push(face(v, [0, -Math.sin(th), Math.cos(th)], mat, 0, x * 0.02 + i));
+    }
+  }
+  /* V-gutter flame stabiliser ring segment */
+  function out_vGutter(F, x, r0, r1, th, mat) {
+    var w = 14;
+    F.push(face([pt(x - w, r0, th), pt(x, r0, th + 0.06), pt(x, r1, th + 0.06), pt(x - w, r1, th)], [0, -Math.sin(th), Math.cos(th)], mat, 0, x * 0.02));
+    F.push(face([pt(x - w, r0, th), pt(x, r0, th - 0.06), pt(x, r1, th - 0.06), pt(x - w, r1, th)], [0, Math.sin(th), -Math.cos(th)], mat, 0, x * 0.02 + 1.3));
+  }
+
+  /* ---- external systems: fuel manifold, oil lines, actuators, gearbox ----*/
+  function externalPlumbing(F, nth) {
+    var M = V.MAT;
+    /* main fuel manifold ring around the combustor case */
+    var ringTh = [], i;
+    for (i = 0; i <= 22; i++) {
+      var t = 0.05 + i / 22 * (KEEP_B - 0.12);
+      ringTh.push([790, 146, t]);
+    }
+    tube(F, ringTh, 6.5, { mat: M.fuel, seg: 6 });
+    /* 12 branch lines manifold -> injector bosses */
+    for (i = 0; i < 12; i++) {
+      var th = i / 12 * TAU;
+      if (th > KEEP_B - 0.25) continue;
+      tube(F, [[790, 146, th], [782, 132, th], [776, 124, th]], 3.4, { mat: M.fuel, seg: 5 });
+    }
+    /* fuel supply line running forward along the case */
+    tube(F, [[300, 200, 3.9], [520, 176, 3.9], [700, 156, 3.85], [788, 148, 3.8]], 7, { mat: M.fuel, seg: 6 });
+    /* scavenge + supply oil lines */
+    tube(F, [[210, 206, 4.35], [430, 196, 4.35], [700, 178, 4.3], [980, 172, 4.25], [1180, 176, 4.2]], 5.4, { mat: M.oil, seg: 6 });
+    tube(F, [[230, 212, 4.6], [520, 200, 4.6], [860, 186, 4.55], [1150, 182, 4.5]], 4.6, { mat: M.oil, seg: 6 });
+    /* HX transfer lines: third stream HX <-> oil/fuel system (thermal path) */
+    tube(F, [[900, 170, 4.05], [900, 196, 4.05], [1010, 200, 4.05], [1120, 196, 4.05], [1120, 172, 4.05]], 5.0, { mat: M.copper, seg: 6, extra: { tag: 'hxline' } });
+    tube(F, [[930, 168, 3.55], [930, 198, 3.55], [1060, 202, 3.55], [1090, 174, 3.55]], 4.2, { mat: M.copper, seg: 6, extra: { tag: 'hxline' } });
+    /* actuators: fan VIGV, mode-select valve, VABI, nozzle */
+    actuator(F, 150, 206, 3.75, 96, 'vigv');
+    actuator(F, 424, 198, 3.55, 92, 'msv');
+    actuator(F, 1060, 190, 3.5, 86, 'vabi');
+    actuator(F, 1360, 192, 3.6, 120, 'nozzle');
+    actuator(F, 1360, 192, 2.55, 120, 'nozzle2');
+    /* accessory gearbox pad + generator can, bottom of the case */
+    box(F, pt(520, 196, 3.14), [150, 0, 0], [0, -46, 0], [0, 0, 62], { mat: M.matte, extra: { tag: 'agb' } });
+    tube(F, [[540, 214, 3.14], [660, 214, 3.14]], 22, { mat: M.matte, seg: 8, extra: { tag: 'agb' } });
+    /* igniter boxes */
+    box(F, pt(806, 150, 4.9), [34, 0, 0], [0, 20, 0], [0, 0, 22], { mat: M.matte });
+    box(F, pt(806, 150, 1.9), [34, 0, 0], [0, 20, 0], [0, 0, 22], { mat: M.matte });
+  }
+  function actuator(F, x, r, th, len, tag) {
+    var M = V.MAT;
+    tube(F, [[x, r, th], [x + len * 0.62, r + 4, th]], 9.5, { mat: M.steel, seg: 7, extra: { tag: tag } });
+    tube(F, [[x + len * 0.55, r + 4, th], [x + len, r + 6, th]], 5.2, { mat: M.titan, seg: 6, extra: { tag: tag } });
+    box(F, pt(x - 6, r - 10, th), [16, 0, 0], [0, 20, 0], [0, 0, 16], { mat: M.matte, extra: { tag: tag } });
+  }
+
+  /* ---- heat exchanger: honeycomb-finned matrix in the third stream -------*/
+  function hxCore(F, nth) {
+    var M = V.MAT;
+    var x0 = 900, x1 = 1120, n = 9;
+    /* header manifolds fore and aft */
+    for (var k = 0; k < 2; k++) {
+      var xx = k ? x1 : x0;
+      revolve(F, [[xx - 6, interpR(PROF.tsIn, xx) + 2], [xx + 6, interpR(PROF.tsIn, xx) + 2]], KEEP_A, KEEP_B, nth, { mat: M.hx, extra: { tag: 'hx' } });
+    }
+    /* finned panels: radial plates spanning the third-stream annulus */
+    var plates = 26;
+    for (var i = 0; i < plates; i++) {
+      var th = i / plates * TAU;
+      if (th > KEEP_B - 0.08) continue;
+      var rIn = interpR(PROF.tsIn, (x0 + x1) / 2) + 3, rOut = interpR(PROF.nacIn, (x0 + x1) / 2) - 4;
+      for (var j = 0; j < n; j++) {
+        var xa = lerp(x0, x1, j / n), xb = lerp(x0, x1, (j + 0.72) / n);
+        F.push(face([pt(xa, rIn, th), pt(xb, rIn, th), pt(xb, rOut, th), pt(xa, rOut, th)],
+          [0, -Math.sin(th), Math.cos(th)], M.hx, 0, xa * 0.05 + i, { tag: 'hxfin', hxU: j / n }));
+      }
+    }
+    /* spiral tube bundle (hot side) seen through the cut */
+    for (var c = 0; c < 3; c++) {
+      var wp = [], turns = 6;
+      for (var s = 0; s <= 40; s++) {
+        var u = s / 40;
+        wp.push([lerp(x0 + 8, x1 - 8, u), lerp(157, 172, 0.5 + 0.5 * Math.sin(u * Math.PI)) + c * 6, 0.3 + u * 4.1]);
+      }
+      tube(F, wp, 3.2, { mat: M.copper, seg: 5, extra: { tag: 'hxcoil' } });
+    }
+  }
+
+  /* =========================================================================
+     6.  DYNAMIC (variable geometry) — rebuilt every frame from sim state
+     ========================================================================*/
+  function buildDynamic(s, q) {
+    var F = [], M = V.MAT;
+    var nth = Math.max(10, Math.round(16 * (q || 1)));
+
+    /* 6.1 fan variable-camber IGV + variable stators ---------------------*/
+    bladeRow(F, {
+      xLE: 148, xTE: 170, rHub: 56, rTip: 181, count: 24, twist: -6, twistTip: -4,
+      bow: -26 * s.vigv, mat: M.titan, nu: 3, nc: 3, extra: { tag: 'vigv' }
+    });
+    bladeRow(F, {
+      xLE: 222, xTE: 240, rHub: 60, rTip: 178, count: 26, twist: -8 - 16 * s.fanStator, twistTip: -5 - 10 * s.fanStator,
+      bow: -12 * s.fanStator, mat: M.steel, nu: 3, nc: 2, extra: { tag: 'vsv' }
+    });
+    bladeRow(F, {
+      xLE: 288, xTE: 302, rHub: 64, rTip: 176, count: 28, twist: -8 - 14 * s.fanStator, twistTip: -5 - 9 * s.fanStator,
+      bow: -10 * s.fanStator, mat: M.steel, nu: 3, nc: 2, extra: { tag: 'vsv' }
+    });
+    /* 6.2 CDFS variable-camber inlet guide vanes -------------------------*/
+    bladeRow(F, {
+      xLE: 336, xTE: 354, rHub: 70, rTip: 116, count: 22, twist: -8 - 18 * s.cdfsVane, twistTip: -5 - 12 * s.cdfsVane,
+      bow: -22 * s.cdfsVane, mat: M.titan, nu: 3, nc: 3, extra: { tag: 'cdfsigv' }
+    });
+    /* 6.3 mode-select valve: door ring between 2nd and 3rd stream --------*/
+    louverRing(F, { x0: 424, r0: 150, count: 16, len: 52, wid: 0.72, angClosed: 4, angOpen: 62, open: s.msv, mat: M.titan, extra: { tag: 'msv' } });
+    /* forward VABI: bypass <-> third stream ejector doors ----------------*/
+    louverRing(F, { x0: 486, r0: 150, count: 14, len: 40, wid: 0.66, angClosed: 2, angOpen: 44, open: s.vabiF, mat: M.steel, extra: { tag: 'vabiF' } });
+    /* aft VABI: third stream -> mixer / augmentor ------------------------*/
+    louverRing(F, { x0: 1196, r0: 180, count: 16, len: 48, wid: 0.7, angClosed: 3, angOpen: 52, open: s.vabiR, mat: M.steel, extra: { tag: 'vabiR' } });
+    /* third-stream nozzle-slot doors (efficiency mode discharge) ---------*/
+    louverRing(F, { x0: 1424, r0: 186, count: 18, len: 34, wid: 0.62, angClosed: 1, angOpen: 34, open: s.slot, mat: M.titan, inward: false, extra: { tag: 'slot' } });
+
+    /* 6.4 round -> rectangle transition + 2-D vectoring nozzle -----------*/
+    nozzle(F, s, nth);
+
+    return F;
+  }
+
+  /* 2-D convergent-divergent vectoring nozzle: upper/lower flaps + sidewalls */
+  function nozzle(F, s, nth) {
+    var M = V.MAT;
+    var hIn = NOZ.hIn, w = NOZ.halfW;
+    var hT = lerp(NOZ.hThroatMin, NOZ.hThroatMax, s.a8);
+    var hE = lerp(NOZ.hExitMin, NOZ.hExitMax, s.a9);
+    var vec = s.vector * V.D2R;                     /* pitch vectoring       */
+    var xt = NOZ.xTrans1, xk = NOZ.xThroat, xe = NOZ.xExit;
+    /* transition duct: circle (r) -> rounded rectangle, 5 slices */
+    var slices = 6;
+    for (var i = 0; i < slices; i++) {
+      var u0 = i / slices, u1 = (i + 1) / slices;
+      var x0 = lerp(NOZ.xTrans0, xt, u0), x1 = lerp(NOZ.xTrans0, xt, u1);
+      ringSquare(F, x0, x1, u0, u1, nth, M.skin);
+    }
+    /* flaps: convergent (xt->xk) then divergent (xk->xe), for top and bottom */
+    for (var sgn = 1; sgn >= -1; sgn -= 2) {
+      var yIn = sgn * hIn, yT = sgn * hT, yE = sgn * hE;
+      var dy = Math.tan(vec) * (xe - xk) * (sgn > 0 ? 1 : 1);
+      /* convergent flap */
+      quad(F, [[xt, yIn, -w], [xk, yT + vec * 0 * sgn, -w], [xk, yT, w], [xt, yIn, w]], M.titan, sgn > 0 ? 'nozUp' : 'nozDn');
+      /* divergent flap, deflected by the vectoring angle */
+      quad(F, [[xk, yT, -w], [xe, yE + dy, -w], [xe, yE + dy, w], [xk, yT, w]], M.titan, sgn > 0 ? 'nozUp' : 'nozDn');
+      /* external flap shell (cooler, matte) */
+      quad(F, [[xk, yT + sgn * 14, -w], [xe, yE + dy + sgn * 12, -w], [xe, yE + dy + sgn * 12, w], [xk, yT + sgn * 14, w]], M.matte, 'nozShell');
+      /* actuator link */
+      tube(F, [[xt - 10, Math.abs(yIn) + 14, sgn > 0 ? 0 : Math.PI], [xk + 30, Math.abs(yT) + 34, sgn > 0 ? 0 : Math.PI]], 6, { mat: M.steel, seg: 6 });
+    }
+    /* sidewalls (only the far one, the near one is cut away) */
+    var yy = [hIn, hT, hE];
+    F.push(face([[xt, hIn, -w], [xk, hT, -w], [xe, hE + Math.tan(vec) * (xe - xk), -w], [xe, -hE + Math.tan(vec) * (xe - xk), -w], [xk, -hT, -w], [xt, -hIn, -w]],
+      [0, 0, -1], M.skin, 0, 3.1, { tag: 'nozWall' }));
+    /* throat + exit reference rims */
+    F.push(face([[xk, hT, -w], [xk, hT, w], [xk, -hT, w], [xk, -hT, -w]], [1, 0, 0], M.dark, 0, 5.5, { tag: 'throat', alpha: 0.25 }));
+  }
+  function quad(F, v, mat, tag) {
+    var e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+    var e2 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
+    F.push(face(v, [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], mat, 0, v[0][0] * 0.02, { tag: tag }));
+  }
+  /* one slice of the round-to-rectangle transition */
+  function ringSquare(F, x0, x1, u0, u1, nth, mat) {
+    var r0 = interpR(PROF.abCase, x0), r1 = interpR(PROF.abCase, x1);
+    for (var j = 0; j < nth; j++) {
+      var t0 = lerp(KEEP_A, KEEP_B, j / nth), t1 = lerp(KEEP_A, KEEP_B, (j + 1) / nth);
+      var A = blend(x0, r0, t0, u0), B = blend(x1, r1, t0, u1), C = blend(x1, r1, t1, u1), D = blend(x0, r0, t1, u0);
+      var e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [D[0] - A[0], D[1] - A[1], D[2] - A[2]];
+      F.push(face([A, B, C, D], [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], mat, 0, x0 * 0.02 + t0, { tag: 'trans' }));
+    }
+  }
+  /* circle -> rounded-rectangle (superellipse) morph, u = 0 round .. 1 rect */
+  function blend(x, r, th, u) {
+    var cy = Math.cos(th), sy = Math.sin(th);
+    var k = 4.0, hy = NOZ.hIn, hz = NOZ.halfW;
+    var m = Math.pow(Math.pow(Math.abs(cy), k) + Math.pow(Math.abs(sy), k), -1 / k);
+    return [x, lerp(r * cy, hy * cy * m, u), lerp(r * sy, hz * sy * m, u)];
+  }
+
+  /* =========================================================================
+     7.  CALLOUTS (numbered leader lines) — 3-D anchors
+     ========================================================================*/
+  var CALLOUTS = [
+    ['01', 60, 210, 5.0, '超音速进气道与激波锥', 'INLET / SHOCK CONE'],
+    ['02', 158, 190, 5.35, '自适应风扇可变弯度导叶 VIGV', 'ADAPTIVE FAN VIGV'],
+    ['03', 232, 186, 5.6, '自适应风扇 2 级 · 可调静子', 'ADAPTIVE FAN + VSV'],
+    ['04', 332, 152, 5.9, '第三涵道分流环', '3RD-STREAM SPLITTER'],
+    ['05', 374, 118, 0.28, '核心机驱动风扇级 CDFS', 'CORE-DRIVEN FAN STAGE'],
+    ['06', 430, 152, 0.52, '模式选择活门', 'MODE-SELECT VALVE'],
+    ['07', 492, 150, 0.78, '前可变面积涵道引射器 VABI', 'FORWARD VABI'],
+    ['08', 610, 108, 1.05, '高压压气机 6 级', 'HP COMPRESSOR'],
+    ['09', 790, 148, 1.32, '燃油总管与 12 只离心喷嘴', 'FUEL MANIFOLD / INJECTORS'],
+    ['10', 860, 122, 1.58, '环形燃烧室 · 气膜冷却火焰筒', 'ANNULAR COMBUSTOR'],
+    ['11', 964, 120, 1.85, 'CMC 高压涡轮导向器', 'CMC HPT NOZZLE'],
+    ['12', 992, 122, 2.1, 'CMC 高压涡轮转子', 'CMC HPT ROTOR'],
+    ['13', 1090, 140, 2.4, 'CMC 低压涡轮 3 级', 'CMC LP TURBINE'],
+    ['14', 1010, 170, 2.7, '第三涵道热交换器 · 蜂窝翅片', '3RD-STREAM HEAT EXCHANGER'],
+    ['15', 1200, 182, 2.98, '后可变面积涵道引射器 VABI', 'AFT VABI / MIXER'],
+    ['16', 1300, 150, 3.25, '加力燃烧室 · V 型稳焰器', 'AUGMENTOR / V-GUTTER'],
+    ['17', 1424, 186, 3.5, '第三股气流环形排气缝', '3RD-STREAM DISCHARGE SLOT'],
+    ['18', 1500, 120, 3.8, '二元矢量收敛-扩散尾喷管', '2-D VECTORING C-D NOZZLE'],
+    ['19', 560, 200, 4.2, '附件机匣与滑油管路', 'AGB / OIL LINES'],
+    ['20', 1360, 196, 4.55, '喷管作动筒组', 'NOZZLE ACTUATORS']
+  ];
+
+  V.PROF = PROF; V.STA = STA; V.NOZ = NOZ; V.G = G; V.CUT_A = CUT_A; V.CUT_B = CUT_B;
+  V.KEEP_A = KEEP_A; V.KEEP_B = KEEP_B;
+  V.interpR = interpR; V.sample = sample; V.offsetProf = offsetProf;
+  V.revolve = revolve; V.annulus = annulus; V.meridian = meridian; V.box = box; V.tube = tube;
+  V.bladeRow = bladeRow; V.louverRing = louverRing; V.face = face; V.pt = pt;
+  V.makeGroups = makeGroups; V.buildStatic = buildStatic; V.buildDynamic = buildDynamic;
+  V.CALLOUTS = CALLOUTS;
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+/* ==== sim.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   sim.js
+   master run sequence, telemetry model, variable-geometry schedule,
+   three-stream particle advection (mode-dependent re-routing)
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+  var clamp = V.clamp, lerp = V.lerp, sat = V.sat, smooth = V.smooth, fbm = V.fbm, TAU = V.TAU;
+  var PROF = V.PROF, interpR = V.interpR;
+
+  var PERIOD = 66;                       /* master loop, seconds             */
+
+  /* ---- keyframe interpolation (smoothstep between knots) -----------------*/
+  function kf(tab, t) {
+    var n = tab.length;
+    if (t <= tab[0][0]) return tab[0][1];
+    if (t >= tab[n - 1][0]) return tab[n - 1][1];
+    for (var i = 0; i < n - 1; i++) {
+      if (t <= tab[i + 1][0]) {
+        var a = tab[i], b = tab[i + 1];
+        return lerp(a[1], b[1], smooth((t - a[0]) / ((b[0] - a[0]) || 1e-9)));
+      }
+    }
+    return tab[n - 1][1];
+  }
+
+  /* ---- master schedule ---------------------------------------------------
+     0-7   start / light-off      7-13  idle
+     13-20 accel to military      20-31 MODE 1 high-efficiency cruise
+     31-34 transit                34-46 MODE 2 dash + full augmentation
+     46-49 transit                49-60 MODE 3 thermal-management priority
+     60-66 recover to cruise, loop                                          */
+  var TL = {
+    n1: [[0, 0], [1.2, 3], [3, 11], [4.4, 19], [7, 23], [13, 24], [17.5, 96], [20, 95], [23, 87], [31, 86], [33.5, 99.5], [46, 100], [48.5, 95], [52, 89], [60, 89], [64, 86], [66, 86]],
+    n2: [[0, 0], [1.2, 15], [3, 33], [4.4, 47], [7, 59], [13, 60], [17.5, 98], [20, 97], [23, 91], [31, 91], [33.5, 99.2], [46, 100], [48.5, 97], [52, 92], [60, 92], [64, 91], [66, 91]],
+    t4: [[0, 288], [3.2, 300], [4.1, 330], [4.6, 1210], [5.4, 980], [7, 865], [13, 870], [17.5, 1875], [20, 1860], [23, 1600], [31, 1585], [33.5, 1905], [46, 1910], [48.5, 1800], [52, 1700], [60, 1698], [64, 1590], [66, 1585]],
+    t6: [[0, 288], [7, 720], [13, 725], [17.5, 1040], [20, 1035], [31, 900], [33.4, 940], [35.2, 2010], [45.2, 2035], [46.4, 1100], [49, 980], [60, 975], [66, 905]],
+    ab: [[0, 0], [33.2, 0], [34.4, 0.18], [35.4, 1], [45.0, 1], [46.0, 0.30], [47.2, 0], [66, 0]],
+    epr: [[0, 1.0], [7, 1.18], [13, 1.19], [17.5, 4.62], [20, 4.55], [23, 3.4], [31, 3.38], [33.5, 5.18], [46, 5.22], [48.5, 4.15], [52, 3.72], [60, 3.7], [66, 3.38]],
+    fn: [[0, 0], [4.6, 2], [7, 7.5], [13, 8], [17.5, 128], [20, 126], [23, 70], [31, 64], [33.5, 195], [46, 197], [48.5, 152], [52, 112], [60, 111], [64, 70], [66, 64]],
+    sfc: [[0, 0], [7, 1.62], [13, 1.58], [17.5, 0.93], [20, 0.92], [23, 0.75], [31, 0.72], [33.5, 1.92], [46, 1.95], [48.5, 1.08], [52, 0.9], [60, 0.9], [66, 0.72]],
+    bpr: [[0, 0.2], [7, 0.34], [13, 0.36], [17.5, 0.44], [20, 0.48], [23, 0.9], [31, 0.92], [33.5, 0.2], [46, 0.18], [48.5, 0.42], [52, 0.62], [60, 0.62], [64, 0.86], [66, 0.92]],
+    w3: [[0, 0.10], [13, 0.14], [17.5, 0.17], [20, 0.22], [23, 0.30], [31, 0.31], [33.5, 0.05], [46, 0.05], [48.5, 0.15], [52, 0.26], [60, 0.26], [64, 0.30], [66, 0.31]],
+    w2: [[0, 0.18], [13, 0.20], [17.5, 0.21], [20, 0.24], [23, 0.32], [31, 0.33], [33.5, 0.12], [46, 0.11], [48.5, 0.18], [52, 0.22], [60, 0.22], [66, 0.33]],
+    wf: [[0, 0], [3.6, 140], [4.6, 980], [7, 480], [13, 500], [17.5, 7100], [20, 6950], [23, 3250], [31, 3100], [33.5, 15600], [46, 15900], [48.5, 7000], [52, 5400], [60, 5380], [66, 3100]],
+    mach: [[0, 0], [7, 0], [13, 0.25], [20, 0.9], [31, 0.92], [34, 1.55], [40, 1.85], [46, 1.86], [49, 1.45], [56, 1.25], [60, 1.24], [66, 0.92]],
+    alt: [[0, 0], [13, 1500], [20, 11000], [31, 11200], [36, 12200], [46, 12300], [50, 9400], [60, 9200], [66, 11000]],
+    /* ---- variable geometry schedule (0..1) ---- */
+    vigv: [[0, 1], [7, 0.95], [13, 0.92], [17.5, 0.30], [20, 0.34], [23, 0.80], [31, 0.82], [33.5, 0.08], [46, 0.08], [48.5, 0.34], [52, 0.55], [60, 0.55], [66, 0.82]],
+    vsv: [[0, 1], [7, 0.92], [13, 0.90], [17.5, 0.26], [20, 0.30], [23, 0.78], [31, 0.80], [33.5, 0.06], [46, 0.06], [48.5, 0.30], [52, 0.52], [60, 0.52], [66, 0.80]],
+    cdfs: [[0, 1], [7, 0.90], [13, 0.88], [17.5, 0.25], [20, 0.28], [23, 0.78], [31, 0.80], [33.5, 0.10], [46, 0.10], [48.5, 0.32], [52, 0.50], [60, 0.50], [66, 0.80]],
+    msv: [[0, 0.15], [7, 0.25], [13, 0.30], [17.5, 0.35], [20, 0.55], [23, 1.0], [31, 1.0], [33.5, 0.05], [46, 0.05], [48.5, 0.35], [52, 0.72], [60, 0.72], [66, 1.0]],
+    vabiF: [[0, 0.2], [13, 0.35], [20, 0.6], [23, 0.85], [31, 0.86], [33.5, 0.18], [46, 0.18], [48.5, 0.4], [52, 0.6], [60, 0.6], [66, 0.86]],
+    vabiR: [[0, 0.25], [13, 0.3], [20, 0.32], [23, 0.28], [31, 0.28], [33.5, 1.0], [46, 1.0], [48.5, 0.6], [52, 0.45], [60, 0.45], [66, 0.28]],
+    slot: [[0, 0.3], [13, 0.4], [20, 0.8], [23, 1.0], [31, 1.0], [33.5, 0.04], [46, 0.04], [48.5, 0.35], [52, 0.58], [60, 0.58], [66, 1.0]],
+    a8: [[0, 0.9], [7, 0.62], [13, 0.6], [17.5, 0.34], [20, 0.32], [23, 0.16], [31, 0.15], [33.5, 1.0], [46, 1.0], [48.5, 0.5], [52, 0.42], [60, 0.42], [66, 0.15]],
+    a9: [[0, 0.5], [7, 0.34], [13, 0.32], [17.5, 0.3], [20, 0.28], [23, 0.2], [31, 0.2], [33.5, 1.0], [46, 1.0], [48.5, 0.52], [52, 0.44], [60, 0.44], [66, 0.2]],
+    hxDuty: [[0, 0.05], [13, 0.1], [20, 0.2], [23, 0.26], [31, 0.26], [33.5, 0.10], [46, 0.10], [48.5, 0.65], [51, 1.0], [60, 1.0], [63, 0.4], [66, 0.26]]
+  };
+
+  var PHASES = [
+    [0, 'START · 启动点火', 'CRANK / LIGHT-OFF'],
+    [7, 'IDLE · 地面慢车', 'GROUND IDLE'],
+    [13, 'ACCEL · 加速至军用推力', 'ACCEL TO MILITARY'],
+    [20, 'MODE ① 高效率巡航', 'HIGH-EFFICIENCY CRUISE'],
+    [31, 'TRANSIT ①→②', 'CYCLE RECONFIGURING'],
+    [34, 'MODE ② 高推力突防 + 加力全开', 'DASH / MAX AUGMENTATION'],
+    [46, 'TRANSIT ②→③', 'CYCLE RECONFIGURING'],
+    [49, 'MODE ③ 热管理优先', 'THERMAL MANAGEMENT PRIORITY'],
+    [60, 'RECOVER → 巡航', 'RECOVER TO CRUISE'],
+    [66, 'LOOP', 'LOOP']
+  ];
+
+  /* ---- flow-path centre lines --------------------------------------------*/
+  function coreMid(x) { return (interpR(PROF.hub, x) + interpR(PROF.coreTip, x)) * 0.5; }
+  function bypMid(x) { return (interpR(PROF.coreCase, x) + interpR(PROF.bypOut, x)) * 0.5; }
+  function thirdMid(x) { return (interpR(PROF.tsIn, x) + interpR(PROF.nacIn, x)) * 0.5; }
+
+  /* route = list of [x, r, mach] nodes; particles advance by arclength      */
+  function mkRoute(nodes, opt) {
+    var cum = [0], i, L = 0;
+    for (i = 1; i < nodes.length; i++) {
+      L += Math.hypot(nodes[i][0] - nodes[i - 1][0], nodes[i][1] - nodes[i - 1][1]);
+      cum.push(L);
+    }
+    var r = { n: nodes, cum: cum, len: L || 1 };
+    if (opt) for (var k in opt) r[k] = opt[k];
+    return r;
+  }
+  function routeAt(rt, s, out) {
+    var d = sat(s) * rt.len, n = rt.n, cum = rt.cum, i;
+    for (i = 0; i < cum.length - 1; i++) if (d <= cum[i + 1]) break;
+    if (i >= n.length - 1) i = n.length - 2;
+    var u = (d - cum[i]) / ((cum[i + 1] - cum[i]) || 1e-9);
+    out[0] = lerp(n[i][0], n[i + 1][0], u);
+    out[1] = lerp(n[i][1], n[i + 1][1], u);
+    out[2] = lerp(n[i][2], n[i + 1][2], u);
+    return out;
+  }
+
+  function buildRoutes() {
+    var R = {}, i, x, nodes;
+
+    /* --- 1. core stream: inlet -> fan -> CDFS -> HPC -> burner -> turbines
+             -> mixer -> augmentor -> nozzle -> plume                        */
+    nodes = [[-900, 84, 1.00], [-420, 92, 0.99], [-190, 104, 0.95], [-90, 118, 0.86], [0, 130, 0.70], [70, 128, 0.60], [120, 110, 0.55], [150, 92, 0.52]];
+    for (x = 300; x <= 1250; x += 50) nodes.push([x, coreMid(x), x < 420 ? 0.5 : x < 740 ? 0.42 : x < 950 ? 0.22 : x < 1180 ? 0.4 : 0.55]);
+    nodes.push([1330, 96, 0.62], [1420, 84, 0.72], [1500, 62, 1.0], [1570, 74, 1.55], [1700, 96, 1.9], [1900, 120, 1.72], [2150, 150, 1.4], [2450, 186, 1.1]);
+    R.core = mkRoute(nodes, { swirl: 1.0, key: 'core' });
+
+    /* --- 2. second (bypass) stream: fan -> duct -> aft VABI -> augmentor    */
+    nodes = [[-900, 134, 1.00], [-420, 140, 0.99], [-190, 148, 0.94], [-90, 154, 0.84], [0, 160, 0.66], [70, 158, 0.60], [120, 152, 0.56], [150, 148, 0.54], [240, 146, 0.58]];
+    for (x = 330; x <= 1250; x += 60) nodes.push([x, bypMid(x), 0.52]);
+    nodes.push([1300, 150, 0.6], [1380, 120, 0.66], [1460, 96, 0.8], [1500, 78, 1.0], [1570, 92, 1.5], [1720, 118, 1.78], [1950, 148, 1.6], [2250, 182, 1.2]);
+    R.byp = mkRoute(nodes, { swirl: 0.45, key: 'byp' });
+
+    /* --- 3a. third stream discharged through the aft annular slot (mode 1)  */
+    nodes = [[-900, 172, 1.00], [-420, 176, 0.99], [-190, 182, 0.92], [-90, 186, 0.80], [0, 189, 0.62], [90, 188, 0.56], [190, 184, 0.52], [300, 176, 0.50]];
+    for (x = 340; x <= 1240; x += 60) nodes.push([x, thirdMid(x), 0.34]);
+    nodes.push([1300, 182, 0.36], [1400, 186, 0.42], [1440, 192, 0.62], [1520, 196, 0.9], [1640, 198, 1.0], [1820, 200, 0.9], [2050, 206, 0.8]);
+    R.third_slot = mkRoute(nodes, { swirl: 0.25, key: 'third', hx: [900, 1120] });
+
+    /* --- 3b. third stream ducted into the augmentor (mode 2)               */
+    nodes = R.third_slot.n.slice(0, R.third_slot.n.length - 7);
+    nodes = nodes.concat([[1250, 178, 0.4], [1300, 160, 0.5], [1360, 132, 0.6], [1420, 104, 0.72], [1500, 70, 1.05], [1570, 86, 1.7], [1740, 112, 2.0], [1980, 146, 1.8], [2300, 184, 1.3]]);
+    R.third_ab = mkRoute(nodes, { swirl: 0.3, key: 'third', hx: [900, 1120] });
+
+    /* --- 3c. third stream into the core / bypass via the mode-select valve  */
+    nodes = [[-900, 172, 1.00], [-420, 176, 0.99], [-190, 182, 0.92], [-90, 186, 0.80], [0, 189, 0.62], [90, 188, 0.56], [190, 184, 0.52], [300, 176, 0.50], [340, 168, 0.46], [400, 160, 0.44], [440, 152, 0.5], [470, 140, 0.52], [500, 128, 0.5]];
+    for (x = 540; x <= 1250; x += 60) nodes.push([x, bypMid(x), 0.5]);
+    nodes.push([1300, 148, 0.6], [1390, 118, 0.68], [1470, 92, 0.85], [1500, 74, 1.0], [1570, 88, 1.6], [1740, 116, 1.85], [1990, 150, 1.6], [2300, 186, 1.2]);
+    R.third_core = mkRoute(nodes, { swirl: 0.5, key: 'third', hx: null });
+
+    return R;
+  }
+
+  /* ---- particle pool -----------------------------------------------------*/
+  function makeParticles(n, rnd) {
+    var p = [];
+    for (var i = 0; i < n; i++) {
+      p.push({ rt: 'core', s: rnd(), th: rnd() * TAU, ps: 0, seed: rnd() * 1000, life: 0, sw: 0 });
+    }
+    return p;
+  }
+
+  function makeSim(opt) {
+    opt = opt || {};
+    var rnd = V.mulberry32(0x51EEB1);
+    var s = {
+      t: 0, tl: 0, dt: 0, playing: true, rate: 1,
+      routes: buildRoutes(),
+      parts: makeParticles(opt.particles || 1500, rnd),
+      spray: [], rnd: rnd,
+      groups: V.makeGroups(),
+      spin1: 0, spin2: 0,
+      phase: PHASES[0], phaseIdx: 0,
+      modeW: [1, 0, 0],
+      layers: { flow: true, press: true, vort: true, temp: true, blueprint: true, callouts: true, explode: 0, hud: true },
+      explodeTarget: 0,
+      hist: [], histT: -1
+    };
+    /* fuel spray droplets in the combustor dome */
+    for (var i = 0; i < 240; i++) {
+      s.spray.push({ th: rnd() * TAU, u: rnd(), rr: rnd(), seed: rnd() * 100, inj: (i % 12) });
+    }
+    update(s, 0);
+    return s;
+  }
+
+  /* ---- per-frame state update -------------------------------------------*/
+  function update(s, dt) {
+    dt = Math.min(dt || 0, 0.1);
+    s.dt = dt;
+    if (s.playing) s.t += dt * s.rate;
+    var t = s.tl = ((s.t % PERIOD) + PERIOD) % PERIOD;
+
+    /* telemetry with a little sensor jitter so the numbers never look frozen */
+    var jit = function (a, k) { return a * (1 + k * fbm(s.t * 3.1 + a, 2)); };
+    s.n1 = clamp(jit(kf(TL.n1, t), 0.0016), 0, 105);
+    s.n2 = clamp(jit(kf(TL.n2, t), 0.0014), 0, 105);
+    s.t4 = jit(kf(TL.t4, t), 0.004);
+    s.t6 = jit(kf(TL.t6, t), 0.006);
+    s.abLevel = sat(kf(TL.ab, t));
+    s.epr = jit(kf(TL.epr, t), 0.003);
+    s.fn = jit(kf(TL.fn, t), 0.004);
+    s.sfc = jit(kf(TL.sfc, t), 0.004);
+    s.bpr = jit(kf(TL.bpr, t), 0.004);
+    s.w3 = sat(kf(TL.w3, t)); s.w2 = sat(kf(TL.w2, t)); s.w1 = sat(1 - s.w2 - s.w3);
+    s.wf = jit(kf(TL.wf, t), 0.006);
+    s.mach = kf(TL.mach, t); s.alt = kf(TL.alt, t);
+    s.t3 = 300 + 640 * (s.n2 / 100) + 180 * s.mach;            /* compressor delivery */
+    s.p3 = 1 + 34 * Math.pow(s.n2 / 100, 2.2);                 /* bar, indicative     */
+    s.egt = lerp(s.t4 * 0.52, s.t4 * 0.6, s.n1 / 100);
+
+    /* variable geometry */
+    s.vigv = kf(TL.vigv, t); s.fanStator = kf(TL.vsv, t); s.cdfsVane = kf(TL.cdfs, t);
+    s.msv = kf(TL.msv, t); s.vabiF = kf(TL.vabiF, t); s.vabiR = kf(TL.vabiR, t);
+    s.slot = kf(TL.slot, t); s.a8 = kf(TL.a8, t); s.a9 = kf(TL.a9, t);
+    s.hxDuty = kf(TL.hxDuty, t);
+    s.hxDT = 26 + 150 * s.hxDuty;                              /* K, air-side rise    */
+    s.hxKW = 18 + 640 * s.hxDuty;                              /* kW rejected         */
+    /* thrust vectoring demo: pitch sweep inside the dash phase */
+    var vw = V.win(38.5, 39.6, 44.0, 45.2, t);
+    s.vector = vw * 13 * Math.sin((t - 39.0) * 1.5);
+    /* nozzle areas in m^2 for the readout */
+    s.A8 = 0.19 + 0.36 * s.a8; s.A9 = 0.26 + 0.52 * s.a9;
+
+    /* light-off / ignition flash */
+    s.ignite = V.win(4.05, 4.25, 4.55, 5.6, t);
+    s.abLight = V.win(34.3, 34.6, 34.9, 36.0, t);
+    s.burn = sat(s.wf / 3000) * (t > 4.3 ? 1 : 0) + s.ignite;
+    s.burn = clamp(s.burn, 0, 1.35);
+
+    /* mode weights (for band widths, labels, pseudo-colour emphasis) */
+    s.modeW = [
+      V.win(17, 20.5, 31, 33.6, t) + V.win(62, 65, 66, 66.1, t),
+      V.win(33, 34.6, 45.6, 47.4, t),
+      V.win(46.6, 49.4, 59.6, 62.4, t)
+    ];
+    var ms = s.modeW[0] + s.modeW[1] + s.modeW[2];
+    s.modeIdx = ms < 0.35 ? 0 : (s.modeW[0] >= s.modeW[1] && s.modeW[0] >= s.modeW[2] ? 1 : (s.modeW[1] >= s.modeW[2] ? 2 : 3));
+
+    /* phase label */
+    for (var i = PHASES.length - 1; i >= 0; i--) if (t >= PHASES[i][0]) { s.phase = PHASES[i]; s.phaseIdx = i; break; }
+    s.power = t < 6.6 ? 'START' : s.abLevel > 0.25 ? 'MAX A/B' : s.n1 > 93 ? 'MIL' : s.n1 > 60 ? 'CRUISE' : 'IDLE';
+
+    /* spool angles: N1 ~ 12 000 rpm, N2 ~ 20 000 rpm at 100 %, scaled down
+       for on-screen legibility, still fast enough to need motion blur      */
+    s.w1rad = (s.n1 / 100) * 26.0;              /* rad/s on screen           */
+    s.w2rad = (s.n2 / 100) * 41.0;
+    s.spin1 += s.w1rad * dt; s.spin2 -= s.w2rad * dt;
+    s.rpm1 = s.n1 / 100 * 11800; s.rpm2 = s.n2 / 100 * 19600;
+
+    /* group transforms consumed by the renderer */
+    var G = V.G, g = s.groups;
+    g[G.N1].rotX = s.spin1; g[G.N2].rotX = s.spin2;
+    /* lagged twins used as motion-blur ghosts (blur grows with spool speed) */
+    g[G.N1B].rotX = s.spin1 - 0.10 * (s.n1 / 100);
+    g[G.N2B].rotX = s.spin2 + 0.10 * (s.n2 / 100);
+    var ex = s.layers.explode;
+    g[G.EXP_FAN].ty = 0; /* explode offsets are applied radially per tag     */
+    s.explode = ex;
+
+    /* ---- particles -------------------------------------------------------*/
+    stepParticles(s, dt, t);
+    /* ---- rolling history for the trend charts ---------------------------*/
+    if (s.histT < 0 || s.t - s.histT > 0.1) {
+      s.histT = s.t;
+      s.hist.push({ t: s.t, fn: s.fn, sfc: s.sfc, epr: s.epr, bpr: s.bpr, wf: s.wf, t4: s.t4, n1: s.n1, n2: s.n2, w1: s.w1, w2: s.w2, w3: s.w3 });
+      if (s.hist.length > 620) s.hist.shift();
+    }
+    return s;
+  }
+
+  /* route selection probability from the current cycle state */
+  function pickRoute(s) {
+    var r = s.rnd();
+    if (r < s.w1) return 'core';
+    if (r < s.w1 + s.w2) return 'byp';
+    /* third stream: destination depends on the mode-select valve schedule */
+    var toAB = s.vabiR * (0.3 + 0.7 * s.abLevel);
+    var toSlot = s.slot;
+    var toCore = (1 - s.msv) * 0.9;
+    var sum = toAB + toSlot + toCore || 1;
+    var q = s.rnd() * sum;
+    if (q < toAB) return 'third_ab';
+    if (q < toAB + toSlot) return 'third_slot';
+    return 'third_core';
+  }
+
+  function stepParticles(s, dt, t) {
+    var P = s.parts, R = s.routes, i, p, spd = 0.9 + 1.5 * (s.n1 / 100) + 0.5 * s.abLevel;
+    var tmp = [0, 0, 0];
+    for (i = 0; i < P.length; i++) {
+      p = P[i];
+      var rt = R[p.rt] || R.core;
+      routeAt(rt, p.s, tmp);
+      var v = (0.16 + 0.5 * tmp[2]) * spd;               /* arclength units/s scaled */
+      p.ps = p.s;
+      p.s += v * dt * 300 / rt.len;
+      p.th += (rt.swirl || 0.4) * dt * (0.4 + 1.6 * s.n1 / 100) * (tmp[0] > 300 ? 1 : 0.25);
+      if (p.s >= 1) {                                    /* respawn upstream       */
+        p.s -= 1 + s.rnd() * 0.04;
+        if (p.s < 0) p.s = s.rnd() * 0.02;
+        p.rt = pickRoute(s);
+        p.th = s.rnd() * TAU;
+        p.seed = s.rnd() * 1000;
+      }
+    }
+    /* combustor fuel spray droplets */
+    for (i = 0; i < s.spray.length; i++) {
+      var d = s.spray[i];
+      d.u += dt * (0.55 + 0.5 * s.rnd() * 0 + 0.9 * sat(s.wf / 12000)) * (0.7 + 0.6 * V.noise1(d.seed));
+      if (d.u > 1) { d.u -= 1; d.th = s.rnd() * TAU; d.rr = s.rnd(); }
+    }
+  }
+
+  /* stream mixing fraction used to colour-code the three-stream bands */
+  function streamWidths(s) { return [s.w1, s.w2, s.w3]; }
+
+  V.PERIOD = PERIOD; V.TL = TL; V.PHASES = PHASES; V.kf = kf;
+  V.makeSim = makeSim; V.simUpdate = update; V.routeAt = routeAt; V.mkRoute = mkRoute;
+  V.coreMid = coreMid; V.bypMid = bypMid; V.thirdMid = thirdMid; V.streamWidths = streamWidths;
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+/* ==== render.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   render.js
+   software 3-D: painter-sorted faces, quarter cutaway + X-ray shells,
+   pseudo-colour pressure / temperature fields, three-stream traces,
+   combustion, shock system, augmentor, supersonic plume, callouts
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+  var clamp = V.clamp, lerp = V.lerp, sat = V.sat, css = V.css, TAU = V.TAU;
+  var proj = V.proj, projDir = V.projDir, fbm = V.fbm, noise1 = V.noise1;
+  var UI = V.UI;
+
+  var A = [0, 0, 0], B = [0, 0, 0], C = [0, 0, 0], N = [0, 0, 0];
+
+  function makeScene(q) {
+    q = q || 1;
+    var sf = V.buildStatic(q), ghost = [], i, f;
+    /* motion-blur ghosts: one lagged copy of every rotating face */
+    for (i = 0; i < sf.length; i++) {
+      f = sf[i];
+      if (f.g === V.G.N1 || f.g === V.G.N2) {
+        ghost.push({ v: f.v, n: f.n, mat: f.mat, g: f.g === V.G.N1 ? 11 : 12, seed: f.seed, alpha: 0.30, tag: f.tag });
+      }
+    }
+    return { q: q, sf: sf, ghost: ghost, dyn: [] };
+  }
+
+  /* radial + axial explode offsets by part key --------------------------- */
+  var EXP = {
+    nacelle: [212, 0], inlet: [212, -30], third: [142, 0], bypass: [142, 0],
+    hx: [180, 0], hxfin: [180, 0], hxcoil: [180, 0], hxline: [180, 0],
+    corecase: [76, 0], liner: [42, 0], dome: [42, -20], ab: [150, 70],
+    msv: [116, 0], vabiF: [116, 0], vabiR: [116, 0], slot: [132, 46],
+    trans: [0, 150], nozUp: [46, 152], nozDn: [46, 152], nozShell: [58, 152],
+    nozWall: [0, 152], throat: [0, 152], splitter3: [142, 0], splitter2: [76, 0],
+    vigv: [0, -96], vsv: [0, -46], cdfsigv: [0, -62], agb: [74, 0], hub: [0, 0]
+  };
+
+  /* =========================================================================
+     BACKDROP: deep industrial gradient, test-cell floor grid, vignette
+     ========================================================================*/
+  function drawBackdrop(ctx, cam, s, w, h) {
+    var g = ctx.createLinearGradient(0, 0, w * 0.35, h);
+    g.addColorStop(0, '#0b1016'); g.addColorStop(0.45, '#080c11'); g.addColorStop(1, '#05070a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    /* soft key wash behind the engine */
+    var rg = ctx.createRadialGradient(w * 0.42, h * 0.36, 40, w * 0.42, h * 0.36, Math.max(w, h) * 0.62);
+    rg.addColorStop(0, 'rgba(52,96,120,0.20)'); rg.addColorStop(0.55, 'rgba(18,34,46,0.10)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h);
+
+    /* 3-D floor grid (engine test stand); endpoints behind the near plane are
+       dropped so the perspective divide can never fling them off to infinity */
+    var y0 = -300, x0 = -1000, x1 = 2700, z0 = -1000, z1 = 1000, i;
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(95,233,255,0.075)';
+    ctx.beginPath();
+    for (i = x0; i <= x1; i += 200) {
+      proj(cam, i, y0, z0, A); proj(cam, i, y0, z1, B);
+      if (A[2] < 240 || B[2] < 240) continue;
+      ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]);
+    }
+    for (i = z0; i <= z1; i += 200) {
+      proj(cam, x0, y0, i, A); proj(cam, x1, y0, i, B);
+      if (A[2] < 240 || B[2] < 240) continue;
+      ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]);
+    }
+    ctx.stroke();
+    /* machine-tool crosshair under the engine axis */
+    ctx.strokeStyle = 'rgba(255,176,46,0.18)'; ctx.beginPath();
+    proj(cam, -400, y0, 0, A); proj(cam, 2600, y0, 0, B);
+    if (A[2] > 240 && B[2] > 240) { ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); }
+    proj(cam, 700, y0, -700, A); proj(cam, 700, y0, 700, B);
+    if (A[2] > 240 && B[2] > 240) { ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); }
+    ctx.stroke();
+  }
+
+  /* =========================================================================
+     SOLID GEOMETRY
+     ========================================================================*/
+  function faceKey(f, rc) {
+    if (f.tag === 'cut') return rc < 128 ? 'corecase' : rc < 176 ? 'third' : 'nacelle';
+    return f.tag || '';
+  }
+
+  function drawFaces(ctx, cam, s, faceSets, w, h, list) {
+    var i, j, f, v, n, g, np, pts, ex = s.explode, gl, mat, fs, faces;
+    var cw = 0, ch = 0;
+    for (fs = 0; fs < faceSets.length; fs++) {
+    faces = faceSets[fs];
+    for (i = 0; i < faces.length; i++) {
+      f = faces[i]; g = s.groups[f.g] || s.groups[0];
+      np = f.v.length;
+      var cos = 1, sin = 0, spin = g.rotX || 0;
+      if (spin) { cos = Math.cos(spin); sin = Math.sin(spin); }
+      /* centroid first (needed for explode direction) */
+      var cx = 0, cy = 0, cz = 0;
+      for (j = 0; j < np; j++) { v = f.v[j]; cx += v[0]; cy += v[1]; cz += v[2]; }
+      cx /= np; cy /= np; cz /= np;
+      var ry = spin ? cy * cos - cz * sin : cy, rz = spin ? cy * sin + cz * cos : cz;
+      var rc = Math.hypot(ry, rz) || 1;
+      var ox = 0, oy = 0, oz = 0;
+      if (ex > 0.001) {
+        var e = EXP[faceKey(f, rc)];
+        if (e) { oy = ry / rc * e[0] * ex; oz = rz / rc * e[0] * ex; ox = e[1] * ex; }
+      }
+      /* transform + project */
+      pts = f._p || (f._p = []);
+      var zmin = 1e9, zsum = 0, minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, bad = false;
+      for (j = 0; j < np; j++) {
+        v = f.v[j];
+        var y = spin ? v[1] * cos - v[2] * sin : v[1];
+        var z = spin ? v[1] * sin + v[2] * cos : v[2];
+        proj(cam, v[0] + ox + (g.tx || 0), y + oy, z + oz, A);
+        if (!isFinite(A[0]) || !isFinite(A[1])) { bad = true; break; }
+        pts[j * 2] = A[0]; pts[j * 2 + 1] = A[1];
+        zsum += A[2]; if (A[2] < zmin) zmin = A[2];
+        if (A[0] < minx) minx = A[0]; if (A[0] > maxx) maxx = A[0];
+        if (A[1] < miny) miny = A[1]; if (A[1] > maxy) maxy = A[1];
+      }
+      if (bad) continue;
+      if (zmin < 150) continue;                               /* near-plane   */
+      cw = maxx - minx; ch = maxy - miny;
+      if (cw < 1.1 && ch < 1.1) continue;                     /* sub-pixel     */
+      if (maxx < -80 || minx > w + 80 || maxy < -80 || miny > h + 80) continue;
+      /* normal -> world (group spin) -> view space */
+      var nx = f.n[0], ny0 = f.n[1], nz0 = f.n[2];
+      var ny = spin ? ny0 * cos - nz0 * sin : ny0, nz = spin ? ny0 * sin + nz0 * cos : nz0;
+      projDir(cam, nx, ny, nz, N);
+      var front = N[2] < 0;                                   /* toward lens  */
+      mat = f.mat; gl = 0;
+      var alpha = f.alpha === undefined ? 1 : f.alpha;
+      /* material state driven by the cycle */
+      var t = f.tag;
+      if (t === 'liner' || t === 'dome') gl = 0.30 * s.burn;
+      else if (t === 'ab') gl = 0.42 * s.abLevel;
+      else if (t === 'nozUp' || t === 'nozDn') gl = 0.26 * s.abLevel;
+      else if (t === 'hxline' || t === 'hxcoil') gl = 0.55 * s.hxDuty;
+      else if (mat === V.MAT.cmc) gl = 0.34 * sat((s.t4 - 1150) / 900);
+      var fill;
+      if (t === 'hxfin') {
+        /* fins carry a NORMALISED pseudo-colour of the air-side temperature
+           rise (cold blue at the inlet face -> hot red at the outlet face);
+           the physical dT and duty in kelvin/kW are printed by drawHXOverlay */
+        var kk = 0.10 + 0.86 * (f.hxU || 0) * (0.25 + 0.75 * s.hxDuty) + 0.10 * s.hxDuty;
+        var rgb = V.rampColor(V.TEMP_STOPS, kk);
+        var sh = 0.52 + 0.5 * sat(N[2] < 0 ? -N[2] : N[2] * 0.6);
+        fill = css([Math.min(255, rgb[0] * sh) | 0, Math.min(255, rgb[1] * sh) | 0, Math.min(255, rgb[2] * sh) | 0]);
+        alpha = 0.55 + 0.45 * s.hxDuty;
+      } else {
+        fill = V.shade(mat, nx, ny, nz, f.seed, gl ? { glow: gl } : null);
+      }
+      if (f.xray && front) alpha *= f.xray * (0.55 + 0.45 * (1 - sat(ex * 2)));
+      list.push({ z: zsum / np, zmin: zmin, p: pts, n: np, f: fill, a: alpha, e: mat.edge, big: ((cw > 26 || ch > 26) && alpha > 0.85), h: f, hatch: mat.hatch ? 1 : 0 });
+    }
+    }
+    list.sort(function (a, b) { return b.z - a.z; });
+    for (i = 0; i < list.length; i++) {
+      var it = list[i]; pts = it.p; n = it.n;
+      ctx.beginPath();
+      ctx.moveTo(pts[0], pts[1]);
+      for (j = 1; j < n; j++) ctx.lineTo(pts[j * 2], pts[j * 2 + 1]);
+      ctx.closePath();
+      if (it.a < 1) { ctx.globalAlpha = it.a; ctx.fillStyle = it.f; ctx.fill(); ctx.globalAlpha = 1; }
+      else { ctx.fillStyle = it.f; ctx.fill(); }
+      if (it.big && it.e) { ctx.strokeStyle = it.e; ctx.lineWidth = 0.7; ctx.stroke(); }
+      if (it.hatch && it.big) hatchFace(ctx, pts, n);
+    }
+    return list.length;
+  }
+
+  /* engineering section hatching inside a cut face */
+  function hatchFace(ctx, pts, n) {
+    var minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, j;
+    for (j = 0; j < n; j++) {
+      var x = pts[j * 2], y = pts[j * 2 + 1];
+      if (x < minx) minx = x; if (x > maxx) maxx = x;
+      if (y < miny) miny = y; if (y > maxy) maxy = y;
+    }
+    if (maxx - minx < 8 || maxy - miny < 6) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pts[0], pts[1]);
+    for (j = 1; j < n; j++) ctx.lineTo(pts[j * 2], pts[j * 2 + 1]);
+    ctx.closePath(); ctx.clip();
+    ctx.strokeStyle = 'rgba(10,18,24,0.30)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    var span = (maxx - minx) + (maxy - miny);
+    for (var d = -span; d < span; d += 7) {
+      ctx.moveTo(minx + d, miny); ctx.lineTo(minx + d + (maxy - miny), maxy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* =========================================================================
+     BLUEPRINT LAYER: meridional wireframe, axis, station scale
+     ========================================================================*/
+  var STA_LABELS = [['0', 0], ['1', 150], ['2', 300], ['2.1', 330], ['2.5', 470], ['3', 740], ['4', 946], ['4.5', 1010], ['5', 1180], ['6', 1250], ['7', 1420], ['8', 1500], ['9', 1570]];
+
+  function polyProf(ctx, cam, prof, th, x0, x1) {
+    var s = V.sample(prof, x0, x1, 40), i, first = true;
+    ctx.beginPath();
+    for (i = 0; i < s.length; i++) {
+      var p = V.pt(s[i][0], s[i][1], th);
+      proj(cam, p[0], p[1], p[2], A);
+      if (first) { ctx.moveTo(A[0], A[1]); first = false; } else ctx.lineTo(A[0], A[1]);
+    }
+    ctx.stroke();
+  }
+
+  function drawBlueprint(ctx, cam, s, w, h) {
+    var P = V.PROF, th = 0.001;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(95,233,255,0.30)';
+    polyProf(ctx, cam, P.nacOut, th, 0, 1330);
+    polyProf(ctx, cam, P.nacIn, th, 0, 1250);
+    ctx.strokeStyle = 'rgba(95,233,255,0.22)';
+    polyProf(ctx, cam, P.tsIn, th, 330, 1250);
+    polyProf(ctx, cam, P.bypOut, th, 330, 1250);
+    polyProf(ctx, cam, P.coreCase, th, 300, 1250);
+    polyProf(ctx, cam, P.coreTip, th, 300, 1250);
+    polyProf(ctx, cam, P.hub, th, -190, 1372);
+
+    /* axis: dash-dot centre line */
+    ctx.save();
+    ctx.setLineDash([26, 7, 4, 7]);
+    ctx.strokeStyle = 'rgba(255,176,46,0.55)'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    proj(cam, -560, 0, 0, A); proj(cam, 2500, 0, 0, B);
+    ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+    ctx.restore();
+
+    /* station ticks 0 -> 9 */
+    ctx.font = '600 11px ' + UI.mono;
+    for (var i = 0; i < STA_LABELS.length; i++) {
+      var x = STA_LABELS[i][1];
+      var r = Math.max(V.interpR(P.nacOut, clamp(x, 0, 1330)), 150) + 44;
+      proj(cam, x, r, 0, A); proj(cam, x, r + 34, 0, B);
+      ctx.strokeStyle = 'rgba(95,233,255,0.45)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+      ctx.fillStyle = 'rgba(150,220,236,0.85)';
+      ctx.textAlign = 'center'; ctx.fillText(STA_LABELS[i][0], B[0], B[1] - 5);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  /* =========================================================================
+     FIELD OVERLAYS on the visible meridional cut plane (theta = 0)
+     ========================================================================*/
+  /* normalised total pressure along the machine */
+  var PTAB = [[-600, 0.26], [0, 0.30], [150, 0.34], [300, 0.42], [420, 0.50], [520, 0.56], [740, 0.97], [946, 0.93], [1010, 0.66], [1180, 0.42], [1250, 0.38], [1420, 0.36], [1500, 0.30], [1570, 0.20], [2100, 0.10]];
+  function pAt(x, s) {
+    var base = V.kf(PTAB, x);
+    var lvl = 0.35 + 0.65 * (s.n2 / 100);
+    if (x > 1250) base *= (1 + 0.35 * s.abLevel);
+    return sat(base * lvl + 0.03 * fbm(x * 0.01 + s.t * 0.7, 2));
+  }
+  function drawPressureField(ctx, cam, s) {
+    var P = V.PROF, x, dx = 46, k, alpha = 0.13 + 0.04 * Math.sin(s.t * 1.3);
+    ctx.globalCompositeOperation = 'lighter';
+    for (x = -160; x < 1560; x += dx) {
+      var lanes = [];
+      if (x >= 300) lanes.push([Math.max(V.interpR(P.hub, x), 1), V.interpR(P.coreTip, x)]);
+      else lanes.push([Math.max(V.interpR(P.hub, x), 1), Math.min(V.interpR(P.nacIn, x), 190)]);
+      if (x >= 330 && x <= 1250) {
+        lanes.push([V.interpR(P.coreCase, x), V.interpR(P.bypOut, x)]);
+        lanes.push([V.interpR(P.tsIn, x), V.interpR(P.nacIn, x)]);
+      }
+      for (k = 0; k < lanes.length; k++) {
+        var r0 = lanes[k][0], r1 = lanes[k][1];
+        if (!(r1 > r0)) continue;
+        var nR = 3;
+        for (var q = 0; q < nR; q++) {
+          var ra = lerp(r0, r1, q / nR), rb = lerp(r0, r1, (q + 1) / nR);
+          var pv = pAt(x, s) * (k === 0 ? 1 : k === 1 ? 0.62 : 0.5) * (1 - 0.12 * Math.abs(q - 1));
+          var rgb = V.pressColor(pv);
+          ctx.fillStyle = css(rgb, alpha);
+          ctx.beginPath();
+          proj(cam, x, ra, 0, A); ctx.moveTo(A[0], A[1]);
+          proj(cam, x + dx, ra, 0, A); ctx.lineTo(A[0], A[1]);
+          proj(cam, x + dx, rb, 0, A); ctx.lineTo(A[0], A[1]);
+          proj(cam, x, rb, 0, A); ctx.lineTo(A[0], A[1]);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* combustor + augmentor temperature field, on the cut plane */
+  function combT(x, r, s) {
+    var P = V.PROF;
+    var u = sat((x - 778) / 168);
+    var ri = V.interpR(P.linI, x), ro = V.interpR(P.linO, x);
+    var mid = (ri + ro) * 0.5, half = Math.max(1, (ro - ri) * 0.5);
+    var rr = clamp((r - mid) / half, -1.2, 1.2);
+    var flame = Math.exp(-Math.pow((u - 0.30) / 0.24, 2)) + 0.45 * Math.exp(-Math.pow((u - 0.62) / 0.34, 2));
+    var film = 1 - 0.55 * Math.pow(Math.abs(rr), 4);        /* liner film cooling */
+    var swirl = 1 + 0.16 * Math.sin(rr * 5.4 + s.t * 5.5 + u * 9);
+    var T = 720 + 60 * u * 3 + 1560 * s.burn * flame * film * swirl;
+    if (u > 0.66) {                                          /* saddle exit profile */
+      var sad = 1 - 0.34 * Math.pow(rr, 2) + 0.10 * Math.pow(rr, 4);
+      T = lerp(T, 980 + (s.t4 - 980) * sad, sat((u - 0.66) / 0.34));
+    }
+    return T + 55 * fbm(x * 0.05 + r * 0.09 + s.t * 6.5, 2);
+  }
+  function abT(x, r, s) {
+    var u = sat((x - 1250) / 320);
+    var rr = sat(Math.abs(r) / 170);
+    var core = Math.exp(-Math.pow((rr - 0.15) / 0.5, 2));
+    var lit = s.abLevel;
+    var T = lerp(s.t6 * 0.8, s.t6, u) * (0.55 + 0.45 * core);
+    T = lerp(700 + 260 * u, T, lit);
+    return T * (1 + 0.07 * fbm(x * 0.04 + r * 0.07 + s.t * 8.0, 2));
+  }
+  function drawTempField(ctx, cam, s) {
+    var P = V.PROF, x, dx = 9, nR = 7, q;
+    ctx.globalCompositeOperation = 'lighter';
+    for (x = 778; x < 946; x += dx) {
+      var ri = V.interpR(P.linI, x), ro = V.interpR(P.linO, x);
+      for (q = 0; q < nR; q++) {
+        var ra = lerp(ri, ro, q / nR), rb = lerp(ri, ro, (q + 1) / nR);
+        var T = combT(x + dx * 0.5, (ra + rb) * 0.5, s);
+        ctx.fillStyle = css(V.tempColor(T), 0.62);
+        ctx.beginPath();
+        proj(cam, x, ra, 0, A); ctx.moveTo(A[0], A[1]);
+        proj(cam, x + dx, ra, 0, A); ctx.lineTo(A[0], A[1]);
+        proj(cam, x + dx, rb, 0, A); ctx.lineTo(A[0], A[1]);
+        proj(cam, x, rb, 0, A); ctx.lineTo(A[0], A[1]);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    /* augmentor + jet pipe */
+    if (s.abLevel > 0.02 || s.n1 > 30) {
+      for (x = 1250; x < 1560; x += 16) {
+        var rmax = V.interpR(P.abLin, clamp(x, 1250, 1420));
+        if (x > 1420) rmax = lerp(168, 120, (x - 1420) / 150);
+        for (q = 0; q < 6; q++) {
+          var r0 = rmax * q / 6, r1 = rmax * (q + 1) / 6;
+          var T2 = abT(x + 8, (r0 + r1) * 0.5, s);
+          ctx.fillStyle = css(V.tempColor(T2), 0.26 + 0.40 * s.abLevel);
+          ctx.beginPath();
+          proj(cam, x, r0, 0, A); ctx.moveTo(A[0], A[1]);
+          proj(cam, x + 16, r0, 0, A); ctx.lineTo(A[0], A[1]);
+          proj(cam, x + 16, r1, 0, A); ctx.lineTo(A[0], A[1]);
+          proj(cam, x, r1, 0, A); ctx.lineTo(A[0], A[1]);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    /* isotherms through the combustor */
+    var levels = [1000, 1400, 1800, 2100];
+    ctx.lineWidth = 1;
+    for (var L = 0; L < levels.length; L++) {
+      ctx.strokeStyle = css(V.tempColor(levels[L]), 0.55);
+      ctx.beginPath();
+      var started = false;
+      for (x = 780; x <= 944; x += 6) {
+        var ri2 = V.interpR(P.linI, x), ro2 = V.interpR(P.linO, x), found = -1;
+        for (var i2 = 0; i2 < 16; i2++) {
+          var rA = lerp(ri2, ro2, i2 / 16), rB = lerp(ri2, ro2, (i2 + 1) / 16);
+          var tA = combT(x, rA, s), tB = combT(x, rB, s);
+          if ((tA - levels[L]) * (tB - levels[L]) < 0) { found = lerp(rA, rB, Math.abs((levels[L] - tA) / ((tB - tA) || 1))); break; }
+        }
+        if (found > 0) {
+          proj(cam, x, found, 0, A);
+          if (!started) { ctx.moveTo(A[0], A[1]); started = true; } else ctx.lineTo(A[0], A[1]);
+        } else started = false;
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* fuel/air ratio cloud in the primary zone */
+  function drawFARCloud(ctx, cam, s) {
+    var P = V.PROF, x, dx = 12;
+    ctx.globalCompositeOperation = 'lighter';
+    for (x = 774; x < 880; x += dx) {
+      var ri = V.interpR(P.linI, x), ro = V.interpR(P.linO, x);
+      for (var q = 0; q < 5; q++) {
+        var ra = lerp(ri, ro, q / 5), rb = lerp(ri, ro, (q + 1) / 5);
+        var u = (x - 774) / 106, rr = (q + 0.5) / 5 - 0.5;
+        var far = sat((0.9 - u * 0.7) * Math.exp(-Math.pow(rr / 0.34, 2)) * (0.4 + 0.9 * sat(s.wf / 9000)));
+        ctx.fillStyle = 'rgba(' + (60 + 190 * far) + ',' + (200 - 60 * far) + ',255,' + (0.10 * far) + ')';
+        ctx.beginPath();
+        proj(cam, x, ra, 0, A); ctx.moveTo(A[0], A[1]);
+        proj(cam, x + dx, ra, 0, A); ctx.lineTo(A[0], A[1]);
+        proj(cam, x + dx, rb, 0, A); ctx.lineTo(A[0], A[1]);
+        proj(cam, x, rb, 0, A); ctx.lineTo(A[0], A[1]);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* =========================================================================
+     THREE-STREAM GLOW BANDS — width tracks the live flow split
+     ========================================================================*/
+  function bandPath(ctx, cam, fn, x0, x1) {
+    var i, pen = false;
+    ctx.beginPath();
+    for (i = 0; i <= 30; i++) {
+      var x = lerp(x0, x1, i / 30);
+      proj(cam, x, fn(x), 0, A);
+      if (A[2] < 260) { pen = false; continue; }
+      if (!pen) { ctx.moveTo(A[0], A[1]); pen = true; } else ctx.lineTo(A[0], A[1]);
+    }
+    ctx.stroke();
+  }
+  function drawStreamBands(ctx, cam, s) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    /* core (red) */
+    ctx.strokeStyle = 'rgba(255,86,60,0.22)'; ctx.lineWidth = 3 + 26 * s.w1;
+    bandPath(ctx, cam, function (x) { return V.coreMid(x); }, 320, 1240);
+    /* second stream (cyan) */
+    ctx.strokeStyle = 'rgba(80,226,255,0.22)'; ctx.lineWidth = 2 + 30 * s.w2;
+    bandPath(ctx, cam, function (x) { return V.bypMid(x); }, 340, 1240);
+    /* third stream (amber) — pseudo-colour shift through the heat exchanger */
+    var lw = 2 + 34 * s.w3;
+    ctx.strokeStyle = 'rgba(255,176,46,0.20)'; ctx.lineWidth = lw;
+    bandPath(ctx, cam, function (x) { return V.thirdMid(x); }, 340, 900);
+    ctx.strokeStyle = css(V.rampColor(V.TEMP_STOPS, 0.18 + 0.55 * s.hxDuty), 0.26); ctx.lineWidth = lw;
+    bandPath(ctx, cam, function (x) { return V.thirdMid(x); }, 900, 1120);
+    ctx.strokeStyle = css(V.rampColor(V.TEMP_STOPS, 0.22 + 0.62 * s.hxDuty), 0.24); ctx.lineWidth = lw * 0.9;
+    bandPath(ctx, cam, function (x) { return V.thirdMid(x); }, 1120, 1240);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineWidth = 1;
+  }
+
+  /* =========================================================================
+     FLOW TRACES — mach-coloured particle streaks, 8 colour buckets
+     ========================================================================*/
+  var TMP = [0, 0, 0], TMP2 = [0, 0, 0];
+  function drawParticles(ctx, cam, s, w, h) {
+    var buckets = [], i, k;
+    for (i = 0; i < 9; i++) buckets.push([]);
+    var P = s.parts, R = s.routes;
+    for (i = 0; i < P.length; i++) {
+      var p = P[i], rt = R[p.rt]; if (!rt) continue;
+      V.routeAt(rt, p.s, TMP);
+      V.routeAt(rt, Math.max(0, p.ps - 0.004), TMP2);
+      var m = TMP[2];
+      if (TMP[0] < 170) m *= (0.45 + 0.85 * s.mach);
+      if (TMP[0] > 1480) m *= (1 + 0.45 * s.abLevel);
+      /* heat exchanger colour shift on the third stream */
+      var hot = 0;
+      if (rt.hx && TMP[0] > rt.hx[0]) hot = sat((TMP[0] - rt.hx[0]) / (rt.hx[1] - rt.hx[0])) * s.hxDuty;
+      k = clamp(Math.round(sat(m / 2.3) * 8), 0, 8);
+      var th = p.th, c1 = Math.cos(th), s1 = Math.sin(th);
+      proj(cam, TMP[0], TMP[1] * c1, TMP[1] * s1, A);
+      proj(cam, TMP2[0], TMP2[1] * c1, TMP2[1] * s1, B);
+      if (!isFinite(A[0]) || !isFinite(B[0])) continue;
+      if (A[2] < 260 || B[2] < 260) continue;              /* behind the lens  */
+      if (A[0] < -60 || A[0] > w + 60 || A[1] < -60 || A[1] > h + 60) continue;
+      /* particles inside the removed quadrant read at full strength */
+      var thn = ((th % TAU) + TAU) % TAU;
+      var open = (thn > V.KEEP_B - 0.05 || thn < 0.05) ? 1 : 0.42;
+      buckets[k].push(A[0], A[1], B[0], B[1], open * (hot > 0.15 ? 1.15 : 1), hot);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (k = 0; k <= 8; k++) {
+      var arr = buckets[k]; if (!arr.length) continue;
+      var rgb = V.machColor(k / 8 * 2.3);
+      ctx.lineWidth = 1.15 + k * 0.16;
+      /* two passes: normal + heat-exchanger tinted */
+      ctx.strokeStyle = css(rgb, 0.44);
+      ctx.beginPath();
+      for (i = 0; i < arr.length; i += 6) {
+        if (arr[i + 5] > 0.15) continue;
+        ctx.globalAlpha = arr[i + 4];
+        ctx.moveTo(arr[i], arr[i + 1]); ctx.lineTo(arr[i + 2], arr[i + 3]);
+      }
+      ctx.globalAlpha = 0.46; ctx.stroke();
+      ctx.beginPath();
+      var any = false;
+      for (i = 0; i < arr.length; i += 6) {
+        if (arr[i + 5] <= 0.15) continue;
+        any = true;
+        ctx.moveTo(arr[i], arr[i + 1]); ctx.lineTo(arr[i + 2], arr[i + 3]);
+      }
+      if (any) {
+        ctx.strokeStyle = css(V.rampColor(V.TEMP_STOPS, 0.2 + 0.6 * s.hxDuty), 0.62);
+        ctx.globalAlpha = 0.6; ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* =========================================================================
+     COMBUSTION: injectors, conical fuel spray, flame front, recirculation
+     ========================================================================*/
+  function drawCombustion(ctx, cam, s) {
+    var P = V.PROF, i;
+    var xInj = 776, rInj = (V.interpR(P.linI, 782) + V.interpR(P.linO, 782)) * 0.5;
+    ctx.globalCompositeOperation = 'lighter';
+    /* spray cones from the visible injectors */
+    for (i = 0; i < 12; i++) {
+      var th = i / 12 * TAU;
+      var thn = ((th % TAU) + TAU) % TAU;
+      var vis = (thn > V.KEEP_B - 0.35 || thn < 0.35) ? 1 : 0.30;
+      var len = 58 + 26 * sat(s.wf / 12000);
+      var half = 24 * V.D2R;
+      var c = Math.cos(th), sn = Math.sin(th);
+      proj(cam, xInj, rInj * c, rInj * sn, A);
+      var g = ctx.createRadialGradient(A[0], A[1], 1, A[0], A[1], 26);
+      g.addColorStop(0, 'rgba(150,210,255,' + (0.30 * vis * sat(s.wf / 4000)) + ')');
+      g.addColorStop(1, 'rgba(60,120,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(A[0], A[1], 26, 0, TAU); ctx.fill();
+      /* cone outline */
+      ctx.strokeStyle = 'rgba(140,200,255,' + (0.22 * vis) + ')'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      proj(cam, xInj, rInj * c, rInj * sn, A); ctx.moveTo(A[0], A[1]);
+      var rr = rInj + Math.tan(half) * len;
+      proj(cam, xInj + len, rr * c, rr * sn, B); ctx.lineTo(B[0], B[1]);
+      proj(cam, xInj, rInj * c, rInj * sn, A); ctx.moveTo(A[0], A[1]);
+      var rr2 = rInj - Math.tan(half) * len;
+      proj(cam, xInj + len, rr2 * c, rr2 * sn, B); ctx.lineTo(B[0], B[1]);
+      ctx.stroke();
+    }
+    /* atomised droplets */
+    ctx.lineWidth = 1.4;
+    for (i = 0; i < s.spray.length; i++) {
+      var d = s.spray[i];
+      var thi = d.inj / 12 * TAU;
+      var u = d.u, xx = xInj + u * 78;
+      var spread = (d.rr - 0.5) * 2 * Math.tan(24 * V.D2R) * u * 78;
+      var rr3 = rInj + spread + 6 * Math.sin(u * 9 + d.seed);
+      var thh = thi + (d.rr - 0.5) * 0.16 + u * 0.5 * (0.4 + s.n2 / 140);
+      var cc = Math.cos(thh), ss = Math.sin(thh);
+      proj(cam, xx, rr3 * cc, rr3 * ss, A);
+      var burn = sat((u - 0.18) / 0.3) * s.burn;
+      var rgbd = burn < 0.02 ? [130, 190, 255] : V.tempColor(lerp(900, 2150, burn));
+      var thn2 = ((thh % TAU) + TAU) % TAU;
+      var visd = (thn2 > V.KEEP_B - 0.35 || thn2 < 0.35) ? 0.85 : 0.22;
+      ctx.fillStyle = css(rgbd, visd * (0.35 + 0.65 * sat(s.wf / 6000)));
+      ctx.beginPath(); ctx.arc(A[0], A[1], 1.5 + 1.9 * burn, 0, TAU); ctx.fill();
+    }
+    /* flame front + recirculation vortices on the cut plane */
+    var flick = 0.72 + 0.28 * fbm(s.t * 9.5, 3);
+    for (i = 0; i < 16; i++) {
+      var u2 = i / 15;
+      var xf = lerp(782, 944, u2);
+      var ri = V.interpR(P.linI, xf), ro = V.interpR(P.linO, xf);
+      var rm = (ri + ro) * 0.5;
+      var rad = (ro - ri) * (0.55 + 0.35 * Math.sin(u2 * 3.1)) * (0.7 + 0.5 * s.burn);
+      proj(cam, xf, rm, 0, A);
+      var gg = ctx.createRadialGradient(A[0], A[1], 1, A[0], A[1], Math.max(4, rad * 0.62));
+      var TT = combT(xf, rm, s);
+      gg.addColorStop(0, css(V.tempColor(TT), 0.42 * s.burn * flick));
+      gg.addColorStop(0.55, css(V.tempColor(TT * 0.8), 0.18 * s.burn * flick));
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg;
+      ctx.beginPath(); ctx.arc(A[0], A[1], Math.max(4, rad * 0.62), 0, TAU); ctx.fill();
+    }
+    /* dome recirculation: two counter-rotating vortex spirals */
+    for (var v = 0; v < 2; v++) {
+      var sgn = v ? 1 : -1;
+      ctx.strokeStyle = 'rgba(255,190,120,' + (0.34 * s.burn) + ')'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (i = 0; i <= 42; i++) {
+        var a2 = i / 42 * TAU * 1.7 + s.t * 5.2 * sgn;
+        var rad2 = 5 + i * 0.42;
+        var xv = 800 + Math.cos(a2) * rad2;
+        var rv = (V.interpR(P.linI, 800) + V.interpR(P.linO, 800)) * 0.5 + sgn * 12 + Math.sin(a2) * rad2 * 0.55;
+        proj(cam, xv, rv, 0, A);
+        if (i === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+      }
+      ctx.stroke();
+    }
+    /* ignition flash */
+    if (s.ignite > 0.01) {
+      proj(cam, 812, rInj, 0, A);
+      var ig = ctx.createRadialGradient(A[0], A[1], 2, A[0], A[1], 120);
+      ig.addColorStop(0, 'rgba(255,240,210,' + (0.8 * s.ignite) + ')');
+      ig.addColorStop(0.4, 'rgba(255,150,60,' + (0.4 * s.ignite) + ')');
+      ig.addColorStop(1, 'rgba(255,80,20,0)');
+      ctx.fillStyle = ig; ctx.beginPath(); ctx.arc(A[0], A[1], 120, 0, TAU); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* =========================================================================
+     AUGMENTOR + SUPERSONIC PLUME (shock diamonds, mach ring, shear vortices)
+     ========================================================================*/
+  function drawAugmentorAndPlume(ctx, cam, s, w, h) {
+    var i, lit = s.abLevel;
+    ctx.globalCompositeOperation = 'lighter';
+    /* augmentor flame volume: billboards along the axis */
+    if (lit > 0.01 || s.n1 > 40) {
+      for (i = 0; i < 16; i++) {
+        var u = i / 15, x = lerp(1276, 1560, u);
+        var rmax = lerp(150, 116, u) * (0.35 + 0.65 * lit);
+        proj(cam, x, 0, 0, A);
+        if (A[2] < 260) continue;
+        var rad = Math.max(6, rmax * 0.9 * (1 + 0.12 * fbm(u * 6 + s.t * 11, 2)));
+        var g = ctx.createRadialGradient(A[0], A[1], 1, A[0], A[1], rad);
+        var TT = abT(x, 0, s);
+        g.addColorStop(0, css(V.tempColor(TT * 1.02), (0.10 + 0.34 * lit)));
+        g.addColorStop(0.5, css(V.tempColor(TT * 0.86), (0.05 + 0.18 * lit)));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(A[0], A[1], rad, 0, TAU); ctx.fill();
+      }
+      /* V-gutter wakes */
+      ctx.strokeStyle = 'rgba(255,170,90,' + (0.30 * lit) + ')'; ctx.lineWidth = 1.1;
+      for (i = 0; i < 5; i++) {
+        var rr = 40 + i * 30;
+        ctx.beginPath();
+        for (var j = 0; j <= 20; j++) {
+          var xx = 1300 + j * 12;
+          var wob = Math.sin(j * 0.6 + s.t * 12 + i) * (2 + j * 0.5);
+          proj(cam, xx, rr + wob, 0, A);
+          if (j === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+        }
+        ctx.stroke();
+      }
+      if (s.abLight > 0.01) {
+        proj(cam, 1310, 60, 0, A);
+        var fl = ctx.createRadialGradient(A[0], A[1], 2, A[0], A[1], 170);
+        fl.addColorStop(0, 'rgba(255,244,214,' + (0.75 * s.abLight) + ')');
+        fl.addColorStop(1, 'rgba(255,110,30,0)');
+        ctx.fillStyle = fl; ctx.beginPath(); ctx.arc(A[0], A[1], 170, 0, TAU); ctx.fill();
+      }
+    }
+    /* exhaust plume: expanding jet with shock-cell structure */
+    var hE = lerp(V.NOZ.hExitMin, V.NOZ.hExitMax, s.a9);
+    var npr = 1.6 + 3.4 * s.a8 + 2.2 * lit;
+    var cell = 62 + 78 * s.a8 + 40 * lit;
+    var plen = 420 + 1500 * sat((s.fn - 20) / 190);
+    for (i = 0; i < 26; i++) {
+      var uu = i / 25, xp = 1570 + uu * plen;
+      var spread = hE * (1 + uu * 1.5);
+      proj(cam, xp, 0, 0, A);
+      if (A[2] < 260) continue;
+      var rad2 = spread * (1 + 0.1 * Math.sin(uu * 22 + s.t * 6));
+      var g2 = ctx.createRadialGradient(A[0], A[1], 1, A[0], A[1], Math.max(8, rad2));
+      var TP = lerp(s.abLevel > 0.2 ? 1950 : 1050, 460, uu);
+      g2.addColorStop(0, css(V.tempColor(TP), (0.10 + 0.30 * lit + 0.10) * (1 - uu * 0.85)));
+      g2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(A[0], A[1], Math.max(8, rad2), 0, TAU); ctx.fill();
+    }
+    /* shock diamonds on the cut plane */
+    ctx.lineWidth = 1.4;
+    var nCell = 7;
+    for (i = 0; i < nCell; i++) {
+      var x0 = 1570 + i * cell, x1 = x0 + cell * 0.5, x2 = x0 + cell;
+      var amp = hE * (0.92 - i * 0.09);
+      if (amp < 6) break;
+      var al = (0.5 - i * 0.055) * (0.35 + 0.65 * lit);
+      ctx.strokeStyle = 'rgba(220,246,255,' + Math.max(0, al) + ')';
+      proj(cam, x0, amp, 0, A); if (A[2] < 260) break;
+      ctx.beginPath();
+      proj(cam, x0, amp, 0, A); ctx.moveTo(A[0], A[1]);
+      proj(cam, x1, -amp * 0.28, 0, B); ctx.lineTo(B[0], B[1]);
+      proj(cam, x2, amp, 0, A); ctx.lineTo(A[0], A[1]);
+      proj(cam, x0, -amp, 0, A); ctx.moveTo(A[0], A[1]);
+      proj(cam, x1, amp * 0.28, 0, B); ctx.lineTo(B[0], B[1]);
+      proj(cam, x2, -amp, 0, A); ctx.lineTo(A[0], A[1]);
+      ctx.stroke();
+      /* mach ring (normal shock disc) in the first two cells */
+      if (i < 2) {
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.30 - i * 0.12) * (0.4 + 0.6 * lit) + ')';
+        ctx.beginPath();
+        for (var k = 0; k <= 26; k++) {
+          var a3 = k / 26 * TAU, rr3 = amp * 0.52;
+          proj(cam, x1, rr3 * Math.cos(a3), rr3 * Math.sin(a3), A);
+          if (k === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+        }
+        ctx.stroke();
+      }
+    }
+    /* jet shear-layer vorticity ribbons */
+    ctx.strokeStyle = 'rgba(120,220,255,0.22)'; ctx.lineWidth = 1;
+    for (i = 0; i < 4; i++) {
+      ctx.beginPath();
+      for (var m = 0; m <= 40; m++) {
+        var um = m / 40, xm = 1570 + um * plen * 0.8;
+        var rm = hE * (1 + um * 1.4);
+        var ph = um * 16 + s.t * 7 + i * 1.6;
+        var rr4 = rm + Math.sin(ph) * 12 * (0.3 + um);
+        var thm = i / 4 * TAU + Math.cos(ph) * 0.18;
+        proj(cam, xm, rr4 * Math.cos(thm), rr4 * Math.sin(thm), A);
+        if (m === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+      }
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(200,236,248,0.75)';
+    ctx.font = '600 11px ' + UI.mono;
+    proj(cam, 1620, hE + 60, 0, A);
+    ctx.fillText('NPR ' + V.fx(npr, 2) + '  ·  SHOCK CELL ' + V.fx(cell / 62 * 0.42, 2) + ' m', A[0], A[1]);
+  }
+
+  /* =========================================================================
+     INLET SHOCK SYSTEM (oblique shocks off the centre-body + cowl-lip shock)
+     ========================================================================*/
+  function drawShocks(ctx, cam, s) {
+    var M = Math.max(0.35, s.mach);
+    ctx.globalCompositeOperation = 'lighter';
+    if (M > 1.02) {
+      /* oblique shock angle, clamped to a physical band (asin(1/M) -> 90 deg
+         as M -> 1, which would otherwise send tan(beta) to infinity) */
+      var beta = clamp(Math.asin(1 / M) + 14 * V.D2R, 20 * V.D2R, 62 * V.D2R);
+      var tanb = Math.tan(beta);
+      var Lsh = clamp(214 / tanb, 90, 520);
+      ctx.lineWidth = 1.6;
+      /* first oblique shock off the spike tip, drawn as a cone */
+      for (var k = 0; k < 14; k++) {
+        var th = k / 14 * TAU;
+        var thn = ((th % TAU) + TAU) % TAU;
+        var vis = (thn > V.KEEP_B - 0.2 || thn < 0.2) ? 0.85 : 0.30;
+        ctx.strokeStyle = 'rgba(180,240,255,' + (0.42 * vis) + ')';
+        ctx.beginPath();
+        var xt = -190;
+        proj(cam, xt, 0, 0, A); ctx.moveTo(A[0], A[1]);
+        var rr = Lsh * tanb;
+        proj(cam, xt + Lsh, rr * Math.cos(th), rr * Math.sin(th), B); ctx.lineTo(B[0], B[1]);
+        ctx.stroke();
+      }
+      /* second (reflected) shock off the cowl lip */
+      ctx.strokeStyle = 'rgba(255,214,150,0.42)'; ctx.lineWidth = 1.3;
+      for (var k2 = 0; k2 < 12; k2++) {
+        var th2 = k2 / 12 * TAU;
+        ctx.beginPath();
+        proj(cam, 0, 197 * Math.cos(th2), 197 * Math.sin(th2), A); ctx.moveTo(A[0], A[1]);
+        var r2 = 130;
+        proj(cam, 120, r2 * Math.cos(th2), r2 * Math.sin(th2), B); ctx.lineTo(B[0], B[1]);
+        ctx.stroke();
+      }
+      /* terminal normal shock inside the throat */
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var k3 = 0; k3 <= 28; k3++) {
+        var a = k3 / 28 * TAU, rn = 150;
+        proj(cam, 96 + 34 * sat((M - 1) / 1.2), rn * Math.cos(a), rn * Math.sin(a), A);
+        if (k3 === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+      }
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(190,238,255,0.8)'; ctx.font = '600 11px ' + UI.mono;
+      proj(cam, -150, 250, 0, A);
+      ctx.fillText('OBLIQUE SHOCK  β=' + V.fx(beta * V.R2D, 1) + '°  M∞=' + V.fx(M, 2), A[0] - 30, A[1]);
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(160,200,214,0.55)'; ctx.font = '600 11px ' + UI.mono;
+      proj(cam, -150, 250, 0, A);
+      ctx.fillText('SUBSONIC INTAKE  M∞=' + V.fx(M, 2), A[0] - 30, A[1]);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* =========================================================================
+     VORTICITY: fan tip vortices, duct corner vortices
+     ========================================================================*/
+  function drawVorticity(ctx, cam, s) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(140,230,255,0.24)'; ctx.lineWidth = 1;
+    var i, j;
+    for (i = 0; i < 5; i++) {
+      ctx.beginPath();
+      for (j = 0; j <= 44; j++) {
+        var u = j / 44;
+        var x = lerp(214, 520, u);
+        var r = lerp(176, 168, u) - 4 * Math.sin(u * 12);
+        var th = i / 5 * TAU + s.spin1 * 0.35 + u * 5.4;
+        proj(cam, x, r * Math.cos(th), r * Math.sin(th), A);
+        if (j === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+      }
+      ctx.stroke();
+    }
+    /* separation marker on the fan suction side when stators are closed */
+    var sep = sat((s.fanStator - 0.55) * 2) * sat(1 - s.n1 / 100);
+    if (sep > 0.05) {
+      ctx.strokeStyle = 'rgba(255,120,90,' + (0.4 * sep) + ')'; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (j = 0; j <= 20; j++) {
+        var uu = j / 20, xx = lerp(240, 300, uu), rr = 150 + 22 * Math.sin(uu * 6.3);
+        proj(cam, xx, rr, 0, A);
+        if (j === 0) ctx.moveTo(A[0], A[1]); else ctx.lineTo(A[0], A[1]);
+      }
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* =========================================================================
+     HEAT-EXCHANGER thermal overlay: hot/cold path arrows + duty read-out
+     ========================================================================*/
+  function drawHXOverlay(ctx, cam, s) {
+    if (s.hxDuty < 0.04) return;
+    ctx.globalCompositeOperation = 'lighter';
+    var i;
+    for (i = 0; i < 7; i++) {
+      var u = i / 6, x = lerp(906, 1114, u);
+      var r0 = V.interpR(V.PROF.tsIn, x) + 4, r1 = V.interpR(V.PROF.nacIn, x) - 6;
+      var rgb = V.rampColor(V.TEMP_STOPS, 0.12 + 0.80 * u * (0.3 + 0.7 * s.hxDuty));
+      ctx.strokeStyle = css(rgb, 0.5 * s.hxDuty); ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      proj(cam, x, r0, 0, A); ctx.moveTo(A[0], A[1]);
+      proj(cam, x, r1, 0, B); ctx.lineTo(B[0], B[1]);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    proj(cam, 1010, 214, 0, A);
+    ctx.font = '600 11px ' + UI.mono;
+    ctx.fillStyle = css(V.rampColor(V.TEMP_STOPS, 0.25 + 0.6 * s.hxDuty), 0.95);
+    ctx.fillText('HX ΔT +' + V.fx(s.hxDT, 0) + ' K   Q=' + V.fx(s.hxKW, 0) + ' kW', A[0] - 40, A[1]);
+  }
+
+  /* =========================================================================
+     CALLOUTS: numbered leader lines, cycling module highlight
+     ========================================================================*/
+  var HL = [
+    ['自适应风扇 ADAPTIVE FAN', 176, 300, 40, 182],
+    ['CDFS 核心机驱动风扇级', 336, 412, 66, 120],
+    ['模式选择活门 MODE-SELECT VALVE', 412, 500, 96, 156],
+    ['环形燃烧室 ANNULAR COMBUSTOR', 770, 950, 74, 140],
+    ['CMC 涡轮 CMC TURBINES', 948, 1180, 78, 150],
+    ['加力燃烧室 AUGMENTOR', 1250, 1420, 0, 178],
+    ['二元矢量喷管 2-D TV NOZZLE', 1420, 1570, 0, 176],
+    ['第三涵道热交换器 HEAT EXCHANGER', 896, 1124, 152, 194]
+  ];
+
+  /* screen bbox of one key module, used for hover picking + highlight brace */
+  function moduleBox(cam, hl, out) {
+    var minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+    for (var k = 0; k < 8; k++) {
+      var xx = (k & 1) ? hl[2] : hl[1];
+      var rr = (k & 2) ? hl[4] : hl[3];
+      var th = (k & 4) ? 0 : V.KEEP_B - 0.02;
+      proj(cam, xx, rr * Math.cos(th), rr * Math.sin(th), A);
+      if (A[2] < 260) continue;
+      if (A[0] < minx) minx = A[0]; if (A[0] > maxx) maxx = A[0];
+      if (A[1] < miny) miny = A[1]; if (A[1] > maxy) maxy = A[1];
+    }
+    out[0] = minx; out[1] = miny; out[2] = maxx; out[3] = maxy;
+    return out;
+  }
+  var BOX = [0, 0, 0, 0];
+
+  function drawCallouts(ctx, cam, s, w, h) {
+    var CO = V.CALLOUTS, i;
+    ctx.font = '600 11px ' + UI.mono;
+    for (i = 0; i < CO.length; i++) {
+      var c = CO[i];
+      proj(cam, c[1], c[2] * Math.cos(c[3]), c[2] * Math.sin(c[3]), A);
+      var up = (i % 2 === 0);
+      var lx = A[0] + (i % 2 ? 34 : -34), ly = A[1] + (up ? -46 - (i % 3) * 22 : 46 + (i % 3) * 22);
+      ctx.strokeStyle = 'rgba(95,233,255,0.42)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(lx, ly);
+      ctx.lineTo(lx + (i % 2 ? 20 : -20), ly); ctx.stroke();
+      ctx.fillStyle = 'rgba(95,233,255,0.9)';
+      ctx.beginPath(); ctx.arc(A[0], A[1], 2.4, 0, TAU); ctx.fill();
+      var tx = lx + (i % 2 ? 24 : -24);
+      ctx.textAlign = i % 2 ? 'left' : 'right';
+      ctx.fillStyle = 'rgba(255,176,46,0.95)';
+      ctx.fillText(c[0], tx, ly - 4);
+      ctx.fillStyle = 'rgba(206,232,242,0.92)';
+      ctx.font = '500 11px ' + UI.sans;
+      ctx.fillText(c[4], tx + (i % 2 ? 22 : -22), ly - 4);
+      ctx.font = '500 9.5px ' + UI.mono;
+      ctx.fillStyle = 'rgba(150,196,212,0.66)';
+      ctx.fillText(c[5], tx, ly + 8);
+      ctx.font = '600 11px ' + UI.mono;
+    }
+    ctx.textAlign = 'left';
+
+    /* key-module highlight: follows the pointer when it is over a module,
+       otherwise walks the module list on a timer */
+    var idx = Math.floor(s.t / 3.4) % HL.length, hov = -1;
+    if (s.mouse) {
+      for (i = 0; i < HL.length; i++) {
+        moduleBox(cam, HL[i], BOX);
+        if (s.mouse.x > BOX[0] - 8 && s.mouse.x < BOX[2] + 8 && s.mouse.y > BOX[1] - 8 && s.mouse.y < BOX[3] + 8) {
+          if (hov < 0 || (BOX[2] - BOX[0]) * (BOX[3] - BOX[1]) < s._hovArea) { hov = i; s._hovArea = (BOX[2] - BOX[0]) * (BOX[3] - BOX[1]); }
+        }
+      }
+    }
+    if (hov >= 0) idx = hov;
+    var hl = HL[idx];
+    var pulse = 0.55 + 0.45 * Math.sin(s.t * 3.2);
+    moduleBox(cam, hl, BOX);
+    var minx = BOX[0], miny = BOX[1], maxx = BOX[2], maxy = BOX[3];
+    if (!(maxx > minx)) return;
+    ctx.strokeStyle = 'rgba(95,233,255,' + (0.35 + 0.4 * pulse) + ')';
+    ctx.lineWidth = 1.4; ctx.setLineDash([9, 6]);
+    ctx.strokeRect(minx - 8, miny - 8, (maxx - minx) + 16, (maxy - miny) + 16);
+    ctx.setLineDash([]);
+    /* corner ticks */
+    ctx.strokeStyle = 'rgba(95,233,255,0.85)'; ctx.lineWidth = 2;
+    var cs = 14;
+    ctx.beginPath();
+    ctx.moveTo(minx - 8, miny + cs - 8); ctx.lineTo(minx - 8, miny - 8); ctx.lineTo(minx + cs - 8, miny - 8);
+    ctx.moveTo(maxx + 8 - cs, maxy + 8); ctx.lineTo(maxx + 8, maxy + 8); ctx.lineTo(maxx + 8, maxy + 8 - cs);
+    ctx.stroke();
+    ctx.font = '700 13px ' + UI.sans;
+    ctx.fillStyle = 'rgba(10,16,20,0.85)';
+    var label = hl[0], tw = ctx.measureText(label).width;
+    ctx.fillRect(minx - 8, miny - 32, tw + 18, 20);
+    ctx.strokeStyle = 'rgba(95,233,255,0.7)'; ctx.lineWidth = 1;
+    ctx.strokeRect(minx - 8, miny - 32, tw + 18, 20);
+    ctx.fillStyle = '#9ff0ff';
+    ctx.fillText(label, minx + 1, miny - 18);
+  }
+
+  /* =========================================================================
+     MASTER SCENE RENDER
+     ========================================================================*/
+  function renderScene(ctx, cam, s, scene, w, h) {
+    var L = s.layers;
+    drawBackdrop(ctx, cam, s, w, h);
+    var dyn = V.buildDynamic(s, scene.q);
+    scene.dyn = dyn;
+    var list = [];
+    var sets = [scene.sf, dyn];
+    if (scene.ghost && scene.q >= 0.9 && s.n1 > 22) sets.push(scene.ghost);
+    var nDrawn = drawFaces(ctx, cam, s, sets, w, h, list);
+    if (L.press) drawPressureField(ctx, cam, s);
+    if (L.temp) { drawTempField(ctx, cam, s); drawFARCloud(ctx, cam, s); }
+    if (L.flow) { drawStreamBands(ctx, cam, s); drawParticles(ctx, cam, s, w, h); }
+    drawCombustion(ctx, cam, s);
+    drawAugmentorAndPlume(ctx, cam, s, w, h);
+    if (L.flow) drawShocks(ctx, cam, s);
+    if (L.vort) drawVorticity(ctx, cam, s);
+    drawHXOverlay(ctx, cam, s);
+    if (L.blueprint) drawBlueprint(ctx, cam, s, w, h);
+    if (L.callouts) drawCallouts(ctx, cam, s, w, h);
+    return nDrawn;
+  }
+
+  V.makeScene = makeScene; V.renderScene = renderScene;
+  V.drawFaces = drawFaces; V.drawBackdrop = drawBackdrop; V.combT = combT; V.abT = abT; V.pAt = pAt;
+  V.HL = HL;
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+/* ==== hud.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   hud.js
+   dark industrial telemetry layer: mechanical+digital dials, trend charts,
+   three-stream split bars, mode comparison strip, colour-ramp legends,
+   station table, run-sequence timeline, scanline / pixel-grid overlays
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+  var clamp = V.clamp, lerp = V.lerp, sat = V.sat, css = V.css, fx = V.fx, TAU = V.TAU;
+  var UI = V.UI;
+
+  /* ---- panel frame -------------------------------------------------------*/
+  function pnl(ctx, x, y, w, h, title, sub, accent, k) {
+    accent = accent || UI.cy;
+    ctx.fillStyle = 'rgba(8,12,17,0.82)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(95,233,255,0.26)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = accent === UI.am ? 'rgba(255,176,46,0.10)' : 'rgba(95,233,255,0.09)';
+    ctx.fillRect(x + 1, y + 1, w - 2, 20 * k);
+    ctx.font = '700 ' + (11 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = accent; ctx.textAlign = 'left';
+    ctx.fillText(title, x + 8 * k, y + 14.5 * k);
+    if (sub) {
+      ctx.font = '500 ' + (9.5 * k).toFixed(1) + 'px ' + UI.mono;
+      ctx.fillStyle = 'rgba(170,206,220,0.55)'; ctx.textAlign = 'right';
+      ctx.fillText(sub, x + w - 8 * k, y + 14.5 * k);
+    }
+    /* corner ticks */
+    ctx.strokeStyle = accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.6;
+    var c = 9 * k;
+    ctx.beginPath();
+    ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y);
+    ctx.moveTo(x + w - c, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - c);
+    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  /* ---- mechanical dial + digital repeat ---------------------------------*/
+  function dial(ctx, cx, cy, r, v, vmin, vmax, label, unit, accent, k, redFrom, dec) {
+    var a0 = 148 * V.D2R, a1 = 392 * V.D2R;
+    var u = sat((v - vmin) / (vmax - vmin));
+    ctx.lineWidth = 2.4 * k;
+    ctx.strokeStyle = 'rgba(120,160,180,0.22)';
+    ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
+    if (redFrom !== undefined) {
+      var ur = sat((redFrom - vmin) / (vmax - vmin));
+      ctx.strokeStyle = 'rgba(255,79,79,0.55)';
+      ctx.beginPath(); ctx.arc(cx, cy, r, lerp(a0, a1, ur), a1); ctx.stroke();
+    }
+    /* filled arc */
+    ctx.strokeStyle = accent; ctx.globalAlpha = 0.85; ctx.lineWidth = 2.8 * k;
+    ctx.beginPath(); ctx.arc(cx, cy, r, a0, lerp(a0, a1, u)); ctx.stroke();
+    ctx.globalAlpha = 1;
+    /* ticks */
+    ctx.strokeStyle = 'rgba(180,214,228,0.45)'; ctx.lineWidth = 1;
+    for (var i = 0; i <= 10; i++) {
+      var a = lerp(a0, a1, i / 10), L = (i % 5 === 0) ? 7 * k : 4 * k;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * (r - 3 * k), cy + Math.sin(a) * (r - 3 * k));
+      ctx.lineTo(cx + Math.cos(a) * (r - 3 * k - L), cy + Math.sin(a) * (r - 3 * k - L));
+      ctx.stroke();
+    }
+    /* needle */
+    var an = lerp(a0, a1, u);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2 * k;
+    ctx.beginPath();
+    ctx.moveTo(cx - Math.cos(an) * 5 * k, cy - Math.sin(an) * 5 * k);
+    ctx.lineTo(cx + Math.cos(an) * (r - 8 * k), cy + Math.sin(an) * (r - 8 * k));
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.beginPath(); ctx.arc(cx, cy, 3 * k, 0, TAU); ctx.fill();
+    /* digital */
+    ctx.textAlign = 'center';
+    ctx.font = '700 ' + (16 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = '#e8f8ff';
+    ctx.fillText(fx(v, dec === undefined ? 1 : dec), cx, cy + r * 0.62);
+    ctx.font = '500 ' + (9 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(170,206,220,0.7)';
+    ctx.fillText(unit, cx, cy + r * 0.62 + 11 * k);
+    ctx.font = '600 ' + (10 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = accent;
+    ctx.fillText(label, cx, cy - r - 5 * k);
+    ctx.textAlign = 'left';
+  }
+
+  /* ---- history curve ----------------------------------------------------*/
+  function curve(ctx, x, y, w, h, hist, key, vmin, vmax, color, label, unit, k, win) {
+    win = win || 46;
+    ctx.strokeStyle = 'rgba(95,233,255,0.10)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var gi = 1; gi < 4; gi++) { ctx.moveTo(x, y + h * gi / 4); ctx.lineTo(x + w, y + h * gi / 4); }
+    for (var gj = 1; gj < 6; gj++) { ctx.moveTo(x + w * gj / 6, y); ctx.lineTo(x + w * gj / 6, y + h); }
+    ctx.stroke();
+    if (hist.length > 1) {
+      var tEnd = hist[hist.length - 1].t, tStart = tEnd - win, i, first = true, lastX = x, lastY = y + h;
+      ctx.beginPath();
+      for (i = 0; i < hist.length; i++) {
+        var e = hist[i]; if (e.t < tStart) continue;
+        var px = x + w * sat((e.t - tStart) / win);
+        var py = y + h * (1 - sat((e[key] - vmin) / (vmax - vmin)));
+        if (first) { ctx.moveTo(px, py); first = false; } else ctx.lineTo(px, py);
+        lastX = px; lastY = py;
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.6 * k; ctx.stroke();
+      ctx.lineTo(lastX, y + h); ctx.lineTo(x, y + h); ctx.closePath();
+      ctx.globalAlpha = 0.13; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(lastX, lastY, 2.6 * k, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(150,196,212,0.30)'; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.font = '600 ' + (9.5 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = color; ctx.fillText(label, x + 4 * k, y + 11 * k);
+    ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(190,224,236,0.8)';
+    ctx.fillText(unit, x + w - 4 * k, y + 11 * k);
+    ctx.textAlign = 'left';
+  }
+
+  /* ---- three-stream split bar -------------------------------------------*/
+  function splitBar(ctx, x, y, w, h, s, k) {
+    var segs = [[s.w1, 'rgba(255,86,60,0.85)', '内涵 CORE'], [s.w2, 'rgba(80,226,255,0.85)', '外涵 2ND'], [s.w3, 'rgba(255,176,46,0.85)', '第三涵道 3RD']];
+    var tot = segs[0][0] + segs[1][0] + segs[2][0] || 1, cx = x, i;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(x, y, w, h);
+    for (i = 0; i < 3; i++) {
+      var ww = w * segs[i][0] / tot;
+      ctx.fillStyle = segs[i][1]; ctx.fillRect(cx, y, ww, h);
+      ctx.font = '700 ' + (10 * k).toFixed(1) + 'px ' + UI.mono;
+      ctx.fillStyle = 'rgba(5,10,14,0.85)'; ctx.textAlign = 'center';
+      if (ww > 34 * k) ctx.fillText((segs[i][0] * 100).toFixed(1) + '%', cx + ww / 2, y + h * 0.68);
+      cx += ww;
+    }
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = 'rgba(150,196,212,0.35)'; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.font = '500 ' + (9 * k).toFixed(1) + 'px ' + UI.sans;
+    var lx = x;
+    for (i = 0; i < 3; i++) {
+      ctx.fillStyle = segs[i][1];
+      ctx.fillRect(lx, y + h + 5 * k, 7 * k, 7 * k);
+      ctx.fillStyle = 'rgba(198,226,238,0.8)';
+      ctx.fillText(segs[i][2], lx + 10 * k, y + h + 12 * k);
+      lx += w / 3;
+    }
+  }
+
+  /* ---- mode comparison mini schematics ----------------------------------*/
+  var MODES = [
+    { n: '① 高效率巡航', e: 'CRUISE', w: [0.38, 0.32, 0.30], a8: 0.16, slot: 1, ab: 0, bpr: 0.92 },
+    { n: '② 高推力突防', e: 'DASH + A/B', w: [0.84, 0.11, 0.05], a8: 1.0, slot: 0.04, ab: 1, bpr: 0.18 },
+    { n: '③ 热管理优先', e: 'THERMAL', w: [0.52, 0.22, 0.26], a8: 0.42, slot: 0.58, ab: 0, bpr: 0.62 }
+  ];
+  function modeMini(ctx, x, y, w, h, m, active, k, s) {
+    ctx.fillStyle = active > 0.5 ? 'rgba(95,233,255,0.07)' : 'rgba(255,255,255,0.02)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = active > 0.5 ? 'rgba(95,233,255,0.75)' : 'rgba(150,196,212,0.22)';
+    ctx.lineWidth = active > 0.5 ? 1.6 : 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    /* half-section schematic: nacelle line + 3 duct bands + nozzle wedge */
+    var gx = x + 8 * k, gw = w - 16 * k, ax = y + h - 14 * k;      /* axis line */
+    ctx.strokeStyle = 'rgba(255,176,46,0.5)'; ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]); ctx.beginPath();
+    ctx.moveTo(gx, ax); ctx.lineTo(gx + gw, ax); ctx.stroke(); ctx.setLineDash([]);
+    var top = y + 26 * k, hh = ax - top;
+    /* nacelle */
+    ctx.strokeStyle = 'rgba(190,224,236,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(gx, top + hh * 0.08); ctx.lineTo(gx + gw * 0.72, top + hh * 0.05);
+    ctx.lineTo(gx + gw * 0.82, top + hh * 0.18); ctx.stroke();
+    /* three stream bands, thickness ~ flow share */
+    var cols = ['rgba(255,86,60,0.8)', 'rgba(80,226,255,0.8)', 'rgba(255,176,46,0.85)'];
+    var base = [0.78, 0.5, 0.22];
+    for (var i = 0; i < 3; i++) {
+      ctx.strokeStyle = cols[i]; ctx.lineWidth = 1 + 7 * m.w[i] * k;
+      ctx.beginPath();
+      ctx.moveTo(gx + gw * 0.05, top + hh * base[i]);
+      ctx.lineTo(gx + gw * (i === 2 ? 0.7 : 0.74), top + hh * base[i] * (i === 0 ? 0.92 : 1));
+      if (i === 2) {
+        if (m.slot > 0.4) { ctx.lineTo(gx + gw * 0.86, top + hh * 0.12); ctx.lineTo(gx + gw * 0.98, top + hh * 0.14); }
+        else { ctx.lineTo(gx + gw * 0.8, top + hh * 0.62); ctx.lineTo(gx + gw * 0.98, top + hh * 0.66); }
+      } else ctx.lineTo(gx + gw * 0.98, top + hh * (0.6 + i * 0.06));
+      ctx.stroke();
+    }
+    /* nozzle wedge: throat opening tracks A8 */
+    var nx = gx + gw * 0.76, ny = top + hh * 0.5, th = (6 + 16 * m.a8) * k;
+    ctx.strokeStyle = 'rgba(210,236,246,0.8)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(nx, ny - 20 * k); ctx.lineTo(nx + 16 * k, ny - th / 2); ctx.lineTo(nx + 34 * k, ny - th * 0.9);
+    ctx.moveTo(nx, ny + 20 * k); ctx.lineTo(nx + 16 * k, ny + th / 2); ctx.lineTo(nx + 34 * k, ny + th * 0.9);
+    ctx.stroke();
+    if (m.ab > 0.5) {
+      var g = ctx.createLinearGradient(nx + 10 * k, ny, nx + 60 * k, ny);
+      g.addColorStop(0, 'rgba(255,220,150,0.75)'); g.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(nx + 12 * k, ny - th * 0.8); ctx.lineTo(gx + gw, ny - th * 1.5);
+      ctx.lineTo(gx + gw, ny + th * 1.5); ctx.lineTo(nx + 12 * k, ny + th * 0.8); ctx.closePath(); ctx.fill();
+    }
+    ctx.font = '700 ' + (10.5 * k).toFixed(1) + 'px ' + UI.sans;
+    ctx.fillStyle = active > 0.5 ? '#9ff0ff' : 'rgba(190,224,236,0.72)';
+    ctx.fillText(m.n, x + 8 * k, y + 14 * k);
+    ctx.font = '500 ' + (9 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(170,206,220,0.6)'; ctx.textAlign = 'right';
+    ctx.fillText('BPR ' + fx(m.bpr, 2), x + w - 8 * k, y + 14 * k);
+    ctx.textAlign = 'left';
+    if (active > 0.5) {
+      ctx.fillStyle = 'rgba(95,233,255,0.9)';
+      ctx.fillRect(x, y + h - 3 * k, w * active, 3 * k);
+    }
+  }
+
+  /* ---- colour ramp legend ----------------------------------------------*/
+  function legendRamp(ctx, x, y, w, h, stops, lo, hi, title, unit, k, fmt) {
+    ctx.font = '600 ' + (9.5 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(198,226,238,0.85)';
+    ctx.fillText(title, x, y - 4 * k);
+    var n = 34, i;
+    for (i = 0; i < n; i++) {
+      var t = i / (n - 1);
+      ctx.fillStyle = css(V.rampColor(stops, t));
+      ctx.fillRect(x, y + h * (1 - (i + 1) / n), w, h / n + 0.8);
+    }
+    ctx.strokeStyle = 'rgba(150,196,212,0.4)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.font = '500 ' + (8.5 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(190,224,236,0.8)';
+    for (i = 0; i <= 4; i++) {
+      var v = lerp(lo, hi, i / 4), yy = y + h * (1 - i / 4);
+      ctx.beginPath(); ctx.moveTo(x + w, yy); ctx.lineTo(x + w + 4 * k, yy);
+      ctx.strokeStyle = 'rgba(190,224,236,0.5)'; ctx.stroke();
+      ctx.fillText(fmt ? fmt(v) : String(Math.round(v)), x + w + 6 * k, yy + 3 * k);
+    }
+    ctx.font = '500 ' + (8.5 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(150,196,212,0.6)';
+    ctx.fillText(unit, x, y + h + 11 * k);
+  }
+
+  /* ---- run-sequence timeline -------------------------------------------*/
+  function timeline(ctx, x, y, w, h, s, k) {
+    var P = V.PHASES, i;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(x, y, w, h);
+    for (i = 0; i < P.length - 1; i++) {
+      var a = P[i][0] / V.PERIOD, b = P[i + 1][0] / V.PERIOD;
+      var act = (s.tl >= P[i][0] && s.tl < P[i + 1][0]);
+      ctx.fillStyle = act ? 'rgba(95,233,255,0.35)' : (i % 2 ? 'rgba(120,160,180,0.13)' : 'rgba(120,160,180,0.08)');
+      ctx.fillRect(x + w * a, y, w * (b - a) - 1, h);
+    }
+    ctx.strokeStyle = 'rgba(150,196,212,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    var px = x + w * (s.tl / V.PERIOD);
+    ctx.strokeStyle = UI.am; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, y - 3 * k); ctx.lineTo(px, y + h + 3 * k); ctx.stroke();
+    ctx.fillStyle = UI.am;
+    ctx.beginPath(); ctx.moveTo(px, y - 5 * k); ctx.lineTo(px - 4 * k, y - 11 * k); ctx.lineTo(px + 4 * k, y - 11 * k); ctx.closePath(); ctx.fill();
+    ctx.font = '600 ' + (9.5 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(190,224,236,0.75)';
+    ctx.fillText('T+' + fx(s.tl, 1) + ' s / ' + V.PERIOD + ' s', x, y + h + 12 * k);
+    ctx.textAlign = 'right';
+    ctx.fillText(s.phase[2], x + w, y + h + 12 * k);
+    ctx.textAlign = 'left';
+  }
+
+  /* ---- key/value table -------------------------------------------------*/
+  function table(ctx, x, y, w, rows, k) {
+    ctx.font = '500 ' + (10.5 * k).toFixed(1) + 'px ' + UI.mono;
+    for (var i = 0; i < rows.length; i++) {
+      var yy = y + i * 15.5 * k;
+      if (i % 2 === 0) { ctx.fillStyle = 'rgba(255,255,255,0.025)'; ctx.fillRect(x - 3 * k, yy - 10 * k, w, 14 * k); }
+      ctx.fillStyle = 'rgba(170,206,220,0.78)'; ctx.textAlign = 'left';
+      ctx.fillText(rows[i][0], x, yy);
+      ctx.fillStyle = rows[i][2] || '#dff4ff'; ctx.textAlign = 'right';
+      ctx.font = '700 ' + (10.5 * k).toFixed(1) + 'px ' + UI.mono;
+      ctx.fillText(rows[i][1], x + w - 6 * k, yy);
+      ctx.font = '500 ' + (10.5 * k).toFixed(1) + 'px ' + UI.mono;
+    }
+    ctx.textAlign = 'left';
+  }
+
+  /* ---- vignette: darkens the 3-D layer only, drawn BEFORE the panels so the
+     telemetry never loses contrast in the corners --------------------------*/
+  function vignette(ctx, w, h) {
+    var rg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34, w / 2, h / 2, Math.max(w, h) * 0.76);
+    rg.addColorStop(0, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(0,0,0,0.46)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h);
+  }
+
+  /* ---- scanlines + pixel grid + sweeping scan band ---------------------*/
+  function overlays(ctx, s, w, h) {
+    ctx.globalAlpha = 0.05; ctx.strokeStyle = '#9fe8ff'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    var off = (s.t * 34) % 4;
+    for (var y = -4 + off; y < h; y += 4) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+    ctx.globalAlpha = 0.035; ctx.beginPath();
+    for (var x = 0; x < w; x += 4) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    /* sweeping scan band */
+    var by = (s.t * 90) % (h + 200) - 100;
+    var g = ctx.createLinearGradient(0, by - 60, 0, by + 60);
+    g.addColorStop(0, 'rgba(95,233,255,0)'); g.addColorStop(0.5, 'rgba(95,233,255,0.045)'); g.addColorStop(1, 'rgba(95,233,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, by - 60, w, 120);
+  }
+
+  /* =========================================================================
+     MASTER HUD
+     ========================================================================*/
+  function drawHUD(ctx, s, w, h, fps) {
+    var k = clamp(Math.min(w / 1680, h / 945), 0.58, 1.32);
+    var m = 14 * k;
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+    vignette(ctx, w, h);
+
+    /* ---------- top bar ---------- */
+    ctx.fillStyle = 'rgba(6,10,14,0.86)'; ctx.fillRect(0, 0, w, 42 * k);
+    ctx.strokeStyle = 'rgba(95,233,255,0.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, 42 * k + 0.5); ctx.lineTo(w, 42 * k + 0.5); ctx.stroke();
+    ctx.font = '700 ' + (16 * k).toFixed(1) + 'px ' + UI.sans;
+    ctx.fillStyle = '#e8f8ff';
+    ctx.fillText('三涵道自适应循环涡扇发动机', m, 27 * k);
+    ctx.font = '600 ' + (11 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = UI.cy;
+    ctx.fillText('ADAPTIVE / VARIABLE-CYCLE TURBOFAN · 3-STREAM · AETP-CLASS · SECTIONED DIGITAL MOCK-UP', m + 236 * k, 27 * k);
+    /* phase + power state */
+    ctx.textAlign = 'right';
+    ctx.font = '700 ' + (13 * k).toFixed(1) + 'px ' + UI.sans;
+    ctx.fillStyle = s.abLevel > 0.2 ? '#ffb02e' : '#9ff0ff';
+    ctx.fillText(s.phase[1], w - m - 128 * k, 27 * k);
+    ctx.font = '700 ' + (13 * k).toFixed(1) + 'px ' + UI.mono;
+    var pcol = s.power === 'MAX A/B' ? '#ff6a3c' : s.power === 'MIL' ? '#ffd166' : s.power === 'IDLE' ? '#7cf08a' : '#9ff0ff';
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(w - m - 118 * k, 9 * k, 118 * k, 24 * k);
+    ctx.strokeStyle = pcol; ctx.globalAlpha = 0.7; ctx.strokeRect(w - m - 118 * k, 9 * k, 118 * k, 24 * k); ctx.globalAlpha = 1;
+    ctx.fillStyle = pcol;
+    ctx.fillText(s.power, w - m - 10 * k, 26 * k);
+    ctx.textAlign = 'left';
+
+    /* ---------- top-left: spools + T4 ---------- */
+    var pw = 336 * k, ph = 206 * k, py = 42 * k + m;
+    pnl(ctx, m, py, pw, ph, 'SPOOL / TURBINE TEMP  转速与温度', 'N1 · N2 · T4', UI.cy, k);
+    var dr = 44 * k;
+    dial(ctx, m + pw * 0.19, py + 84 * k, dr, s.n1, 0, 105, 'N1  风扇', '% RPM ' + Math.round(s.rpm1), UI.cy, k, 101);
+    dial(ctx, m + pw * 0.5, py + 84 * k, dr, s.n2, 0, 105, 'N2  核心', '% RPM ' + Math.round(s.rpm2), UI.cy, k, 101);
+    dial(ctx, m + pw * 0.81, py + 84 * k, dr, s.t4, 280, 2100, 'T4  涡轮前', 'K', UI.am, k, 1950, 0);
+    curve(ctx, m + 10 * k, py + 140 * k, pw - 20 * k, ph - 152 * k, s.hist, 't4', 280, 2100, 'rgba(255,176,46,0.9)', 'T4 TREND 涡轮前温度', 'K', k);
+
+    /* ---------- top-right: pressure ratio / bypass ---------- */
+    var rx = w - m - pw;
+    pnl(ctx, rx, py, pw, ph, 'CYCLE RATIOS  压比与涵道比', 'EPR · BPR', UI.am, k);
+    curve(ctx, rx + 10 * k, py + 28 * k, pw - 20 * k, 66 * k, s.hist, 'epr', 1, 5.6, 'rgba(95,233,255,0.95)', 'EPR 发动机压比', 'P9/P2', k);
+    curve(ctx, rx + 10 * k, py + 100 * k, pw - 20 * k, 66 * k, s.hist, 'bpr', 0, 1.05, 'rgba(255,176,46,0.95)', 'BPR 涵道比', 'W2/W1', k);
+    ctx.font = '700 ' + (15 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = '#9ff0ff'; ctx.textAlign = 'right';
+    ctx.fillText('EPR ' + fx(s.epr, 2), rx + pw - 12 * k, py + 44 * k);
+    ctx.fillStyle = '#ffb02e';
+    ctx.fillText('BPR ' + fx(s.bpr, 2), rx + pw - 12 * k, py + 116 * k);
+    ctx.textAlign = 'left';
+
+    /* ---------- left legends ---------- */
+    var ly = py + ph + m, lh = 150 * k;
+    pnl(ctx, m, ly, 128 * k, lh + 84 * k, 'FIELD LEGEND  场标定', '', UI.cy, k);
+    legendRamp(ctx, m + 12 * k, ly + 40 * k, 16 * k, lh, V.TEMP_STOPS, 280, 2320, 'TEMP 温度场', 'K  开尔文', k);
+    legendRamp(ctx, m + 72 * k, ly + 40 * k, 16 * k, lh, V.MACH_STOPS, 0, 2.4, 'MACH 速度', 'M  马赫', k, function (v) { return v.toFixed(1); });
+    legendRamp(ctx, m + 12 * k, ly + lh + 66 * k, 74 * k, 12 * k, V.PRESS_STOPS, 0, 1, 'PRESSURE 压力场', 'P/Pmax', k, function (v) { return v.toFixed(1); });
+
+    /* ---------- right: cycle state table ---------- */
+    var tw = 232 * k, ty = py + ph + m;
+    pnl(ctx, w - m - tw, ty, tw, 268 * k, 'CYCLE STATE  循环状态', 'STA 0-9', UI.cy, k);
+    var vecTxt = fx(s.vector, 1) + '°';
+    table(ctx, w - m - tw + 10 * k, ty + 36 * k, tw - 20 * k, [
+      ['THRUST 推力', fx(s.fn, 1) + ' kN', '#7cf08a'],
+      ['SFC 耗油率', fx(s.sfc, 3) + ' kg/kgf·h', '#ffd166'],
+      ['Wf 燃油流量', fx(s.wf, 0) + ' kg/h', '#ffd166'],
+      ['T3 压气机出口', fx(s.t3, 0) + ' K'],
+      ['P3 压气机出口', fx(s.p3, 2) + ' bar'],
+      ['T4 涡轮前', fx(s.t4, 0) + ' K', '#ff9a5c'],
+      ['T6 加力段', fx(s.t6, 0) + ' K', s.abLevel > 0.2 ? '#ff6a3c' : '#dff4ff'],
+      ['EGT 排气温度', fx(s.egt, 0) + ' K'],
+      ['A8 喉道面积', fx(s.A8, 3) + ' m²', '#9ff0ff'],
+      ['A9 出口面积', fx(s.A9, 3) + ' m²', '#9ff0ff'],
+      ['NOZZLE 矢量角', vecTxt, Math.abs(s.vector) > 1 ? '#ffb02e' : '#dff4ff'],
+      ['M∞ 飞行马赫', fx(s.mach, 2)],
+      ['ALT 高度', fx(s.alt, 0) + ' m'],
+      ['HX 换热功率', fx(s.hxKW, 0) + ' kW', s.hxDuty > 0.5 ? '#ff9a5c' : '#dff4ff'],
+      ['MSV 活门开度', (s.msv * 100).toFixed(0) + ' %', '#9ff0ff'],
+      ['VABI F/R', (s.vabiF * 100).toFixed(0) + '/' + (s.vabiR * 100).toFixed(0) + ' %']
+    ], k);
+
+    /* ---------- bottom-left: fuel + SFC ---------- */
+    var bh = 196 * k, by = h - m - bh, bw = 400 * k;
+    pnl(ctx, m, by, bw, bh, 'FUEL / SPECIFIC CONSUMPTION  燃油与耗油率', 'Wf · SFC', UI.am, k);
+    curve(ctx, m + 10 * k, by + 28 * k, bw - 20 * k, 72 * k, s.hist, 'wf', 0, 17000, 'rgba(255,176,46,0.95)', 'FUEL FLOW 燃油流量', 'kg/h', k);
+    curve(ctx, m + 10 * k, by + 108 * k, bw - 20 * k, 72 * k, s.hist, 'sfc', 0, 2.1, 'rgba(124,240,138,0.95)', 'SFC 耗油率', 'kg/kgf·h', k);
+
+    /* ---------- bottom-right: thrust + power ---------- */
+    var qx = w - m - bw;
+    pnl(ctx, qx, by, bw, bh, 'THRUST / POWER SETTING  推力与功率状态', 'FN · PLA', UI.cy, k);
+    curve(ctx, qx + 10 * k, by + 28 * k, bw - 20 * k, 104 * k, s.hist, 'fn', 0, 210, 'rgba(95,233,255,0.95)', 'NET THRUST 推力', 'kN', k);
+    /* power state bar: idle / cruise / mil / max a/b */
+    var states = [['慢车 IDLE', 0, 30], ['巡航 CRUISE', 30, 78], ['军用 MIL', 78, 132], ['加力 MAX A/B', 132, 210]];
+    var pbx = qx + 10 * k, pby = by + 142 * k, pbw = bw - 20 * k, pbh = 16 * k;
+    for (var i = 0; i < states.length; i++) {
+      var a = states[i][1] / 210, b = states[i][2] / 210;
+      var act = s.fn >= states[i][1] && s.fn < states[i][2];
+      ctx.fillStyle = act ? (i === 3 ? 'rgba(255,106,60,0.55)' : 'rgba(95,233,255,0.4)') : 'rgba(120,160,180,0.12)';
+      ctx.fillRect(pbx + pbw * a, pby, pbw * (b - a) - 1.5, pbh);
+      ctx.font = '600 ' + (9 * k).toFixed(1) + 'px ' + UI.sans;
+      ctx.fillStyle = act ? '#eafcff' : 'rgba(190,224,236,0.55)';
+      ctx.textAlign = 'center';
+      ctx.fillText(states[i][0], pbx + pbw * (a + b) / 2, pby + 11.5 * k);
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(pbx + pbw * sat(s.fn / 210) - 1, pby - 4 * k, 2, pbh + 8 * k);
+    ctx.font = '700 ' + (18 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = '#eafcff'; ctx.textAlign = 'right';
+    ctx.fillText(fx(s.fn, 1) + ' kN', qx + bw - 12 * k, by + 178 * k);
+    ctx.font = '500 ' + (10 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(170,206,220,0.7)';
+    ctx.fillText('AB ' + (s.abLevel * 100).toFixed(0) + '%   PLA ' + (sat(s.fn / 197) * 100).toFixed(0) + '%', qx + bw - 12 * k, by + 190 * k);
+    ctx.textAlign = 'left';
+
+    /* ---------- bottom-centre: modes + split + timeline ---------- */
+    var cx0 = m + bw + 10 * k, cw = w - 2 * m - 2 * bw - 20 * k;
+    if (cw > 300 * k) {
+      pnl(ctx, cx0, by, cw, bh, 'ADAPTIVE CYCLE MODES  三模式自适应循环', '第三股气流分配逻辑', UI.am, k);
+      var mw = (cw - 32 * k) / 3, mh = 96 * k;
+      for (var mi = 0; mi < 3; mi++) {
+        modeMini(ctx, cx0 + 8 * k + mi * (mw + 8 * k), by + 26 * k, mw, mh, MODES[mi], sat(s.modeW[mi]), k, s);
+      }
+      splitBar(ctx, cx0 + 8 * k, by + 132 * k, cw - 16 * k, 16 * k, s, k);
+      timeline(ctx, cx0 + 8 * k, by + 168 * k, cw - 16 * k, 10 * k, s, k);
+    }
+
+    /* ---------- section symbol + key help ---------- */
+    ctx.font = '600 ' + (10 * k).toFixed(1) + 'px ' + UI.mono;
+    ctx.fillStyle = 'rgba(170,206,220,0.55)';
+    ctx.fillText('SECTION A-A  1/4 CUTAWAY + X-RAY SHELL   ·   ' + (fps ? fps.toFixed(0) + ' FPS' : ''), m, h - m - bh - 8 * k);
+    ctx.textAlign = 'right';
+    ctx.fillText('[SPACE] 暂停  [←/→] 时间轴  [1/2/3] 模式  [E] 爆炸视图  [F] 流场  [P] 压力场  [B] 蓝图  [C] 自由视角  拖拽/滚轮 = 环绕/缩放', w - m, h - m - bh - 8 * k);
+    ctx.textAlign = 'left';
+
+    overlays(ctx, s, w, h);
+    ctx.restore();
+  }
+
+  V.drawHUD = drawHUD; V.MODES = MODES;
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+/* ==== main.js ==== */
+/* ============================================================================
+   VCE — ADAPTIVE CYCLE ENGINE VISUALIZER   /   main.js
+   frame loop · cinematic camera choreography · input · adaptive quality
+   ==========================================================================*/
+(function (V) {
+  'use strict';
+  var clamp = V.clamp, lerp = V.lerp, sat = V.sat, smooth = V.smooth, D2R = V.D2R;
+
+  /* camera choreography: t, yaw°, pitch° (negative = look from above),
+     dist, target-x, target-y                                              */
+  var CAM_KF = [
+    [0, -38, -15, 2620, 700, 0],
+    [6.5, -54, -19, 2180, 420, 14],
+    [13, -30, -13, 1460, 250, 18],     /* fan / VIGV close-up               */
+    [19.5, -44, -17, 2520, 760, 0],
+    [26, -20, -11, 1180, 862, 8],      /* combustor close-up                */
+    [31, -42, -20, 2500, 800, 0],
+    [36.5, -62, -15, 1620, 1400, 0],   /* augmentor + nozzle                */
+    [42, -76, -10, 1900, 1500, 4],     /* thrust-vectoring view             */
+    [46, -50, -18, 2600, 820, 0],
+    [52, -26, -25, 1520, 1030, 22],    /* heat exchanger close-up           */
+    [57.5, -46, -17, 2900, 780, 0],    /* exploded overview                 */
+    [62, -70, -13, 2400, 900, 0],
+    [66, -38, -15, 2620, 700, 0]
+  ];
+  function camAt(t, cam) {
+    var i, n = CAM_KF.length;
+    for (i = 0; i < n - 1; i++) if (t <= CAM_KF[i + 1][0]) break;
+    if (i > n - 2) i = n - 2;
+    var a = CAM_KF[i], b = CAM_KF[i + 1];
+    var u = smooth((t - a[0]) / ((b[0] - a[0]) || 1));
+    cam.yaw = lerp(a[1], b[1], u) * D2R + Math.sin(t * 0.11) * 4.5 * D2R;
+    cam.pitch = lerp(a[2], b[2], u) * D2R + Math.sin(t * 0.077) * 1.8 * D2R;
+    cam.dist = lerp(a[3], b[3], u) * (1 + 0.015 * Math.sin(t * 0.19));
+    cam.tx = lerp(a[4], b[4], u);
+    cam.ty = lerp(a[5], b[5], u);
+  }
+
+  function boot(canvas, opts) {
+    opts = opts || {};
+    var ctx = canvas.getContext('2d');
+    var quality = [{ q: 0.5, p: 620 }, { q: 0.72, p: 1050 }, { q: 1.0, p: 1500 }];
+    var qi = 1;
+    var s = V.makeSim({ particles: quality[qi].p });
+    var scene = V.makeScene(quality[qi].q);
+    var cam = V.makeCam();
+    var manual = false, dragging = false, lastX = 0, lastY = 0;
+    var w = 0, h = 0, dpr = 1;
+    var fps = 60, ft = 16, last = 0, frames = 0, acc = 0, autoQ = opts.autoQuality !== false;
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      w = canvas.clientWidth || window.innerWidth;
+      h = canvas.clientHeight || window.innerHeight;
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cam.cx = w * 0.5; cam.cy = h * 0.52;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    /* ---- input ---------------------------------------------------------- */
+    canvas.addEventListener('mousedown', function (e) { dragging = true; manual = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener('mouseup', function () { dragging = false; });
+    window.addEventListener('mousemove', function (e) {
+      var r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+      s.mouse = { x: e.clientX - r.left, y: e.clientY - r.top };
+      if (!dragging) return;
+      cam.yaw += (e.clientX - lastX) * 0.006;
+      cam.pitch = clamp(cam.pitch + (e.clientY - lastY) * 0.004, -1.2, 0.9);
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseout', function () { s.mouse = null; });
+    canvas.addEventListener('wheel', function (e) {
+      manual = true;
+      cam.dist = clamp(cam.dist * (1 + Math.sign(e.deltaY) * 0.08), 620, 6200);
+      e.preventDefault();
+    }, { passive: false });
+    window.addEventListener('keydown', function (e) {
+      var K = e.key.toLowerCase();
+      if (K === ' ') { s.playing = !s.playing; e.preventDefault(); }
+      else if (K === 'arrowright') s.t += 1.5;
+      else if (K === 'arrowleft') s.t -= 1.5;
+      else if (K === '1') s.t = Math.floor(s.t / V.PERIOD) * V.PERIOD + 24;
+      else if (K === '2') s.t = Math.floor(s.t / V.PERIOD) * V.PERIOD + 38;
+      else if (K === '3') s.t = Math.floor(s.t / V.PERIOD) * V.PERIOD + 53;
+      else if (K === '0') s.t = Math.floor(s.t / V.PERIOD) * V.PERIOD;
+      else if (K === 'e') s.explodeTarget = s.explodeTarget > 0.5 ? 0 : 1;
+      else if (K === 'f') s.layers.flow = !s.layers.flow;
+      else if (K === 'p') s.layers.press = !s.layers.press;
+      else if (K === 'b') s.layers.blueprint = !s.layers.blueprint;
+      else if (K === 'v') s.layers.vort = !s.layers.vort;
+      else if (K === 'n') s.layers.callouts = !s.layers.callouts;
+      else if (K === 'h') s.layers.hud = !s.layers.hud;
+      else if (K === 't') s.layers.temp = !s.layers.temp;
+      else if (K === 'c') manual = !manual;
+      else if (K === 'r') { s.t = 0; manual = false; }
+      else if (K === '+' || K === '=') s.rate = clamp(s.rate * 1.5, 0.1, 6);
+      else if (K === '-') s.rate = clamp(s.rate / 1.5, 0.1, 6);
+    });
+
+    /* ---- frame ---------------------------------------------------------- */
+    function frame(ts) {
+      var dt = last ? (ts - last) / 1000 : 0.016;
+      last = ts;
+      ft = ft * 0.9 + Math.min(dt, 0.2) * 1000 * 0.1;
+      acc += dt; frames++;
+      if (acc > 0.5) { fps = frames / acc; frames = 0; acc = 0; }
+
+      V.simUpdate(s, dt);
+      /* scripted exploded-view window + manual toggle */
+      var autoEx = V.win(56.4, 58.0, 60.4, 61.6, s.tl);
+      var target = Math.max(s.explodeTarget, autoEx);
+      s.layers.explode += clamp(target - s.layers.explode, -2.2 * dt, 2.2 * dt);
+      s.explode = s.layers.explode;
+
+      if (!manual) camAt(s.tl, cam);
+      V.camPrep(cam);
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      V.renderScene(ctx, cam, s, scene, w, h);
+      if (s.layers.hud) V.drawHUD(ctx, s, w, h, fps);
+
+      /* adaptive quality */
+      if (autoQ) {
+        if (ft > 46 && qi > 0) { qi--; rebuild(); }
+        else if (ft < 21 && qi < 2) { qi++; rebuild(); }
+      }
+      requestAnimationFrame(frame);
+    }
+    function rebuild() {
+      scene = V.makeScene(quality[qi].q);
+      var want = quality[qi].p;
+      while (s.parts.length > want) s.parts.pop();
+      while (s.parts.length < want) s.parts.push({ rt: 'core', s: s.rnd(), th: s.rnd() * V.TAU, ps: 0, seed: s.rnd() * 1000, life: 0, sw: 0 });
+      ft = 30;
+    }
+    requestAnimationFrame(frame);
+    return { sim: s, cam: cam, scene: scene };
+  }
+
+  V.boot = boot; V.camAt = camAt; V.CAM_KF = CAM_KF;
+})(typeof globalThis !== 'undefined' ? (globalThis.VCE = globalThis.VCE || {}) : (this.VCE = this.VCE || {}));
+
+(function () {
+  var cv = document.getElementById('cv');
+  try {
+    VCE.boot(cv, {});
+    var b = document.getElementById('boot');
+    setTimeout(function () { b.style.transition = 'opacity .6s'; b.style.opacity = '0';
+      setTimeout(function () { b.remove(); }, 700); }, 420);
+  } catch (err) {
+    document.getElementById('boot').innerHTML = '<b>RENDER ERROR</b>' + (err && err.message ? err.message : err);
+    throw err;
+  }
+})();
+</script>
+</body>
+</html>

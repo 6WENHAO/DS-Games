@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OPTIMUS RIG · three.js 变形金刚（机器人 ⇄ 卡车）</title>
+<style>
+  :root{
+    --red:#e0343c; --blue:#2f7ce0; --ink:#0b0e14; --panel:rgba(10,14,22,.72);
+    --line:rgba(120,180,255,.22); --txt:#e8f0fb; --dim:#8fa6c4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--ink);color:var(--txt);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  #app{position:fixed;inset:0}
+  canvas{display:block;outline:none}
+
+  /* ---------- HUD ---------- */
+  .hud{position:fixed;pointer-events:none;z-index:10;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  #hud-top{top:14px;left:18px}
+  #title{font-size:15px;font-weight:700;letter-spacing:.14em}
+  #title b{color:var(--red)}#title i{color:var(--blue);font-style:normal}
+  #subtitle{font-size:11px;color:var(--dim);letter-spacing:.08em;margin-top:2px}
+  #mode-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+  #badge{pointer-events:none;font-size:12px;font-weight:700;letter-spacing:.1em;padding:5px 12px;border-radius:99px;
+    border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(6px);white-space:nowrap}
+  #badge.robot{color:#ff8f95;border-color:rgba(224,52,60,.55);box-shadow:0 0 18px rgba(224,52,60,.22) inset}
+  #badge.vehicle{color:#8fc4ff;border-color:rgba(47,124,224,.55);box-shadow:0 0 18px rgba(47,124,224,.22) inset}
+  #badge.morph{color:#ffe08a;border-color:rgba(255,200,80,.6);box-shadow:0 0 18px rgba(255,200,80,.22) inset}
+  #bar{width:190px;height:6px;border-radius:99px;background:rgba(255,255,255,.10);overflow:hidden;border:1px solid var(--line)}
+  #bar-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--red),#ffcf5a,var(--blue));
+    transition:width .06s linear}
+
+  #hud-stats{top:14px;right:18px;text-align:right;font-size:11px;line-height:1.75;color:var(--dim);
+    font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+  #hud-stats b{color:var(--txt);font-weight:600}
+
+  #hud-keys{bottom:14px;left:18px;font-size:11px;line-height:1.85;color:var(--dim);
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;backdrop-filter:blur(6px);
+    max-width:330px;transition:opacity .2s,transform .2s}
+  #hud-keys.hidden{opacity:0;transform:translateY(8px)}
+  #hud-keys h4{margin:0 0 6px;font-size:11px;letter-spacing:.12em;color:var(--txt)}
+  kbd{display:inline-block;min-width:17px;text-align:center;padding:1px 5px;margin-right:3px;border-radius:5px;
+    border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:var(--txt);
+    font:600 10px/1.5 ui-monospace,Consolas,monospace}
+
+  #toast{position:fixed;left:50%;bottom:56px;transform:translate(-50%,14px);z-index:12;pointer-events:none;
+    font-size:13px;font-weight:600;letter-spacing:.06em;padding:9px 20px;border-radius:99px;
+    background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(8px);opacity:0;transition:all .28s}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+
+  /* ---------- 载入 / 报错 ---------- */
+  #boot{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;background:radial-gradient(circle at 50% 45%,#131a26,#05070b 70%);transition:opacity .5s}
+  #boot.done{opacity:0;pointer-events:none}
+  #boot .ring{width:52px;height:52px;border-radius:50%;border:3px solid rgba(255,255,255,.12);
+    border-top-color:var(--red);border-right-color:var(--blue);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #boot p{margin:0;font-size:12px;letter-spacing:.22em;color:var(--dim)}
+  #err{position:fixed;inset:0;z-index:40;display:none;padding:8vh 8vw;background:rgba(6,8,12,.94);overflow:auto}
+  #err h3{color:#ff6b6b;font-size:15px;margin:0 0 10px;letter-spacing:.1em}
+  #err pre{white-space:pre-wrap;font:12px/1.7 ui-monospace,Consolas,monospace;color:#ffd9d9}
+  .lil-gui{--font-size:11.5px;--widget-height:22px;z-index:20!important}
+  .lil-gui.root{--width:308px;max-height:calc(100vh - 24px)}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js",
+    "lil-gui": "./vendor/lil-gui.esm.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="hud" id="hud-top">
+  <div id="title"><b>OPTIMUS</b> <i>RIG</i></div>
+  <div id="subtitle">three.js · 机器人 ⇄ 卡车 双向变形装配体</div>
+  <div id="mode-row">
+    <div id="badge" class="robot">机器人形态</div>
+    <div id="bar"><div id="bar-fill"></div></div>
+  </div>
+</div>
+
+<div class="hud" id="hud-stats">
+  <div>FPS <b id="s-fps">--</b></div>
+  <div>三角面 <b id="s-tri">--</b></div>
+  <div>零件 <b id="s-part">--</b> · 关节 <b id="s-joint">--</b></div>
+  <div>时速 <b id="s-spd">0.0</b> km/h</div>
+  <div>变形 <b id="s-prog">0%</b></div>
+</div>
+
+<div class="hud" id="hud-keys">
+  <h4>操作</h4>
+  <div><kbd>T</kbd> 变形（机器人 ⇄ 卡车） &nbsp; <kbd>空格</kbd> 自动循环变形</div>
+  <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 行走 / 驾驶 &nbsp; <kbd>⇧</kbd> 加速</div>
+  <div><kbd>C</kbd> 切换机位 &nbsp; <kbd>V</kbd> 跟随镜头 &nbsp; <kbd>R</kbd> 归位</div>
+  <div><kbd>F</kbd> 开火 &nbsp; <kbd>Q</kbd> 挥手 &nbsp; <kbd>E</kbd> 武器 &nbsp; <kbd>L</kbd> 车灯</div>
+  <div><kbd>N</kbd> 夜间 &nbsp; <kbd>G</kbd> 网格 &nbsp; <kbd>J</kbd> 关节轴 &nbsp; <kbd>X</kbd> 爆炸图</div>
+  <div><kbd>P</kbd> 截图 &nbsp; <kbd>H</kbd> 隐藏此帮助 &nbsp; 鼠标：拖拽旋转 / 滚轮缩放</div>
+</div>
+
+<div id="toast"></div>
+
+<div id="boot"><div class="ring"></div><p>正在装配 CYBERTRON 骨架…</p></div>
+<div id="err"><h3>运行出错</h3><pre id="err-msg"></pre></div>
+
+<script>
+  // 早期错误也能看见（避免只剩黑屏）
+  window.__dshErr = function (msg) {
+    var e = document.getElementById('err'), m = document.getElementById('err-msg');
+    if (!e) return; e.style.display = 'block';
+    m.textContent += (m.textContent ? '\n\n' : '') + msg;
+    var b = document.getElementById('boot'); if (b) b.classList.add('done');
+  };
+  window.addEventListener('error', function (ev) {
+    window.__dshErr((ev.message || 'Error') + '\n  ' + (ev.filename || '') + ':' + (ev.lineno || 0) +
+      (ev.error && ev.error.stack ? '\n' + ev.error.stack : ''));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev.reason; window.__dshErr('Unhandled Promise: ' + (r && r.stack ? r.stack : r));
+  });
+  // file:// 直接双击打开时，ES Module 会被浏览器 CORS 拦掉 —— 给出明确指引
+  if (location.protocol === 'file:') {
+    window.__dshErr(
+      '请不要用 file:// 直接打开本页面。\n\n' +
+      'ES Module（import）在 file:// 下会被浏览器的同源策略拦截，必须经 HTTP 打开：\n\n' +
+      '  ① 双击目录里的  start.bat   （自动开服务器并打开浏览器）\n' +
+      '  ② 或手动执行：  python -m http.server 8199 --bind 127.0.0.1\n' +
+      '     然后访问：    http://127.0.0.1:8199/\n' +
+      '  ③ 或者：        npx --yes serve -l 8199 .');
+  }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

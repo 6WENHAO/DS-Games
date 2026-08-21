@@ -1,0 +1,3385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>FPV 穿越机花飞模拟器 · SO(3) 刚体动力学 · 5.8G 模拟图传</title>
+<style>
+
+:root{
+  --acc:#39ff9e; --acc2:#2ad3ff; --warn:#ffcf3a; --bad:#ff4d5e;
+  --bg:#06090c; --panel:rgba(8,14,18,.92); --line:rgba(57,255,158,.22);
+  --txt:#d8f7ec; --dim:#7fa79a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
+  font-family:"DIN Alternate","Bahnschrift",Consolas,"SF Mono",Menlo,monospace;
+  -webkit-user-select:none;user-select:none;touch-action:none}
+#app{position:fixed;inset:0}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;background:#000}
+#vignette{position:absolute;inset:0;pointer-events:none;
+  box-shadow:inset 0 0 180px 40px rgba(0,0,0,.55);mix-blend-mode:multiply}
+
+/* ---------- 顶部状态条 ---------- */
+#topbar{position:absolute;top:0;left:0;right:0;height:30px;display:flex;align-items:center;gap:14px;
+  padding:0 12px;font-size:11.5px;letter-spacing:.06em;color:var(--dim);
+  background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0));pointer-events:none;z-index:5}
+#topbar b{color:var(--acc);font-weight:600}
+#topbar .sep{opacity:.3}
+#topbar .pill{border:1px solid var(--line);border-radius:10px;padding:1px 7px;color:var(--txt)}
+#topbar .pill.off{color:#5d6b68;border-color:#22302c}
+
+/* ---------- 提示 ---------- */
+#hint{position:absolute;left:12px;bottom:10px;font-size:11px;line-height:1.65;color:#6f8d84;z-index:5;
+  pointer-events:none;text-shadow:0 1px 2px #000}
+#hint kbd{display:inline-block;min-width:16px;text-align:center;border:1px solid #2d4a42;border-bottom-width:2px;
+  border-radius:4px;padding:0 4px;margin:0 1px;color:var(--acc);background:rgba(0,0,0,.4)}
+#toast{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:9;font-size:13px;
+  padding:7px 16px;border:1px solid var(--line);border-radius:4px;background:var(--panel);
+  color:var(--acc);opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+
+/* ---------- 开机遮罩 ---------- */
+#boot{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:18px;background:radial-gradient(circle at 50% 45%,#0c1a18 0%,#05080a 70%);cursor:pointer}
+#boot h1{font-size:30px;letter-spacing:.22em;color:var(--acc);text-shadow:0 0 22px rgba(57,255,158,.35);font-weight:600}
+#boot h2{font-size:12.5px;letter-spacing:.34em;color:var(--dim);font-weight:400}
+#boot .box{border:1px solid var(--line);border-radius:6px;padding:16px 26px;background:rgba(0,0,0,.35);
+  font-size:12px;line-height:2;color:#a9cfc4;min-width:420px}
+#boot .box i{color:var(--acc2);font-style:normal}
+#boot .go{margin-top:6px;font-size:14px;letter-spacing:.2em;color:#05100c;background:var(--acc);
+  padding:11px 30px;border-radius:4px;font-weight:700;box-shadow:0 0 30px rgba(57,255,158,.35)}
+#boot .go:hover{background:#7bffc2}
+#boot .pad{font-size:11px;color:var(--warn)}
+.hidden{display:none!important}
+
+/* ---------- 设置菜单 ---------- */
+#menu{position:absolute;top:0;right:0;bottom:0;width:426px;z-index:15;display:flex;flex-direction:column;
+  background:var(--panel);backdrop-filter:blur(9px);border-left:1px solid var(--line);
+  box-shadow:-18px 0 50px rgba(0,0,0,.55)}
+#menu header{padding:11px 14px 9px;border-bottom:1px solid var(--line)}
+#menu header .ttl{font-size:12.5px;letter-spacing:.2em;color:var(--acc);display:flex;justify-content:space-between}
+#menu header .ttl span{color:var(--dim);letter-spacing:.06em;font-size:10.5px}
+#tabs{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+#tabs button{flex:1 0 auto;font:inherit;font-size:11px;letter-spacing:.05em;padding:5px 9px;cursor:pointer;
+  color:var(--dim);background:rgba(255,255,255,.03);border:1px solid #223531;border-radius:3px}
+#tabs button:hover{color:var(--txt);border-color:#2f4d47}
+#tabs button.on{color:#04120d;background:var(--acc);border-color:var(--acc);font-weight:700}
+#menuBody{flex:1;overflow-y:auto;padding:10px 14px 22px;scrollbar-width:thin;scrollbar-color:#2b4a43 transparent}
+#menuBody::-webkit-scrollbar{width:8px}
+#menuBody::-webkit-scrollbar-thumb{background:#2b4a43;border-radius:4px}
+#menu footer{padding:9px 14px;border-top:1px solid var(--line);display:flex;gap:7px;flex-wrap:wrap}
+.btn{font:inherit;font-size:11px;letter-spacing:.05em;padding:6px 11px;cursor:pointer;color:var(--txt);
+  background:rgba(255,255,255,.05);border:1px solid #2c4a44;border-radius:3px}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.btn.pri{background:var(--acc);color:#04120d;border-color:var(--acc);font-weight:700}
+.btn.pri:hover{background:#7bffc2;color:#04120d}
+.btn.dg:hover{border-color:var(--bad);color:var(--bad)}
+.sect{margin:4px 0 14px}
+.sect>h3{font-size:10.5px;letter-spacing:.2em;color:var(--acc2);padding-bottom:5px;margin-bottom:8px;
+  border-bottom:1px dashed rgba(42,211,255,.25);text-transform:uppercase}
+.note{font-size:10.5px;color:#6f8d84;line-height:1.6;margin:-2px 0 9px}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.row>label{flex:0 0 132px;font-size:11px;color:#b6d8cd;line-height:1.3}
+.row>label small{display:block;color:#5f7d75;font-size:9.5px;letter-spacing:.02em}
+.row input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:3px;background:#243b37;border-radius:2px}
+.row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--acc);cursor:pointer;box-shadow:0 0 8px rgba(57,255,158,.5)}
+.row input[type=range]::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:var(--acc);cursor:pointer}
+.row .num{flex:0 0 66px}
+.row input[type=number],.row select{width:100%;font:inherit;font-size:11px;padding:3px 5px;color:var(--txt);
+  background:#0b1614;border:1px solid #26403b;border-radius:3px}
+.row input[type=number]:focus,.row select:focus{outline:none;border-color:var(--acc)}
+.row .val{flex:0 0 66px;text-align:right;font-size:11px;color:var(--acc);font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:7px;margin-bottom:7px;font-size:11px;color:#b6d8cd;cursor:pointer}
+.chk input{accent-color:var(--acc);width:13px;height:13px}
+
+/* RC 标定表 */
+table.rc{width:100%;border-collapse:collapse;font-size:11px}
+table.rc th{font-size:9.5px;letter-spacing:.1em;color:#6f8d84;text-align:left;padding:0 4px 5px;font-weight:400}
+table.rc td{padding:3px 4px;border-top:1px solid rgba(57,255,158,.09)}
+table.rc select,table.rc input[type=number]{width:100%;font:inherit;font-size:11px;padding:2px 3px;color:var(--txt);
+  background:#0b1614;border:1px solid #26403b;border-radius:3px}
+table.rc .nm{color:var(--acc2);letter-spacing:.05em;white-space:nowrap}
+.bar{position:relative;height:9px;background:#0e1a18;border:1px solid #233934;border-radius:2px;overflow:hidden}
+.bar i{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,#1c7f5c,var(--acc));width:0}
+.bar u{position:absolute;top:0;bottom:0;width:1px;left:50%;background:#3a5d55}
+.bar b{position:absolute;top:-2px;bottom:-2px;width:2px;background:#fff;box-shadow:0 0 6px #fff}
+.learn{font-size:10px;padding:2px 6px;cursor:pointer;color:var(--warn);background:transparent;
+  border:1px solid #4a4326;border-radius:3px;font-family:inherit;white-space:nowrap}
+.learn.on{background:var(--warn);color:#1a1400;font-weight:700}
+#padinfo{font-size:10.5px;color:#6f8d84;line-height:1.7;margin-bottom:9px;
+  border:1px dashed #26403b;border-radius:4px;padding:7px 9px;background:rgba(0,0,0,.25)}
+#padinfo b{color:var(--acc)}
+#axmon{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10px;color:#6f8d84;margin-top:6px}
+#axmon div{flex:0 0 86px}
+#axmon span{color:var(--acc2);font-variant-numeric:tabular-nums}
+.kv{display:flex;justify-content:space-between;font-size:11px;color:#9dc3b8;padding:2px 0;
+  border-bottom:1px dotted rgba(57,255,158,.1)}
+.kv span{color:var(--acc);font-variant-numeric:tabular-nums}
+
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+  <div id="vignette"></div>
+  <div id="topbar">
+    <b>FPV FREESTYLE SIM</b><span class="sep">|</span>
+    <span>SO(3) EXP-MAP RIGID BODY</span><span class="sep">|</span>
+    <span id="tbFps">-- fps</span>
+    <span id="tbPhys">phys --</span>
+    <span class="pill off" id="tbPad">NO RC</span>
+    <span class="pill off" id="tbArm">DISARMED</span>
+    <span class="pill" id="tbMode">ACRO</span>
+    <span class="pill" id="tbCam">FPV</span>
+    <span class="pill" id="tbVtx">VTX 100%</span>
+  </div>
+
+  <div id="hint">
+    <kbd>M</kbd>/<kbd>Esc</kbd> 设置菜单 &nbsp; <kbd>Enter</kbd> 解锁/上锁 &nbsp; <kbd>R</kbd> 复位 &nbsp;
+    <kbd>C</kbd> 视角 &nbsp; <kbd>F</kbd> 飞行模式 &nbsp; <kbd>T</kbd> 静音<br />
+    键盘备用输入：<kbd>W</kbd><kbd>S</kbd> 油门 &nbsp; <kbd>A</kbd><kbd>D</kbd> 偏航 &nbsp;
+    <kbd>&uarr;</kbd><kbd>&darr;</kbd> 俯仰 &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> 横滚（推荐插硬件遥控器）
+  </div>
+  <div id="toast"></div>
+
+  <div id="menu" class="hidden">
+    <header>
+      <div class="ttl"><span style="color:var(--acc)">FLIGHT CONFIGURATOR</span><span id="cfgHint">M / Esc 关闭</span></div>
+      <div id="tabs"></div>
+    </header>
+    <div id="menuBody"></div>
+    <footer>
+      <button class="btn pri" id="btnSave">保存到本地</button>
+      <button class="btn" id="btnLoad">读取</button>
+      <button class="btn dg" id="btnDefault">恢复默认</button>
+      <button class="btn" id="btnReset">复位飞机 (R)</button>
+      <button class="btn" id="btnClose">关闭</button>
+    </footer>
+  </div>
+
+  <div id="boot">
+    <h1>FPV 穿越机花飞模拟器</h1>
+    <h2>SO(3) RIGID-BODY DYNAMICS &nbsp;·&nbsp; ACRO PID &nbsp;·&nbsp; 5.8GHz ANALOG VTX</h2>
+    <div class="box">
+      <i>物理</i> 自研刚体动力学：so(3) 指数映射姿态积分 / 二次气动阻尼 / 电机混控饱和<br />
+      <i>控制</i> Acro 手动模式，摇杆 → 目标角速度 → 三轴 PID → 力矩<br />
+      <i>图传</i> 距离衰减 → 雪花噪点 / 横向撕裂 / 滚动条纹 → 失联失控保护<br />
+      <i>遥控</i> 插入手柄/遥控器（USB / 加密狗）后拨动摇杆即可被识别<br />
+      <i>自检</i> 在地址后追加 <b style="color:#39ff9e">?selftest=1</b> 可运行内置 35 项管线自检
+    </div>
+    <div class="pad" id="bootPad">正在检测遥控设备…（无设备也可用键盘飞行）</div>
+    <div class="go">点击进入座舱</div>
+  </div>
+  <canvas id="osd" class="hidden"></canvas>
+</div>
+<script>
+"use strict";
+
+/* =============================================================================
+ * 0 | 数学内核 —— vec3 / mat3 / mat4 / SO(3)·so(3)
+ * -----------------------------------------------------------------------------
+ * 约定：
+ *   世界坐标系 右手系，+Y 朝上（渲染友好）。
+ *   机体坐标系 bX = 右, bY = 上, bZ = 机尾（即机头方向为 -bZ）。
+ *   姿态 R ∈ SO(3) 为 3x3 列主序矩阵，列向量 = 机体基在世界系下的表示：
+ *       v_world = R · v_body      v_body = Rᵗ · v_world
+ *   角速度 ω 定义在【机体系】，姿态演化为 Ṙ = R·[ω]×，
+ *   积分使用 so(3) → SO(3) 的指数映射（Rodrigues 闭式解），绝不使用欧拉角。
+ * ========================================================================== */
+var DEG = Math.PI / 180, RAD = 180 / Math.PI;
+function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function smoothstep(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function sgn(x) { return x < 0 ? -1 : 1; }
+function fract(x) { return x - Math.floor(x); }
+
+/* ---------------------------- vec3 ---------------------------------------- */
+function v3(x, y, z) { var o = new Float64Array(3); o[0] = x || 0; o[1] = y || 0; o[2] = z || 0; return o; }
+function v3set(o, x, y, z) { o[0] = x; o[1] = y; o[2] = z; return o; }
+function v3copy(o, a) { o[0] = a[0]; o[1] = a[1]; o[2] = a[2]; return o; }
+function v3zero(o) { o[0] = o[1] = o[2] = 0; return o; }
+function v3add(o, a, b) { o[0] = a[0] + b[0]; o[1] = a[1] + b[1]; o[2] = a[2] + b[2]; return o; }
+function v3sub(o, a, b) { o[0] = a[0] - b[0]; o[1] = a[1] - b[1]; o[2] = a[2] - b[2]; return o; }
+function v3mul(o, a, b) { o[0] = a[0] * b[0]; o[1] = a[1] * b[1]; o[2] = a[2] * b[2]; return o; }
+function v3scale(o, a, s) { o[0] = a[0] * s; o[1] = a[1] * s; o[2] = a[2] * s; return o; }
+/** o = a + b*s */
+function v3addScaled(o, a, b, s) { o[0] = a[0] + b[0] * s; o[1] = a[1] + b[1] * s; o[2] = a[2] + b[2] * s; return o; }
+function v3dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function v3cross(o, a, b) {
+  var ax = a[0], ay = a[1], az = a[2], bx = b[0], by = b[1], bz = b[2];
+  o[0] = ay * bz - az * by; o[1] = az * bx - ax * bz; o[2] = ax * by - ay * bx; return o;
+}
+function v3len2(a) { return a[0] * a[0] + a[1] * a[1] + a[2] * a[2]; }
+function v3len(a) { return Math.sqrt(v3len2(a)); }
+function v3dist(a, b) { var x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2]; return Math.sqrt(x * x + y * y + z * z); }
+function v3norm(o, a) {
+  var l = v3len(a); if (l < 1e-12) { return v3set(o, 0, 0, 0); }
+  return v3scale(o, a, 1 / l);
+}
+function v3lerp(o, a, b, t) { o[0] = lerp(a[0], b[0], t); o[1] = lerp(a[1], b[1], t); o[2] = lerp(a[2], b[2], t); return o; }
+
+/* ---------------------------- mat3 (列主序) ------------------------------- */
+/*  索引:  m[0] m[3] m[6]      col0 = (m0,m1,m2)  = 机体 X 轴(右) 在世界系
+ *         m[1] m[4] m[7]      col1 = (m3,m4,m5)  = 机体 Y 轴(上)
+ *         m[2] m[5] m[8]      col2 = (m6,m7,m8)  = 机体 Z 轴(尾)                */
+function m3() { return new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]); }
+function m3ident(o) { o[0] = 1; o[1] = 0; o[2] = 0; o[3] = 0; o[4] = 1; o[5] = 0; o[6] = 0; o[7] = 0; o[8] = 1; return o; }
+function m3copy(o, a) { for (var i = 0; i < 9; i++) o[i] = a[i]; return o; }
+/** o = a·b  （列主序矩阵乘法） */
+function m3mul(o, a, b) {
+  var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5], a6 = a[6], a7 = a[7], a8 = a[8];
+  var b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3], b4 = b[4], b5 = b[5], b6 = b[6], b7 = b[7], b8 = b[8];
+  o[0] = a0 * b0 + a3 * b1 + a6 * b2; o[1] = a1 * b0 + a4 * b1 + a7 * b2; o[2] = a2 * b0 + a5 * b1 + a8 * b2;
+  o[3] = a0 * b3 + a3 * b4 + a6 * b5; o[4] = a1 * b3 + a4 * b4 + a7 * b5; o[5] = a2 * b3 + a5 * b4 + a8 * b5;
+  o[6] = a0 * b6 + a3 * b7 + a6 * b8; o[7] = a1 * b6 + a4 * b7 + a7 * b8; o[8] = a2 * b6 + a5 * b7 + a8 * b8;
+  return o;
+}
+/** 世界 = R·机体 */
+function m3xv(o, m, v) {
+  var x = v[0], y = v[1], z = v[2];
+  o[0] = m[0] * x + m[3] * y + m[6] * z;
+  o[1] = m[1] * x + m[4] * y + m[7] * z;
+  o[2] = m[2] * x + m[5] * y + m[8] * z;
+  return o;
+}
+/** 机体 = Rᵗ·世界 */
+function m3txv(o, m, v) {
+  var x = v[0], y = v[1], z = v[2];
+  o[0] = m[0] * x + m[1] * y + m[2] * z;
+  o[1] = m[3] * x + m[4] * y + m[5] * z;
+  o[2] = m[6] * x + m[7] * y + m[8] * z;
+  return o;
+}
+function m3col(o, m, i) { o[0] = m[i * 3]; o[1] = m[i * 3 + 1]; o[2] = m[i * 3 + 2]; return o; }
+function m3det(m) {
+  return m[0] * (m[4] * m[8] - m[5] * m[7]) - m[3] * (m[1] * m[8] - m[2] * m[7]) + m[6] * (m[1] * m[5] - m[2] * m[4]);
+}
+/** 绕单位轴构造旋转（Rodrigues），axis 需已归一化 */
+function m3fromAxisAngle(o, ax, ay, az, ang) {
+  var c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
+  o[0] = t * ax * ax + c;      o[1] = t * ax * ay + s * az; o[2] = t * ax * az - s * ay;
+  o[3] = t * ax * ay - s * az; o[4] = t * ay * ay + c;      o[5] = t * ay * az + s * ax;
+  o[6] = t * ax * az + s * ay; o[7] = t * ay * az - s * ax; o[8] = t * az * az + c;
+  return o;
+}
+/** 由正交基（列）构造 */
+function m3fromBasis(o, cx, cy, cz) {
+  o[0] = cx[0]; o[1] = cx[1]; o[2] = cx[2];
+  o[3] = cy[0]; o[4] = cy[1]; o[5] = cy[2];
+  o[6] = cz[0]; o[7] = cz[1]; o[8] = cz[2];
+  return o;
+}
+
+/* ============================ so(3) 指数映射 ==============================
+ *  exp([v]×) = I + (sinθ/θ)[v]× + ((1-cosθ)/θ²)[v]×²      θ = |v|
+ *  其中 [v]×² = v·vᵗ - θ²·I ；θ→0 时用 Taylor 展开保证数值稳定。
+ *  这是唯一的姿态积分手段：R ← R·exp([ω·dt]×)，天然保持 R ∈ SO(3)，
+ *  不存在万向节死锁，可任意连续翻滚（花飞必需）。
+ * ======================================================================== */
+function so3Exp(o, vx, vy, vz) {
+  var th2 = vx * vx + vy * vy + vz * vz;
+  var A, B; // A = sinθ/θ, B = (1-cosθ)/θ²
+  if (th2 < 1e-8) {                       // Taylor：误差 < 1e-12
+    A = 1 - th2 / 6 + th2 * th2 / 120;
+    B = 0.5 - th2 / 24 + th2 * th2 / 720;
+  } else {
+    var th = Math.sqrt(th2);
+    A = Math.sin(th) / th;
+    B = (1 - Math.cos(th)) / th2;
+  }
+  var d = 1 - B * th2;                    // 对角公共项
+  o[0] = d + B * vx * vx;      o[3] = -A * vz + B * vx * vy; o[6] = A * vy + B * vx * vz;
+  o[1] = A * vz + B * vx * vy; o[4] = d + B * vy * vy;       o[7] = -A * vx + B * vy * vz;
+  o[2] = -A * vy + B * vx * vz;o[5] = A * vx + B * vy * vz;  o[8] = d + B * vz * vz;
+  return o;
+}
+/** 对数映射 SO(3)→so(3)（用于姿态误差反馈、自稳模式），返回旋转向量 */
+function so3Log(o, m) {
+  var tr = m[0] + m[4] + m[8];
+  var cth = clamp((tr - 1) * 0.5, -1, 1);
+  var th = Math.acos(cth);
+  // 反对称部分：(R - Rᵗ)/2 = sinθ·[k]×
+  var wx = (m[5] - m[7]) * 0.5, wy = (m[6] - m[2]) * 0.5, wz = (m[1] - m[3]) * 0.5;
+  if (th < 1e-6) { return v3set(o, wx, wy, wz); }   // sinθ/θ→1
+  if (Math.PI - th < 1e-4) {              // θ≈π：用对称部分提取轴
+    var d0 = m[0] - cth, d1 = m[4] - cth, d2 = m[8] - cth;
+    var ax, ay, az;
+    if (d0 >= d1 && d0 >= d2) { ax = Math.sqrt(Math.max(d0, 0)); ay = (m[3] + m[1]) * 0.5 / (ax || 1); az = (m[6] + m[2]) * 0.5 / (ax || 1); }
+    else if (d1 >= d2) { ay = Math.sqrt(Math.max(d1, 0)); ax = (m[3] + m[1]) * 0.5 / (ay || 1); az = (m[7] + m[5]) * 0.5 / (ay || 1); }
+    else { az = Math.sqrt(Math.max(d2, 0)); ax = (m[6] + m[2]) * 0.5 / (az || 1); ay = (m[7] + m[5]) * 0.5 / (az || 1); }
+    var ln = Math.sqrt(ax * ax + ay * ay + az * az) || 1;
+    var s = (wx * ax + wy * ay + wz * az) >= 0 ? 1 : -1;
+    return v3set(o, s * th * ax / ln, s * th * ay / ln, s * th * az / ln);
+  }
+  var k = th / Math.sin(th);
+  return v3set(o, wx * k, wy * k, wz * k);
+}
+/** 修正浮点漂移：改良 Gram-Schmidt 重正交化（数千步一次即可） */
+function m3orthonormalize(m) {
+  var x0 = m[0], x1 = m[1], x2 = m[2], y0 = m[3], y1 = m[4], y2 = m[5];
+  var l = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2) || 1; x0 /= l; x1 /= l; x2 /= l;
+  var d = x0 * y0 + x1 * y1 + x2 * y2;
+  y0 -= x0 * d; y1 -= x1 * d; y2 -= x2 * d;
+  l = Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2) || 1; y0 /= l; y1 /= l; y2 /= l;
+  m[0] = x0; m[1] = x1; m[2] = x2; m[3] = y0; m[4] = y1; m[5] = y2;
+  m[6] = x1 * y2 - x2 * y1; m[7] = x2 * y0 - x0 * y2; m[8] = x0 * y1 - x1 * y0;
+  return m;
+}
+/** 仅供 OSD 显示 / 遥测使用（绝不参与积分）：由 R 提取姿态角 */
+function attitudeFromR(m) {
+  var rx = m[0], ry = m[1];              // 机体右轴
+  var uy = m[4];                         // 机体上轴 Y 分量
+  var fx = -m[6], fy = -m[7], fz = -m[8]; // 机头方向 = -col2
+  return {
+    roll: Math.atan2(-ry, uy) * RAD,               // 右翼下压为正
+    pitch: Math.asin(clamp(fy, -1, 1)) * RAD,      // 机头抬升为正
+    yaw: (Math.atan2(fx, -fz) * RAD + 360) % 360,  // 0° = -Z 方向
+    inverted: uy < 0
+  };
+}
+
+/* ---------------------------- mat4 (列主序, GL) --------------------------- */
+function m4() { return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
+function m4ident(o) { o.fill(0); o[0] = o[5] = o[10] = o[15] = 1; return o; }
+function m4mul(o, a, b) {
+  for (var c = 0; c < 4; c++) {
+    var b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+    o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+    o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+    o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+    o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+  }
+  return o;
+}
+function m4perspective(o, fovY, aspect, near, far) {
+  var f = 1 / Math.tan(fovY * 0.5), nf = 1 / (near - far);
+  o.fill(0);
+  o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf;
+  return o;
+}
+function m4ortho(o, l, r, b, t, n, f) {
+  o.fill(0);
+  o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = -2 / (f - n); o[15] = 1;
+  o[12] = -(r + l) / (r - l); o[13] = -(t + b) / (t - b); o[14] = -(f + n) / (f - n);
+  return o;
+}
+/** 视图矩阵 = [Rᵗ | -Rᵗ·c]，R 为相机基（mat3），c 为相机位置 */
+function m4viewFromRT(o, R, c) {
+  o[0] = R[0]; o[4] = R[1]; o[8]  = R[2];
+  o[1] = R[3]; o[5] = R[4]; o[9]  = R[5];
+  o[2] = R[6]; o[6] = R[7]; o[10] = R[8];
+  o[3] = 0; o[7] = 0; o[11] = 0; o[15] = 1;
+  o[12] = -(R[0] * c[0] + R[1] * c[1] + R[2] * c[2]);
+  o[13] = -(R[3] * c[0] + R[4] * c[1] + R[5] * c[2]);
+  o[14] = -(R[6] * c[0] + R[7] * c[1] + R[8] * c[2]);
+  return o;
+}
+/** 模型矩阵：mat3 姿态 + 位置 */
+function m4model(o, R, p) {
+  o[0] = R[0]; o[1] = R[1]; o[2] = R[2]; o[3] = 0;
+  o[4] = R[3]; o[5] = R[4]; o[6] = R[5]; o[7] = 0;
+  o[8] = R[6]; o[9] = R[7]; o[10] = R[8]; o[11] = 0;
+  o[12] = p[0]; o[13] = p[1]; o[14] = p[2]; o[15] = 1;
+  return o;
+}
+function m4lookAt(o, eye, tgt, up) {
+  var zx = eye[0] - tgt[0], zy = eye[1] - tgt[1], zz = eye[2] - tgt[2];
+  var l = Math.sqrt(zx * zx + zy * zy + zz * zz) || 1; zx /= l; zy /= l; zz /= l;
+  var xx = up[1] * zz - up[2] * zy, xy = up[2] * zx - up[0] * zz, xz = up[0] * zy - up[1] * zx;
+  l = Math.sqrt(xx * xx + xy * xy + xz * xz);
+  if (l < 1e-8) { xx = 1; xy = 0; xz = 0; } else { xx /= l; xy /= l; xz /= l; }
+  var yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+  o[0] = xx; o[4] = xy; o[8] = xz; o[12] = -(xx * eye[0] + xy * eye[1] + xz * eye[2]);
+  o[1] = yx; o[5] = yy; o[9] = yz; o[13] = -(yx * eye[0] + yy * eye[1] + yz * eye[2]);
+  o[2] = zx; o[6] = zy; o[10] = zz; o[14] = -(zx * eye[0] + zy * eye[1] + zz * eye[2]);
+  o[3] = 0; o[7] = 0; o[11] = 0; o[15] = 1;
+  return o;
+}
+function m4invert(o, a) {
+  var a00=a[0],a01=a[1],a02=a[2],a03=a[3],a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+      a20=a[8],a21=a[9],a22=a[10],a23=a[11],a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+  var b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10, b03=a01*a12-a02*a11,
+      b04=a01*a13-a03*a11, b05=a02*a13-a03*a12, b06=a20*a31-a21*a30, b07=a20*a32-a22*a30,
+      b08=a20*a33-a23*a30, b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+  var det = b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  if (!det) return m4ident(o);
+  det = 1 / det;
+  o[0]=(a11*b11-a12*b10+a13*b09)*det; o[1]=(a02*b10-a01*b11-a03*b09)*det;
+  o[2]=(a31*b05-a32*b04+a33*b03)*det; o[3]=(a22*b04-a21*b05-a23*b03)*det;
+  o[4]=(a12*b08-a10*b11-a13*b07)*det; o[5]=(a00*b11-a02*b08+a03*b07)*det;
+  o[6]=(a32*b02-a30*b05-a33*b01)*det; o[7]=(a20*b05-a22*b02+a23*b01)*det;
+  o[8]=(a10*b10-a11*b08+a13*b06)*det; o[9]=(a01*b08-a00*b10-a03*b06)*det;
+  o[10]=(a30*b04-a31*b02+a33*b00)*det;o[11]=(a21*b02-a20*b04-a23*b00)*det;
+  o[12]=(a11*b07-a10*b09-a12*b06)*det;o[13]=(a00*b09-a01*b07+a02*b06)*det;
+  o[14]=(a31*b01-a30*b03-a32*b00)*det;o[15]=(a20*b03-a21*b01+a22*b00)*det;
+  return o;
+}
+/* 确定性 hash（地形/道具随机化，跨会话一致） */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+
+/* =============================================================================
+ * 1 | 全局配置（可在设置菜单实时修改，localStorage 持久化）
+ * ========================================================================== */
+var CFG_VERSION = 3;
+var DEFAULTS = {
+  /* ---- 手感 / Rates ---- */
+  rateRoll: 860, ratePitch: 800, rateYaw: 520,     // 最大角速度 °/s
+  rcExpo: 0.32, rcDeadband: 0.03, throttleExpo: 0.0, throttleMin: 0.0,
+  /* ---- PID（作用于角速度误差，输出归一化力矩指令）---- */
+  pRoll: 62, iRoll: 90, dRoll: 3.2,
+  pPitch: 66, iPitch: 95, dPitch: 3.4,
+  pYaw: 78, iYaw: 130, dYaw: 0.4,
+  iLimit: 0.45, dLpfHz: 90, gyroLpfHz: 180, ffGain: 0.055,
+  /* ---- 机体 / 气动 ---- */
+  mass: 0.68,                 // kg（5 吋自由式整机）
+  twr: 4.6,                   // 推重比（决定最大总推力）
+  armLen: 0.115,              // 电机力臂 m
+  inertiaXY: 0.0062, inertiaZ: 0.0115,   // kg·m²
+  motorTau: 0.026,            // 电机+桨一阶时间常数 s
+  yawTorqueK: 0.020,          // 反扭矩系数 (N·m per N 推力)
+  dragXZ: 0.055, dragY: 0.085,// 二次阻尼 N/(m/s)² （体轴向 / 垂直）
+  angDamp: 0.0026,            // 角速度线性气动阻尼 N·m/(rad/s)
+  gravity: 9.807, airDensity: 1.0,
+  restitution: 0.28, friction: 0.55, collRadius: 0.13,
+  batteryEnable: true, batteryCells: 6, batterySag: 0.055,
+  /* ---- 摄像头 / 视觉 ---- */
+  camTilt: 26, camFov: 118, camOffsetZ: 0.02, camOffsetY: 0.03,
+  renderScale: 1.0, shadows: true, msaa: true,
+  /* ---- 图传 VTX ---- */
+  vtxPower: 25,               // 发射功率 dBm（25dBm≈316mW）
+  vtxRange: 340,              // 参考链路裕度距离 m
+  vtxNoise: 1.0, vtxTear: 1.0, vtxBands: 1.0, vtxChroma: 1.0,
+  vtxScanline: 0.35, vtxLens: 0.12, vtxOnlyFpv: true, vtxEnable: true,
+  antennaNull: 0.45,          // 天线极化零点影响
+  wallLoss: 12,               // 穿墙附加损耗 dB
+  rssiFailsafe: 8,            // 图传/链路强度低于该 % 判定失联
+  failsafeDelay: 1.2, failsafeMode: 1,   // 0=直接掉落 1=自稳缓降
+  /* ---- 杂项 ---- */
+  osdEnable: true, audioEnable: true, audioVol: 0.5,
+  autoReset: true, autoResetDelay: 2.5, crashSpeed: 3.2,
+  flightMode: 0,              // 0=ACRO 1=ANGLE(自稳)
+  angleLimit: 42, angleP: 9.0,
+  seed: 20250820
+};
+var S = JSON.parse(JSON.stringify(DEFAULTS));
+
+/* RC 通道绑定（硬件遥控器）*/
+var DEFAULT_RC = {
+  device: -1,                                  // -1 = 自动选择第一个有效设备
+  /* 默认 = Gamepad API "standard" 双摇杆 Mode2：左摇杆 油门/偏航，右摇杆 俯仰/横滚 */
+  ch: {
+    roll:     { axis: 2, inv: false, uni: false, trim: 0, scale: 1 },
+    pitch:    { axis: 3, inv: true,  uni: false, trim: 0, scale: 1 },
+    yaw:      { axis: 0, inv: false, uni: false, trim: 0, scale: 1 },
+    throttle: { axis: 1, inv: true,  uni: true,  trim: 0, scale: 1 }
+  },
+  armButton: 0, resetButton: 1, modeButton: 3, camButton: 2
+};
+/* 预设映射：真实遥控器（HID 摇杆模式，多为 Ail/Ele/Thr/Rud 顺序） */
+var RC_PRESETS = {
+  pad: {
+    roll: { axis: 2, inv: false, uni: false, trim: 0, scale: 1 },
+    pitch: { axis: 3, inv: true, uni: false, trim: 0, scale: 1 },
+    yaw: { axis: 0, inv: false, uni: false, trim: 0, scale: 1 },
+    throttle: { axis: 1, inv: true, uni: true, trim: 0, scale: 1 }
+  },
+  tx: {
+    roll: { axis: 0, inv: false, uni: false, trim: 0, scale: 1 },
+    pitch: { axis: 1, inv: true, uni: false, trim: 0, scale: 1 },
+    yaw: { axis: 3, inv: false, uni: false, trim: 0, scale: 1 },
+    throttle: { axis: 2, inv: false, uni: true, trim: 0, scale: 1 }
+  }
+};
+var RCMAP = JSON.parse(JSON.stringify(DEFAULT_RC));
+
+/* 设置菜单的参数描述表：UI 由此自动生成 -------------------------------------- */
+var PARAM_TABS = [
+  { id: 'rc', name: '遥控器', special: 'rc' },
+  { id: 'rates', name: '手感/Rates', groups: [
+    { t: 'Rates · 摇杆→目标角速度', items: [
+      { k: 'rateRoll', l: '横滚最大角速度', s: '°/s · Roll', min: 100, max: 1800, step: 10 },
+      { k: 'ratePitch', l: '俯仰最大角速度', s: '°/s · Pitch', min: 100, max: 1800, step: 10 },
+      { k: 'rateYaw', l: '偏航最大角速度', s: '°/s · Yaw', min: 60, max: 1200, step: 10 },
+      { k: 'rcExpo', l: '摇杆曲线 Expo', s: '中心区更柔和', min: 0, max: 0.9, step: 0.01 },
+      { k: 'rcDeadband', l: '摇杆死区', s: 'deadband', min: 0, max: 0.2, step: 0.005 },
+      { k: 'throttleExpo', l: '油门曲线', s: 'throttle expo', min: -0.5, max: 0.5, step: 0.01 },
+      { k: 'throttleMin', l: '怠速油门', s: 'idle', min: 0, max: 0.2, step: 0.005 }
+    ]},
+    { t: '飞行模式', items: [
+      { k: 'flightMode', l: '模式', s: 'Acro=纯角速度环', sel: [['0', 'ACRO 手动'], ['1', 'ANGLE 自稳']] },
+      { k: 'angleLimit', l: '自稳最大倾角', s: '° (ANGLE)', min: 10, max: 80, step: 1 },
+      { k: 'angleP', l: '自稳角度增益', s: 'so(3) log 反馈', min: 1, max: 25, step: 0.5 }
+    ]}
+  ]},
+  { id: 'pid', name: 'PID', groups: [
+    { t: 'ROLL', items: [
+      { k: 'pRoll', l: 'P', s: 'proportional', min: 0, max: 200, step: 1 },
+      { k: 'iRoll', l: 'I', s: 'integral', min: 0, max: 400, step: 2 },
+      { k: 'dRoll', l: 'D', s: 'derivative', min: 0, max: 20, step: 0.1 }
+    ]},
+    { t: 'PITCH', items: [
+      { k: 'pPitch', l: 'P', s: 'proportional', min: 0, max: 200, step: 1 },
+      { k: 'iPitch', l: 'I', s: 'integral', min: 0, max: 400, step: 2 },
+      { k: 'dPitch', l: 'D', s: 'derivative', min: 0, max: 20, step: 0.1 }
+    ]},
+    { t: 'YAW', items: [
+      { k: 'pYaw', l: 'P', s: 'proportional', min: 0, max: 250, step: 1 },
+      { k: 'iYaw', l: 'I', s: 'integral', min: 0, max: 400, step: 2 },
+      { k: 'dYaw', l: 'D', s: 'derivative', min: 0, max: 20, step: 0.1 }
+    ]},
+    { t: '滤波 / 限幅', items: [
+      { k: 'iLimit', l: 'I 项限幅', s: 'anti-windup', min: 0.05, max: 1, step: 0.01 },
+      { k: 'dLpfHz', l: 'D 项低通', s: 'Hz', min: 20, max: 400, step: 5 },
+      { k: 'gyroLpfHz', l: '陀螺低通', s: 'Hz', min: 30, max: 500, step: 5 },
+      { k: 'ffGain', l: '前馈 FF', s: 'setpoint feed-forward', min: 0, max: 0.3, step: 0.005 }
+    ]}
+  ]},
+  { id: 'phys', name: '物理', groups: [
+    { t: '机体', items: [
+      { k: 'mass', l: '起飞重量', s: 'kg', min: 0.15, max: 2.5, step: 0.01 },
+      { k: 'twr', l: '推重比 T/W', s: '满油总推力/重力', min: 1.2, max: 12, step: 0.1 },
+      { k: 'armLen', l: '电机力臂', s: 'm', min: 0.04, max: 0.35, step: 0.005 },
+      { k: 'inertiaXY', l: '横滚/俯仰惯量', s: 'kg·m²', min: 0.001, max: 0.05, step: 0.0005 },
+      { k: 'inertiaZ', l: '偏航惯量', s: 'kg·m²', min: 0.001, max: 0.08, step: 0.0005 },
+      { k: 'motorTau', l: '电机时间常数', s: 's · 响应延迟', min: 0.004, max: 0.15, step: 0.002 },
+      { k: 'yawTorqueK', l: '桨反扭矩系数', s: 'N·m/N', min: 0, max: 0.08, step: 0.001 }
+    ]},
+    { t: '空气动力学', items: [
+      { k: 'dragXZ', l: '水平二次阻尼', s: 'N/(m/s)²', min: 0, max: 0.4, step: 0.005 },
+      { k: 'dragY', l: '垂直二次阻尼', s: 'N/(m/s)²', min: 0, max: 0.4, step: 0.005 },
+      { k: 'angDamp', l: '角速度气动阻尼', s: 'N·m/(rad/s)', min: 0, max: 0.02, step: 0.0002 },
+      { k: 'airDensity', l: '空气密度系数', s: '×1.225kg/m³', min: 0.2, max: 2, step: 0.02 },
+      { k: 'gravity', l: '重力加速度', s: 'm/s²', min: 0, max: 25, step: 0.1 }
+    ]},
+    { t: '碰撞 / 电池', items: [
+      { k: 'collRadius', l: '碰撞球半径', s: 'm', min: 0.05, max: 0.4, step: 0.005 },
+      { k: 'restitution', l: '弹性恢复系数', s: 'e', min: 0, max: 0.9, step: 0.02 },
+      { k: 'friction', l: '摩擦系数', s: 'μ', min: 0, max: 1, step: 0.02 },
+      { k: 'crashSpeed', l: '判定坠机速度', s: 'm/s', min: 1, max: 20, step: 0.2 },
+      { k: 'autoReset', l: '坠机自动复位', s: '', chk: true },
+      { k: 'autoResetDelay', l: '复位延迟', s: 's', min: 0.5, max: 8, step: 0.1 },
+      { k: 'batteryEnable', l: '电池电压模型', s: '压降影响推力', chk: true },
+      { k: 'batteryCells', l: '电芯节数', s: 'S', min: 2, max: 8, step: 1 },
+      { k: 'batterySag', l: '内阻压降', s: 'V per 满油', min: 0, max: 0.3, step: 0.005 }
+    ]}
+  ]},
+  { id: 'vtx', name: '图传/VTX', groups: [
+    { t: '链路预算', items: [
+      { k: 'vtxEnable', l: '启用图传后处理', s: 'analog VTX FX', chk: true },
+      { k: 'vtxOnlyFpv', l: '仅第一人称生效', s: '第三人称显示纯净画面', chk: true },
+      { k: 'vtxPower', l: '发射功率', s: 'dBm', min: 10, max: 35, step: 1 },
+      { k: 'vtxRange', l: '链路参考距离', s: 'm · 越大越远', min: 40, max: 2000, step: 10 },
+      { k: 'antennaNull', l: '天线零点深度', s: '极化失配', min: 0, max: 1, step: 0.02 },
+      { k: 'wallLoss', l: '遮挡附加损耗', s: 'dB · 墙体阻挡', min: 0, max: 40, step: 1 },
+      { k: 'rssiFailsafe', l: '失联阈值', s: '% 信号', min: 0, max: 40, step: 1 },
+      { k: 'failsafeDelay', l: '失控保护延迟', s: 's', min: 0, max: 5, step: 0.1 },
+      { k: 'failsafeMode', l: '失控保护动作', s: '', sel: [['0', 'DROP 直接停桨'], ['1', 'LAND 自稳缓降']] }
+    ]},
+    { t: '模拟视频劣化', items: [
+      { k: 'vtxNoise', l: '雪花噪点强度', s: 'static noise', min: 0, max: 2, step: 0.05 },
+      { k: 'vtxTear', l: '横向撕裂强度', s: 'h-tearing', min: 0, max: 2, step: 0.05 },
+      { k: 'vtxBands', l: '滚动条纹强度', s: 'rolling bands', min: 0, max: 2, step: 0.05 },
+      { k: 'vtxChroma', l: '色度串扰', s: 'chroma shift', min: 0, max: 2, step: 0.05 },
+      { k: 'vtxScanline', l: '扫描线', s: 'CRT scanline', min: 0, max: 1, step: 0.02 },
+      { k: 'vtxLens', l: '鱼眼桶形畸变', s: 'lens barrel', min: 0, max: 0.4, step: 0.01 }
+    ]}
+  ]},
+  { id: 'view', name: '视角/画质', groups: [
+    { t: '摄像头', items: [
+      { k: 'camTilt', l: '摄像头仰角', s: '° uptilt', min: 0, max: 60, step: 1 },
+      { k: 'camFov', l: '视场角 FOV', s: '° 垂直', min: 60, max: 150, step: 1 },
+      { k: 'camOffsetY', l: '相机上移', s: 'm', min: -0.1, max: 0.2, step: 0.005 },
+      { k: 'camOffsetZ', l: '相机前移', s: 'm', min: -0.2, max: 0.2, step: 0.005 }
+    ]},
+    { t: '渲染', items: [
+      { k: 'renderScale', l: '渲染倍率', s: '性能↔清晰度', min: 0.4, max: 1.5, step: 0.05 },
+      { k: 'shadows', l: '实时阴影', s: 'shadow map PCF', chk: true },
+      { k: 'msaa', l: '多重采样抗锯齿', s: 'MSAA 4x', chk: true },
+      { k: 'osdEnable', l: 'OSD 叠加', s: '嵌入图传信号中', chk: true },
+      { k: 'audioEnable', l: '声音', s: '电机/风噪', chk: true },
+      { k: 'audioVol', l: '音量', s: '', min: 0, max: 1, step: 0.02 }
+    ]}
+  ]},
+  { id: 'tele', name: '遥测', special: 'tele' }
+];
+
+
+/* =============================================================================
+ * 2 | GLSL 着色器（全部内联手写，无任何外部依赖）
+ *   · SKY   程序化天空/太阳/云
+ *   · SCENE 前向着色 + 阴影贴图 PCF + 程序化材质 + 高度雾
+ *   · SHADOW 深度 only
+ *   · POST  ★ 5.8G 模拟图传劣化：雪花/撕裂/滚动条纹/色度串扰/失联
+ * ========================================================================== */
+var VS_HEAD = '#version 300 es\nprecision highp float;\n';
+var FS_HEAD = '#version 300 es\nprecision highp float;\n';
+
+/* --- 公共：哈希与噪声 ------------------------------------------------------ */
+var GLSL_NOISE = [
+  'float h11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }',
+  'float h21(vec2 p){ vec3 p3=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973));',
+  '  p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }',
+  'vec3 h33(vec3 p3){ p3=fract(p3*vec3(0.1031,0.1030,0.0973));',
+  '  p3+=dot(p3,p3.yxz+33.33); return fract((p3.xxy+p3.yxx)*p3.zyx); }',
+  'float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+  '  float a=h21(i), b=h21(i+vec2(1,0)), c=h21(i+vec2(0,1)), d=h21(i+vec2(1,1));',
+  '  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }',
+  'float fbm(vec2 p, int oct){ float s=0.0,a=0.5,n=0.0;',
+  '  for(int i=0;i<6;i++){ if(i>=oct) break; s+=a*vnoise(p); n+=a; p=p*2.03+vec2(17.0,9.0); a*=0.5; }',
+  '  return s/max(n,1e-4); }'
+].join('\n');
+
+/* --- 公共：天空函数（场景雾与天空共用，保证地平线无缝） -------------------- */
+var GLSL_SKY = [
+  'uniform vec3 uSunDir;',
+  'uniform vec3 uSunCol;',
+  'vec3 skyColor(vec3 d){',
+  '  float h=clamp(d.y,-1.0,1.0);',
+  '  vec3 zen=vec3(0.13,0.34,0.72), hor=vec3(0.66,0.78,0.90), low=vec3(0.42,0.44,0.44);',
+  '  vec3 c=mix(hor,zen,pow(clamp(h,0.0,1.0),0.55));',
+  '  c=mix(c,low,smoothstep(0.02,-0.22,h));',
+  '  float sd=max(dot(normalize(d),uSunDir),0.0);',
+  '  c+=uSunCol*pow(sd,1200.0)*14.0;',
+  '  c+=uSunCol*pow(sd,10.0)*0.20;',
+  '  c+=uSunCol*pow(sd,2.0)*0.05;',
+  '  return c; }'
+].join('\n');
+
+/* ============================== 天空 ====================================== */
+var SKY_VS = VS_HEAD + [
+  'layout(location=0) in vec2 aPos;',
+  'out vec2 vNdc;',
+  'void main(){ vNdc=aPos; gl_Position=vec4(aPos,1.0,1.0); }'
+].join('\n');
+
+var SKY_FS = FS_HEAD + GLSL_NOISE + '\n' + GLSL_SKY + '\n' + [
+  'in vec2 vNdc;',
+  'out vec4 oCol;',
+  'uniform mat4 uInvVP;',
+  'uniform vec3 uCamPos;',
+  'uniform float uTime;',
+  'void main(){',
+  '  vec4 hp=uInvVP*vec4(vNdc,1.0,1.0);',
+  '  vec3 d=normalize(hp.xyz/hp.w-uCamPos);',
+  '  vec3 c=skyColor(d);',
+  // 程序化高层云（仅地平线以上）
+  '  if(d.y>0.005){',
+  '    vec2 cp=d.xz/max(d.y,0.045)*0.055;',
+  '    float cl=fbm(cp*1.6+vec2(uTime*0.004,uTime*0.0025),5);',
+  '    float cl2=fbm(cp*4.1-vec2(uTime*0.008,0.0),4);',
+  '    float cov=smoothstep(0.50,0.86,cl*0.75+cl2*0.35);',
+  '    cov*=smoothstep(0.0,0.16,d.y);',
+  '    vec3 cc=mix(vec3(0.58,0.62,0.68),vec3(1.02,1.00,0.97),smoothstep(0.35,0.9,cl));',
+  '    c=mix(c,cc,cov*0.82);',
+  '  }',
+  '  oCol=vec4(c,1.0);',
+  '}'
+].join('\n');
+
+/* ============================ 阴影深度 pass =============================== */
+var SHADOW_VS = VS_HEAD + [
+  'layout(location=0) in vec3 aPos;',
+  'uniform mat4 uLightVP;',
+  'uniform mat4 uModel;',
+  'void main(){ gl_Position=uLightVP*uModel*vec4(aPos,1.0); }'
+].join('\n');
+var SHADOW_FS = FS_HEAD + 'void main(){}';
+
+/* ============================== 主场景 ==================================== */
+var SCENE_VS = VS_HEAD + [
+  'layout(location=0) in vec3 aPos;',
+  'layout(location=1) in vec3 aNrm;',
+  'layout(location=2) in vec2 aUv;',
+  'layout(location=3) in vec3 aCol;',
+  'layout(location=4) in float aMat;',
+  'uniform mat4 uProj, uView, uModel, uLightVP;',
+  'out vec3 vW; out vec3 vN; out vec2 vUv; out vec3 vC; out float vM; out vec4 vSC;',
+  'void main(){',
+  '  vec4 wp=uModel*vec4(aPos,1.0);',
+  '  mat3 nm=mat3(uModel);',
+  '  vN=nm*aNrm; vW=wp.xyz; vUv=aUv; vC=aCol; vM=aMat;',
+  '  vSC=uLightVP*vec4(wp.xyz+normalize(vN)*0.055,1.0);',   // normal-offset 抑制阴影痤疮
+  '  gl_Position=uProj*uView*wp;',
+  '}'
+].join('\n');
+
+var SCENE_FS = FS_HEAD + GLSL_NOISE + '\n' + GLSL_SKY + '\n' + [
+  'in vec3 vW; in vec3 vN; in vec2 vUv; in vec3 vC; in float vM; in vec4 vSC;',
+  'out vec4 oCol;',
+  'uniform vec3 uCamPos;',
+  'uniform float uTime, uFogDens, uShadowOn, uShadowTexel;',
+  'uniform highp sampler2DShadow uShadow;',
+  'float shadowAt(float ndl){',
+  '  if(uShadowOn<0.5) return 1.0;',
+  '  vec3 p=vSC.xyz/vSC.w; p=p*0.5+0.5;',
+  '  if(p.z>=1.0||p.x<0.003||p.x>0.997||p.y<0.003||p.y>0.997) return 1.0;',
+  '  float b=0.00035+0.0016*(1.0-ndl);',
+  '  float s=0.0;',
+  '  for(int y=-1;y<=1;y++){ for(int x=-1;x<=1;x++){',
+  '    s+=texture(uShadow, vec3(p.xy+vec2(float(x),float(y))*uShadowTexel, p.z-b)); } }',
+  '  return s/9.0;',
+  '}',
+  // 抗锯齿的程序化条纹
+  'float stripeAA(float x, float w, float px){',
+  '  float f=fract(x); float d=min(f,1.0-f);',
+  '  return smoothstep(w-px,w+px,d);',
+  '}',
+  'void main(){',
+  '  vec3 N=normalize(vN);',
+  '  vec3 base=vC; float rough=0.85, specA=0.05;',
+  '  int m=int(vM+0.5);',
+  '  float pw=max(fwidth(vUv.x),fwidth(vUv.y))+1e-5;',
+  '  if(m==0){',   /* 地面：草皮/泥土 + 参照网格 */
+  '    float ff=clamp(1.0-pw*1.4,0.0,1.0);',        // 远处淡化高频，抗闪烁
+  '    float g1=fbm(vUv*0.55,4);',
+  '    float g2=vnoise(vUv*6.0)*ff;',
+  '    float dirt=smoothstep(0.52,0.78,fbm(vUv*0.16+vec2(3.1,7.7),4));',
+  '    vec3 grass=mix(vec3(0.115,0.205,0.088),vec3(0.215,0.325,0.128),g1);',
+  '    grass=mix(grass,vec3(0.30,0.40,0.17),g2*0.45);',
+  '    vec3 soil=mix(vec3(0.235,0.185,0.135),vec3(0.315,0.255,0.185),g2);',
+  '    base=mix(grass,soil,dirt*0.85);',
+  '    vec2 gp=vUv*0.2;',                            // 5m 网格
+  '    float gl=min(stripeAA(gp.x,0.012,pw*0.2),stripeAA(gp.y,0.012,pw*0.2));',
+  '    base=mix(base,base*1.55+vec3(0.03),(1.0-gl)*0.35*ff);',
+  '    rough=0.95; specA=0.015;',
+  '  } else if(m==2){',  /* 警示斜条纹（门框/立柱） */
+  '    float s=stripeAA((vUv.x+vUv.y)*2.2,0.25,pw*2.2);',
+  '    base=mix(vC,vec3(0.97,0.97,0.94),1.0-s);',
+  '    specA=0.10; rough=0.6;',
+  '  } else if(m==3){',  /* 起飞台棋盘格 */
+  '    vec2 q=floor(vUv*4.0);',
+  '    float ck=mod(q.x+q.y,2.0);',
+  '    base=mix(vec3(0.055,0.055,0.06),vec3(0.88,0.88,0.86),ck);',
+  '    specA=0.06;',
+  '  } else if(m==4){',  /* 自发光（灯带/旗标） */
+  '    float pulse=0.85+0.15*sin(uTime*2.4+vW.x*0.6);',
+  '    oCol=vec4(vC*pulse,1.0); return;',
+  '  } else if(m==5){',  /* 混凝土 / 废墟砖体 */
+  '    float n=fbm(vUv*3.2,4), n2=vnoise(vUv*13.0)*clamp(1.0-pw*2.0,0.0,1.0);',
+  '    base=vC*(0.80+0.34*n)+vec3(0.055)*n2;',
+  '    float mortar=min(stripeAA(vUv.x*1.0,0.035,pw*1.4),stripeAA(vUv.y*2.0,0.05,pw*2.6));',
+  '    base*=mix(0.68,1.0,mortar);',
+  '    rough=0.92; specA=0.02;',
+  '  } else if(m==6){',  /* 金属/碳板 */
+  '    base=vC*(0.85+0.3*vnoise(vUv*22.0));',
+  '    rough=0.28; specA=0.55;',
+  '  } else if(m==7){',  /* 远山（弱光照，重雾） */
+  '    base=vC*(0.85+0.25*fbm(vUv*2.0,3));',
+  '    specA=0.0;',
+  '  } else if(m==8){',  /* 旋转的桨盘 */
+  '    float r=length(vUv-0.5)*2.0;',
+  '    float ring=0.5+0.5*sin(r*46.0);',
+  '    base=vC*(0.42+0.5*ring);',
+  '    specA=0.25; rough=0.4;',
+  '  }',
+  '  vec3 L=uSunDir;',
+  '  float ndl=max(dot(N,L),0.0);',
+  '  float sh=shadowAt(ndl);',
+  '  vec3 amb=mix(vec3(0.16,0.155,0.14),vec3(0.34,0.44,0.62),0.5+0.5*N.y);',
+  '  float ao=1.0;',
+  '  vec3 col=base*(amb*1.05+uSunCol*ndl*sh*1.25)*ao;',
+  '  vec3 V=normalize(uCamPos-vW);',
+  '  vec3 H=normalize(V+L);',
+  '  float sp=pow(max(dot(N,H),0.0),mix(8.0,140.0,1.0-rough))*specA*sh;',
+  '  col+=uSunCol*sp*1.6;',
+  '  float rim=pow(1.0-max(dot(N,V),0.0),3.0)*0.06;',
+  '  col+=vec3(0.4,0.55,0.75)*rim;',
+  '  float dist=length(uCamPos-vW);',
+  '  float hf=exp(-max(vW.y,0.0)*0.011);',            // 低空雾更浓
+  '  float fog=1.0-exp(-dist*uFogDens*hf);',
+  '  if(m==7) fog=min(1.0,fog*1.25+0.16);',
+  '  col=mix(col,skyColor(-V),clamp(fog,0.0,1.0));',
+  '  oCol=vec4(col,1.0);',
+  '}'
+].join('\n');
+
+/* ================= ★ 图传后处理：5.8G 模拟信号劣化 ======================== */
+var POST_VS = VS_HEAD + [
+  'layout(location=0) in vec2 aPos;',
+  'out vec2 vUv;',
+  'void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0); }'
+].join('\n');
+
+var POST_FS = FS_HEAD + GLSL_NOISE + '\n' + [
+  'in vec2 vUv;',
+  'out vec4 oCol;',
+  'uniform sampler2D uScene;',
+  'uniform sampler2D uOsd;',
+  'uniform vec2 uRes;',
+  'uniform float uTime;',
+  'uniform float uSig;',        // 0..1 链路质量
+  'uniform float uFail;',       // 0..1 失联程度（阈值以下）
+  'uniform float uNoiseA, uTearA, uBandA, uChromaA, uScanA, uLensA;',
+  'uniform float uFx, uOsdOn, uArmed;',
+  '',
+  'float lum(vec3 c){ return dot(c,vec3(0.299,0.587,0.114)); }',
+  '',
+  'void main(){',
+  '  vec2 uv=vUv;',
+  '  float loss=clamp(1.0-uSig,0.0,1.0);',
+  '  float sev=pow(loss,1.55);',                       // 劣化严重度
+  '  float fail=clamp(uFail,0.0,1.0);',
+  '',
+  '  /* --- 0. 鱼眼桶形畸变（FPV 镜头） --- */',
+  '  vec2 cc=uv*2.0-1.0;',
+  '  float r2=dot(cc,cc);',
+  '  vec2 uvL=(cc*(1.0-uLensA*(0.30*r2+0.10*r2*r2)))*0.5+0.5;',
+  '  if(uFx<0.5) uvL=uv;',
+  '',
+  '  vec2 uvS=uvL;',
+  '  float snowMix=0.0, bright=1.0, tearHi=0.0;',
+  '',
+  '  if(uFx>0.5){',
+  '    /* --- 1. 不同步滚动条纹（垂直滚动的亮暗带 + 行同步抖动） --- */',
+  '    float roll=uv.y*2.3-uTime*0.21;',
+  '    float b1=sin(roll*6.28318);',
+  '    float bandMask=smoothstep(0.42,0.98,b1);',
+  '    float roll2=uv.y*17.0+uTime*2.7;',
+  '    float b2=smoothstep(0.80,1.0,sin(roll2*6.28318));',
+  '    float bandAmt=uBandA*(0.10+1.25*sev);',
+  '    bright*=1.0-bandMask*bandAmt*0.55+b2*bandAmt*0.10;',
+  '    uvS.x+=bandMask*bandAmt*0.020*sin(uTime*23.0+uv.y*40.0);',
+  '',
+  '    /* --- 2. 横向撕裂：逐扫描行随机水平位移 + 块状跳行 --- */',
+  '    float rowN=floor(uv.y*uRes.y*0.5);',
+  '    float tSlot=floor(uTime*30.0);',
+  '    float rl=h21(vec2(rowN,tSlot));',
+  '    float p=clamp(sev*0.62*uTearA+fail*0.30,0.0,0.97);',
+  '    float torn=step(1.0-p,rl);',
+  '    float amp=(h21(vec2(rowN*1.37+5.1,tSlot*0.77))-0.5)*(0.035+0.62*sev+0.35*fail)*uTearA;',
+  '    uvS.x+=torn*amp;',
+  '    tearHi=torn;',
+  '    float blk=floor(uv.y*9.0-uTime*1.3);',
+  '    float br=h21(vec2(blk,floor(uTime*7.0)));',
+  '    float bt=step(1.0-clamp(sev*0.45*uTearA,0.0,0.9),br);',
+  '    uvS.x+=bt*(br-0.5)*0.24*uTearA;',
+  '    uvS.y+=bt*(h21(vec2(blk+9.0,floor(uTime*7.0)))-0.5)*0.012;',
+  '    /* 完全失联：垂直同步崩塌（画面整体滚动） */',
+  '    uvS.y+=fail*fract(uTime*0.9)*1.0*step(0.55,fail);',
+  '  }',
+  '  uvS=fract(uvS);',                                  // 撕裂环绕，模拟行缓冲错位
+  '',
+  '  /* --- 3. 色度串扰 + 低信号软化（模拟带宽下降） --- */',
+  '  float chAmt=(0.0012+0.0135*sev+0.006*tearHi)*uChromaA*(uFx>0.5?1.0:0.0);',
+  '  vec2 chDir=normalize(vec2(1.0,0.12));',
+  '  vec3 col;',
+  '  col.r=texture(uScene,uvS+chDir*chAmt).r;',
+  '  col.g=texture(uScene,uvS).g;',
+  '  col.b=texture(uScene,uvS-chDir*chAmt).b;',
+  '  if(uFx>0.5){',
+  '    float blurA=sev*0.55;',
+  '    if(blurA>0.01){',
+  '      vec2 e=vec2(1.6/uRes.x,0.0);',
+  '      vec3 sm=texture(uScene,uvS+e).rgb+texture(uScene,uvS-e).rgb',
+  '             +texture(uScene,uvS+e*2.4).rgb+texture(uScene,uvS-e*2.4).rgb;',
+  '      col=mix(col,sm*0.25,clamp(blurA,0.0,0.85));',
+  '    }',
+  '  }',
+  '',
+  '  /* --- 4. 机载 OSD：由飞机编码进视频信号，因此随信号一同劣化 --- */',
+  '  vec4 osd=vec4(0.0);',
+  '  if(uOsdOn>0.5){',
+  '    vec2 uo=uvS;',
+  '    osd=texture(uOsd,vec2(uo.x,1.0-uo.y));',
+  '  }',
+  '  float goggle=step(0.985,osd.a);',                  // alpha=1.0 的元素 = 眼镜端生成
+  '  float acAlpha=osd.a*(1.0-goggle);',
+  '  col=mix(col,osd.rgb,clamp(acAlpha,0.0,1.0));',
+  '',
+  '  if(uFx>0.5){',
+  '    /* --- 5. 雪花噪点（静态噪声）：随信号衰减指数上升 --- */',
+  '    float n1=h21(uvL*uRes*0.85+vec2(uTime*137.13,uTime*71.7));',
+  '    float n2=h21(floor(uvL*uRes*0.34)+vec2(uTime*53.0,-uTime*29.0));',
+  '    float n3=h21(vec2(floor(uvL.y*uRes.y*0.5),floor(uvL.x*uRes.x*0.25)+uTime*61.0));',
+  '    float snow=mix(n1,mix(n2,n3,0.5),0.45);',
+  '    float roll=uv.y*2.3-uTime*0.21;',
+  '    float bandMask=smoothstep(0.42,0.98,sin(roll*6.28318));',
+  '    snowMix=uNoiseA*(sev*sev*1.10+bandMask*sev*0.55+tearHi*sev*0.5)+fail*0.92;',
+  '    snowMix=clamp(snowMix,0.0,1.0);',
+  '    /* 噪点在暗部更明显（模拟视频噪声底噪） */',
+  '    float lm=lum(col);',
+  '    vec3 snowC=vec3(snow)*mix(1.05,0.85,lm);',
+  '    col=mix(col,snowC,snowMix);',
+  '    /* 椒盐/白点脉冲 */',
+  '    float sp=step(1.0-0.10*sev*uNoiseA,n1);',
+  '    col+=vec3(sp*sev*0.55);',
+  '    /* 常驻细微颗粒 */',
+  '    col*=1.0+(n1-0.5)*(0.045+0.05*sev);',
+  '    col*=bright;',
+  '',
+  '    /* --- 6. CRT 扫描线 / 交错 --- */',
+  '    float sc=0.5+0.5*cos(uv.y*uRes.y*3.14159);',
+  '    col*=1.0-uScanA*0.30*sc;',
+  '    /* 电源纹波亮度呼吸 */',
+  '    col*=1.0+0.012*sin(uTime*11.0);',
+  '',
+  '    /* --- 7. 低信号去色 + 暗角 --- */',
+  '    float g=lum(col);',
+  '    col=mix(col,vec3(g),clamp(sev*0.55,0.0,0.8));',
+  '    col*=mix(1.0,0.55,fail*0.8);',
+  '  }',
+  '  float vig=1.0-0.30*pow(clamp(r2*0.62,0.0,1.0),1.45);',
+  '  col*=vig;',
+  '',
+  '  /* --- 8. 眼镜端 OSD（后合成，失联时仍可读） --- */',
+  '  if(uOsdOn>0.5){',
+  '    vec2 uo=uv;',
+  '    vec4 og=texture(uOsd,vec2(uo.x,1.0-uo.y));',
+  '    float gm=step(0.985,og.a);',
+  '    float fl=0.55+0.45*step(0.5,fract(uTime*1.6));',
+  '    col=mix(col,og.rgb*fl,gm*0.96);',
+  '  }',
+  '  oCol=vec4(clamp(col,0.0,1.0),1.0);',
+  '}'
+].join('\n');
+
+
+/* =============================================================================
+ * 3 | 程序化几何构建器（手写，无模型文件）
+ *   顶点布局: pos(3) nrm(3) uv(2) col(3) mat(1) = 12 float / 48 byte
+ * ========================================================================== */
+function MeshBuilder() {
+  this.v = []; this.i = []; this.n = 0;
+}
+MeshBuilder.prototype.vert = function (px, py, pz, nx, ny, nz, u, w, c, m) {
+  this.v.push(px, py, pz, nx, ny, nz, u, w, c[0], c[1], c[2], m);
+  return this.n++;
+};
+MeshBuilder.prototype.tri = function (a, b, c) { this.i.push(a, b, c); };
+/** 四边形（逆时针 p0→p1→p2→p3），法线自动计算 */
+MeshBuilder.prototype.quad = function (p0, p1, p2, p3, uv, c, m) {
+  var e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  var e2 = [p3[0] - p0[0], p3[1] - p0[1], p3[2] - p0[2]];
+  var nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+  var l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+  var a = this.vert(p0[0], p0[1], p0[2], nx, ny, nz, uv[0], uv[1], c, m);
+  var b = this.vert(p1[0], p1[1], p1[2], nx, ny, nz, uv[2], uv[3], c, m);
+  var d = this.vert(p2[0], p2[1], p2[2], nx, ny, nz, uv[4], uv[5], c, m);
+  var e = this.vert(p3[0], p3[1], p3[2], nx, ny, nz, uv[6], uv[7], c, m);
+  this.tri(a, b, d); this.tri(a, d, e);
+};
+/** 长方体：中心 + 半长 + 绕 Y 旋转；UV 按真实尺寸(米)展开 */
+MeshBuilder.prototype.box = function (cx, cy, cz, hx, hy, hz, yaw, c, m, uvs) {
+  uvs = uvs === undefined ? 1 : uvs;
+  var cs = Math.cos(yaw || 0), sn = Math.sin(yaw || 0);
+  var P = function (x, y, z) { return [cx + x * cs + z * sn, cy + y, cz - x * sn + z * cs]; };
+  var A = P(-hx, -hy, -hz), B = P(hx, -hy, -hz), C = P(hx, hy, -hz), D = P(-hx, hy, -hz);
+  var E = P(-hx, -hy, hz), G = P(hx, -hy, hz), H = P(hx, hy, hz), I = P(-hx, hy, hz);
+  var u = uvs, w2 = hx * 2 * u, h2 = hy * 2 * u, d2 = hz * 2 * u;
+  this.quad(E, G, H, I, [0, 0, w2, 0, w2, h2, 0, h2], c, m);       // +Z
+  this.quad(B, A, D, C, [0, 0, w2, 0, w2, h2, 0, h2], c, m);       // -Z
+  this.quad(G, B, C, H, [0, 0, d2, 0, d2, h2, 0, h2], c, m);       // +X
+  this.quad(A, E, I, D, [0, 0, d2, 0, d2, h2, 0, h2], c, m);       // -X
+  this.quad(I, H, C, D, [0, 0, w2, 0, w2, d2, 0, d2], c, m);       // +Y
+  this.quad(A, B, G, E, [0, 0, w2, 0, w2, d2, 0, d2], c, m);       // -Y
+};
+/** 任意轴圆柱（p0→p1），用于门框/横梁/机臂 */
+MeshBuilder.prototype.tube = function (p0, p1, r, seg, c, m, caps) {
+  var ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
+  var len = Math.hypot(ax, ay, az); if (len < 1e-6) return;
+  ax /= len; ay /= len; az /= len;
+  var ux, uy, uz;
+  if (Math.abs(ay) < 0.9) { ux = -az; uy = 0; uz = ax; } else { ux = 1; uy = 0; uz = 0; }
+  var ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
+  var vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
+  var ring0 = [], ring1 = [];
+  for (var k = 0; k <= seg; k++) {
+    var a = k / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    var nx = ux * ca + vx * sa, ny = uy * ca + vy * sa, nz = uz * ca + vz * sa;
+    var uu = k / seg * 2 * Math.PI * r;
+    ring0.push(this.vert(p0[0] + nx * r, p0[1] + ny * r, p0[2] + nz * r, nx, ny, nz, uu, 0, c, m));
+    ring1.push(this.vert(p1[0] + nx * r, p1[1] + ny * r, p1[2] + nz * r, nx, ny, nz, uu, len, c, m));
+  }
+  for (var k2 = 0; k2 < seg; k2++) {
+    this.tri(ring0[k2], ring1[k2], ring1[k2 + 1]);
+    this.tri(ring0[k2], ring1[k2 + 1], ring0[k2 + 1]);
+  }
+  if (caps) {
+    for (var e = 0; e < 2; e++) {
+      var p = e ? p1 : p0, sgnf = e ? 1 : -1;
+      var cn = [ax * sgnf, ay * sgnf, az * sgnf];
+      var ctr = this.vert(p[0], p[1], p[2], cn[0], cn[1], cn[2], 0, 0, c, m);
+      var prev = -1, first = -1;
+      for (var k3 = 0; k3 <= seg; k3++) {
+        var a3 = k3 / seg * Math.PI * 2, c3 = Math.cos(a3), s3 = Math.sin(a3);
+        var nx3 = ux * c3 + vx * s3, ny3 = uy * c3 + vy * s3, nz3 = uz * c3 + vz * s3;
+        var id = this.vert(p[0] + nx3 * r, p[1] + ny3 * r, p[2] + nz3 * r, cn[0], cn[1], cn[2], c3 * r, s3 * r, c, m);
+        if (k3 === 0) first = id;
+        if (prev >= 0) { if (e) this.tri(ctr, prev, id); else this.tri(ctr, id, prev); }
+        prev = id;
+      }
+    }
+  }
+};
+/** 圆环门（torus）：环面法向 n（= 穿越方向），基 u,v 张成环所在平面 */
+MeshBuilder.prototype.torus = function (ctr, R, r, segM, segm, u, vv, n, c, m) {
+  var idx = [];
+  for (var i = 0; i <= segM; i++) {
+    var a = i / segM * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    // 环心线上的点
+    var px = ctr[0] + (u[0] * ca + vv[0] * sa) * R;
+    var py = ctr[1] + (u[1] * ca + vv[1] * sa) * R;
+    var pz = ctr[2] + (u[2] * ca + vv[2] * sa) * R;
+    // 径向（指向环外）单位向量
+    var rx = u[0] * ca + vv[0] * sa, ry = u[1] * ca + vv[1] * sa, rz = u[2] * ca + vv[2] * sa;
+    var row = [];
+    for (var j = 0; j <= segm; j++) {
+      var b = j / segm * Math.PI * 2, cb = Math.cos(b), sb = Math.sin(b);
+      var nx = rx * cb + n[0] * sb, ny = ry * cb + n[1] * sb, nz = rz * cb + n[2] * sb;
+      row.push(this.vert(px + nx * r, py + ny * r, pz + nz * r, nx, ny, nz,
+        a * R, b * r, c, m));
+    }
+    idx.push(row);
+  }
+  for (var i2 = 0; i2 < segM; i2++) for (var j2 = 0; j2 < segm; j2++) {
+    this.tri(idx[i2][j2], idx[i2 + 1][j2], idx[i2 + 1][j2 + 1]);
+    this.tri(idx[i2][j2], idx[i2 + 1][j2 + 1], idx[i2][j2 + 1]);
+  }
+};
+/** 圆锥（树/路锥） */
+MeshBuilder.prototype.cone = function (cx, cy, cz, r, h, seg, c, m) {
+  var apex = this.vert(cx, cy + h, cz, 0, 1, 0, 0, h, c, m);
+  var prev = -1;
+  for (var k = 0; k <= seg; k++) {
+    var a = k / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    var sl = Math.hypot(r, h), nx = ca * h / sl, ny = r / sl, nz = sa * h / sl;
+    var id = this.vert(cx + ca * r, cy, cz + sa * r, nx, ny, nz, a * r, 0, c, m);
+    if (prev >= 0) this.tri(apex, prev, id);
+    prev = id;
+  }
+  // 底面
+  var bc = this.vert(cx, cy, cz, 0, -1, 0, 0, 0, c, m); prev = -1;
+  for (var k2 = 0; k2 <= seg; k2++) {
+    var a2 = k2 / seg * Math.PI * 2, c2 = Math.cos(a2), s2 = Math.sin(a2);
+    var id2 = this.vert(cx + c2 * r, cy, cz + s2 * r, 0, -1, 0, c2 * r, s2 * r, c, m);
+    if (prev >= 0) this.tri(bc, id2, prev);
+    prev = id2;
+  }
+};
+MeshBuilder.prototype.sphere = function (cx, cy, cz, r, seg, c, m) {
+  var rows = [];
+  for (var i = 0; i <= seg; i++) {
+    var th = i / seg * Math.PI, st = Math.sin(th), ct = Math.cos(th), row = [];
+    for (var j = 0; j <= seg * 2; j++) {
+      var ph = j / (seg * 2) * Math.PI * 2, nx = st * Math.cos(ph), ny = ct, nz = st * Math.sin(ph);
+      row.push(this.vert(cx + nx * r, cy + ny * r, cz + nz * r, nx, ny, nz, ph * r, th * r, c, m));
+    }
+    rows.push(row);
+  }
+  for (var i2 = 0; i2 < seg; i2++) for (var j2 = 0; j2 < seg * 2; j2++) {
+    this.tri(rows[i2][j2], rows[i2 + 1][j2], rows[i2 + 1][j2 + 1]);
+    this.tri(rows[i2][j2], rows[i2 + 1][j2 + 1], rows[i2][j2 + 1]);
+  }
+};
+/** 地面网格（细分以便顶点插值与阴影） */
+MeshBuilder.prototype.ground = function (size, seg, c, m) {
+  var s = size / 2, st = size / seg;
+  for (var i = 0; i < seg; i++) for (var j = 0; j < seg; j++) {
+    var x0 = -s + i * st, z0 = -s + j * st, x1 = x0 + st, z1 = z0 + st;
+    this.quad([x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [x0, 0, z0],
+      [x0, z1, x1, z1, x1, z0, x0, z0], c, m);
+  }
+};
+MeshBuilder.prototype.finish = function () {
+  return { verts: new Float32Array(this.v), idx: (this.n > 65535 ? new Uint32Array(this.i) : new Uint16Array(this.i)), count: this.i.length, u32: this.n > 65535 };
+};
+
+
+/* =============================================================================
+ * 4 | 花飞场地：几何与碰撞体的【单一数据源】
+ *   objs[] 同时用于渲染网格生成 与 物理碰撞检测，二者永不失配
+ * ========================================================================== */
+var COL = {
+  mag: [0.95, 0.11, 0.42], cyan: [0.06, 0.83, 0.95], yel: [1.0, 0.79, 0.10],
+  org: [1.0, 0.42, 0.06], wht: [0.90, 0.91, 0.90], blk: [0.07, 0.07, 0.08],
+  gry: [0.52, 0.53, 0.52], con: [0.60, 0.58, 0.54], rst: [0.42, 0.26, 0.17],
+  grn: [0.13, 0.62, 0.30], blu: [0.12, 0.34, 0.78], drk: [0.16, 0.17, 0.19],
+  wood: [0.45, 0.31, 0.18], leaf: [0.12, 0.30, 0.13], mtn: [0.24, 0.30, 0.32],
+  pur: [0.55, 0.16, 0.86]
+};
+/* 门框姿态辅助：给定水平朝向角(rad)与倾角(rad)，返回环平面基 u,v 与法向 n */
+function gateBasis(headingRad, tiltRad) {
+  var n = [Math.sin(headingRad) * Math.cos(tiltRad), Math.sin(tiltRad), Math.cos(headingRad) * Math.cos(tiltRad)];
+  var u = [Math.cos(headingRad), 0, -Math.sin(headingRad)];             // 水平右
+  var v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+  var l = Math.hypot(v[0], v[1], v[2]) || 1; v = [v[0] / l, v[1] / l, v[2] / l];
+  return { u: u, v: v, n: n };
+}
+
+function buildTrack(seed) {
+  var O = [], G = [], rnd = mulberry32(seed | 0);
+  function box(x, y, z, hx, hy, hz, yaw, c, m, solid, uvs) {
+    O.push({ k: 'box', p: [x, y, z], h: [hx, hy, hz], yaw: yaw || 0, c: c, m: m, solid: solid !== false, uvs: uvs || 1 });
+  }
+  function wall(x0, x1, y0, y1, z, th, c, m) {
+    box((x0 + x1) / 2, (y0 + y1) / 2, z, (x1 - x0) / 2, (y1 - y0) / 2, th / 2, 0, c, m, true, 0.9);
+  }
+  function tube(p0, p1, r, c, m, solid) {
+    O.push({ k: 'tube', p0: p0, p1: p1, r: r, c: c, m: m, solid: solid !== false });
+  }
+  function torus(ctr, R, r, heading, tilt, c, m, gate) {
+    var b = gateBasis(heading, tilt);
+    O.push({ k: 'torus', p: ctr, R: R, r: r, u: b.u, v: b.v, n: b.n, c: c, m: m, solid: true });
+    if (gate) G.push({ p: ctr, n: b.n, R: R - r, name: gate });
+  }
+  function cone(x, y, z, r, h, c, m, solid) {
+    O.push({ k: 'cone', p: [x, y, z], r: r, h: h, c: c, m: m, solid: !!solid });
+  }
+  function ball(x, y, z, r, c, m, solid) {
+    O.push({ k: 'sphere', p: [x, y, z], r: r, c: c, m: m, solid: !!solid });
+  }
+  /* ---------- 地面 ---------- */
+  O.push({ k: 'ground', size: 1400, seg: 56, c: COL.grn, m: 0, solid: false });
+
+  /* ---------- 起飞台 & 飞手/天线位置（图传原点） ---------- */
+  box(0, 0.07, 7, 2.6, 0.07, 2.6, 0, COL.wht, 3, true, 0.4);
+  box(0, 0.02, 7, 3.0, 0.02, 3.0, 0, COL.drk, 1, false, 1);
+  // 飞手天线三脚架
+  tube([2.6, 0, 9.2], [2.6, 1.55, 9.2], 0.05, COL.drk, 6);
+  tube([2.6, 1.55, 9.2], [2.6, 2.35, 9.2], 0.022, COL.wht, 6);
+  ball(2.6, 2.42, 9.2, 0.085, COL.mag, 4);
+  tube([2.6, 1.5, 9.2], [3.3, 0, 9.7], 0.02, COL.drk, 6, false);
+  tube([2.6, 1.5, 9.2], [1.9, 0, 9.7], 0.02, COL.drk, 6, false);
+  tube([2.6, 1.5, 9.2], [2.6, 0, 8.4], 0.02, COL.drk, 6, false);
+
+  /* ---------- 主赛道：圆环门 ---------- */
+  // 起步大门（正对 -Z）
+  torus([0, 2.75, 0], 2.25, 0.13, 0, 0, COL.mag, 2, 'G1');
+  tube([-2.3, 0, 0], [-2.3, 2.75, 0], 0.075, COL.wht, 2);
+  tube([2.3, 0, 0], [2.3, 2.75, 0], 0.075, COL.wht, 2);
+  ball(0, 5.1, 0, 0.13, COL.cyan, 4);
+  // 低空穿越小门
+  torus([-9.5, 1.5, -11], 1.35, 0.10, -0.45, 0, COL.cyan, 2, 'G2');
+  tube([-9.5 - 1.35, 0, -11.6], [-9.5 - 1.35, 1.5, -11.6], 0.06, COL.wht, 2);
+  tube([-9.5 + 1.35, 0, -10.4], [-9.5 + 1.35, 1.5, -10.4], 0.06, COL.wht, 2);
+  // 高空俯冲倾斜门
+  torus([11.5, 6.2, -9.5], 2.6, 0.14, 0.6, -0.55, COL.yel, 2, 'G3');
+  tube([11.5, 0, -9.5], [11.5, 3.7, -9.5], 0.085, COL.wht, 2);
+  tube([9.2, 0, -8.2], [11.0, 5.0, -9.2], 0.05, COL.gry, 6, false);
+  // 大 dive 门（高空）
+  torus([-2, 11.5, -40], 3.4, 0.16, 0.12, 0.9, COL.pur, 2, 'G6');
+  tube([-2, 0, -40], [-2, 8.3, -40], 0.11, COL.wht, 2);
+  tube([-5.4, 0, -41.5], [-2.4, 7.0, -40.2], 0.055, COL.gry, 6, false);
+  tube([1.4, 0, -41.5], [-1.6, 7.0, -40.2], 0.055, COL.gry, 6, false);
+
+  /* ---------- 方形门（可穿越框架） ---------- */
+  function squareGate(x, y, z, w, h, hd, c, name) {
+    var cs = Math.cos(hd), sn = Math.sin(hd);
+    var L = function (dx, dy) { return [x + dx * cs, y + dy, z - dx * sn]; };
+    var r = 0.085;
+    tube(L(-w, -y), L(-w, h - y), r, c, 2);
+    tube(L(w, -y), L(w, h - y), r, c, 2);
+    tube(L(-w, h - y), L(w, h - y), r, c, 2);
+    tube(L(-w, -y + 0.35), L(w, -y + 0.35), r * 0.8, c, 2);
+    var b = gateBasis(hd, 0);
+    if (name) G.push({ p: [x, y + h * 0.5 - 0.2, z], n: b.n, R: Math.min(w, h * 0.5) * 0.92, name: name });
+  }
+  squareGate(-19, 0, -3, 2.0, 4.2, 0.35, COL.org, 'G7');
+  squareGate(6.5, 0, -20.5, 1.7, 3.4, -0.2, COL.cyan, 'G8');
+
+  /* ---------- 墙体废墟（可穿门洞/破口/窗口） ---------- */
+  var zW = -26.5;
+  wall(-11, -4.6, 0, 6.2, zW, 0.55, COL.con, 5);
+  wall(-4.6, -1.4, 3.6, 6.2, zW, 0.55, COL.con, 5);          // 门洞上方过梁
+  wall(-1.4, 1.6, 0, 6.2, zW, 0.55, COL.con, 5);
+  wall(1.6, 3.9, 0, 2.1, zW, 0.55, COL.con, 5);              // 窗下
+  wall(1.6, 3.9, 4.1, 6.2, zW, 0.55, COL.con, 5);            // 窗上
+  wall(3.9, 6.4, 0, 6.2, zW, 0.55, COL.con, 5);
+  wall(6.4, 11, 0, 3.4, zW, 0.55, COL.con, 5);               // 破口（顶部塌陷）
+  box(8.0, 3.9, zW, 1.2, 0.5, 0.28, 0.22, COL.con, 5, true, 0.9);
+  box(10.2, 3.7, zW, 0.8, 0.3, 0.26, -0.3, COL.con, 5, true, 0.9);
+  // 门洞两侧警示涂装
+  box(-4.55, 1.8, zW + 0.32, 0.09, 1.8, 0.09, 0, COL.mag, 4, false);
+  box(-1.45, 1.8, zW + 0.32, 0.09, 1.8, 0.09, 0, COL.mag, 4, false);
+  // 瓦砾堆
+  for (var i = 0; i < 26; i++) {
+    var rx = -11 + rnd() * 22, rz = zW + (rnd() - 0.5) * 4.5, s = 0.18 + rnd() * 0.5;
+    box(rx, s * 0.5, rz, s, s * 0.6, s * 0.85, rnd() * 3, COL.con, 5, false, 1.2);
+  }
+  // 第二道残墙（gap 送门）
+  wall(-14, -8.5, 0, 4.6, -34, 0.5, COL.rst, 5);
+  wall(-6.5, -0.5, 0, 4.6, -34, 0.5, COL.rst, 5);            // 中间 2m gap
+  box(-7.5, 2.3, -34, 0.06, 2.3, 0.3, 0, COL.yel, 4, false);
+  box(-7.5, 4.75, -34, 0.5, 0.15, 0.5, 0, COL.yel, 1, true);
+
+  /* ---------- 立柱（power loop / orbit 参照） ---------- */
+  var pil = [[-16, 7.5, -16, 0.42], [16, 9.5, -18, 0.5], [-6, 5.5, -20, 0.36],
+             [21, 6.5, -32, 0.45], [-24, 8.5, -30, 0.48], [4, 4.5, -46, 0.34]];
+  for (var p = 0; p < pil.length; p++) {
+    var q = pil[p];
+    tube([q[0], 0, q[2]], [q[0], q[1], q[2]], q[3], p % 2 ? COL.yel : COL.cyan, 2);
+    box(q[0], 0.16, q[2], q[3] * 1.7, 0.16, q[3] * 1.7, 0, COL.drk, 1, true);
+    ball(q[0], q[1] + 0.16, q[2], q[3] * 0.75, COL.mag, 4);
+  }
+  /* ---------- 拱门/横梁（低空穿越） ---------- */
+  tube([15.5, 0, -3.5], [15.5, 5.0, -3.5], 0.30, COL.wht, 2);
+  tube([25.5, 0, -3.5], [25.5, 5.0, -3.5], 0.30, COL.wht, 2);
+  tube([15.5, 5.0, -3.5], [25.5, 5.0, -3.5], 0.26, COL.mag, 2);
+  box(20.5, 5.55, -3.5, 5.2, 0.22, 0.35, 0, COL.blk, 1, true);
+  box(20.5, 5.9, -3.5, 1.6, 0.28, 0.06, 0, COL.cyan, 4, false);
+
+  /* ---------- 高塔（爬升/俯冲） ---------- */
+  var TX = -26, TZ = -8, TH = 17;
+  for (var lg = 0; lg < 4; lg++) {
+    var ox = (lg & 1 ? 1 : -1) * 0.85, oz = (lg & 2 ? 1 : -1) * 0.85;
+    tube([TX + ox, 0, TZ + oz], [TX + ox * 0.28, TH, TZ + oz * 0.28], 0.10, COL.gry, 6);
+  }
+  for (var lv = 1; lv <= 6; lv++) {
+    var yy = lv * TH / 7, sc = 0.85 - 0.57 * (yy / TH), sc2 = 0.85 - 0.57 * ((yy + TH / 7) / TH);
+    tube([TX - sc, yy, TZ - sc], [TX + sc, yy, TZ - sc], 0.05, COL.gry, 6, false);
+    tube([TX + sc, yy, TZ - sc], [TX + sc, yy, TZ + sc], 0.05, COL.gry, 6, false);
+    tube([TX + sc, yy, TZ + sc], [TX - sc, yy, TZ + sc], 0.05, COL.gry, 6, false);
+    tube([TX - sc, yy, TZ + sc], [TX - sc, yy, TZ - sc], 0.05, COL.gry, 6, false);
+    tube([TX - sc, yy, TZ - sc], [TX + sc2, yy + TH / 7, TZ - sc2], 0.035, COL.gry, 6, false);
+    tube([TX + sc, yy, TZ + sc], [TX - sc2, yy + TH / 7, TZ + sc2], 0.035, COL.gry, 6, false);
+  }
+  tube([TX, TH, TZ], [TX, TH + 2.4, TZ], 0.045, COL.wht, 6);
+  ball(TX, TH + 2.5, TZ, 0.14, COL.mag, 4);
+  box(TX + 0.62, TH + 1.85, TZ, 0.6, 0.36, 0.02, 0, COL.org, 4, false);
+
+  /* ---------- 集装箱（贴地穿越/翻越） ---------- */
+  box(-13, 1.3, 4, 3.0, 1.3, 1.2, 0.18, COL.blu, 5, true, 0.8);
+  box(-13, 3.0, 4, 3.0, 0.06, 1.2, 0.18, COL.drk, 1, true, 0.8);
+  box(9.5, 1.3, 6.5, 3.0, 1.3, 1.2, -0.5, COL.org, 5, true, 0.8);
+  box(9.5, 3.0, 6.5, 3.0, 0.06, 1.2, -0.5, COL.drk, 1, true, 0.8);
+  box(-4, 1.3, -55, 3.2, 1.3, 1.3, 0.9, COL.grn, 5, true, 0.8);
+
+  /* ---------- 斜坡（贴地滑行） ---------- */
+  box(24, 1.1, -14, 4.5, 0.12, 3.0, 0, COL.gry, 6, true, 0.7);
+  tube([19.6, 0, -17], [19.6, 2.2, -17], 0.12, COL.wht, 2);
+  tube([28.4, 0, -17], [28.4, 2.2, -17], 0.12, COL.wht, 2);
+
+  /* ---------- slalom 小环阵 ---------- */
+  for (var s = 0; s < 4; s++) {
+    var sx = -4 + s * 5.5, sz = -60 - s * 6;
+    torus([sx, 1.9 + (s % 2) * 1.4, sz], 1.15, 0.085, (s % 2 ? 0.3 : -0.3), 0,
+      s % 2 ? COL.yel : COL.mag, 2, 'S' + (s + 1));
+    tube([sx, 0, sz], [sx, 1.0, sz], 0.05, COL.wht, 2, false);
+  }
+
+  /* ---------- 场地边界路锥 ---------- */
+  for (var a = 0; a < 34; a++) {
+    var ang = a / 34 * Math.PI * 2;
+    var rr = 62 + Math.sin(ang * 3) * 7;
+    cone(Math.sin(ang) * rr, 0, Math.cos(ang) * rr - 22, 0.30, 0.75, COL.org, 2, false);
+  }
+  /* ---------- 树木（远景视觉参照） ---------- */
+  for (var t = 0; t < 90; t++) {
+    var ta = rnd() * Math.PI * 2, tr = 78 + rnd() * 260;
+    var tx = Math.sin(ta) * tr, tz = Math.cos(ta) * tr - 30;
+    var th = 3.5 + rnd() * 7;
+    tube([tx, 0, tz], [tx, th * 0.42, tz], 0.16 + rnd() * 0.1, COL.wood, 5, false);
+    cone(tx, th * 0.36, tz, 1.1 + rnd() * 1.0, th * 0.75, COL.leaf, 1, false);
+  }
+  /* ---------- 远山（地平线参照，重雾） ---------- */
+  var mb = 40;
+  for (var mi = 0; mi < mb; mi++) {
+    var a0 = mi / mb * Math.PI * 2, a1 = (mi + 1) / mb * Math.PI * 2;
+    var d0 = 560 + Math.sin(a0 * 2.3) * 60, d1 = 560 + Math.sin(a1 * 2.3) * 60;
+    var h0 = 34 + 46 * (0.5 + 0.5 * Math.sin(a0 * 3.7 + 1.3)) * (0.6 + 0.6 * rnd());
+    var h1 = 34 + 46 * (0.5 + 0.5 * Math.sin(a1 * 3.7 + 1.3)) * (0.6 + 0.6 * rnd());
+    O.push({ k: 'mtn', a0: a0, a1: a1, d0: d0, d1: d1, h0: h0, h1: h1, c: COL.mtn, m: 7, solid: false });
+  }
+  return { objs: O, gates: G, home: [0, 0.4, 7] };
+}
+
+/** 场地数据 → 单个大网格（一次 draw call） */
+function trackToMesh(track) {
+  var mb = new MeshBuilder();
+  for (var i = 0; i < track.objs.length; i++) {
+    var o = track.objs[i];
+    switch (o.k) {
+      case 'ground': mb.ground(o.size, o.seg, o.c, o.m); break;
+      case 'box': mb.box(o.p[0], o.p[1], o.p[2], o.h[0], o.h[1], o.h[2], o.yaw, o.c, o.m, o.uvs); break;
+      case 'tube': mb.tube(o.p0, o.p1, o.r, 14, o.c, o.m, true); break;
+      case 'torus': mb.torus(o.p, o.R, o.r, 44, 10, o.u, o.v, o.n, o.c, o.m); break;
+      case 'cone': mb.cone(o.p[0], o.p[1], o.p[2], o.r, o.h, 12, o.c, o.m); break;
+      case 'sphere': mb.sphere(o.p[0], o.p[1], o.p[2], o.r, 8, o.c, o.m); break;
+      case 'mtn': {
+        var p0 = [Math.sin(o.a0) * o.d0, -8, Math.cos(o.a0) * o.d0];
+        var p1 = [Math.sin(o.a1) * o.d1, -8, Math.cos(o.a1) * o.d1];
+        var p2 = [p1[0], o.h1, p1[2]], p3 = [p0[0], o.h0, p0[2]];
+        mb.quad(p0, p1, p2, p3, [0, 0, 60, 0, 60, 40, 0, 40], o.c, o.m);
+        break;
+      }
+    }
+  }
+  return mb.finish();
+}
+
+/** 穿越机机体网格（机体系：+X 右 / +Y 上 / -Z 机头） */
+function buildDroneMesh() {
+  var mb = new MeshBuilder();
+  var carbon = [0.10, 0.11, 0.12], acc = [0.85, 0.13, 0.35];
+  var A = 0.105;
+  mb.box(0, 0, 0.01, 0.055, 0.016, 0.085, 0, carbon, 6, 1);           // 中心堆栈
+  mb.box(0, 0.028, 0.055, 0.038, 0.020, 0.028, 0, acc, 6, 1);         // 电池
+  mb.box(0, 0.012, -0.075, 0.030, 0.026, 0.030, 0, [0.14, 0.15, 0.16], 6, 1); // 摄像头座
+  mb.box(0, 0.030, -0.098, 0.019, 0.019, 0.008, 0, [0.05, 0.06, 0.09], 6, 1); // 镜头
+  mb.box(0, 0.055, 0.075, 0.006, 0.030, 0.006, 0, [0.9, 0.9, 0.9], 6, 1);     // 天线
+  var arms = [[A, -A], [-A, -A], [A, A], [-A, A]];
+  for (var i = 0; i < 4; i++) {
+    var x = arms[i][0], z = arms[i][1];
+    mb.tube([x * 0.28, 0, z * 0.28], [x, 0, z], 0.011, carbon, 6, true);       // 机臂
+    mb.tube([x, -0.012, z], [x, 0.026, z], 0.017, [0.30, 0.31, 0.33], 6, true); // 电机
+    mb.tube([x, 0.026, z], [x, 0.032, z], 0.008, [0.75, 0.72, 0.15], 6, true); // 桨夹
+  }
+  mb.box(0, -0.019, 0.02, 0.040, 0.004, 0.055, 0, [0.9, 0.25, 0.05], 4, 1);   // LED
+  return mb.finish();
+}
+/** 桨盘（单独绘制以体现旋转） */
+function buildPropMesh() {
+  var mb = new MeshBuilder(), c = [0.55, 0.57, 0.62];
+  var R = 0.063;
+  for (var b = 0; b < 2; b++) {
+    var a0 = b * Math.PI, w = 0.011;
+    var ca = Math.cos(a0), sa = Math.sin(a0);
+    var p0 = [ca * 0.008, 0, sa * 0.008], p1 = [ca * R, 0.004, sa * R];
+    var nx = -sa, nz = ca;
+    mb.quad([p0[0] - nx * w, p0[1], p0[2] - nz * w], [p0[0] + nx * w, p0[1], p0[2] + nz * w],
+            [p1[0] + nx * w * 1.6, p1[1], p1[2] + nz * w * 1.6], [p1[0] - nx * w * 1.6, p1[1], p1[2] - nz * w * 1.6],
+            [0, 0, 1, 0, 1, 1, 0, 1], c, 6);
+  }
+  // 旋转模糊盘（半透明观感由材质 8 的环纹近似）
+  var seg = 20, dc = [0.32, 0.34, 0.38];
+  for (var side = 0; side < 2; side++) {           // 双面：从下方看同样可见
+    var sy = side ? -1 : 1, yy = side ? 0.0045 : 0.0060;
+    var ctr = mb.vert(0, yy, 0, 0, sy, 0, 0.5, 0.5, dc, 8), prev = -1;
+    for (var k = 0; k <= seg; k++) {
+      var a = k / seg * Math.PI * 2;
+      var id = mb.vert(Math.cos(a) * R, yy, Math.sin(a) * R, 0, sy, 0,
+        0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5, dc, 8);
+      if (prev >= 0) { if (side) mb.tri(ctr, prev, id); else mb.tri(ctr, id, prev); }
+      prev = id;
+    }
+  }
+  return mb.finish();
+}
+
+
+/* =============================================================================
+ * 5 | ★ 自研刚体动力学 + 飞控（零第三方物理引擎）
+ * -----------------------------------------------------------------------------
+ *  平动:  m·v̇ = R·(0,ΣFi,0) + m·g + F_drag(v²)      ṗ = v
+ *  转动:  I·ω̇ = τ_motor + τ_aero - ω×(I·ω)          (机体系 Euler 方程)
+ *  姿态:  Ṙ = R·[ω]×   ⇒   R ← R·exp([ω·Δt]×)        (so(3) 指数映射，见 so3Exp)
+ *  控制:  摇杆 → ω_target → PID(ω误差) → 归一化力矩 → 混控 → 单电机推力(饱和)
+ * ========================================================================== */
+var PHYS_HZ = 500;                       // 物理/飞控定步频率
+var PHYS_DT = 1 / PHYS_HZ;
+
+/* ---- 热循环临时量（避免 GC） ---- */
+var _t1 = v3(), _t2 = v3(), _t3 = v3(), _t4 = v3(), _t5 = v3();
+var _dR = m3(), _mA = m3(), _mB = m3(), _mC = m3();
+var _vb = v3(), _fb = v3(), _fw = v3(), _tq = v3(), _wd = v3(), _wm = v3();
+
+function Drone() {
+  this.p = v3(0, 0.2, 7);
+  this.v = v3();
+  this.R = m3();
+  this.w = v3();                        // 机体角速度 rad/s  [x=俯仰轴, y=偏航轴, z=横滚轴]
+  this.gyro = v3();                     // 低通后的"陀螺读数"
+  this.motor = new Float64Array(4);     // 实际推力比例 0..1（含电机惯性延迟）
+  this.mcmd = new Float64Array(4);      // 混控输出指令
+  this.sp = v3();                       // 目标角速度
+  this.spPrev = v3();
+  this.integ = v3();                    // PID 积分项
+  this.dPrev = v3();                    // 上一次误差
+  this.dFilt = v3();                    // 微分低通
+  this.armed = false;
+  this.crashed = false;
+  this.crashT = 0;
+  this.crashes = 0;
+  this.impact = 0;
+  this.contact = false;
+  this.battery = 1;                     // 剩余电量 0..1
+  this.volt = 25.2;
+  this.throttle = 0;
+  this.spin = [0, 0, 0, 0];             // 桨叶相位
+  this.flightTime = 0;
+  this.gatesPassed = 0;
+  this.gateSide = [];
+  this.maxSpeed = 0; this.maxAlt = 0; this.dist = 0;
+  this.accel = v3();                    // 机体系加速度（用于 OSD G 值）
+  this.gForce = 1;
+}
+
+Drone.prototype.reset = function (home) {
+  v3set(this.p, home[0], home[1] + 0.02, home[2]);
+  v3zero(this.v); v3zero(this.w); v3zero(this.gyro);
+  m3ident(this.R);
+  this.motor.fill(0); this.mcmd.fill(0);
+  v3zero(this.integ); v3zero(this.dPrev); v3zero(this.dFilt); v3zero(this.sp); v3zero(this.spPrev);
+  this.crashed = false; this.impact = 0; this.battery = 1; this.volt = 4.2 * S.batteryCells;
+  this.flightTime = 0; this.maxSpeed = 0; this.maxAlt = 0; this.dist = 0;
+  this.gatesPassed = 0; this.gateSide = [];
+  this.armed = false;
+};
+
+/* ------------------------- 摇杆曲线 --------------------------------------- */
+function rcCurve(x, expo, dead) {
+  var s = sgn(x), a = Math.abs(x);
+  if (a < dead) return 0;
+  a = (a - dead) / (1 - dead);
+  return s * ((1 - expo) * a + expo * a * a * a);
+}
+
+/* ------------------------- PID (角速度环) ---------------------------------
+ *  归一化输出 u∈[-1,1] 对应"电机推力差比例"，随后交由混控器分配。          */
+var K_P = 1 / 210, K_I = 1 / 30, K_D = 1 / 5000;
+var PID_AXIS = [                          // 0:X(俯仰) 1:Y(偏航) 2:Z(横滚)
+  { p: 'pPitch', i: 'iPitch', d: 'dPitch' },
+  { p: 'pYaw', i: 'iYaw', d: 'dYaw' },
+  { p: 'pRoll', i: 'iRoll', d: 'dRoll' }
+];
+
+function FlightModel(track) {
+  this.track = track;
+  this.drone = new Drone();
+  this.colliders = buildColliders(track);
+  this.drone.reset(track.home);
+  this.failsafe = false;
+  this.failsafeT = 0;
+  this.lostLink = false;
+  this.events = [];                      // 供音效/OSD 使用
+}
+
+/** 由场地数据生成碰撞体（带包围球，用于快速剔除） */
+function buildColliders(track) {
+  var out = [];
+  for (var i = 0; i < track.objs.length; i++) {
+    var o = track.objs[i];
+    if (!o.solid) continue;
+    if (o.k === 'box') {
+      var rr = Math.hypot(o.h[0], o.h[1], o.h[2]);
+      out.push({ k: 0, c: o.p, h: o.h, cs: Math.cos(o.yaw), sn: Math.sin(o.yaw), bc: o.p, br: rr });
+    } else if (o.k === 'tube') {
+      var mid = [(o.p0[0] + o.p1[0]) / 2, (o.p0[1] + o.p1[1]) / 2, (o.p0[2] + o.p1[2]) / 2];
+      var hl = Math.hypot(o.p1[0] - o.p0[0], o.p1[1] - o.p0[1], o.p1[2] - o.p0[2]) / 2;
+      out.push({ k: 1, a: o.p0, b: o.p1, r: o.r, bc: mid, br: hl + o.r });
+    } else if (o.k === 'torus') {
+      out.push({ k: 2, c: o.p, R: o.R, r: o.r, n: o.n, u: o.u, v: o.v, bc: o.p, br: o.R + o.r });
+    } else if (o.k === 'sphere') {
+      out.push({ k: 3, c: o.p, r: o.r, bc: o.p, br: o.r });
+    }
+  }
+  return out;
+}
+
+/* =========================== 主物理步进 =================================== */
+FlightModel.prototype.step = function (dt, rc, link) {
+  var d = this.drone, R = d.R;
+  var g = S.gravity, m = Math.max(0.02, S.mass);
+  var maxTotal = S.twr * m * g;                    // 满油总推力 N
+  var fMax = maxTotal / 4;                         // 单电机最大推力 N
+  var a = S.armLen * 0.7071;                       // 力臂投影（quad-X）
+  var Ix = Math.max(1e-4, S.inertiaXY), Iy = Math.max(1e-4, S.inertiaZ), Iz = Math.max(1e-4, S.inertiaXY);
+
+  /* ---------- 0. 链路/失控保护 ---------- */
+  var lost = link.q * 100 < S.rssiFailsafe;
+  if (lost) { this.failsafeT += dt; } else { this.failsafeT = 0; }
+  this.lostLink = lost;
+  var fsActive = this.failsafeT > S.failsafeDelay;
+  this.failsafe = fsActive;
+
+  /* ---------- 1. 摇杆 → 目标角速度（Acro）或目标姿态（Angle） ---------- */
+  var sr = rcCurve(rc.roll, S.rcExpo, S.rcDeadband);
+  var sp_ = rcCurve(rc.pitch, S.rcExpo, S.rcDeadband);
+  var sy = rcCurve(rc.yaw, S.rcExpo, S.rcDeadband);
+  var thr = clamp(rc.throttle, 0, 1);
+  if (S.throttleExpo !== 0) {
+    var te = S.throttleExpo;
+    thr = te > 0 ? thr * (1 - te) + te * thr * thr * thr : thr * (1 + te) - te * (1 - Math.pow(1 - thr, 3));
+  }
+  thr = S.throttleMin + thr * (1 - S.throttleMin);
+
+  if (fsActive) {                                  // 失控保护
+    if ((S.failsafeMode | 0) === 0) { thr = 0; sr = 0; sp_ = 0; sy = 0; }        // DROP：停桨自由落体
+    else { sr = 0; sp_ = 0; sy = 0; thr = Math.min(thr, 0.72 / Math.max(S.twr, 1.05)); }  // LAND：自稳缓降
+  }
+  d.throttle = thr;
+
+  var mode = (S.flightMode | 0);
+  if (mode === 1 || fsActive) {
+    /* ---- ANGLE 自稳：用 so(3) 对数映射构造姿态误差（仍然不用欧拉角积分） ---- */
+    var fx = -R[6], fz = -R[8];
+    var lh = Math.hypot(fx, fz);
+    if (lh < 1e-5) { fx = 0; fz = -1; lh = 1; } else { fx /= lh; fz /= lh; }
+    m3fromBasis(_mA, [-fz, 0, fx], [0, 1, 0], [-fx, 0, -fz]);   // R_yaw（仅航向）
+    var lim = S.angleLimit * DEG;
+    var pAng = (fsActive ? 0 : sp_) * lim, rAng = (fsActive ? 0 : sr) * lim;
+    so3Exp(_mB, pAng, 0, 0);                                     // 绕机体 X（抬头）
+    m3mul(_mC, _mA, _mB);
+    so3Exp(_mB, 0, 0, -rAng);                                    // 绕机体 Z（右滚）
+    m3mul(_mA, _mC, _mB);                                        // R_des
+    // e = log(Rᵗ·R_des)：把当前姿态旋到目标所需的机体系旋转向量
+    _mB[0] = R[0]; _mB[1] = R[3]; _mB[2] = R[6];
+    _mB[3] = R[1]; _mB[4] = R[4]; _mB[5] = R[7];
+    _mB[6] = R[2]; _mB[7] = R[5]; _mB[8] = R[8];
+    m3mul(_mC, _mB, _mA);
+    so3Log(_t1, _mC);
+    var kp = S.angleP;
+    d.sp[0] = clamp(_t1[0] * kp, -S.ratePitch * DEG, S.ratePitch * DEG);
+    d.sp[2] = clamp(_t1[2] * kp, -S.rateRoll * DEG, S.rateRoll * DEG);
+    d.sp[1] = -sy * S.rateYaw * DEG;
+  } else {
+    /* ---- ACRO 手动：摇杆直接映射为目标角速度 ---- */
+    d.sp[0] = sp_ * S.ratePitch * DEG;      // +X = 抬头
+    d.sp[1] = -sy * S.rateYaw * DEG;        // 右偏航 = -Y
+    d.sp[2] = -sr * S.rateRoll * DEG;       // 右横滚 = -Z
+  }
+
+  /* ---------- 2. 陀螺低通（真实飞控管线） ---------- */
+  var aG = 1 - Math.exp(-2 * Math.PI * S.gyroLpfHz * dt);
+  d.gyro[0] += (d.w[0] - d.gyro[0]) * aG;
+  d.gyro[1] += (d.w[1] - d.gyro[1]) * aG;
+  d.gyro[2] += (d.w[2] - d.gyro[2]) * aG;
+
+  /* ---------- 3. 三轴 PID ---------- */
+  var aD = 1 - Math.exp(-2 * Math.PI * S.dLpfHz * dt);
+  var u = _t2; v3zero(u);
+  var airmode = d.armed && !d.crashed;
+  for (var ax = 0; ax < 3; ax++) {
+    var gains = PID_AXIS[ax];
+    var err = d.sp[ax] - d.gyro[ax];
+    var P = S[gains.p] * K_P * err;
+    if (airmode && thr > 0.02) {
+      d.integ[ax] += S[gains.i] * K_I * err * dt;
+      d.integ[ax] = clamp(d.integ[ax], -S.iLimit, S.iLimit);
+    } else { d.integ[ax] *= (1 - 6 * dt); }
+    var dErr = (err - d.dPrev[ax]) / dt;
+    d.dPrev[ax] = err;
+    d.dFilt[ax] += (dErr - d.dFilt[ax]) * aD;
+    var D = S[gains.d] * K_D * d.dFilt[ax];
+    var maxRate = (ax === 0 ? S.ratePitch : ax === 1 ? S.rateYaw : S.rateRoll) * DEG;
+    var dsp = (d.sp[ax] - d.spPrev[ax]) / dt;
+    var FF = S.ffGain * dsp / Math.max(maxRate, 1e-3);
+    d.spPrev[ax] = d.sp[ax];
+    u[ax] = clamp(P + d.integ[ax] + D + clamp(FF, -0.6, 0.6), -1.4, 1.4);
+  }
+
+  /* ---------- 4. 混控（quad-X）+ 电机饱和 + AIRMODE ---------- */
+  //  电机顺序: 0=前右 1=前左 2=后右 3=后左
+  //  sx(俯仰): 前+1 后-1 | sz(横滚): 右+1 左-1 | sy(偏航): FR/BL +1, FL/BR -1
+  var SX = [1, 1, -1, -1], SZ = [1, -1, 1, -1], SY = [1, -1, -1, 1];
+  var base = d.armed && !d.crashed ? thr : 0;
+  var mn = 1e9, mx = -1e9;
+  for (var i = 0; i < 4; i++) {
+    var mix = u[0] * SX[i] * 0.5 + u[2] * SZ[i] * 0.5 + u[1] * SY[i] * 0.5;
+    d.mcmd[i] = base + (d.armed && !d.crashed ? mix : 0);
+    if (d.mcmd[i] < mn) mn = d.mcmd[i];
+    if (d.mcmd[i] > mx) mx = d.mcmd[i];
+  }
+  if (d.armed && !d.crashed) {           // AIRMODE：整体平移保留姿态权限
+    var range = mx - mn;
+    if (range > 1) { var sc = 1 / range; for (var i2 = 0; i2 < 4; i2++) d.mcmd[i2] = (d.mcmd[i2] - mn) * sc; }
+    else { var off = mn < 0 ? -mn : (mx > 1 ? 1 - mx : 0); for (var i3 = 0; i3 < 4; i3++) d.mcmd[i3] += off; }
+  }
+  /* 电池电压 → 推力标度 */
+  var vScale = 1;
+  if (S.batteryEnable) {
+    var cells = S.batteryCells;
+    var iNorm = (d.mcmd[0] + d.mcmd[1] + d.mcmd[2] + d.mcmd[3]) * 0.25;
+    var vOpen = cells * (3.35 + 0.85 * Math.pow(clamp(d.battery, 0, 1), 0.55));
+    d.volt = vOpen - S.batterySag * cells * Math.pow(clamp(iNorm, 0, 1), 1.4);
+    d.battery = clamp(d.battery - Math.pow(clamp(iNorm, 0, 1), 1.6) * dt / 235, 0, 1);
+    vScale = clamp(d.volt / (3.7 * cells), 0.35, 1.35);
+    vScale *= vScale;
+  }
+  /* 电机一阶滞后（转子惯量 + ESC 响应） */
+  var aM = 1 - Math.exp(-dt / Math.max(0.002, S.motorTau));
+  var Fsum = 0;
+  v3zero(_tq);
+  for (var k = 0; k < 4; k++) {
+    var cmd = clamp(d.mcmd[k], 0, 1);
+    d.motor[k] += (cmd - d.motor[k]) * aM;
+    var f = d.motor[k] * fMax * vScale;
+    Fsum += f;
+    _tq[0] += SX[k] * a * f;                        // τx = -rz·f  (rz=-SX·a) → 前排加推力=抬头
+    _tq[2] += SZ[k] * a * f;                        // τz = +rx·f  (rx=+SZ·a) → 右侧加推力=左滚
+    _tq[1] += SY[k] * S.yawTorqueK * f;             // 桨反扭矩
+    d.spin[k] = (d.spin[k] + (0.25 + d.motor[k] * 1.35) * 260 * dt) % (Math.PI * 2);
+  }
+
+  /* ---------- 5. 合力（世界系） ---------- */
+  v3set(_fb, 0, Fsum, 0);
+  m3xv(_fw, R, _fb);                                // 推力 → 世界系
+  _fw[1] -= m * g;                                  // 重力
+  /* 二次气动阻尼（机体系各轴异性） */
+  m3txv(_vb, R, d.v);
+  var spd = v3len(d.v);
+  var rho = S.airDensity;
+  var kx = S.dragXZ * rho, ky = S.dragY * rho, kz = S.dragXZ * rho;
+  v3set(_fb, -kx * spd * _vb[0] - 0.18 * kx * _vb[0],
+             -ky * spd * _vb[1] - 0.18 * ky * _vb[1],
+             -kz * spd * _vb[2] - 0.18 * kz * _vb[2]);
+  m3xv(_t3, R, _fb);
+  v3add(_fw, _fw, _t3);
+
+  /* ---------- 6. 角加速度：I·ω̇ = τ - ω×(I·ω) ---------- */
+  var wx = d.w[0], wy = d.w[1], wz = d.w[2];
+  var aw = S.angDamp, wl = Math.hypot(wx, wy, wz);
+  _tq[0] += -aw * wx - 0.22 * aw * wx * wl;
+  _tq[1] += -aw * 1.35 * wy - 0.22 * aw * wy * wl;
+  _tq[2] += -aw * wz - 0.22 * aw * wz * wl;
+  var Lx = Ix * wx, Ly = Iy * wy, Lz = Iz * wz;
+  var gx = wy * Lz - wz * Ly, gy = wz * Lx - wx * Lz, gz = wx * Ly - wy * Lx;  // ω×(Iω)
+  _wd[0] = (_tq[0] - gx) / Ix;
+  _wd[1] = (_tq[1] - gy) / Iy;
+  _wd[2] = (_tq[2] - gz) / Iz;
+
+  /* ---------- 7. 积分：ω → R(exp map) → v → p ---------- */
+  _wm[0] = wx + 0.5 * _wd[0] * dt;                  // 中点角速度（二阶精度）
+  _wm[1] = wy + 0.5 * _wd[1] * dt;
+  _wm[2] = wz + 0.5 * _wd[2] * dt;
+  d.w[0] = wx + _wd[0] * dt; d.w[1] = wy + _wd[1] * dt; d.w[2] = wz + _wd[2] * dt;
+  so3Exp(_dR, _wm[0] * dt, _wm[1] * dt, _wm[2] * dt);     // ★ so(3) → SO(3)
+  m3mul(_mA, R, _dR);                                     // R ← R·exp([ω·dt]×)
+  m3copy(R, _mA);
+  this._reo = (this._reo || 0) + 1;
+  if (this._reo >= 64) { m3orthonormalize(R); this._reo = 0; }   // 抑制浮点漂移
+
+  var ax0 = _fw[0] / m, ay0 = _fw[1] / m, az0 = _fw[2] / m;
+  var vx0 = d.v[0], vy0 = d.v[1], vz0 = d.v[2];
+  d.v[0] += ax0 * dt; d.v[1] += ay0 * dt; d.v[2] += az0 * dt;
+  d.p[0] += (vx0 + d.v[0]) * 0.5 * dt;
+  d.p[1] += (vy0 + d.v[1]) * 0.5 * dt;
+  d.p[2] += (vz0 + d.v[2]) * 0.5 * dt;
+  /* 机体系加速度（含推力，不含重力）→ OSD G 值 */
+  v3set(_t4, ax0, ay0 + g, az0);
+  m3txv(d.accel, R, _t4);
+  d.gForce = v3len(_t4) / g;
+
+  /* ---------- 8. 碰撞 ---------- */
+  this.collide(dt);
+
+  /* ---------- 9. 统计 ---------- */
+  d.flightTime += dt;
+  var sp2 = v3len(d.v);
+  if (sp2 > d.maxSpeed) d.maxSpeed = sp2;
+  if (d.p[1] > d.maxAlt) d.maxAlt = d.p[1];
+  d.dist += sp2 * dt;
+  this.checkGates();
+};
+
+/* =========================== 碰撞检测/响应 ================================ */
+FlightModel.prototype.collide = function (dt) {
+  var d = this.drone, r = S.collRadius, hit = 0;
+  var self = this;
+  function apply(nx, ny, nz, depth) {
+    var l = Math.hypot(nx, ny, nz); if (l < 1e-9) return;
+    nx /= l; ny /= l; nz /= l;
+    d.p[0] += nx * depth; d.p[1] += ny * depth; d.p[2] += nz * depth;
+    var vn = d.v[0] * nx + d.v[1] * ny + d.v[2] * nz;
+    if (vn < 0) {
+      var imp = -vn;
+      if (imp > self.drone.impact) self.drone.impact = imp;
+      var e = S.restitution;
+      d.v[0] -= (1 + e) * vn * nx; d.v[1] -= (1 + e) * vn * ny; d.v[2] -= (1 + e) * vn * nz;
+      // 切向摩擦
+      var tvx = d.v[0] - (d.v[0] * nx + d.v[1] * ny + d.v[2] * nz) * nx;
+      var tvy = d.v[1] - (d.v[0] * nx + d.v[1] * ny + d.v[2] * nz) * ny;
+      var tvz = d.v[2] - (d.v[0] * nx + d.v[1] * ny + d.v[2] * nz) * nz;
+      var mu = clamp(S.friction * (1 + imp * 0.15), 0, 1);
+      d.v[0] -= tvx * mu * 0.5; d.v[1] -= tvy * mu * 0.5; d.v[2] -= tvz * mu * 0.5;
+      // 撞击产生角速度扰动（真实的"打桨翻滚"）
+      var kick = clamp(imp * 0.9, 0, 30);
+      m3txv(_t5, d.R, v3set(_t1, tvx, tvy, tvz));
+      d.w[0] += _t5[2] * kick * 0.05 - _t5[1] * 0.0;
+      d.w[1] += (_t5[0] * 0.02 - _t5[2] * 0.02) * kick * 0.4;
+      d.w[2] += -_t5[0] * kick * 0.05;
+      if (ny > 0.45) d.contact = true;
+      if (imp > S.crashSpeed && !d.crashed) {
+        d.crashed = true; d.crashT = 0; d.crashes++; d.armed = false;
+        self.events.push({ t: 'crash', v: imp });
+      } else if (imp > 0.8) {
+        self.events.push({ t: 'bump', v: imp });
+      }
+    }
+    hit = 1;
+  }
+  d.contact = false;
+  /* ---- 地面 ---- */
+  if (d.p[1] < r) apply(0, 1, 0, r - d.p[1]);
+
+  /* ---- 场景碰撞体 ---- */
+  var C = this.colliders;
+  for (var i = 0; i < C.length; i++) {
+    var o = C[i];
+    var dx = d.p[0] - o.bc[0], dy = d.p[1] - o.bc[1], dz = d.p[2] - o.bc[2];
+    var rad = o.br + r;
+    if (dx * dx + dy * dy + dz * dz > rad * rad) continue;
+    if (o.k === 0) {                       /* --- 旋转长方体 --- */
+      var lx = dx * o.cs - dz * o.sn, ly = dy, lz = dx * o.sn + dz * o.cs;
+      var qx = clamp(lx, -o.h[0], o.h[0]), qy = clamp(ly, -o.h[1], o.h[1]), qz = clamp(lz, -o.h[2], o.h[2]);
+      var ex = lx - qx, ey = ly - qy, ez = lz - qz;
+      var dist2 = ex * ex + ey * ey + ez * ez;
+      if (dist2 > 1e-12) {
+        if (dist2 < r * r) {
+          var dl = Math.sqrt(dist2);
+          var wx = (ex / dl) * o.cs + (ez / dl) * o.sn, wy = ey / dl, wz = -(ex / dl) * o.sn + (ez / dl) * o.cs;
+          apply(wx, wy, wz, r - dl);
+        }
+      } else {                             // 球心已在盒内：沿最小穿透轴推出
+        var px = o.h[0] - Math.abs(lx), py = o.h[1] - Math.abs(ly), pz = o.h[2] - Math.abs(lz);
+        var nx2 = 0, ny2 = 0, nz2 = 0, dp = 0;
+        if (px <= py && px <= pz) { nx2 = sgn(lx); dp = px + r; }
+        else if (py <= pz) { ny2 = sgn(ly); dp = py + r; }
+        else { nz2 = sgn(lz); dp = pz + r; }
+        apply(nx2 * o.cs + nz2 * o.sn, ny2, -nx2 * o.sn + nz2 * o.cs, dp);
+      }
+    } else if (o.k === 1) {                /* --- 胶囊（管/柱） --- */
+      var ax2 = o.b[0] - o.a[0], ay2 = o.b[1] - o.a[1], az2 = o.b[2] - o.a[2];
+      var wx2 = d.p[0] - o.a[0], wy2 = d.p[1] - o.a[1], wz2 = d.p[2] - o.a[2];
+      var L2 = ax2 * ax2 + ay2 * ay2 + az2 * az2;
+      var t = L2 > 1e-12 ? clamp((wx2 * ax2 + wy2 * ay2 + wz2 * az2) / L2, 0, 1) : 0;
+      var ex2 = wx2 - ax2 * t, ey2 = wy2 - ay2 * t, ez2 = wz2 - az2 * t;
+      var dd = Math.hypot(ex2, ey2, ez2), tot = o.r + r;
+      if (dd < tot) { if (dd < 1e-9) apply(0, 1, 0, tot); else apply(ex2, ey2, ez2, tot - dd); }
+    } else if (o.k === 2) {                /* --- 圆环门（解析最近点） --- */
+      var rx = dx, ry = dy, rz = dz;
+      var zz = rx * o.n[0] + ry * o.n[1] + rz * o.n[2];
+      var plx = rx - zz * o.n[0], ply = ry - zz * o.n[1], plz = rz - zz * o.n[2];
+      var lp = Math.hypot(plx, ply, plz);
+      var cx2, cy2, cz2;
+      if (lp < 1e-6) { cx2 = o.u[0] * o.R; cy2 = o.u[1] * o.R; cz2 = o.u[2] * o.R; }
+      else { cx2 = plx / lp * o.R; cy2 = ply / lp * o.R; cz2 = plz / lp * o.R; }
+      var qx2 = rx - cx2, qy2 = ry - cy2, qz2 = rz - cz2;
+      var dq = Math.hypot(qx2, qy2, qz2), tot2 = o.r + r;
+      if (dq < tot2) { if (dq < 1e-9) apply(o.n[0], o.n[1], o.n[2], tot2); else apply(qx2, qy2, qz2, tot2 - dq); }
+    } else if (o.k === 3) {                /* --- 球 --- */
+      var dsq = Math.hypot(dx, dy, dz), tt = o.r + r;
+      if (dsq < tt) apply(dx, dy, dz, tt - dsq);
+    }
+  }
+  /* ---- 触地静止处理（停机坪/地面/箱顶通用） ---- */
+  if (d.contact) {
+    var slow = v3len(d.v) < 0.5;
+    var damp = Math.exp(-dt * (d.armed ? 2.5 : 7));
+    d.v[0] *= damp; d.v[2] *= damp;
+    var wdmp = Math.exp(-dt * (d.armed ? 1.5 : 6));
+    d.w[0] *= wdmp; d.w[1] *= wdmp; d.w[2] *= wdmp;
+    if (!d.armed && slow && d.R[4] < 0.9999) {
+      // 未解锁：机体缓缓摆正（模拟停在平面上）
+      m3col(_t1, d.R, 1);
+      v3set(_t2, 0, 1, 0);
+      v3cross(_t3, _t1, _t2);
+      m3txv(_t4, d.R, _t3);
+      d.w[0] += _t4[0] * 6 * dt; d.w[2] += _t4[2] * 6 * dt;
+    }
+  }
+  return hit;
+};
+
+/* =========================== 穿门检测 ===================================== */
+FlightModel.prototype.checkGates = function () {
+  var d = this.drone, G = this.track.gates;
+  for (var i = 0; i < G.length; i++) {
+    var g = G[i];
+    var dx = d.p[0] - g.p[0], dy = d.p[1] - g.p[1], dz = d.p[2] - g.p[2];
+    var s = dx * g.n[0] + dy * g.n[1] + dz * g.n[2];
+    var prev = d.gateSide[i];
+    if (prev !== undefined && prev * s < 0) {
+      // 穿越平面：检查径向距离是否在门内
+      var px = dx - s * g.n[0], py = dy - s * g.n[1], pz = dz - s * g.n[2];
+      if (Math.hypot(px, py, pz) < g.R) {
+        d.gatesPassed++;
+        this.events.push({ t: 'gate', name: g.name });
+      }
+    }
+    d.gateSide[i] = s;
+  }
+};
+
+
+/* =============================================================================
+ * 6 | 硬件遥控器输入 + 键盘备份 + 5.8G 链路预算模型
+ * ========================================================================== */
+var RC = {
+  roll: 0, pitch: 0, yaw: 0, throttle: 0,
+  connected: false, name: '', axes: [], buttons: [], padIndex: -1, count: 0
+};
+var KEYS = Object.create(null);
+var KB = { roll: 0, pitch: 0, yaw: 0, throttle: 0 };
+var LEARN = { ch: null, base: null, t: 0 };
+var BTN_EDGE = [];
+
+function listPads() {
+  var pads = [];
+  if (!navigator.getGamepads) return pads;
+  var gp = navigator.getGamepads();
+  for (var i = 0; i < gp.length; i++) if (gp[i]) pads.push(gp[i]);
+  return pads;
+}
+
+/** 从硬件遥控器读取 4 主通道并归一化 */
+function pollGamepad(dt, onButton) {
+  var pads = listPads();
+  RC.count = pads.length;
+  var pad = null;
+  if (RCMAP.device >= 0) {
+    for (var i = 0; i < pads.length; i++) if (pads[i].index === RCMAP.device) pad = pads[i];
+  }
+  if (!pad) pad = pads[0] || null;
+  RC.connected = !!pad;
+  if (!pad) { RC.name = ''; RC.axes = []; RC.buttons = []; RC.padIndex = -1; return null; }
+  RC.name = pad.id; RC.padIndex = pad.index;
+  RC.axes = pad.axes; RC.buttons = pad.buttons;
+
+  /* --- 自动学习：捕获运动幅度最大的轴 --- */
+  if (LEARN.ch) {
+    if (!LEARN.base) { LEARN.base = Array.prototype.slice.call(pad.axes); LEARN.t = 0; }
+    LEARN.t += dt;
+    var best = -1, bestD = 0.32;
+    for (var a = 0; a < pad.axes.length; a++) {
+      var dd = Math.abs(pad.axes[a] - (LEARN.base[a] || 0));
+      if (dd > bestD) { bestD = dd; best = a; }
+    }
+    if (best >= 0) {
+      var ch = RCMAP.ch[LEARN.ch];
+      ch.axis = best;
+      if (LEARN.ch === 'throttle') { ch.uni = true; ch.inv = (pad.axes[best] - (LEARN.base[best] || 0)) < 0; }
+      else ch.inv = (pad.axes[best] - (LEARN.base[best] || 0)) < 0;
+      toast('通道 ' + LEARN.ch.toUpperCase() + ' → 轴 ' + best + (ch.inv ? '（已反向）' : ''));
+      LEARN.ch = null; LEARN.base = null; refreshRcTab();
+    } else if (LEARN.t > 8) { LEARN.ch = null; LEARN.base = null; toast('学习超时'); refreshRcTab(); }
+  }
+
+  /* --- 通道映射 --- */
+  function read(name) {
+    var c = RCMAP.ch[name];
+    var raw = (c.axis >= 0 && c.axis < pad.axes.length) ? pad.axes[c.axis] : (name === 'throttle' ? -1 : 0);
+    var v;
+    if (c.uni) { v = (raw + 1) * 0.5; if (c.inv) v = 1 - v; v = clamp(v * c.scale + c.trim, 0, 1); }
+    else { v = raw; if (c.inv) v = -v; v = clamp(v * c.scale + c.trim, -1, 1); }
+    return v;
+  }
+  var out = { roll: read('roll'), pitch: read('pitch'), yaw: read('yaw'), throttle: read('throttle') };
+
+  /* --- 按键（解锁/复位/模式/视角） --- */
+  for (var b = 0; b < pad.buttons.length; b++) {
+    var pressed = pad.buttons[b].pressed || pad.buttons[b].value > 0.6;
+    if (pressed && !BTN_EDGE[b]) onButton(b);
+    BTN_EDGE[b] = pressed;
+  }
+  return out;
+}
+
+/** 键盘备份输入（无遥控器也能飞） */
+function pollKeyboard(dt) {
+  var K = KEYS;
+  var rr = (K['ArrowRight'] ? 1 : 0) - (K['ArrowLeft'] ? 1 : 0);
+  var pp = (K['ArrowUp'] ? 1 : 0) - (K['ArrowDown'] ? 1 : 0);
+  var yy = (K['KeyD'] ? 1 : 0) - (K['KeyA'] ? 1 : 0);
+  var tt = (K['KeyW'] ? 1 : 0) - (K['KeyS'] ? 1 : 0);
+  var rate = 6.5, ret = 9.0;
+  function axis(cur, want) {
+    if (want !== 0) return clamp(cur + want * rate * dt, -1, 1);
+    if (cur > 0) return Math.max(0, cur - ret * dt);
+    return Math.min(0, cur + ret * dt);
+  }
+  KB.roll = axis(KB.roll, rr); KB.pitch = axis(KB.pitch, pp); KB.yaw = axis(KB.yaw, yy);
+  KB.throttle = clamp(KB.throttle + tt * 1.15 * dt, 0, 1);
+  return KB;
+}
+
+/* =============================================================================
+ *  5.8GHz 模拟图传链路预算
+ *    FSPL(dB) = 20·log10(d_m) + 20·log10(f_MHz) − 27.55
+ *    RSSI = Ptx + Gain − FSPL − 天线零点损耗 − 遮挡损耗 − 多径衰落
+ *  质量 q 由 RSSI 相对"参考距离处门限"的余量映射，驱动后处理着色器强度
+ * ========================================================================== */
+var LINK = { q: 1, rssi: -30, dist: 0, wall: 0, nullLoss: 0, fade: 0, _t: 0, _wall: 0, qSmooth: 1 };
+var _antB = v3(0, 0.94, 0.34);        // 机载天线轴（机体系，略微后倾）
+var _antW = v3(), _dirH = v3();
+
+function segHitsBox(px, py, pz, qx, qy, qz, o) {
+  // 段-旋转盒 相交（slab 法，盒局部坐标）
+  var cs = o.cs, sn = o.sn, c = o.c, h = o.h;
+  var ax = px - c[0], ay = py - c[1], az = pz - c[2];
+  var bx = qx - c[0], by = qy - c[1], bz = qz - c[2];
+  var lax = ax * cs - az * sn, laz = ax * sn + az * cs;
+  var lbx = bx * cs - bz * sn, lbz = bx * sn + bz * cs;
+  var dx = lbx - lax, dy = by - ay, dz = lbz - laz;
+  var t0 = 0, t1 = 1;
+  var lo = [lax, ay, laz], dv = [dx, dy, dz];
+  for (var i = 0; i < 3; i++) {
+    var e = h[i];
+    if (Math.abs(dv[i]) < 1e-9) { if (lo[i] < -e || lo[i] > e) return false; continue; }
+    var ta = (-e - lo[i]) / dv[i], tb = (e - lo[i]) / dv[i];
+    if (ta > tb) { var tmp = ta; ta = tb; tb = tmp; }
+    if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+function updateLink(fm, dt, blockers, home) {
+  var d = fm.drone;
+  var dist = v3dist(d.p, home);
+  LINK.dist = dist;
+  /* 天线极化零点：指向飞手方向与天线轴夹角越小损耗越大 */
+  m3xv(_antW, d.R, _antB);
+  v3set(_dirH, home[0] - d.p[0], home[1] - d.p[1], home[2] - d.p[2]);
+  v3norm(_dirH, _dirH);
+  var align = Math.abs(v3dot(_antW, _dirH));
+  LINK.nullLoss = S.antennaNull * 22 * Math.pow(align, 3.2);
+  /* 遮挡（墙体/集装箱）：10Hz 抽样 + 平滑 */
+  LINK._t += dt;
+  if (LINK._t > 0.1) {
+    LINK._t = 0;
+    var n = 0;
+    for (var i = 0; i < blockers.length; i++) {
+      if (segHitsBox(home[0], home[1], home[2], d.p[0], d.p[1], d.p[2], blockers[i])) n++;
+      if (n >= 3) break;
+    }
+    LINK._wall = n;
+  }
+  LINK.wall += (LINK._wall * S.wallLoss - LINK.wall) * clamp(dt * 8, 0, 1);
+  /* 多径衰落：慢速起伏 + 近失联时的快速闪烁 */
+  var tt = performance.now() * 0.001;
+  LINK.fade = LINK.noFade ? 0
+    : Math.sin(tt * 1.7 + dist * 0.13) * 1.6 + Math.sin(tt * 5.3 + dist * 0.41) * 1.1;
+  var gain = 12;
+  var fspl = 20 * Math.log10(Math.max(dist, 1)) + 47.75;
+  var rssi = S.vtxPower + gain - fspl - LINK.nullLoss - LINK.wall + LINK.fade;
+  var fsplRef = 20 * Math.log10(Math.max(S.vtxRange, 5)) + 47.75;
+  var thr = S.vtxPower + gain - fsplRef;            // 参考距离处的门限
+  /* 模拟视频特性：CNR 余量充足时画面干净，接近门限后迅速崩坏 */
+  var q = Math.pow(clamp((rssi - thr) / 15, 0, 1), 0.8);
+  LINK.rssi = rssi;
+  LINK.q = q;
+  LINK.qSmooth += (q - LINK.qSmooth) * clamp(dt * 14, 0, 1);
+  return LINK;
+}
+
+
+/* =============================================================================
+ * 7 | OSD（画在 2D canvas → 作为纹理喂给图传着色器，因此会随信号一起劣化）
+ *    alpha ≤0.92 = 机载 OSD（编码进模拟视频，噪声前合成）
+ *    alpha =1.00 = 眼镜端 OSD（噪声后合成，失联时依然可读）
+ * ========================================================================== */
+var OSD = { cv: null, cx: null, w: 800, h: 450, dirty: true };
+function initOsd() {
+  OSD.cv = document.getElementById('osd');
+  OSD.cx = OSD.cv.getContext('2d', { alpha: true });
+}
+function resizeOsd(aspect) {
+  var w = 800, h = Math.max(300, Math.round(800 / Math.max(aspect, 0.5)));
+  if (OSD.w !== w || OSD.h !== h) {
+    OSD.w = w; OSD.h = h; OSD.cv.width = w; OSD.cv.height = h;
+  }
+}
+function drawOsd(fm, link, st) {
+  var g = OSD.cx, W = OSD.w, H = OSD.h, d = fm.drone;
+  g.clearRect(0, 0, W, H);
+  if (!S.osdEnable) return;
+  var att = attitudeFromR(d.R);
+  var spd = v3len(d.v), vario = d.v[1];
+  var AC = 0.90;                                   // 机载 OSD alpha
+  g.font = '600 17px Consolas, "SF Mono", monospace';
+  g.textBaseline = 'middle';
+  g.lineWidth = 2;
+  var GRN = 'rgba(150,255,190,' + AC + ')', WHT = 'rgba(255,255,255,' + AC + ')';
+  var YEL = 'rgba(255,214,60,' + AC + ')', RED = 'rgba(255,88,96,' + AC + ')';
+
+  function shadow(on) { if (on) { g.shadowColor = 'rgba(0,0,0,0.85)'; g.shadowBlur = 3; g.shadowOffsetX = 1; g.shadowOffsetY = 1; } else { g.shadowBlur = 0; g.shadowOffsetX = 0; g.shadowOffsetY = 0; } }
+  shadow(true);
+
+  /* ---------- 人工地平线（相对真实水平，反向补偿机体横滚） ---------- */
+  g.save();
+  g.translate(W / 2, H / 2 + att.pitch * (H / 150));
+  g.rotate(-att.roll * DEG);
+  g.strokeStyle = 'rgba(150,255,190,' + (AC * 0.75) + ')';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(-W * 0.30, 0); g.lineTo(-W * 0.085, 0);
+  g.moveTo(W * 0.085, 0); g.lineTo(W * 0.30, 0);
+  g.stroke();
+  g.lineWidth = 1.5;
+  g.strokeStyle = 'rgba(150,255,190,' + (AC * 0.42) + ')';
+  for (var lp = -3; lp <= 3; lp++) {
+    if (!lp) continue;
+    var yy = lp * 15 * (H / 150), wl = lp % 2 ? W * 0.045 : W * 0.075;
+    g.beginPath(); g.moveTo(-wl, yy); g.lineTo(wl, yy); g.stroke();
+  }
+  g.restore();
+
+  /* ---------- 中心准星 ---------- */
+  g.strokeStyle = WHT; g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(W / 2 - 16, H / 2); g.lineTo(W / 2 - 5, H / 2);
+  g.moveTo(W / 2 + 5, H / 2); g.lineTo(W / 2 + 16, H / 2);
+  g.moveTo(W / 2, H / 2 - 5); g.lineTo(W / 2, H / 2 - 12);
+  g.stroke();
+  g.fillStyle = WHT; g.fillRect(W / 2 - 1, H / 2 - 1, 2, 2);
+
+  /* ---------- 左：油门 + 电机 ---------- */
+  var bx = 30, by = H * 0.30, bh = H * 0.40;
+  g.strokeStyle = 'rgba(150,255,190,' + (AC * 0.6) + ')';
+  g.strokeRect(bx, by, 12, bh);
+  g.fillStyle = GRN;
+  g.fillRect(bx + 2, by + bh - bh * d.throttle + 2, 8, Math.max(0, bh * d.throttle - 4));
+  g.textAlign = 'left';
+  g.fillText((d.throttle * 100).toFixed(0) + '%', bx - 2, by - 14);
+  g.font = '600 11px Consolas, monospace';
+  g.fillStyle = 'rgba(150,255,190,' + (AC * 0.8) + ')';
+  g.fillText('THR', bx - 2, by + bh + 14);
+  for (var mi = 0; mi < 4; mi++) {
+    var mx = bx + 22 + mi * 9, mh = 44 * clamp(d.motor[mi], 0, 1);
+    g.fillStyle = 'rgba(90,140,110,' + (AC * 0.5) + ')';
+    g.fillRect(mx, by + bh - 44, 6, 44);
+    g.fillStyle = d.motor[mi] > 0.92 ? YEL : GRN;
+    g.fillRect(mx, by + bh - mh, 6, mh);
+  }
+  g.fillStyle = 'rgba(150,255,190,' + (AC * 0.8) + ')';
+  g.fillText('M1-4', bx + 22, by + bh + 14);
+
+  /* ---------- 右：高度 / 速度 / 升降 ---------- */
+  g.textAlign = 'right';
+  g.font = '600 17px Consolas, monospace';
+  g.fillStyle = GRN;
+  g.fillText((spd * 3.6).toFixed(0) + ' km/h', W - 26, H * 0.42);
+  g.font = '600 13px Consolas, monospace';
+  g.fillText(spd.toFixed(1) + ' m/s', W - 26, H * 0.42 + 19);
+  g.font = '600 17px Consolas, monospace';
+  g.fillText('ALT ' + d.p[1].toFixed(1) + 'm', W - 26, H * 0.52);
+  g.font = '600 13px Consolas, monospace';
+  g.fillStyle = vario > 0.3 ? GRN : (vario < -0.3 ? YEL : 'rgba(150,255,190,' + (AC * 0.7) + ')');
+  g.fillText((vario >= 0 ? '\u25B2 ' : '\u25BC ') + Math.abs(vario).toFixed(1) + ' m/s', W - 26, H * 0.52 + 19);
+  g.fillStyle = 'rgba(150,255,190,' + (AC * 0.75) + ')';
+  g.fillText('G ' + d.gForce.toFixed(1), W - 26, H * 0.52 + 38);
+
+  /* ---------- 顶部：电池 / 计时 / 链路 ---------- */
+  g.textAlign = 'left';
+  g.font = '600 16px Consolas, monospace';
+  var vLow = d.volt < 3.5 * S.batteryCells;
+  g.fillStyle = vLow ? RED : GRN;
+  g.fillText(d.volt.toFixed(2) + 'V', 26, 26);
+  g.font = '600 12px Consolas, monospace';
+  g.fillStyle = vLow ? RED : 'rgba(150,255,190,' + (AC * 0.8) + ')';
+  g.fillText((d.battery * 100).toFixed(0) + '% ' + S.batteryCells + 'S', 26, 44);
+
+  g.textAlign = 'center';
+  g.font = '600 16px Consolas, monospace';
+  g.fillStyle = GRN;
+  var tm = d.flightTime;
+  g.fillText(('0' + Math.floor(tm / 60)).slice(-2) + ':' + ('0' + Math.floor(tm % 60)).slice(-2), W / 2, 26);
+  g.font = '600 12px Consolas, monospace';
+  g.fillStyle = 'rgba(150,255,190,' + (AC * 0.8) + ')';
+  g.fillText('GATES ' + d.gatesPassed + '   CRASH ' + d.crashes, W / 2, 44);
+
+  /* RSSI 条 */
+  g.textAlign = 'right';
+  var rq = link.qSmooth;
+  var rc2 = rq < S.rssiFailsafe / 100 + 0.05 ? RED : (rq < 0.35 ? YEL : GRN);
+  g.font = '600 16px Consolas, monospace';
+  g.fillStyle = rc2;
+  g.fillText((rq * 100).toFixed(0) + '%', W - 26, 26);
+  g.font = '600 12px Consolas, monospace';
+  g.fillStyle = 'rgba(150,255,190,' + (AC * 0.8) + ')';
+  g.fillText(link.rssi.toFixed(0) + 'dBm  ' + link.dist.toFixed(0) + 'm', W - 26, 44);
+  for (var sb = 0; sb < 6; sb++) {
+    var on = rq * 6 > sb + 0.15;
+    g.fillStyle = on ? rc2 : 'rgba(90,140,110,' + (AC * 0.45) + ')';
+    g.fillRect(W - 128 + sb * 8, 20 - sb * 2, 5, 8 + sb * 2);
+  }
+
+  /* ---------- 底部：模式 / 状态 ---------- */
+  g.textAlign = 'center';
+  g.font = '600 14px Consolas, monospace';
+  var modeTxt = (S.flightMode | 0) === 1 ? 'ANGLE' : 'ACRO';
+  g.fillStyle = d.armed ? GRN : YEL;
+  g.fillText((d.armed ? '\u25CF ARMED' : '\u25CB DISARMED') + '   ' + modeTxt +
+    '   R' + S.rateRoll + '/P' + S.ratePitch + '/Y' + S.rateYaw, W / 2, H - 26);
+
+  /* ---------- 摇杆指示 ---------- */
+  function stick(cx, cy, x, y, lbl) {
+    g.strokeStyle = 'rgba(150,255,190,' + (AC * 0.5) + ')';
+    g.lineWidth = 1.2;
+    g.strokeRect(cx - 22, cy - 22, 44, 44);
+    g.beginPath(); g.moveTo(cx - 22, cy); g.lineTo(cx + 22, cy); g.moveTo(cx, cy - 22); g.lineTo(cx, cy + 22); g.stroke();
+    g.fillStyle = WHT;
+    g.beginPath(); g.arc(cx + x * 20, cy - y * 20, 3.2, 0, 6.2832); g.fill();
+    g.font = '600 10px Consolas, monospace';
+    g.fillStyle = 'rgba(150,255,190,' + (AC * 0.7) + ')';
+    g.textAlign = 'center';
+    g.fillText(lbl, cx, cy + 32);
+  }
+  stick(56, H - 62, RC.yaw, RC.throttle * 2 - 1, 'YAW/THR');
+  stick(W - 56, H - 62, RC.roll, RC.pitch, 'ROLL/PITCH');
+
+  /* ---------- 机载告警 ---------- */
+  g.textAlign = 'center';
+  if (d.crashed) {
+    g.font = '700 34px Consolas, monospace';
+    g.fillStyle = RED;
+    g.fillText('CRASHED', W / 2, H * 0.68);
+    g.font = '600 14px Consolas, monospace';
+    g.fillStyle = YEL;
+    g.fillText(S.autoReset ? '自动复位中…' : '按 R 复位', W / 2, H * 0.68 + 26);
+  } else if (!d.armed) {
+    g.font = '600 15px Consolas, monospace';
+    g.fillStyle = YEL;
+    g.fillText('按 ENTER 或遥控器按键 ' + RCMAP.armButton + ' 解锁', W / 2, H * 0.70);
+  }
+  if (d.battery < 0.15) {
+    g.font = '700 18px Consolas, monospace';
+    g.fillStyle = RED;
+    g.fillText('BATTERY LOW', W / 2, H * 0.62);
+  }
+
+  /* ================= 眼镜端 OSD（alpha = 1.0） ================= */
+  if (fm.lostLink || fm.failsafe || rq < 0.22) {
+    g.globalAlpha = 1;
+    g.textAlign = 'center';
+    if (fm.lostLink) {
+      g.font = '700 40px Consolas, monospace';
+      g.fillStyle = 'rgb(255,60,70)';
+      g.fillText('NO SIGNAL', W / 2, H * 0.40);
+      g.font = '700 17px Consolas, monospace';
+      g.fillStyle = 'rgb(255,214,60)';
+      g.fillText('5.8GHz LINK LOST \u00B7 ' + link.dist.toFixed(0) + 'm \u00B7 ' + link.rssi.toFixed(0) + 'dBm', W / 2, H * 0.40 + 32);
+      if (fm.failsafe) {
+        g.fillStyle = 'rgb(255,60,70)';
+        g.font = '700 22px Consolas, monospace';
+        g.fillText('*** FAILSAFE ' + ((S.failsafeMode | 0) === 0 ? 'DROP' : 'LAND') + ' ***', W / 2, H * 0.40 + 62);
+      } else {
+        g.fillStyle = 'rgb(255,214,60)';
+        g.font = '700 15px Consolas, monospace';
+        g.fillText('FAILSAFE IN ' + Math.max(0, S.failsafeDelay - fm.failsafeT).toFixed(1) + 's', W / 2, H * 0.40 + 60);
+      }
+    } else {
+      g.font = '700 20px Consolas, monospace';
+      g.fillStyle = 'rgb(255,214,60)';
+      g.fillText('\u26A0 SIGNAL WEAK \u00B7 ' + link.dist.toFixed(0) + 'm', W / 2, H * 0.16);
+    }
+    g.globalAlpha = 1;
+  }
+  shadow(false);
+}
+
+
+/* =============================================================================
+ * 8 | 音频（WebAudio 合成：电机啸叫 / 风噪 / 撞击 / 穿门提示）
+ * ========================================================================== */
+var AUD = { ctx: null, ok: false, osc: [], oscG: [], master: null, windG: null, lp: null };
+function initAudio() {
+  if (AUD.ok) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    var c = new AC();
+    AUD.ctx = c;
+    AUD.master = c.createGain(); AUD.master.gain.value = 0; AUD.master.connect(c.destination);
+    var lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.6;
+    lp.connect(AUD.master); AUD.lp = lp;
+    for (var i = 0; i < 4; i++) {
+      var o = c.createOscillator(); o.type = i % 2 ? 'sawtooth' : 'square';
+      o.frequency.value = 120 + i * 7;
+      var gg = c.createGain(); gg.gain.value = 0.16;
+      o.connect(gg); gg.connect(lp); o.start();
+      AUD.osc.push(o); AUD.oscG.push(gg);
+    }
+    // 风噪
+    var len = c.sampleRate * 2, buf = c.createBuffer(1, len, c.sampleRate), dd = buf.getChannelData(0);
+    for (var s = 0; s < len; s++) dd[s] = (Math.random() * 2 - 1) * 0.6;
+    var src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+    var bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 800; bp.Q.value = 0.55;
+    var wg = c.createGain(); wg.gain.value = 0;
+    src.connect(bp); bp.connect(wg); wg.connect(AUD.master); src.start();
+    AUD.windG = wg;
+    AUD.ok = true;
+  } catch (e) { AUD.ok = false; }
+}
+function updateAudio(fm, link) {
+  if (!AUD.ok) return;
+  var c = AUD.ctx, t = c.currentTime, d = fm.drone;
+  var vol = S.audioEnable ? S.audioVol : 0;
+  AUD.master.gain.setTargetAtTime(vol * 0.55, t, 0.05);
+  var avg = (d.motor[0] + d.motor[1] + d.motor[2] + d.motor[3]) * 0.25;
+  for (var i = 0; i < 4; i++) {
+    var f = 88 + d.motor[i] * 640 + i * 5;
+    AUD.osc[i].frequency.setTargetAtTime(f, t, 0.02);
+    AUD.oscG[i].gain.setTargetAtTime(0.03 + d.motor[i] * 0.16, t, 0.04);
+  }
+  AUD.lp.frequency.setTargetAtTime(700 + avg * 4200, t, 0.05);
+  var spd = v3len(d.v);
+  AUD.windG.gain.setTargetAtTime(clamp(spd * spd * 0.0016, 0, 0.42), t, 0.08);
+}
+function sfx(kind) {
+  if (!AUD.ok || !S.audioEnable) return;
+  var c = AUD.ctx, t = c.currentTime;
+  if (kind === 'gate' || kind === 'ui') {
+    var o = c.createOscillator(), gg = c.createGain();
+    o.type = 'sine'; o.frequency.value = kind === 'gate' ? 1180 : 660;
+    gg.gain.setValueAtTime(0, t); gg.gain.linearRampToValueAtTime(0.22 * S.audioVol, t + 0.008);
+    gg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(gg); gg.connect(c.destination); o.start(t); o.stop(t + 0.2);
+  } else {
+    var len = Math.floor(c.sampleRate * 0.35), buf = c.createBuffer(1, len, c.sampleRate), dd = buf.getChannelData(0);
+    for (var s = 0; s < len; s++) { var e = 1 - s / len; dd[s] = (Math.random() * 2 - 1) * e * e; }
+    var src = c.createBufferSource(); src.buffer = buf;
+    var gg2 = c.createGain(); gg2.gain.value = (kind === 'crash' ? 0.55 : 0.16) * S.audioVol;
+    var lp2 = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = kind === 'crash' ? 1400 : 3200;
+    src.connect(lp2); lp2.connect(gg2); gg2.connect(c.destination); src.start(t);
+  }
+}
+
+
+/* =============================================================================
+ * 9 | WebGL2 渲染器（手写：阴影 pass → 场景 MSAA → 解析 → 图传后处理）
+ * ========================================================================== */
+var G = {
+  gl: null, cv: null, W: 2, H: 2, dpr: 1, samples: 0, aspect: 1,
+  prog: {}, mesh: {}, tex: {}, fbo: {}, quad: null, lost: false, shadowSize: 2048, shadowOk: false
+};
+function Prog(gl, vsSrc, fsSrc, name) {
+  function sh(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      var log = gl.getShaderInfoLog(s);
+      var lines = src.split('\n').map(function (l, i) { return (i + 1) + ': ' + l; }).join('\n');
+      throw new Error('[' + name + '] ' + (type === gl.VERTEX_SHADER ? 'VS' : 'FS') + ' 编译失败:\n' + log + '\n----\n' + lines);
+    }
+    return s;
+  }
+  var vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
+  var p = gl.createProgram();
+  gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('[' + name + '] 链接失败: ' + gl.getProgramInfoLog(p));
+  gl.deleteShader(vs); gl.deleteShader(fs);
+  this.gl = gl; this.p = p; this.u = {}; this.name = name;
+}
+Prog.prototype.use = function () { this.gl.useProgram(this.p); return this; };
+Prog.prototype.loc = function (n) {
+  if (!(n in this.u)) this.u[n] = this.gl.getUniformLocation(this.p, n);
+  return this.u[n];
+};
+Prog.prototype.f = function (n, v) { var l = this.loc(n); if (l) this.gl.uniform1f(l, v); return this; };
+Prog.prototype.i = function (n, v) { var l = this.loc(n); if (l) this.gl.uniform1i(l, v); return this; };
+Prog.prototype.v2 = function (n, x, y) { var l = this.loc(n); if (l) this.gl.uniform2f(l, x, y); return this; };
+Prog.prototype.v3 = function (n, x, y, z) { var l = this.loc(n); if (l) this.gl.uniform3f(l, x, y, z); return this; };
+Prog.prototype.m4 = function (n, m) { var l = this.loc(n); if (l) this.gl.uniformMatrix4fv(l, false, m); return this; };
+
+function makeMesh(gl, data) {
+  var vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  var vb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  gl.bufferData(gl.ARRAY_BUFFER, data.verts, gl.STATIC_DRAW);
+  var st = 48;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, st, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, st, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, st, 24);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, st, 32);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, st, 44);
+  var ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao: vao, count: data.count, type: data.u32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT };
+}
+
+function initGL(track) {
+  var cv = document.getElementById('gl');
+  var gl = cv.getContext('webgl2', {
+    antialias: false, alpha: false, depth: true, stencil: false,
+    powerPreference: 'high-performance', preserveDrawingBuffer: false
+  });
+  if (!gl) throw new Error('本浏览器不支持 WebGL2，无法运行（请使用 Chrome / Edge / Firefox 新版本）');
+  G.gl = gl; G.cv = cv;
+  cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); G.lost = true; toast('WebGL 上下文丢失'); });
+  cv.addEventListener('webglcontextrestored', function () { location.reload(); });
+
+  G.samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0);
+  G.prog.scene = new Prog(gl, SCENE_VS, SCENE_FS, 'scene');
+  G.prog.sky = new Prog(gl, SKY_VS, SKY_FS, 'sky');
+  G.prog.shadow = new Prog(gl, SHADOW_VS, SHADOW_FS, 'shadow');
+  G.prog.post = new Prog(gl, POST_VS, POST_FS, 'post');
+
+  G.mesh.world = makeMesh(gl, trackToMesh(track));
+  G.mesh.drone = makeMesh(gl, buildDroneMesh());
+  G.mesh.prop = makeMesh(gl, buildPropMesh());
+
+  /* 全屏三角形 */
+  var q = gl.createVertexArray();
+  gl.bindVertexArray(q);
+  var qb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  G.quad = q;
+
+  /* OSD 纹理 */
+  G.tex.osd = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, G.tex.osd);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+
+  /* 阴影贴图（深度纹理 + 硬件比较采样） */
+  try {
+    var sz = G.shadowSize;
+    var st = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, st);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, sz, sz, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    var sf = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sf);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, st, 0);
+    gl.drawBuffers([gl.NONE]);
+    var okS = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    G.tex.shadow = st;                       // 即使 FBO 不完整也保留，供采样器绑定
+    if (okS) { G.fbo.shadow = sf; G.shadowOk = true; }
+  } catch (e) { G.shadowOk = false; }
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+  gl.clearColor(0.05, 0.07, 0.09, 1);
+  resizeGL();
+  return gl;
+}
+
+/* ---- 场景渲染目标（含 MSAA 与解析纹理） ---- */
+function allocTargets(w, h) {
+  var gl = G.gl;
+  ['color', 'msColor', 'msDepth', 'depth'].forEach(function (k) {
+    if (G.tex[k]) { if (k.indexOf('ms') === 0 || k === 'depth') gl.deleteRenderbuffer(G.tex[k]); else gl.deleteTexture(G.tex[k]); G.tex[k] = null; }
+  });
+  ['scene', 'ms'].forEach(function (k) { if (G.fbo[k]) { gl.deleteFramebuffer(G.fbo[k]); G.fbo[k] = null; } });
+
+  var ct = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, ct);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  G.tex.color = ct;
+
+  var useMs = S.msaa && G.samples >= 2;
+  var sfbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sfbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, ct, 0);
+  if (!useMs) {
+    var db = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, db);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, db);
+    G.tex.depth = db;
+  }
+  G.fbo.scene = sfbo;
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) console.warn('scene FBO 不完整');
+
+  if (useMs) {
+    var mf = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, mf);
+    var cb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, cb);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, G.samples, gl.RGBA8, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, cb);
+    var mdb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, mdb);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, G.samples, gl.DEPTH_COMPONENT24, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, mdb);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) {
+      G.fbo.ms = mf; G.tex.msColor = cb; G.tex.msDepth = mdb;
+    } else {
+      gl.deleteFramebuffer(mf); G.fbo.ms = null;
+      var db2 = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, db2);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, sfbo);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, db2);
+      G.tex.depth = db2;
+    }
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function resizeGL() {
+  var gl = G.gl, cv = G.cv;
+  G.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var cssW = Math.max(2, cv.clientWidth || window.innerWidth);
+  var cssH = Math.max(2, cv.clientHeight || window.innerHeight);
+  var w = Math.max(64, Math.round(cssW * G.dpr * S.renderScale));
+  var h = Math.max(64, Math.round(cssH * G.dpr * S.renderScale));
+  cv.width = Math.round(cssW * G.dpr); cv.height = Math.round(cssH * G.dpr);
+  G.W = w; G.H = h; G.aspect = w / h;
+  allocTargets(w, h);
+  resizeOsd(G.aspect);
+}
+
+/* ---------------------------- 相机 ---------------------------------------- */
+var CAM = {
+  pos: v3(0, 1, 12), R: m3(), view: m4(), proj: m4(), vp: m4(), invVP: m4(),
+  mode: 0, chase: v3(0, 2, 12), model: m4(), lightVP: m4()
+};
+var _camTmp = m3(), _camTilt = m3(), _camOfs = v3(), _camW = v3();
+function updateCamera(fm, dt) {
+  var d = fm.drone;
+  if (CAM.mode === 0) {                     /* --- FPV：完全跟随机体（含横滚） --- */
+    so3Exp(_camTilt, S.camTilt * DEG, 0, 0);
+    m3mul(CAM.R, d.R, _camTilt);
+    v3set(_camOfs, 0, 0.030 + S.camOffsetY, -0.100 - S.camOffsetZ);
+    m3xv(_camW, d.R, _camOfs);
+    v3add(CAM.pos, d.p, _camW);
+    m4viewFromRT(CAM.view, CAM.R, CAM.pos);
+  } else if (CAM.mode === 1) {              /* --- 追尾视角 --- */
+    m3col(_camOfs, d.R, 2);
+    var tx = d.p[0] + _camOfs[0] * 1.9, ty = d.p[1] + 0.55, tz = d.p[2] + _camOfs[2] * 1.9;
+    var k = clamp(dt * 5.5, 0, 1);
+    CAM.chase[0] += (tx - CAM.chase[0]) * k;
+    CAM.chase[1] += (Math.max(ty, 0.25) - CAM.chase[1]) * k;
+    CAM.chase[2] += (tz - CAM.chase[2]) * k;
+    v3copy(CAM.pos, CAM.chase);
+    m4lookAt(CAM.view, CAM.pos, d.p, [0, 1, 0]);
+  } else {                                  /* --- 飞手视角（目视 LOS） --- */
+    v3set(CAM.pos, fm.track.home[0] + 2.6, 1.72, fm.track.home[2] + 2.4);
+    m4lookAt(CAM.view, CAM.pos, d.p, [0, 1, 0]);
+  }
+  var fov = (CAM.mode === 0 ? S.camFov : 62) * DEG;
+  m4perspective(CAM.proj, fov, G.aspect, 0.02, 1600);
+  m4mul(CAM.vp, CAM.proj, CAM.view);
+  m4invert(CAM.invVP, CAM.vp);
+}
+
+/* ---------------------------- 光照 / 阴影 --------------------------------- */
+var SUN = v3(0.40, 0.74, 0.54);
+v3norm(SUN, SUN);
+var _lp = m4(), _lv = m4();
+function updateLight(fm) {
+  var d = fm.drone, ext = 34, texel = ext * 2 / G.shadowSize;
+  var cx = Math.round((d.p[0] * 0.75 + CAM.pos[0] * 0.25) / texel) * texel;
+  var cz = Math.round((d.p[2] * 0.75 + CAM.pos[2] * 0.25) / texel) * texel;
+  var cy = clamp(d.p[1] * 0.5, 0, 22);
+  m4ortho(_lp, -ext, ext, -ext, ext, 1, 220);
+  m4lookAt(_lv, [cx + SUN[0] * 90, cy + SUN[1] * 90, cz + SUN[2] * 90], [cx, cy, cz], [0, 1, 0]);
+  m4mul(CAM.lightVP, _lp, _lv);
+}
+
+/* ---------------------------- 主渲染 ------------------------------------- */
+var _mm = m4(), _propR = m3(), _propSpin = m3(), _propP = v3(), _propOfs = v3();
+var PROP_POS = [[0.105, 0.032, -0.105], [-0.105, 0.032, -0.105], [0.105, 0.032, 0.105], [-0.105, 0.032, 0.105]];
+var PROP_DIR = [1, -1, -1, 1];
+
+function drawDroneGeom(prog, fm, forShadow) {
+  var gl = G.gl, d = fm.drone;
+  m4model(_mm, d.R, d.p);
+  prog.m4('uModel', _mm);
+  gl.bindVertexArray(G.mesh.drone.vao);
+  gl.drawElements(gl.TRIANGLES, G.mesh.drone.count, G.mesh.drone.type, 0);
+  gl.bindVertexArray(G.mesh.prop.vao);
+  for (var i = 0; i < 4; i++) {
+    so3Exp(_propSpin, 0, d.spin[i] * PROP_DIR[i], 0);
+    m3mul(_propR, d.R, _propSpin);
+    v3set(_propOfs, PROP_POS[i][0], PROP_POS[i][1], PROP_POS[i][2]);
+    m3xv(_propP, d.R, _propOfs);
+    v3add(_propP, d.p, _propP);
+    m4model(_mm, _propR, _propP);
+    prog.m4('uModel', _mm);
+    gl.drawElements(gl.TRIANGLES, G.mesh.prop.count, G.mesh.prop.type, 0);
+  }
+}
+
+function renderFrame(fm, link, time) {
+  var gl = G.gl;
+  if (G.lost) return;
+  var d = fm.drone;
+
+  /* ---------- Pass 1: 阴影深度 ---------- */
+  var useShadow = S.shadows && G.shadowOk;
+  if (useShadow) {
+    updateLight(fm);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, G.fbo.shadow);
+    gl.viewport(0, 0, G.shadowSize, G.shadowSize);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.cullFace(gl.FRONT);
+    var ps = G.prog.shadow.use();
+    ps.m4('uLightVP', CAM.lightVP);
+    m4ident(_mm); ps.m4('uModel', _mm);
+    gl.bindVertexArray(G.mesh.world.vao);
+    gl.drawElements(gl.TRIANGLES, G.mesh.world.count, G.mesh.world.type, 0);
+    drawDroneGeom(ps, fm, true);
+    gl.cullFace(gl.BACK);
+  }
+
+  /* ---------- Pass 2: 场景（MSAA） ---------- */
+  var target = G.fbo.ms || G.fbo.scene;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target);
+  gl.viewport(0, 0, G.W, G.H);
+  gl.clearColor(0.45, 0.58, 0.72, 1);
+  gl.depthMask(true);
+  gl.depthFunc(gl.LESS);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  var p = G.prog.scene.use();
+  p.m4('uProj', CAM.proj).m4('uView', CAM.view).m4('uLightVP', CAM.lightVP);
+  p.v3('uCamPos', CAM.pos[0], CAM.pos[1], CAM.pos[2]);
+  p.v3('uSunDir', SUN[0], SUN[1], SUN[2]);
+  p.v3('uSunCol', 1.06, 0.99, 0.88);
+  p.f('uTime', time).f('uFogDens', 0.0016);
+  p.f('uShadowOn', useShadow ? 1 : 0).f('uShadowTexel', 1 / G.shadowSize);
+  if (G.tex.shadow) {                       // 采样器始终绑定合法深度纹理
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, G.tex.shadow);
+    p.i('uShadow', 1);
+  }
+  m4ident(_mm); p.m4('uModel', _mm);
+  gl.bindVertexArray(G.mesh.world.vao);
+  gl.drawElements(gl.TRIANGLES, G.mesh.world.count, G.mesh.world.type, 0);
+  if (CAM.mode !== 0) drawDroneGeom(p, fm, false);
+
+  /* 天空（最后画，只填充未被遮挡的像素） */
+  var sk = G.prog.sky.use();
+  sk.m4('uInvVP', CAM.invVP);
+  sk.v3('uCamPos', CAM.pos[0], CAM.pos[1], CAM.pos[2]);
+  sk.v3('uSunDir', SUN[0], SUN[1], SUN[2]);
+  sk.v3('uSunCol', 1.06, 0.99, 0.88);
+  sk.f('uTime', time);
+  gl.depthMask(false);
+  gl.depthFunc(gl.LEQUAL);
+  gl.disable(gl.CULL_FACE);
+  gl.bindVertexArray(G.quad);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.enable(gl.CULL_FACE);
+  gl.depthMask(true);
+  gl.depthFunc(gl.LESS);
+
+  /* ---------- MSAA 解析 ---------- */
+  if (G.fbo.ms) {
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, G.fbo.ms);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, G.fbo.scene);
+    gl.blitFramebuffer(0, 0, G.W, G.H, 0, 0, G.W, G.H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  }
+
+  /* ---------- OSD → 纹理 ---------- */
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, G.tex.osd);
+  if (S.osdEnable) {
+    if (G._osdW !== OSD.w || G._osdH !== OSD.h) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, OSD.cv);
+      G._osdW = OSD.w; G._osdH = OSD.h;
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, OSD.cv);
+    }
+  }
+
+  /* ---------- Pass 3: 图传后处理 → 屏幕 ---------- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, G.cv.width, G.cv.height);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  var po = G.prog.post.use();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, G.tex.color);
+  po.i('uScene', 0).i('uOsd', 2);
+  po.v2('uRes', G.W, G.H).f('uTime', time);
+  var fxOn = S.vtxEnable && (!S.vtxOnlyFpv || CAM.mode === 0);
+  var q = fxOn ? link.qSmooth : 1;
+  var failThr = S.rssiFailsafe / 100;
+  var failAmt = fxOn ? clamp((failThr - q) / Math.max(failThr, 0.02) * 1.15, 0, 1) : 0;
+  po.f('uSig', q).f('uFail', failAmt);
+  po.f('uNoiseA', S.vtxNoise).f('uTearA', S.vtxTear).f('uBandA', S.vtxBands);
+  po.f('uChromaA', S.vtxChroma).f('uScanA', S.vtxScanline).f('uLensA', S.vtxLens);
+  po.f('uFx', fxOn ? 1 : 0).f('uOsdOn', S.osdEnable ? 1 : 0).f('uArmed', d.armed ? 1 : 0);
+  gl.bindVertexArray(G.quad);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindVertexArray(null);
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+}
+
+
+/* =============================================================================
+ * 10 | 设置菜单 UI（由 PARAM_TABS 自动生成，实时生效）
+ * ========================================================================== */
+var MENU = { open: false, tab: 'rc', live: null, el: null, body: null };
+var _toastT = 0;
+function toast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  _toastT = performance.now() + 1900;
+}
+function tickToast() {
+  if (_toastT && performance.now() > _toastT) {
+    document.getElementById('toast').classList.remove('show'); _toastT = 0;
+  }
+}
+function fmtVal(k, v) {
+  if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
+  var a = Math.abs(v);
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  if (a >= 1) return v.toFixed(2);
+  return v.toFixed(3);
+}
+function onSettingChange(k) {
+  if (k === 'renderScale' || k === 'msaa') resizeGL();
+  if (k === 'camFov') { /* 下一帧自动生效 */ }
+}
+function buildMenu() {
+  MENU.el = document.getElementById('menu');
+  MENU.body = document.getElementById('menuBody');
+  var tabs = document.getElementById('tabs');
+  tabs.innerHTML = '';
+  PARAM_TABS.forEach(function (t) {
+    var b = document.createElement('button');
+    b.textContent = t.name; b.dataset.tab = t.id;
+    b.onclick = function () { showTab(t.id); };
+    tabs.appendChild(b);
+  });
+  document.getElementById('btnSave').onclick = saveCfg;
+  document.getElementById('btnLoad').onclick = function () { loadCfg(true); };
+  document.getElementById('btnDefault').onclick = function () {
+    if (!confirm('恢复所有默认参数？')) return;
+    S = JSON.parse(JSON.stringify(DEFAULTS));
+    RCMAP = JSON.parse(JSON.stringify(DEFAULT_RC));
+    resizeGL(); showTab(MENU.tab); toast('已恢复默认');
+  };
+  document.getElementById('btnReset').onclick = function () { doReset(); };
+  document.getElementById('btnClose').onclick = function () { setMenu(false); };
+  showTab('rc');
+}
+function showTab(id) {
+  MENU.tab = id; MENU.live = null;
+  var tabs = document.getElementById('tabs').children;
+  for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('on', tabs[i].dataset.tab === id);
+  var t = null;
+  for (var j = 0; j < PARAM_TABS.length; j++) if (PARAM_TABS[j].id === id) t = PARAM_TABS[j];
+  var body = MENU.body;
+  body.innerHTML = '';
+  if (!t) return;
+  if (t.special === 'rc') { buildRcTab(body); return; }
+  if (t.special === 'tele') { buildTeleTab(body); return; }
+  t.groups.forEach(function (grp) {
+    var sec = document.createElement('div'); sec.className = 'sect';
+    var h = document.createElement('h3'); h.textContent = grp.t; sec.appendChild(h);
+    grp.items.forEach(function (it) { sec.appendChild(buildRow(it)); });
+    body.appendChild(sec);
+  });
+}
+function buildRow(it) {
+  var row = document.createElement('div'); row.className = it.chk ? 'chk' : 'row';
+  if (it.chk) {
+    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!S[it.k];
+    cb.onchange = function () { S[it.k] = cb.checked; onSettingChange(it.k); };
+    var lb = document.createElement('span'); lb.innerHTML = it.l + (it.s ? ' <span style="color:#5f7d75">· ' + it.s + '</span>' : '');
+    row.appendChild(cb); row.appendChild(lb);
+    return row;
+  }
+  var lab = document.createElement('label');
+  lab.innerHTML = it.l + (it.s ? '<small>' + it.s + '</small>' : '');
+  row.appendChild(lab);
+  if (it.sel) {
+    var sl = document.createElement('select');
+    it.sel.forEach(function (o) {
+      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1];
+      sl.appendChild(op);
+    });
+    sl.value = String(S[it.k] | 0);
+    sl.onchange = function () { S[it.k] = parseInt(sl.value, 10); onSettingChange(it.k); };
+    var wrap = document.createElement('div'); wrap.style.flex = '1';
+    wrap.appendChild(sl); row.appendChild(wrap);
+    return row;
+  }
+  var rg = document.createElement('input');
+  rg.type = 'range'; rg.min = it.min; rg.max = it.max; rg.step = it.step; rg.value = S[it.k];
+  var val = document.createElement('div'); val.className = 'val'; val.textContent = fmtVal(it.k, S[it.k]);
+  rg.oninput = function () {
+    S[it.k] = parseFloat(rg.value);
+    val.textContent = fmtVal(it.k, S[it.k]);
+    onSettingChange(it.k);
+  };
+  row.appendChild(rg); row.appendChild(val);
+  return row;
+}
+
+/* --------------------------- 遥控器标定页 --------------------------------- */
+var CH_LIST = [['roll', '横滚 ROLL'], ['pitch', '俯仰 PITCH'], ['yaw', '偏航 YAW'], ['throttle', '油门 THROTTLE']];
+function buildRcTab(body) {
+  var info = document.createElement('div'); info.id = 'padinfo';
+  body.appendChild(info);
+
+  var sec = document.createElement('div'); sec.className = 'sect';
+  sec.innerHTML = '<h3>通道绑定 / 反向</h3><div class="note">点击「学习」后拨动对应摇杆到底，自动识别轴与方向。' +
+    '油门通道为单极性（0~100%），其余为双极性（-100%~100%）。</div>';
+  var tb = document.createElement('table'); tb.className = 'rc';
+  tb.innerHTML = '<tr><th>通道</th><th style="width:62px">轴</th><th style="width:34px">反向</th>' +
+    '<th style="width:34px">单极</th><th>实时值</th><th style="width:50px"></th></tr>';
+  var bars = {};
+  CH_LIST.forEach(function (c) {
+    var key = c[0], cfg = RCMAP.ch[key];
+    var tr = document.createElement('tr');
+    var td0 = document.createElement('td'); td0.className = 'nm'; td0.textContent = c[1];
+    var td1 = document.createElement('td');
+    var ax = document.createElement('input'); ax.type = 'number'; ax.min = -1; ax.max = 31; ax.step = 1; ax.value = cfg.axis;
+    ax.onchange = function () { cfg.axis = parseInt(ax.value, 10); };
+    td1.appendChild(ax);
+    var td2 = document.createElement('td');
+    var iv = document.createElement('input'); iv.type = 'checkbox'; iv.checked = cfg.inv;
+    iv.onchange = function () { cfg.inv = iv.checked; };
+    td2.appendChild(iv);
+    var td3 = document.createElement('td');
+    var un = document.createElement('input'); un.type = 'checkbox'; un.checked = cfg.uni;
+    un.onchange = function () { cfg.uni = un.checked; };
+    td3.appendChild(un);
+    var td4 = document.createElement('td');
+    var bar = document.createElement('div'); bar.className = 'bar';
+    var fill = document.createElement('i'); var mid = document.createElement('u'); var mk = document.createElement('b');
+    bar.appendChild(fill); bar.appendChild(mid); bar.appendChild(mk);
+    td4.appendChild(bar);
+    bars[key] = { fill: fill, mk: mk };
+    var td5 = document.createElement('td');
+    var lb = document.createElement('button'); lb.className = 'learn'; lb.textContent = '学习';
+    lb.onclick = function () {
+      if (LEARN.ch === key) { LEARN.ch = null; LEARN.base = null; }
+      else { LEARN.ch = key; LEARN.base = null; LEARN.t = 0; toast('拨动 ' + c[1] + ' 摇杆到底…'); }
+      refreshRcTab();
+    };
+    if (LEARN.ch === key) lb.classList.add('on');
+    td5.appendChild(lb);
+    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5);
+    tb.appendChild(tr);
+  });
+  sec.appendChild(tb);
+  body.appendChild(sec);
+
+  var sec2 = document.createElement('div'); sec2.className = 'sect';
+  sec2.innerHTML = '<h3>遥控器按键映射</h3>';
+  [['armButton', '解锁/上锁 ARM'], ['resetButton', '复位 RESET'], ['modeButton', '飞行模式'], ['camButton', '切换视角']].forEach(function (b) {
+    var row = document.createElement('div'); row.className = 'row';
+    var lab = document.createElement('label'); lab.innerHTML = b[1] + '<small>button index</small>';
+    var num = document.createElement('div'); num.className = 'num';
+    var inp = document.createElement('input'); inp.type = 'number'; inp.min = -1; inp.max = 31; inp.value = RCMAP[b[0]];
+    inp.onchange = function () { RCMAP[b[0]] = parseInt(inp.value, 10); };
+    num.appendChild(inp);
+    row.appendChild(lab); row.appendChild(num);
+    sec2.appendChild(row);
+  });
+  var mon = document.createElement('div'); mon.id = 'axmon';
+  sec2.appendChild(mon);
+  body.appendChild(sec2);
+
+  var sec3 = document.createElement('div'); sec3.className = 'sect';
+  sec3.innerHTML = '<h3>快捷操作</h3>';
+  var btnRow = document.createElement('div'); btnRow.style.display = 'flex'; btnRow.style.gap = '6px'; btnRow.style.flexWrap = 'wrap';
+  var b1 = document.createElement('button'); b1.className = 'btn'; b1.textContent = '预设：游戏手柄 Mode2';
+  b1.onclick = function () { RCMAP.ch = JSON.parse(JSON.stringify(RC_PRESETS.pad)); refreshRcTab(); toast('已套用 双摇杆 Mode2 映射'); };
+  var b3 = document.createElement('button'); b3.className = 'btn'; b3.textContent = '预设：遥控器 A/E/T/R';
+  b3.onclick = function () { RCMAP.ch = JSON.parse(JSON.stringify(RC_PRESETS.tx)); refreshRcTab(); toast('已套用 遥控器 Ail/Ele/Thr/Rud 映射'); };
+  var b2 = document.createElement('button'); b2.className = 'btn'; b2.textContent = '重新扫描设备';
+  b2.onclick = function () { RCMAP.device = -1; toast('设备: ' + (listPads().length) + ' 个'); refreshRcTab(); };
+  btnRow.appendChild(b1); btnRow.appendChild(b3); btnRow.appendChild(b2);
+  sec3.appendChild(btnRow);
+  body.appendChild(sec3);
+
+  MENU.live = function () {
+    var pads = listPads();
+    info.innerHTML = pads.length
+      ? '已连接 <b>' + pads.length + '</b> 个设备 &nbsp;|&nbsp; 当前: <b>' + (RC.name || '-') + '</b><br>轴数 ' +
+        (RC.axes ? RC.axes.length : 0) + ' &nbsp; 按键 ' + (RC.buttons ? RC.buttons.length : 0) + ' &nbsp; index ' + RC.padIndex
+      : '<b style="color:var(--warn)">未检测到遥控设备</b><br>请连接 USB 手柄 / 遥控器加密狗，然后<b>拨动摇杆</b>唤醒（浏览器安全策略）。当前使用键盘输入。';
+    var v = { roll: RC.roll, pitch: RC.pitch, yaw: RC.yaw, throttle: RC.throttle };
+    for (var k in bars) {
+      var uni = RCMAP.ch[k].uni, val = v[k];
+      var pct = uni ? val * 100 : (val * 0.5 + 0.5) * 100;
+      bars[k].fill.style.left = uni ? '0%' : '50%';
+      bars[k].fill.style.width = uni ? pct + '%' : Math.abs(val) * 50 + '%';
+      if (!uni && val < 0) { bars[k].fill.style.left = (50 - Math.abs(val) * 50) + '%'; }
+      bars[k].mk.style.left = clamp(pct, 0, 99.5) + '%';
+    }
+    var html = '';
+    var axs = RC.axes || [];
+    for (var a = 0; a < axs.length; a++) html += '<div>AX' + a + ' <span>' + axs[a].toFixed(2) + '</span></div>';
+    var bs = RC.buttons || [];
+    for (var b2i = 0; b2i < bs.length; b2i++) if (bs[b2i].pressed) html += '<div style="color:var(--acc)">BTN' + b2i + ' ▣</div>';
+    mon.innerHTML = html || '<div style="flex:1 0 100%">（无轴数据）</div>';
+  };
+  MENU.live();
+}
+function refreshRcTab() { if (MENU.open && MENU.tab === 'rc') showTab('rc'); }
+
+/* --------------------------- 遥测页（含 SO(3) 自检） ---------------------- */
+function buildTeleTab(body) {
+  var sec = document.createElement('div'); sec.className = 'sect';
+  sec.innerHTML = '<h3>实时遥测 / 数值自检</h3><div class="note">姿态矩阵正交性由 so(3) 指数映射天然保证；' +
+    '此处实时显示 det(R) 与 ‖RᵗR−I‖∞ 作为积分健康度指标。</div>';
+  var box = document.createElement('div');
+  sec.appendChild(box); body.appendChild(sec);
+  MENU.live = function () {
+    var d = FM.drone, R = d.R, att = attitudeFromR(R);
+    var e = 0;
+    for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) {
+      var s = R[i * 3] * R[j * 3] + R[i * 3 + 1] * R[j * 3 + 1] + R[i * 3 + 2] * R[j * 3 + 2];
+      e = Math.max(e, Math.abs(s - (i === j ? 1 : 0)));
+    }
+    var rows = [
+      ['位置 X/Y/Z', d.p[0].toFixed(2) + ' / ' + d.p[1].toFixed(2) + ' / ' + d.p[2].toFixed(2) + ' m'],
+      ['速度', v3len(d.v).toFixed(2) + ' m/s  (' + (v3len(d.v) * 3.6).toFixed(0) + ' km/h)'],
+      ['角速度 ω (机体)', d.w[0].toFixed(2) + ' / ' + d.w[1].toFixed(2) + ' / ' + d.w[2].toFixed(2) + ' rad/s'],
+      ['目标角速度 sp', d.sp[0].toFixed(2) + ' / ' + d.sp[1].toFixed(2) + ' / ' + d.sp[2].toFixed(2) + ' rad/s'],
+      ['姿态(仅显示)', 'R' + att.roll.toFixed(0) + '° P' + att.pitch.toFixed(0) + '° Y' + att.yaw.toFixed(0) + '°' + (att.inverted ? ' [INV]' : '')],
+      ['det(R)', m3det(R).toFixed(9)],
+      ['‖RᵗR−I‖∞', e.toExponential(2)],
+      ['PID 积分项', d.integ[0].toFixed(3) + ' / ' + d.integ[1].toFixed(3) + ' / ' + d.integ[2].toFixed(3)],
+      ['电机 M1-4', Array.prototype.map.call(d.motor, function (x) { return (x * 100).toFixed(0); }).join(' / ') + ' %'],
+      ['G 载荷', d.gForce.toFixed(2) + ' g'],
+      ['电池', d.volt.toFixed(2) + ' V  ' + (d.battery * 100).toFixed(0) + '%'],
+      ['图传 RSSI', LINK.rssi.toFixed(1) + ' dBm  质量 ' + (LINK.qSmooth * 100).toFixed(0) + '%'],
+      ['链路距离 / 遮挡', LINK.dist.toFixed(1) + ' m  /  ' + LINK.wall.toFixed(1) + ' dB'],
+      ['物理步频', PHYS_HZ + ' Hz  (' + STAT.steps + ' step/帧)'],
+      ['渲染', G.W + '×' + G.H + '  MSAA ' + (G.fbo.ms ? G.samples + 'x' : 'off') + '  阴影 ' + (G.shadowOk && S.shadows ? 'on' : 'off')]
+    ];
+    var h = '';
+    rows.forEach(function (r) { h += '<div class="kv"><span style="color:#9dc3b8">' + r[0] + '</span><span>' + r[1] + '</span></div>'; });
+    box.innerHTML = h;
+  };
+  MENU.live();
+}
+function setMenu(open) {
+  MENU.open = open;
+  MENU.el.classList.toggle('hidden', !open);
+  if (open) showTab(MENU.tab);
+}
+/* --------------------------- 持久化 --------------------------------------- */
+function saveCfg() {
+  try {
+    localStorage.setItem('fpvsim.cfg', JSON.stringify({ v: CFG_VERSION, S: S, RC: RCMAP }));
+    toast('参数已保存到浏览器');
+  } catch (e) { toast('保存失败: ' + e.message); }
+}
+function loadCfg(verbose) {
+  try {
+    var raw = localStorage.getItem('fpvsim.cfg');
+    if (!raw) { if (verbose) toast('没有已保存的配置'); return false; }
+    var o = JSON.parse(raw);
+    if (!o || o.v !== CFG_VERSION) { if (verbose) toast('配置版本不匹配，已忽略'); return false; }
+    for (var k in DEFAULTS) if (o.S && o.S[k] !== undefined) S[k] = o.S[k];
+    if (o.RC) {
+      RCMAP.device = o.RC.device;
+      ['armButton', 'resetButton', 'modeButton', 'camButton'].forEach(function (b) { if (o.RC[b] !== undefined) RCMAP[b] = o.RC[b]; });
+      for (var c in RCMAP.ch) if (o.RC.ch && o.RC.ch[c]) for (var f in RCMAP.ch[c]) if (o.RC.ch[c][f] !== undefined) RCMAP.ch[c][f] = o.RC.ch[c][f];
+    }
+    if (verbose) { toast('配置已读取'); resizeGL(); showTab(MENU.tab); }
+    return true;
+  } catch (e) { if (verbose) toast('读取失败'); return false; }
+}
+
+
+/* =============================================================================
+ * 11 | 初始化 与 主循环
+ * ========================================================================== */
+var FM = null, TRACK = null, BLOCKERS = [], STARTED = false;
+var STAT = { fps: 60, steps: 0, ms: 0, acc: 0, last: 0, uiT: 0, liveT: 0 };
+
+function doReset() {
+  FM.drone.reset(TRACK.home);
+  FM.failsafeT = 0; FM.failsafe = false;
+  LINK.qSmooth = 1;
+  toast('已复位到起飞台');
+}
+function armToggle() {
+  var d = FM.drone;
+  if (d.crashed) { doReset(); return; }
+  if (!d.armed) {
+    if (RC.throttle > 0.06) { toast('油门未归零，禁止解锁'); return; }
+    d.armed = true; v3zero(d.integ); toast('ARMED · 解锁'); sfx('ui');
+  } else { d.armed = false; toast('DISARMED · 上锁'); sfx('ui'); }
+}
+function cycleCam() {
+  CAM.mode = (CAM.mode + 1) % 3;
+  var n = ['FPV 第一人称', '追尾视角', '飞手目视 LOS'][CAM.mode];
+  document.getElementById('tbCam').textContent = ['FPV', 'CHASE', 'LOS'][CAM.mode];
+  toast('视角: ' + n);
+}
+function cycleMode() {
+  S.flightMode = ((S.flightMode | 0) + 1) % 2;
+  toast('飞行模式: ' + ((S.flightMode | 0) === 1 ? 'ANGLE 自稳' : 'ACRO 手动'));
+  if (MENU.open) showTab(MENU.tab);
+}
+function onPadButton(idx) {
+  if (idx === RCMAP.armButton) armToggle();
+  else if (idx === RCMAP.resetButton) doReset();
+  else if (idx === RCMAP.modeButton) cycleMode();
+  else if (idx === RCMAP.camButton) cycleCam();
+}
+
+function init() {
+  TRACK = buildTrack(S.seed);
+  initOsd();
+  initGL(TRACK);
+  FM = new FlightModel(TRACK);
+  BLOCKERS = FM.colliders.filter(function (o) {
+    return o.k === 0 && (o.h[0] > 0.9 || o.h[1] > 0.9 || o.h[2] > 0.9);
+  });
+  buildMenu();
+  loadCfg(false);
+  resizeGL();
+
+  /* ---- 事件 ---- */
+  window.addEventListener('resize', function () { resizeGL(); });
+  window.addEventListener('keydown', function (e) {
+    if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
+    KEYS[e.code] = true;
+    if (e.code === 'Enter') armToggle();
+    else if (e.code === 'KeyR') doReset();
+    else if (e.code === 'KeyC') cycleCam();
+    else if (e.code === 'KeyF') cycleMode();
+    else if (e.code === 'KeyM' || e.code === 'Escape') setMenu(!MENU.open);
+    else if (e.code === 'KeyT') { S.audioEnable = !S.audioEnable; toast('声音: ' + (S.audioEnable ? '开' : '关')); }
+    if (/^(Arrow|Space|Tab)/.test(e.code)) e.preventDefault();
+  });
+  window.addEventListener('keyup', function (e) { KEYS[e.code] = false; });
+  window.addEventListener('blur', function () { for (var k in KEYS) KEYS[k] = false; });
+  window.addEventListener('gamepadconnected', function (e) {
+    if (!localStorage.getItem('fpvsim.cfg') && e.gamepad.mapping === 'standard') {
+      RCMAP.ch = JSON.parse(JSON.stringify(RC_PRESETS.pad));      // 标准手柄自动套用 Mode2
+    }
+    toast('遥控设备已连接: ' + e.gamepad.id.slice(0, 42));
+    document.getElementById('bootPad').textContent = '已识别: ' + e.gamepad.id.slice(0, 52);
+    refreshRcTab();
+  });
+  window.addEventListener('gamepaddisconnected', function () { toast('遥控设备已断开'); refreshRcTab(); });
+
+  var boot = document.getElementById('boot');
+  boot.addEventListener('click', function () {
+    boot.classList.add('hidden');
+    STARTED = true;
+    initAudio();
+    if (AUD.ctx && AUD.ctx.state === 'suspended') AUD.ctx.resume();
+  });
+  /* 检测已插入的手柄（部分浏览器需要一次输入才暴露） */
+  var pads = listPads();
+  if (pads.length) document.getElementById('bootPad').textContent = '已识别: ' + pads[0].id.slice(0, 52);
+}
+
+/* --------------------------- 主循环 -------------------------------------- */
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (G.lost) return;
+  var now = ts * 0.001;
+  if (!STAT.last) STAT.last = now;
+  var dt = clamp(now - STAT.last, 0, 0.25);
+  STAT.last = now;
+  STAT.fps += (1 / Math.max(dt, 1e-4) - STAT.fps) * 0.08;
+  tickToast();
+
+  /* ---- 输入 ---- */
+  var pad = pollGamepad(dt, onPadButton);
+  var kb = pollKeyboard(dt);
+  RC.roll = clamp((pad ? pad.roll : 0) + kb.roll, -1, 1);
+  RC.pitch = clamp((pad ? pad.pitch : 0) + kb.pitch, -1, 1);
+  RC.yaw = clamp((pad ? pad.yaw : 0) + kb.yaw, -1, 1);
+  RC.throttle = pad ? clamp(Math.max(pad.throttle, kb.throttle), 0, 1) : kb.throttle;
+
+  /* ---- 链路（图传信号）---- */
+  updateLink(FM, dt, BLOCKERS, TRACK.home);
+
+  /* ---- 物理定步进 ---- */
+  var t0 = performance.now();
+  STAT.acc += STARTED ? dt : 0;
+  var steps = 0;
+  while (STAT.acc >= PHYS_DT && steps < 16) {
+    FM.step(PHYS_DT, RC, LINK);
+    STAT.acc -= PHYS_DT; steps++;
+  }
+  if (steps >= 16) STAT.acc = 0;
+  STAT.steps = steps;
+  STAT.ms = performance.now() - t0;
+
+  /* ---- 事件 → 音效/提示 ---- */
+  var d = FM.drone;
+  while (FM.events.length) {
+    var ev = FM.events.shift();
+    if (ev.t === 'gate') { sfx('gate'); toast('穿门 ' + ev.name + ' · 累计 ' + d.gatesPassed); }
+    else if (ev.t === 'crash') { sfx('crash'); }
+    else if (ev.t === 'bump') { sfx('bump'); }
+  }
+  d.impact = 0;
+  if (d.crashed) {
+    d.crashT += dt;
+    if (S.autoReset && d.crashT > S.autoResetDelay) doReset();
+  }
+
+  /* ---- 相机 / 音频 / OSD / 渲染 ---- */
+  updateCamera(FM, dt);
+  updateAudio(FM, LINK);
+  drawOsd(FM, LINK, STAT);
+  renderFrame(FM, LINK, now);
+
+  /* ---- DOM 状态条（低频刷新）---- */
+  if (now - STAT.uiT > 0.2) {
+    STAT.uiT = now;
+    document.getElementById('tbFps').textContent = STAT.fps.toFixed(0) + ' fps';
+    document.getElementById('tbPhys').textContent = 'phys ' + STAT.steps + '×' + PHYS_HZ + 'Hz ' + STAT.ms.toFixed(1) + 'ms';
+    var tp = document.getElementById('tbPad');
+    tp.textContent = RC.connected ? 'RC: ' + (RC.name || 'PAD').slice(0, 18) : 'NO RC (键盘)';
+    tp.className = 'pill' + (RC.connected ? '' : ' off');
+    var ta = document.getElementById('tbArm');
+    ta.textContent = d.crashed ? 'CRASHED' : (d.armed ? 'ARMED' : 'DISARMED');
+    ta.className = 'pill' + (d.armed && !d.crashed ? '' : ' off');
+    document.getElementById('tbMode').textContent = (S.flightMode | 0) === 1 ? 'ANGLE' : 'ACRO';
+    var tv = document.getElementById('tbVtx');
+    tv.textContent = 'VTX ' + (LINK.qSmooth * 100).toFixed(0) + '% · ' + LINK.dist.toFixed(0) + 'm';
+    tv.className = 'pill' + (FM.lostLink ? ' off' : '');
+  }
+  if (MENU.open && MENU.live && now - STAT.liveT > 0.1) { STAT.liveT = now; MENU.live(); }
+}
+
+/* =============================================================================
+ * 12 | 自检（?selftest=1）：验证着色器、SO(3) 积分正交性、渲染管线无 GL 错误
+ * ========================================================================== */
+function selfTest() {
+  var gl = G.gl, log = [];
+  function chk(name, ok, extra) { log.push((ok ? 'PASS' : 'FAIL') + ' | ' + name + (extra ? ' | ' + extra : '')); return ok; }
+  var allOk = true;
+  allOk &= chk('shaders compiled+linked (scene/sky/shadow/post)', !!(G.prog.scene && G.prog.sky && G.prog.shadow && G.prog.post));
+  allOk &= chk('shadow framebuffer', G.shadowOk, 'size ' + G.shadowSize);
+  allOk &= chk('msaa resolve target', !!G.fbo.ms, 'samples=' + G.samples);
+  var wc = G.mesh.world.count, dc = G.mesh.drone.count;
+  allOk &= chk('geometry built', wc > 1000 && dc > 100, 'world idx=' + wc + ' drone idx=' + dc);
+  allOk &= chk('colliders from track', FM.colliders.length > 40, 'n=' + FM.colliders.length + ' gates=' + TRACK.gates.length);
+
+  /* --- SO(3) 积分健壮性：极端角速度下连续积分 --- */
+  var d = FM.drone;
+  d.armed = true;
+  var rc = { roll: 1, pitch: -0.35, yaw: 0.6, throttle: 0.72 };
+  var worstOrtho = 0, worstDet = 0;
+  for (var i = 0; i < 4000; i++) {
+    FM.step(PHYS_DT, rc, { q: 1 });
+    if (i % 25 === 0) {
+      var R = d.R, e = 0;
+      for (var a = 0; a < 3; a++) for (var b = 0; b < 3; b++) {
+        var s = R[a * 3] * R[b * 3] + R[a * 3 + 1] * R[b * 3 + 1] + R[a * 3 + 2] * R[b * 3 + 2];
+        e = Math.max(e, Math.abs(s - (a === b ? 1 : 0)));
+      }
+      worstOrtho = Math.max(worstOrtho, e);
+      worstDet = Math.max(worstDet, Math.abs(m3det(R) - 1));
+    }
+  }
+  allOk &= chk('SO(3) 正交性 (4000 步 @高速翻滚)', worstOrtho < 1e-6, '‖RᵗR−I‖max=' + worstOrtho.toExponential(2));
+  allOk &= chk('det(R)=1', worstDet < 1e-6, 'err=' + worstDet.toExponential(2));
+  allOk &= chk('状态有限', isFinite(d.p[0] + d.p[1] + d.p[2] + d.v[0] + d.w[0]),
+    'p=' + d.p[0].toFixed(1) + ',' + d.p[1].toFixed(1) + ',' + d.p[2].toFixed(1) + ' |w|=' + v3len(d.w).toFixed(1));
+  /* --- 指数映射闭式解 vs 轴角公式一致性 --- */
+  var A = m3(), B = m3(), ax = [0.3, -0.7, 0.64], al = Math.hypot(ax[0], ax[1], ax[2]);
+  ax = [ax[0] / al, ax[1] / al, ax[2] / al];
+  var ang = 2.317;
+  so3Exp(A, ax[0] * ang, ax[1] * ang, ax[2] * ang);
+  m3fromAxisAngle(B, ax[0], ax[1], ax[2], ang);
+  var em = 0; for (var k = 0; k < 9; k++) em = Math.max(em, Math.abs(A[k] - B[k]));
+  allOk &= chk('so3Exp ≡ Rodrigues', em < 1e-12, 'max diff=' + em.toExponential(2));
+  /* --- 对数映射往返 --- */
+  var lg = so3Log(v3(), A);
+  var lgErr = Math.max(Math.abs(lg[0] - ax[0] * ang), Math.abs(lg[1] - ax[1] * ang), Math.abs(lg[2] - ax[2] * ang));
+  allOk &= chk('so3Log∘so3Exp = id', lgErr < 1e-9, 'err=' + lgErr.toExponential(2));
+
+  /* --- 飞行品质：角速度环跟踪精度（ACRO） --- */
+  function flyTest(rcIn, secs, prep) {
+    doReset();
+    var dd2 = FM.drone;
+    dd2.armed = true; S.flightMode = 0;
+    if (prep) prep(dd2);
+    var n = Math.round(secs * PHYS_HZ), samp = [];
+    for (var i2 = 0; i2 < n; i2++) {
+      FM.step(PHYS_DT, rcIn, { q: 1 });
+      if (i2 > n - PHYS_HZ * 0.3) samp.push([dd2.w[0], dd2.w[1], dd2.w[2], dd2.sp[0], dd2.sp[1], dd2.sp[2]]);
+    }
+    var avg = [0, 0, 0, 0, 0, 0];
+    samp.forEach(function (s2) { for (var j2 = 0; j2 < 6; j2++) avg[j2] += s2[j2] / samp.length; });
+    return { w: avg.slice(0, 3), sp: avg.slice(3, 6), d: dd2 };
+  }
+  var air = function (dr) { v3set(dr.p, 0, 60, 40); };     // 空旷高空，避免撞到道具
+  var rt = flyTest({ roll: 0.6, pitch: 0, yaw: 0, throttle: 0.45 }, 1.4, air);
+  var eRoll = Math.abs(rt.w[2] - rt.sp[2]) / Math.max(Math.abs(rt.sp[2]), 1e-3);
+  allOk &= chk('ACRO 横滚角速度跟踪 (误差<8%)', eRoll < 0.08,
+    'ω=' + (rt.w[2] * RAD).toFixed(0) + '°/s  sp=' + (rt.sp[2] * RAD).toFixed(0) + '°/s  err=' + (eRoll * 100).toFixed(1) + '%');
+  var pt = flyTest({ roll: 0, pitch: -0.8, yaw: 0, throttle: 0.45 }, 1.4, air);
+  var ePit = Math.abs(pt.w[0] - pt.sp[0]) / Math.max(Math.abs(pt.sp[0]), 1e-3);
+  allOk &= chk('ACRO 俯仰角速度跟踪 (误差<8%)', ePit < 0.08,
+    'ω=' + (pt.w[0] * RAD).toFixed(0) + '°/s  err=' + (ePit * 100).toFixed(1) + '%');
+  var yt = flyTest({ roll: 0, pitch: 0, yaw: 1.0, throttle: 0.45 }, 1.4, air);
+  var eYaw = Math.abs(yt.w[1] - yt.sp[1]) / Math.max(Math.abs(yt.sp[1]), 1e-3);
+  allOk &= chk('ACRO 偏航角速度跟踪 (误差<10%)', eYaw < 0.10,
+    'ω=' + (yt.w[1] * RAD).toFixed(0) + '°/s  err=' + (eYaw * 100).toFixed(1) + '%');
+  /* --- 阶跃响应上升时间（<120ms 到 90%） --- */
+  doReset(); FM.drone.armed = true; air(FM.drone);
+  var target = null, riseT = -1;
+  for (var st = 0; st < PHYS_HZ; st++) {
+    FM.step(PHYS_DT, { roll: 1, pitch: 0, yaw: 0, throttle: 0.45 }, { q: 1 });
+    if (target === null) target = FM.drone.sp[2];
+    if (riseT < 0 && Math.abs(FM.drone.w[2]) > Math.abs(target) * 0.9) riseT = st * PHYS_DT;
+  }
+  allOk &= chk('横滚阶跃响应 90% 上升时间 <120ms', riseT > 0 && riseT < 0.12, 't=' + (riseT * 1000).toFixed(0) + 'ms');
+  /* --- 操纵方向约定（防止轴向/符号搞反） --- */
+  function dirTest(rcIn, secs) {
+    doReset(); var dd3 = FM.drone; dd3.armed = true; S.flightMode = 0;
+    v3set(dd3.p, 0, 60, 40);
+    for (var i3 = 0; i3 < Math.round(secs * PHYS_HZ); i3++) FM.step(PHYS_DT, rcIn, { q: 1 });
+    return dd3.R;
+  }
+  var Rr = dirTest({ roll: 1, pitch: 0, yaw: 0, throttle: 0.4 }, 0.22);
+  allOk &= chk('右横滚 → 右侧机臂下沉', Rr[1] < -0.12, 'rightAxis.y=' + Rr[1].toFixed(3));
+  var Rp = dirTest({ roll: 0, pitch: 1, yaw: 0, throttle: 0.4 }, 0.22);
+  allOk &= chk('拉杆(pitch+) → 机头上仰', -Rp[7] > 0.12, 'nose.y=' + (-Rp[7]).toFixed(3));
+  var Ry = dirTest({ roll: 0, pitch: 0, yaw: 1, throttle: 0.4 }, 0.35);
+  allOk &= chk('右偏航 → 机头右转(+X)', -Ry[6] > 0.10, 'nose.x=' + (-Ry[6]).toFixed(3));
+  doReset(); FM.drone.armed = true; v3set(FM.drone.p, 0, 20, 40);
+  for (var ts2 = 0; ts2 < PHYS_HZ; ts2++) FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: 0.85 }, { q: 1 });
+  allOk &= chk('大油门 → 爬升', FM.drone.v[1] > 4, 'vy=' + FM.drone.v[1].toFixed(2) + ' m/s');
+
+  /* --- 碰撞完整性：高速撞立柱不穿透 --- */
+  doReset();
+  var cd = FM.drone; cd.armed = false;
+  v3set(cd.p, -16, 3.0, -10.5); v3set(cd.v, 0, 0, -16);
+  var minClear = 1e9, tunneled = false;
+  for (var ci = 0; ci < PHYS_HZ * 1.2; ci++) {
+    FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: 0 }, { q: 1 });
+    var hd = Math.hypot(cd.p[0] + 16, cd.p[2] + 16);
+    if (cd.p[1] > 0.6) minClear = Math.min(minClear, hd);
+    if (cd.p[2] < -16.6 && Math.abs(cd.p[0] + 16) < 0.5 && cd.p[1] > 0.6) tunneled = true;
+  }
+  allOk &= chk('16m/s 撞立柱：无穿透 + 触发坠机', !tunneled && minClear > 0.42 + S.collRadius - 0.04 && cd.crashes > 0,
+    'minClear=' + minClear.toFixed(3) + 'm(≥' + (0.42 + S.collRadius).toFixed(2) + ') crash=' + cd.crashes);
+
+  /* --- 可控性：ANGLE 模式 + 外环高度 P 控制 → 定高悬停 --- */
+  doReset();
+  var hv = FM.drone; hv.armed = true; S.flightMode = 1;
+  var alt = 3.0, upr = 1, thrOut = 0;
+  for (var hs = 0; hs < PHYS_HZ * 6; hs++) {
+    thrOut = clamp(0.20 + (alt - hv.p[1]) * 0.09 - hv.v[1] * 0.05, 0, 0.6);
+    FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: thrOut }, { q: 1 });
+    if (hs > PHYS_HZ * 4) upr = Math.min(upr, hv.R[4]);
+  }
+  allOk &= chk('闭环可控性：定高悬停 3m ±0.5m 且保持水平',
+    Math.abs(hv.p[1] - alt) < 0.5 && upr > 0.985 && Math.hypot(hv.p[0], hv.p[2] - 7) < 3.5,
+    'alt=' + hv.p[1].toFixed(2) + 'm 漂移=' + Math.hypot(hv.p[0], hv.p[2] - 7).toFixed(2) + 'm upY=' + upr.toFixed(4));
+  /* --- 起飞台静止（无抖动/无穿透） --- */
+  doReset(); S.flightMode = 0;
+  for (var gs = 0; gs < PHYS_HZ * 3; gs++) FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: 0 }, { q: 1 });
+  allOk &= chk('未解锁静止在起飞台上（无穿透/无抖动）',
+    FM.drone.p[1] > 0.2 && FM.drone.p[1] < 0.45 && v3len(FM.drone.v) < 0.05 && FM.drone.R[4] > 0.99,
+    'y=' + FM.drone.p[1].toFixed(3) + ' |v|=' + v3len(FM.drone.v).toFixed(4));
+  S.flightMode = DEFAULTS.flightMode;
+
+  /* --- 渲染 3 帧（含图传后处理），检查 GL 错误 --- */
+  var d2 = FM.drone;
+  v3set(d2.p, 1.2, 3.4, -6.0); v3set(d2.v, 2, 0.4, -9); v3set(d2.w, 0.3, 0.1, 1.2);
+  d2.motor[0] = d2.motor[1] = d2.motor[2] = d2.motor[3] = 0.62;
+  d2.throttle = 0.62; d2.armed = true;
+  var glErr = 0;
+  for (var f = 0; f < 3; f++) {
+    updateLink(FM, 0.016, BLOCKERS, TRACK.home);
+    updateCamera(FM, 0.016);
+    drawOsd(FM, LINK, STAT);
+    renderFrame(FM, LINK, 1.0 + f * 0.016);
+    var e2 = gl.getError();
+    if (e2 !== 0) glErr = e2;
+  }
+  allOk &= chk('渲染管线无 GL 错误', glErr === 0, 'glGetError=0x' + glErr.toString(16));
+  /* --- 画质开关组合鲁棒性（阴影/MSAA 开关都不应产生 GL 错误） --- */
+  var combos = [[true, true], [true, false], [false, true], [false, false]];
+  var comboOk = true, comboLog = [];
+  for (var ci2 = 0; ci2 < combos.length; ci2++) {
+    S.shadows = combos[ci2][0]; S.msaa = combos[ci2][1];
+    resizeGL();
+    updateCamera(FM, 0.016); drawOsd(FM, LINK, STAT); renderFrame(FM, LINK, 4.0 + ci2);
+    var ge = gl.getError();
+    comboLog.push('sh' + (combos[ci2][0] ? 1 : 0) + '/ms' + (combos[ci2][1] ? 1 : 0) + (ge ? '=ERR' : '=ok'));
+    if (ge !== 0) comboOk = false;
+  }
+  S.shadows = DEFAULTS.shadows; S.msaa = DEFAULTS.msaa; resizeGL();
+  allOk &= chk('阴影/MSAA 开关组合均无 GL 错误', comboOk, comboLog.join(' '));
+
+  /* --- 图传衰减单调性 --- */
+  var qs = [];
+  LINK.noFade = true;
+  for (var dd = 1; dd <= 6; dd++) {
+    v3set(d2.p, 0, 30, 7 + dd * 120);        // 飞手背后方向：视线无遮挡，仅测距离衰减
+    m3ident(d2.R);
+    updateLink(FM, 0.05, BLOCKERS, TRACK.home);
+    qs.push(LINK.q);
+  }
+  LINK.noFade = false;
+  var mono = true; for (var qi = 1; qi < qs.length; qi++) if (qs[qi] > qs[qi - 1] + 1e-6) mono = false;
+  allOk &= chk('图传信号随距离单调衰减 (120→720m)', mono && qs[0] > 0.55 && qs[1] > 0.12 && qs[1] < 0.45 && qs[qs.length - 1] < 0.03,
+    qs.map(function (x) { return x.toFixed(2); }).join(' > '));
+  /* --- 像素级画面统计：验证天空/地面/图传噪声真的被画出来了 --- */
+  function pixelReport(label) {
+    var w = G.cv.width, h = G.cv.height;
+    var px = new Uint8Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    // readPixels 原点在左下：row 0 = 画面底部
+    function band(y0, y1) {
+      var r = 0, g2 = 0, b = 0, n = 0;
+      for (var y = Math.floor(h * y0); y < Math.floor(h * y1); y += 3)
+        for (var x = 0; x < w; x += 3) { var i = (y * w + x) * 4; r += px[i]; g2 += px[i + 1]; b += px[i + 2]; n++; }
+      return [(r / n) | 0, (g2 / n) | 0, (b / n) | 0];
+    }
+    var top = band(0.72, 0.98), mid = band(0.42, 0.58), bot = band(0.04, 0.28);
+    var noise = 0, cnt = 0, dark = 0, tot = 0, osd = 0;
+    for (var y = 4; y < h - 4; y += 5) for (var x = 4; x < w - 8; x += 5) {
+      var i = (y * w + x) * 4, j = i + 4 * 2;
+      noise += Math.abs(px[i] - px[j]) + Math.abs(px[i + 1] - px[j + 1]) + Math.abs(px[i + 2] - px[j + 2]);
+      cnt++;
+      var lum = (px[i] * 3 + px[i + 1] * 6 + px[i + 2]) / 10;
+      if (lum < 24) dark++;
+      if (px[i + 1] > 175 && px[i] < px[i + 1] - 45 && px[i + 2] < px[i + 1] - 20) osd++;
+      tot++;
+    }
+    log.push('  PIX[' + label + '] sky=' + top.join(',') + ' mid=' + mid.join(',') + ' gnd=' + bot.join(',') +
+      ' noise=' + (noise / cnt / 3).toFixed(2) + ' dark%=' + (dark / tot * 100).toFixed(1) + ' osd‰=' + (osd / tot * 1000).toFixed(1));
+    return { top: top, mid: mid, bot: bot, noise: noise / cnt / 3, dark: dark / tot, osd: osd / tot };
+  }
+  function shot(q2, mode) {
+    CAM.mode = mode; LINK.noFade = true;
+    v3set(d2.p, 1.5, 4.2, -4.5); v3zero(d2.v); v3set(d2.w, 0, 0, 0);
+    m3ident(d2.R); so3Exp(_mA, 0.05, 0, -0.35); m3mul(d2.R, d2.R, _mA);
+    d2.armed = true; d2.throttle = 0.55; d2.motor.fill(0.55);
+    updateLink(FM, 0.016, BLOCKERS, TRACK.home);
+    LINK.q = LINK.qSmooth = q2;
+    updateCamera(FM, 0.016); drawOsd(FM, LINK, STAT); renderFrame(FM, LINK, 2.5);
+    return pixelReport((mode === 0 ? 'FPV' : mode === 1 ? 'CHASE' : 'LOS') + ' q=' + q2.toFixed(2));
+  }
+  var pClean = shot(1.0, 0);
+  var pMid = shot(0.40, 0);
+  var pLost = shot(0.02, 0);
+  var pChase = shot(1.0, 1);
+  CAM.mode = 0; LINK.noFade = false;
+  allOk &= chk('天空亮于地面（场景朝向正确）',
+    pClean.top[2] > pClean.bot[2] + 20 && pClean.top[2] > 80, 'skyB=' + pClean.top[2] + ' gndB=' + pClean.bot[2]);
+  allOk &= chk('地面偏绿（草地材质生效）', pClean.bot[1] > pClean.bot[2] + 4, 'gnd=' + pClean.bot.join(','));
+  allOk &= chk('画面非纯黑/非纯色', pClean.dark < 0.25 && pClean.noise > 0.4,
+    'dark%=' + (pClean.dark * 100).toFixed(1) + ' detail=' + pClean.noise.toFixed(2));
+  allOk &= chk('OSD 已嵌入图传画面', pClean.osd > 0.0008, 'osd‰=' + (pClean.osd * 1000).toFixed(2));
+  allOk &= chk('图传劣化：噪点随信号下降上升',
+    pMid.noise > pClean.noise * 1.25 && pLost.noise > pMid.noise * 1.15,
+    'clean=' + pClean.noise.toFixed(2) + ' weak=' + pMid.noise.toFixed(2) + ' lost=' + pLost.noise.toFixed(2));
+  allOk &= chk('失联画面被雪花/黑屏接管', pLost.noise > 6, 'noise=' + pLost.noise.toFixed(2));
+  allOk &= chk('第三人称视角可渲染', pChase.noise > 0.3, 'detail=' + pChase.noise.toFixed(2));
+  /* --- OSD 方向校验：OSD 画布左上角的标记必须出现在屏幕左上角 --- */
+  (function () {
+    CAM.mode = 0; LINK.noFade = true; LINK.q = LINK.qSmooth = 1;
+    updateCamera(FM, 0.016); drawOsd(FM, LINK, STAT);
+    OSD.cx.fillStyle = 'rgba(120,255,160,0.90)';
+    OSD.cx.fillRect(0, 0, OSD.w * 0.16, OSD.h * 0.10);      // 画布左上角
+    renderFrame(FM, LINK, 3.0);
+    var w = G.cv.width, h = G.cv.height, px = new Uint8Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    function cnt(x0, x1, y0, y1) {   // 注意 readPixels 行 0 = 屏幕底部
+      var n = 0;
+      for (var y = Math.floor(h * y0); y < Math.floor(h * y1); y += 2)
+        for (var x = Math.floor(w * x0); x < Math.floor(w * x1); x += 2) {
+          var i = (y * w + x) * 4;
+          if (px[i + 1] > 175 && px[i] < px[i + 1] - 45 && px[i + 2] < px[i + 1] - 20) n++;
+        }
+      return n;
+    }
+    var topLeft = cnt(0.01, 0.14, 0.90, 0.99), botLeft = cnt(0.01, 0.14, 0.01, 0.10);
+    allOk &= chk('OSD 上下方向正确（未镜像）', topLeft > 40 && topLeft > botLeft * 4,
+      'topLeft=' + topLeft + ' botLeft=' + botLeft);
+    drawOsd(FM, LINK, STAT);
+  })();
+
+  /* --- 遮挡损耗：飞到废墟墙后面信号应明显变差 --- */
+  function linkAt(x, y, z) {
+    v3set(d2.p, x, y, z); m3ident(d2.R);
+    LINK.noFade = true; LINK.wall = 0; LINK._t = 1;
+    for (var li = 0; li < 40; li++) { LINK._t = 1; updateLink(FM, 0.05, BLOCKERS, TRACK.home); }
+    return { q: LINK.q, wall: LINK.wall };
+  }
+  var los = linkAt(0, 3, -20);          // 墙前
+  var nlos = linkAt(0, 3, -33);         // 墙后（z=-26.5 处混凝土墙）
+  LINK.noFade = false;
+  allOk &= chk('穿墙遮挡损耗生效 (NLOS 明显劣于 LOS)',
+    nlos.wall > 8 && nlos.q < los.q - 0.15,
+    'LOS q=' + los.q.toFixed(2) + '  NLOS q=' + nlos.q.toFixed(2) + ' (+' + nlos.wall.toFixed(0) + 'dB 损耗)');
+
+  /* --- 失控保护：链路丢失 → 延时后触发 → DROP 停桨 --- */
+  doReset();
+  var fd = FM.drone; fd.armed = true; S.flightMode = 0; S.failsafeMode = 0;
+  v3set(fd.p, 0, 30, 40);
+  var lostLink = { q: 0.0 };
+  var triggered = -1;
+  for (var fi = 0; fi < PHYS_HZ * 3; fi++) {
+    FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: 0.5 }, lostLink);
+    if (triggered < 0 && FM.failsafe) triggered = fi * PHYS_DT;
+  }
+  var thrCut = (fd.motor[0] + fd.motor[1] + fd.motor[2] + fd.motor[3]) < 0.02;
+  allOk &= chk('失联 → 失控保护(DROP) 按延时触发并停桨',
+    triggered > S.failsafeDelay - 0.05 && triggered < S.failsafeDelay + 0.05 && thrCut && fd.v[1] < -3,
+    't=' + triggered.toFixed(2) + 's (设定 ' + S.failsafeDelay + 's) 电机=' +
+    ((fd.motor[0] + fd.motor[1] + fd.motor[2] + fd.motor[3]) * 25).toFixed(1) + '% vy=' + fd.v[1].toFixed(1));
+  S.failsafeMode = DEFAULTS.failsafeMode;
+
+  /* --- 穿门计数 --- */
+  doReset();
+  var gt = FM.drone; gt.armed = false;
+  var g1 = TRACK.gates[0];
+  v3set(gt.p, g1.p[0], g1.p[1], g1.p[2] + 2.0); v3set(gt.v, 0, 0, -6);
+  var before = gt.gatesPassed;
+  for (var gi = 0; gi < PHYS_HZ * 0.8; gi++) FM.step(PHYS_DT, { roll: 0, pitch: 0, yaw: 0, throttle: 0 }, { q: 1 });
+  allOk &= chk('穿门检测（穿过 G1 圆环门计数 +1）', gt.gatesPassed > before, 'gates=' + gt.gatesPassed);
+
+  doReset();
+  console.log('=== FPV SIM SELFTEST ===\n' + log.join('\n') + '\n=== ' + (allOk ? 'ALL PASS' : 'HAS FAILURE') + ' ===');
+  document.title = (allOk ? 'SELFTEST ALL PASS' : 'SELFTEST FAIL');
+  return { ok: !!allOk, log: log };
+}
+
+/* --------------------------- 启动 ---------------------------------------- */
+function boot() {
+  try {
+    init();
+  } catch (e) {
+    document.getElementById('boot').innerHTML =
+      '<h1 style="color:#ff4d5e">初始化失败</h1><div class="box" style="max-width:70vw;white-space:pre-wrap;color:#ffb0b6">' +
+      String(e && e.message || e).replace(/</g, '&lt;') + '</div>';
+    console.error(e);
+    return;
+  }
+  window.__FPV = {
+    FM: function () { return FM; }, S: S, G: G, LINK: LINK, RC: RC, CAM: CAM,
+    selfTest: selfTest, reset: doReset, track: function () { return TRACK; }
+  };
+  if (/selftest/.test(location.search)) {
+    STARTED = true;
+    document.getElementById('boot').classList.add('hidden');
+    try { selfTest(); } catch (e) { console.log('SELFTEST EXCEPTION: ' + (e && e.stack || e)); document.title = 'SELFTEST EXCEPTION'; }
+  }
+  requestAnimationFrame(frame);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+
+</script>
+</body>
+</html>

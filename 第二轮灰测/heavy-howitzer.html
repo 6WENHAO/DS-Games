@@ -1,0 +1,2979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>重型榴弹炮 · 分装弹药射击模拟 (203mm)</title>
+<style>
+:root{
+  --ink:#d8e0d0; --ink-dim:#8f9a88; --panel:#181c17; --panel2:#1f251d;
+  --line:#3a4436; --accent:#c8b45a; --accent2:#7fa05a; --danger:#c2553f;
+  --he:#48b04a; --ap:#101010; --heat:#c0562e;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0b0d0b;color:var(--ink);
+  font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Segoe UI",sans-serif;
+  -webkit-user-select:none;user-select:none;}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.mono{font-family:Consolas,"Courier New",monospace}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#crosshair{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;opacity:.85}
+#crosshair:before,#crosshair:after{content:"";position:absolute;background:rgba(230,240,220,.75)}
+#crosshair:before{left:12px;top:0;width:2px;height:26px}
+#crosshair:after{left:0;top:12px;width:26px;height:2px}
+#crossdot{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:#ffd; border-radius:50%;opacity:.9}
+
+.hudbox{position:absolute;background:rgba(16,20,15,.72);border:1px solid var(--line);
+  border-radius:4px;padding:8px 10px;font-size:13px;line-height:1.5;backdrop-filter:blur(2px)}
+#gunstate{left:14px;bottom:14px;min-width:290px}
+#mission{right:14px;top:14px;min-width:210px}
+#shellinfo{left:50%;transform:translateX(-50%);top:14px;min-width:330px;text-align:center;display:none}
+#hint{position:absolute;left:50%;top:calc(50% + 46px);transform:translateX(-50%);
+  background:rgba(16,20,15,.8);border:1px solid var(--line);border-radius:4px;padding:6px 12px;
+  font-size:14px;white-space:nowrap;display:none}
+#hint b{color:var(--accent)}
+#opmode{position:absolute;left:50%;bottom:100px;transform:translateX(-50%);
+  background:rgba(30,26,10,.85);border:1px solid var(--accent);border-radius:4px;padding:8px 16px;
+  font-size:14px;display:none;text-align:center}
+#toasts{position:absolute;left:50%;top:96px;transform:translateX(-50%);width:520px;text-align:center}
+.toast{background:rgba(20,26,18,.9);border:1px solid var(--accent2);border-left:4px solid var(--accent2);
+  border-radius:3px;padding:7px 12px;margin:6px auto;font-size:13.5px;animation:tin .25s ease-out;text-align:left}
+.toast.warn{border-color:var(--accent);border-left-color:var(--accent)}
+.toast.bad{border-color:var(--danger);border-left-color:var(--danger)}
+@keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.row{display:flex;justify-content:space-between;gap:12px}
+.k{color:var(--ink-dim)}
+.v{color:#eef3e8}
+.big{font-family:Consolas,monospace;font-size:16px;color:var(--accent)}
+.tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:12px;border:1px solid var(--line)}
+.tag.he{background:#173d18;color:#8fe08f;border-color:#2f6e30}
+.tag.ap{background:#151515;color:#c9c9c9;border-color:#444}
+.tag.heat{background:#3d2417;color:#e8a184;border-color:#7a4527}
+.tag.no{background:#2a1a1a;color:#c99;border-color:#5a3030}
+.tag.ok{background:#1c3320;color:#9d9;border-color:#3d6b45}
+#zoomring{position:absolute;inset:0;display:none;background:
+  radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 26%, rgba(0,0,0,.55) 40%, rgba(0,0,0,.95) 58%)}
+#zoomring .ret{position:absolute;left:50%;top:50%;width:44vh;height:44vh;margin:-22vh 0 0 -22vh;
+  border:1px solid rgba(200,230,190,.35);border-radius:50%}
+#zoomring .ret:before,#zoomring .ret:after{content:"";position:absolute;background:rgba(200,230,190,.5)}
+#zoomring .ret:before{left:50%;top:8%;width:1px;height:84%}
+#zoomring .ret:after{top:50%;left:8%;height:1px;width:84%}
+#zoomlabel{position:absolute;left:50%;bottom:16%;transform:translateX(-50%);font-family:Consolas,monospace;font-size:14px;color:#cde0c0}
+
+/* ---------- 覆盖窗口 ---------- */
+#overlays{position:fixed;inset:0;z-index:20;pointer-events:none}
+.ov{position:absolute;inset:0;background:rgba(6,8,6,.72);display:none;pointer-events:auto}
+.ov.show{display:flex;align-items:center;justify-content:center}
+.win{background:linear-gradient(#20261e,#171b15);border:1px solid #4a5544;border-radius:6px;
+  box-shadow:0 20px 60px rgba(0,0,0,.7);max-width:96vw;max-height:94vh;display:flex;flex-direction:column}
+.win>header{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:10px 14px;border-bottom:1px solid #3c4738;background:#232a20;border-radius:6px 6px 0 0}
+.win>header h2{margin:0;font-size:15px;letter-spacing:.06em;color:var(--accent)}
+.win>header .sub{font-size:12px;color:var(--ink-dim)}
+.win .body{padding:12px 14px;overflow:auto}
+.win .foot{padding:8px 14px;border-top:1px solid #3c4738;font-size:12px;color:var(--ink-dim);display:flex;justify-content:space-between;gap:10px}
+button{font-family:inherit;font-size:13px;color:var(--ink);background:#2b3327;border:1px solid #4d5946;
+  border-radius:3px;padding:5px 11px;cursor:pointer}
+button:hover{background:#3a442f;border-color:#6d7d63}
+button:active{transform:translateY(1px)}
+button.pri{background:#3f4a2c;border-color:#7f9256;color:#eaf2dc}
+button.pri:hover{background:#4d5b34}
+button.del{background:#3a2320;border-color:#6b3a32;color:#e8b7ae;padding:3px 8px;font-size:12px}
+button.del:hover{background:#4d2c27}
+button.sel{background:#5c5324;border-color:var(--accent);color:#fff6cf}
+button:disabled{opacity:.42;cursor:not-allowed}
+.hr{height:1px;background:#3c4738;margin:10px 0}
+
+/* 笔记本 */
+#nbwin{width:720px}
+#nblist{list-style:none;margin:0;padding:0;max-height:56vh;overflow:auto}
+#nblist li{display:flex;gap:10px;align-items:flex-start;padding:7px 8px;border-bottom:1px dashed #333c30;font-size:13px}
+#nblist li:nth-child(odd){background:rgba(255,255,255,.02)}
+#nblist .t{color:#7f8a78;font-family:Consolas,monospace;flex:0 0 76px;font-size:12px}
+#nblist .x{flex:1;white-space:pre-wrap;line-height:1.45}
+#nblist .tagn{flex:0 0 auto;font-size:11px;color:#93a389;border:1px solid #3d4a38;border-radius:2px;padding:0 4px;margin-right:6px}
+#nbempty{color:var(--ink-dim);font-size:13px;padding:18px;text-align:center}
+
+/* 机械计算机 */
+#compwin{width:820px}
+.compgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fieldset{border:1px solid #43503d;border-radius:4px;padding:10px 12px;background:rgba(0,0,0,.18)}
+.fieldset>h3{margin:0 0 8px;font-size:13px;color:var(--accent);font-weight:600;letter-spacing:.05em}
+.knob{display:flex;gap:6px;flex-wrap:wrap}
+.drum{display:flex;gap:4px;align-items:flex-end;justify-content:center;margin:6px 0 2px}
+.digit{display:flex;flex-direction:column;align-items:center;gap:3px}
+.digit .dv{font-family:Consolas,monospace;font-size:30px;line-height:1;width:34px;text-align:center;
+  background:#0e120d;border:1px solid #4b5744;border-radius:3px;padding:4px 0;color:#f0e6b8;
+  box-shadow:inset 0 3px 8px rgba(0,0,0,.7)}
+.digit button{padding:1px 7px;font-size:11px;line-height:1.3}
+.digit .lbl{font-size:10px;color:#79836f}
+.readout{font-family:Consolas,monospace;background:#0d110c;border:1px solid #4b5744;border-radius:3px;
+  padding:8px 10px;margin:4px 0;box-shadow:inset 0 3px 10px rgba(0,0,0,.75)}
+.readout .num{font-size:26px;color:#8fe08f}
+.readout.hi .num{color:#e0c98f}
+.readout .u{font-size:12px;color:#7d8a76;margin-left:4px}
+.note{font-size:12px;color:var(--ink-dim);line-height:1.6}
+
+/* 地图桌 */
+#tablewin{width:min(96vw,1180px)}
+#tablewrap{position:relative;display:flex;gap:12px}
+#tablecanvasholder{position:relative;flex:0 0 auto;border:1px solid #4b5744;background:#101410;border-radius:3px}
+#tablecanvas{display:block;width:min(66vh,700px);height:min(66vh,700px);cursor:crosshair;border-radius:2px}
+#tableside{flex:1;min-width:280px;display:flex;flex-direction:column;gap:8px;max-height:min(66vh,700px)}
+#tableside .scroll{overflow:auto;flex:1}
+.linelist{list-style:none;margin:0;padding:0;font-size:12.5px}
+.linelist li{border:1px solid #3d4a38;border-radius:3px;padding:5px 7px;margin-bottom:5px;background:rgba(0,0,0,.2)}
+.linelist li.act{border-color:var(--accent)}
+.linelist .lr{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.linelist .mono{color:#e7dfae}
+.tgtlist{list-style:none;margin:0;padding:0;font-size:12.5px}
+.tgtlist li{display:flex;gap:8px;align-items:center;padding:3px 5px;border-bottom:1px dashed #333c30;cursor:pointer}
+.tgtlist li:hover{background:rgba(255,255,255,.05)}
+.tgtlist .sq{width:11px;height:11px;flex:0 0 11px;border:1px solid #000}
+.tgtlist .dead{opacity:.45;text-decoration:line-through}
+.tbtns{display:flex;gap:6px;flex-wrap:wrap}
+
+/* 帮助/开场 */
+#helpwin,#startwin{width:min(94vw,960px)}
+.helpgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;font-size:13px;line-height:1.75}
+.helpgrid h3{grid-column:1/-1;margin:12px 0 4px;font-size:13px;color:var(--accent);border-bottom:1px solid #3c4738;padding-bottom:3px}
+kbd{font-family:Consolas,monospace;background:#2b3327;border:1px solid #55624c;border-bottom-width:2px;
+  border-radius:3px;padding:0 5px;font-size:12px;color:#f0f4e8}
+.helpgrid .d{color:var(--ink-dim)}
+#startwin .body{font-size:13.5px;line-height:1.8}
+#startwin .lead{font-size:15px;color:#eaf2dc}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:10px;padding:1px 9px;font-size:12px;color:var(--ink-dim);margin-right:6px}
+.center{text-align:center}
+.sh{color:var(--accent)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div id="crosshair"></div><div id="crossdot"></div>
+  <div class="hudbox" id="gunstate"></div>
+  <div class="hudbox" id="mission"></div>
+  <div class="hudbox" id="shellinfo"></div>
+  <div id="hint"></div>
+  <div id="opmode"></div>
+  <div id="toasts"></div>
+  <div id="zoomring"><div class="ret"></div><div id="zoomlabel"></div></div>
+</div>
+
+<div id="overlays">
+  <!-- 开场 -->
+  <div class="ov show" id="ov-start"><div class="win" id="startwin">
+    <header><h2>重型榴弹炮 · 203mm 分装弹药射击模拟</h2><span class="sub">单文件离线 3D · 无外部资源</span></header>
+    <div class="body">
+      <p class="lead">你是这门 203mm 重型榴弹炮的炮长。全部装填、瞄准与解算工序均由你亲手完成。</p>
+      <p><span class="badge">1</span><b>装填</b>：火炮必须回到 <span class="sh">0° 定角装填位</span> 才能开闩。到弹头架取一发弹头 → 送入炮膛；到推进药架抱取 <span class="sh">1~6 袋</span>推进药 → 送入炮膛 → 关闩。</p>
+      <p><span class="badge">2</span><b>测算</b>：走到<span class="sh">地图桌</span>拉一条攻击指示线，读出方位角与距离；再到旁边的<span class="sh">机械式计算机</span>输入装药量与距离，摇出对应仰角。资料可一键记入随身<span class="sh">笔记本</span>。</p>
+      <p><span class="badge">3</span><b>瞄准</b>：左侧站位用<span class="sh">方向杆</span>粗调、<span class="sh">方位阀门</span>细调（显示器 0.1°）；右侧站位用<span class="sh">射角把手</span>粗调、<span class="sh">仰角阀门</span>细调（显示器 0.01°）。</p>
+      <p><span class="badge">4</span><b>击发</b>：拉<span class="sh">发火绳</span>。按 <kbd>V</kbd> 切换弹道观测视角，按 <kbd>]</kbd> 加快弹道时间；炮弹落点与杀伤范围会画在地图桌上。</p>
+      <div class="hr"></div>
+      <p style="font-size:12.5px;color:#9aa593">弹种：<span class="tag he">高爆弹 绿</span> 极大杀伤半径，只能杀伤软目标 ·
+      <span class="tag heat">破甲弹 橙</span> 中等半径，可击毁装甲 ·
+      <span class="tag ap">穿甲弹 黑</span> 半径最小，可击毁装甲与混凝土工事。</p>
+    </div>
+    <div class="foot"><span>鼠标锁定后即可行动，随时按 <kbd>H</kbd> 查看完整操作表，<kbd>Esc</kbd> 释放鼠标。</span>
+      <button class="pri" id="btn-start">点击进入炮位</button></div>
+  </div></div>
+
+  <!-- 帮助 -->
+  <div class="ov" id="ov-help"><div class="win" id="helpwin">
+    <header><h2>操作表</h2><span class="sub">按 H 或 Esc 关闭</span></header>
+    <div class="body"><div class="helpgrid" id="helpgrid"></div></div>
+    <div class="foot"><span>提示：所有机构都是“看着它按 E 抓住，移动鼠标操作，再按 E 松手”。</span><button id="btn-help-close">关闭</button></div>
+  </div></div>
+
+  <!-- 笔记本 -->
+  <div class="ov" id="ov-nb"><div class="win" id="nbwin">
+    <header><h2>随身笔记本</h2><span class="sub" id="nbcount"></span></header>
+    <div class="body"><ul id="nblist"></ul><div id="nbempty">（空）在地图桌测距、在机械计算机解算、或开炮后都会自动记入条目。</div></div>
+    <div class="foot">
+      <span>逐条删除：点条目右侧「删除」。</span>
+      <span class="tbtns"><button id="btn-nb-gun">记录当前火炮状态</button><button class="del" id="btn-nb-clear">清空全部</button><button id="btn-nb-close">关闭</button></span>
+    </div>
+  </div></div>
+
+  <!-- 机械计算机 -->
+  <div class="ov" id="ov-comp"><div class="win" id="compwin">
+    <header><h2>机械式射表计算机 M-1</h2><span class="sub">输入 装药量 + 目标距离 → 输出 仰角</span></header>
+    <div class="body">
+      <div class="compgrid">
+        <div class="fieldset"><h3>① 装药量选择盘（袋）</h3>
+          <div class="knob" id="compcharge"></div>
+          <div class="note" id="compchargenote"></div>
+        </div>
+        <div class="fieldset"><h3>② 目标距离输入鼓（米）</h3>
+          <div class="drum" id="compdrum"></div>
+          <div class="tbtns" style="margin-top:6px"><button id="btn-comp-fromline">取地图桌指示线距离</button><button id="btn-comp-zero">归零</button></div>
+        </div>
+        <div class="fieldset" style="grid-column:1/-1"><h3>③ 解算输出</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="readout"><div style="font-size:12px;color:#7d8a76">低角解（平射弹道）</div><span class="num" id="outlow">--.--</span><span class="u">度</span><div class="note" id="outlowt"></div></div>
+            <div class="readout hi"><div style="font-size:12px;color:#7d8a76">高角解（曲射弹道）</div><span class="num" id="outhigh">--.--</span><span class="u">度</span><div class="note" id="outhight"></div></div>
+          </div>
+          <div class="note" id="compmsg" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>解算与炮弹飞行使用完全相同的弹道积分器（含空气阻力与高度密度衰减），同高度目标可直接命中。</span>
+      <span class="tbtns"><button class="pri" id="btn-comp-solve">摇动手柄解算</button><button id="btn-comp-note">记入笔记本</button><button id="btn-comp-close">关闭</button></span></div>
+  </div></div>
+
+  <!-- 地图桌 -->
+  <div class="ov" id="ov-table"><div class="win" id="tablewin">
+    <header><h2>1:50000 地图作业桌</h2><span class="sub" id="tablesub"></span></header>
+    <div class="body"><div id="tablewrap">
+      <div id="tablecanvasholder"></div>
+      <div id="tableside">
+        <div class="fieldset"><h3>攻击指示线</h3>
+          <div class="note" id="tablehow">在图上从<b>炮位</b>按住左键拖到目标处放开即可画线；按住 <kbd>Shift</kbd> 拖动可从任意点起画。滚轮缩放，右键拖动平移。</div>
+          <div class="scroll" style="max-height:22vh;margin-top:6px"><ul class="linelist" id="linelist"></ul></div>
+        </div>
+        <div class="fieldset" style="flex:1;display:flex;flex-direction:column;min-height:0"><h3>目标一览（点击可自动画线）</h3>
+          <div class="scroll"><ul class="tgtlist" id="tgtlist"></ul></div>
+        </div>
+      </div>
+    </div></div>
+    <div class="foot"><span class="tbtns"><button id="btn-table-zin">放大</button><button id="btn-table-zout">缩小</button><button id="btn-table-center">回到炮位</button><button class="del" id="btn-table-clearlines">清除全部指示线</button><button class="del" id="btn-table-clearboom">清除弹着标记</button></span>
+      <span class="tbtns"><button id="btn-table-close">离开地图桌</button></span></div>
+  </div></div>
+</div>
+
+<script>
+/* ==========================================================================
+   重型榴弹炮 203mm · 单文件离线 3D 射击模拟
+   全部内容自包含：自研 WebGL 渲染核心 / 弹道积分器 / 程序化几何与贴图 / WebAudio 音效
+   ========================================================================== */
+"use strict";
+/* ===================== 0. 小工具 ===================== */
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const DEG = Math.PI / 180, RAD = 180 / Math.PI;
+const norm360 = a => ((a % 360) + 360) % 360;
+function fmtInt(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function fmtKM(m) { return (m / 1000).toFixed(2) + " km"; }
+function nowClock() {
+  const t = state ? state.clock : 0;
+  const h = 6 + Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = Math.floor(t) % 60;
+  return String(h % 24).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+
+/* ===================== 1. 矩阵 / 向量 ===================== */
+const m4 = {
+  create() { return new Float32Array(16); },
+  identity(o) { o.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); return o; },
+  copy(o, a) { o.set(a); return o; },
+  mul(o, a, b) { // o = a * b  （列主序，先 b 后 a）
+    const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3], a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+      a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11], a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    for (let i = 0; i < 4; i++) {
+      const b0 = b[i * 4], b1 = b[i * 4 + 1], b2 = b[i * 4 + 2], b3 = b[i * 4 + 3];
+      o[i * 4] = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+      o[i * 4 + 1] = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+      o[i * 4 + 2] = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+      o[i * 4 + 3] = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+    }
+    return o;
+  },
+  perspective(o, fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    o.set([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+    return o;
+  },
+  lookAt(o, eye, target, up) {
+    let zx = eye[0] - target[0], zy = eye[1] - target[1], zz = eye[2] - target[2];
+    let l = Math.hypot(zx, zy, zz) || 1; zx /= l; zy /= l; zz /= l;
+    let xx = up[1] * zz - up[2] * zy, xy = up[2] * zx - up[0] * zz, xz = up[0] * zy - up[1] * zx;
+    l = Math.hypot(xx, xy, xz) || 1; xx /= l; xy /= l; xz /= l;
+    const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+    o.set([xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
+      -(xx * eye[0] + xy * eye[1] + xz * eye[2]), -(yx * eye[0] + yy * eye[1] + yz * eye[2]), -(zx * eye[0] + zy * eye[1] + zz * eye[2]), 1]);
+    return o;
+  },
+  fromTRS(o, p, rx, ry, rz, s) {
+    const cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry), cz = Math.cos(rz), sz = Math.sin(rz);
+    // R = Ry * Rx * Rz
+    const m00 = cy * cz + sy * sx * sz, m01 = cx * sz, m02 = -sy * cz + cy * sx * sz;
+    const m10 = -cy * sz + sy * sx * cz, m11 = cx * cz, m12 = sy * sz + cy * sx * cz;
+    const m20 = sy * cx, m21 = -sx, m22 = cy * cx;
+    o[0] = m00 * s; o[1] = m01 * s; o[2] = m02 * s; o[3] = 0;
+    o[4] = m10 * s; o[5] = m11 * s; o[6] = m12 * s; o[7] = 0;
+    o[8] = m20 * s; o[9] = m21 * s; o[10] = m22 * s; o[11] = 0;
+    o[12] = p[0]; o[13] = p[1]; o[14] = p[2]; o[15] = 1;
+    return o;
+  },
+  invert(o, m) {
+    const a = m;
+    const b00 = a[0] * a[5] - a[1] * a[4], b01 = a[0] * a[6] - a[2] * a[4], b02 = a[0] * a[7] - a[3] * a[4],
+      b03 = a[1] * a[6] - a[2] * a[5], b04 = a[1] * a[7] - a[3] * a[5], b05 = a[2] * a[7] - a[3] * a[6],
+      b06 = a[8] * a[13] - a[9] * a[12], b07 = a[8] * a[14] - a[10] * a[12], b08 = a[8] * a[15] - a[11] * a[12],
+      b09 = a[9] * a[14] - a[10] * a[13], b10 = a[9] * a[15] - a[11] * a[13], b11 = a[10] * a[15] - a[11] * a[14];
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if (!det) return m4.identity(o);
+    det = 1 / det;
+    o[0] = (a[5] * b11 - a[6] * b10 + a[7] * b09) * det;
+    o[1] = (a[2] * b10 - a[1] * b11 - a[3] * b09) * det;
+    o[2] = (a[13] * b05 - a[14] * b04 + a[15] * b03) * det;
+    o[3] = (a[10] * b04 - a[9] * b05 - a[11] * b03) * det;
+    o[4] = (a[6] * b08 - a[4] * b11 - a[7] * b07) * det;
+    o[5] = (a[0] * b11 - a[2] * b08 + a[3] * b07) * det;
+    o[6] = (a[14] * b02 - a[12] * b05 - a[15] * b01) * det;
+    o[7] = (a[8] * b05 - a[10] * b02 + a[11] * b01) * det;
+    o[8] = (a[4] * b10 - a[5] * b08 + a[7] * b06) * det;
+    o[9] = (a[1] * b08 - a[0] * b10 - a[3] * b06) * det;
+    o[10] = (a[12] * b04 - a[13] * b02 + a[15] * b00) * det;
+    o[11] = (a[9] * b02 - a[8] * b04 - a[11] * b00) * det;
+    o[12] = (a[5] * b07 - a[4] * b09 - a[6] * b06) * det;
+    o[13] = (a[0] * b09 - a[1] * b07 + a[2] * b06) * det;
+    o[14] = (a[13] * b01 - a[12] * b03 - a[14] * b00) * det;
+    o[15] = (a[8] * b03 - a[9] * b01 + a[10] * b00) * det;
+    return o;
+  },
+  xform(out, m, v) { // 变换点（w=1）
+    const x = v[0], y = v[1], z = v[2];
+    out[0] = m[0] * x + m[4] * y + m[8] * z + m[12];
+    out[1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+    out[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    return out;
+  },
+  xformDir(out, m, v) {
+    const x = v[0], y = v[1], z = v[2];
+    out[0] = m[0] * x + m[4] * y + m[8] * z;
+    out[1] = m[1] * x + m[5] * y + m[9] * z;
+    out[2] = m[2] * x + m[6] * y + m[10] * z;
+    return out;
+  }
+};
+
+/* ===================== 2. WebGL 渲染核心 ===================== */
+const canvas = $("gl");
+const gl = canvas.getContext("webgl", { antialias: true, alpha: false, depth: true, powerPreference: "high-performance" })
+  || canvas.getContext("experimental-webgl", { antialias: true, alpha: false, depth: true });
+if (!gl) {
+  document.body.innerHTML = '<div style="padding:40px;font-size:16px">你的浏览器/显卡驱动未能提供 WebGL 支持，无法运行本模拟。</div>';
+  throw new Error("no webgl");
+}
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+  return s;
+}
+function program(vs, fs, attrs, unis) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const o = { p, a: {}, u: {} };
+  attrs.forEach(n => o.a[n] = gl.getAttribLocation(p, n));
+  unis.forEach(n => o.u[n] = gl.getUniformLocation(p, n));
+  return o;
+}
+
+const SH_MAIN_V = `
+precision highp float;
+attribute vec3 aPos; attribute vec3 aNormal; attribute vec2 aUV;
+uniform mat4 uProj, uView, uModel;
+varying vec3 vN; varying vec3 vW; varying vec2 vUV; varying float vDist;
+void main(){
+  vec4 w = uModel * vec4(aPos,1.0);
+  vec4 e = uView * w;
+  gl_Position = uProj * e;
+  vN = mat3(uModel[0].xyz, uModel[1].xyz, uModel[2].xyz) * aNormal;
+  vW = w.xyz; vUV = aUV; vDist = length(e.xyz);
+}`;
+const SH_MAIN_F = `
+precision highp float;
+varying vec3 vN; varying vec3 vW; varying vec2 vUV; varying float vDist;
+uniform vec4 uColor; uniform vec3 uLightDir, uFogColor, uGridColor;
+uniform float uUseTex, uEmissive, uFogDensity, uGrid;
+uniform sampler2D uTex;
+float gridLine(vec2 p, float sp, float w){
+  vec2 d = abs(fract(p/sp - 0.5) - 0.5) * sp;
+  float m = min(d.x, d.y);
+  return 1.0 - smoothstep(0.0, w, m);
+}
+void main(){
+  vec4 base = uColor;
+  if(uUseTex > 0.5) base *= texture2D(uTex, vUV);
+  vec3 n = normalize(vN);
+  float diff = max(dot(n, uLightDir), 0.0);
+  float sky = 0.5 + 0.5*n.y;
+  vec3 col = base.rgb * (0.46 + 0.20*sky + 0.68*diff);
+  col = mix(col, base.rgb, uEmissive);
+  if(uGrid > 0.5){
+    float w1 = clamp(vDist*0.0016, 1.2, 260.0);
+    float g1 = gridLine(vW.xz, 1000.0, w1);
+    float w2 = clamp(vDist*0.0016, 0.10, 6.0);
+    float g2 = gridLine(vW.xz, 100.0, w2) * (1.0 - smoothstep(600.0, 2600.0, vDist));
+    float g3 = gridLine(vW.xz, 5000.0, clamp(vDist*0.0018, 2.0, 380.0));
+    col = mix(col, uGridColor, g2*0.20);
+    col = mix(col, uGridColor, g1*0.34);
+    col = mix(col, uGridColor*1.1, g3*0.42);
+  }
+  float f = 1.0 - exp(-vDist*uFogDensity);
+  col = mix(col, uFogColor, clamp(f,0.0,1.0));
+  gl_FragColor = vec4(col, base.a);
+}`;
+
+const SH_LINE_V = `
+precision highp float;
+attribute vec3 aPos; attribute vec3 aCol;
+uniform mat4 uProj, uView;
+varying vec3 vC; varying float vDist;
+void main(){ vec4 e = uView * vec4(aPos,1.0); gl_Position = uProj * e; vC = aCol; vDist = length(e.xyz); }`;
+const SH_LINE_F = `
+precision highp float;
+varying vec3 vC; varying float vDist;
+uniform vec3 uFogColor; uniform float uFogDensity, uAlpha;
+void main(){
+  float f = 1.0 - exp(-vDist*uFogDensity);
+  gl_FragColor = vec4(mix(vC, uFogColor, clamp(f,0.0,1.0)), uAlpha);
+}`;
+
+const SH_SKY_V = `
+precision highp float;
+attribute vec2 aPos; varying vec2 vP;
+void main(){ vP = aPos; gl_Position = vec4(aPos,0.999,1.0); }`;
+const SH_SKY_F = `
+precision highp float;
+varying vec2 vP;
+uniform mat4 uInvVP; uniform vec3 uSunDir, uHorizon, uZenith, uGround;
+void main(){
+  vec4 a = uInvVP * vec4(vP, -1.0, 1.0);
+  vec4 b = uInvVP * vec4(vP,  1.0, 1.0);
+  vec3 dir = normalize(b.xyz/b.w - a.xyz/a.w);
+  float h = dir.y;
+  vec3 col;
+  if(h >= 0.0){
+    col = mix(uHorizon, uZenith, pow(clamp(h,0.0,1.0), 0.62));
+    float sun = pow(max(dot(dir, uSunDir),0.0), 900.0);
+    float glow = pow(max(dot(dir, uSunDir),0.0), 12.0);
+    col += vec3(1.0,0.96,0.86)*sun*1.4 + vec3(1.0,0.92,0.72)*glow*0.24;
+  } else {
+    col = mix(uHorizon, uGround, pow(clamp(-h*3.4,0.0,1.0), 0.8));
+  }
+  gl_FragColor = vec4(col,1.0);
+}`;
+
+const shMain = program(SH_MAIN_V, SH_MAIN_F,
+  ["aPos", "aNormal", "aUV"],
+  ["uProj", "uView", "uModel", "uColor", "uLightDir", "uFogColor", "uFogDensity", "uUseTex", "uEmissive", "uGrid", "uGridColor", "uTex"]);
+const shLine = program(SH_LINE_V, SH_LINE_F, ["aPos", "aCol"], ["uProj", "uView", "uFogColor", "uFogDensity", "uAlpha"]);
+const shSky = program(SH_SKY_V, SH_SKY_F, ["aPos"], ["uInvVP", "uSunDir", "uHorizon", "uZenith", "uGround"]);
+
+const skyQuad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, skyQuad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+const ENV = {
+  sun: (() => { const d = [0.42, 0.70, 0.58]; const l = Math.hypot(d[0], d[1], d[2]); return [d[0] / l, d[1] / l, d[2] / l]; })(),
+  fog: [0.66, 0.72, 0.76],
+  fogDensity: 1.15e-5,
+  horizon: [0.70, 0.76, 0.80],
+  zenith: [0.24, 0.42, 0.68],
+  groundSky: [0.30, 0.31, 0.26]
+};
+
+/* --- 网格对象 --- */
+function makeMesh(data) {
+  const m = {
+    vbo: gl.createBuffer(), nbo: gl.createBuffer(), ubo: null, ibo: gl.createBuffer(),
+    count: data.idx.length
+  };
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data.pos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.nbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data.nrm), gl.STATIC_DRAW);
+  if (data.uv) { m.ubo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, m.ubo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data.uv), gl.STATIC_DRAW); }
+  const big = data.pos.length / 3 > 65535;
+  m.type = big ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+  if (big && !gl.getExtension("OES_element_index_uint")) throw new Error("index too large");
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, big ? new Uint32Array(data.idx) : new Uint16Array(data.idx), gl.STATIC_DRAW);
+  return m;
+}
+let curMesh = null;
+function bindMesh(m) {
+  if (curMesh === m) return; curMesh = m;
+  const a = shMain.a;
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo); gl.enableVertexAttribArray(a.aPos); gl.vertexAttribPointer(a.aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.nbo); gl.enableVertexAttribArray(a.aNormal); gl.vertexAttribPointer(a.aNormal, 3, gl.FLOAT, false, 0, 0);
+  if (m.ubo) { gl.bindBuffer(gl.ARRAY_BUFFER, m.ubo); gl.enableVertexAttribArray(a.aUV); gl.vertexAttribPointer(a.aUV, 2, gl.FLOAT, false, 0, 0); }
+  else { gl.disableVertexAttribArray(a.aUV); gl.vertexAttrib2f(a.aUV, 0, 0); }
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ibo);
+}
+
+/* --- 画布贴图 --- */
+function makeCanvasTex(w, h) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  const o = { canvas: c, ctx: c.getContext("2d"), tex, dirty: true };
+  o.upload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, o.tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, o.canvas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    o.dirty = false;
+  };
+  return o;
+}
+
+/* ===================== 3. 程序化几何 ===================== */
+function G() { return { pos: [], nrm: [], uv: [], idx: [] }; }
+function pushQuad(g, a, b, c, d, n, uvs) {
+  const i = g.pos.length / 3;
+  [a, b, c, d].forEach(p => { g.pos.push(p[0], p[1], p[2]); g.nrm.push(n[0], n[1], n[2]); });
+  const U = uvs || [[0, 0], [1, 0], [1, 1], [0, 1]];
+  U.forEach(t => g.uv.push(t[0], t[1]));
+  g.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+}
+function addBox(g, cx, cy, cz, w, h, d) {
+  const x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+  pushQuad(g, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]);
+  pushQuad(g, [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1]);
+  pushQuad(g, [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0]);
+  pushQuad(g, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0]);
+  pushQuad(g, [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0]);
+  pushQuad(g, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0]);
+  return g;
+}
+/* 圆柱/圆锥台：沿 axis(0=x,1=y,2=z) 方向、中心 (cx,cy,cz)、长 len、两端半径 r0/r1 */
+function addCyl(g, cx, cy, cz, r0, r1, len, axis, seg, caps) {
+  seg = seg || 16; caps = caps !== false;
+  // 局部 (u,v,w)：w 沿轴向，u/v 为截面
+  const map = axis === 0 ? (u, v, w) => [w, u, v] : axis === 1 ? (u, v, w) => [u, w, v] : (u, v, w) => [u, v, w];
+  const h = len / 2, slope = (r0 - r1) / Math.max(len, 1e-4);
+  for (let i = 0; i < seg; i++) {
+    const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+    const L = (u, v, w) => { const p = map(u, v, w); return [cx + p[0], cy + p[1], cz + p[2]]; };
+    const p0 = L(c0 * r0, s0 * r0, -h), p1 = L(c1 * r0, s1 * r0, -h);
+    const p2 = L(c1 * r1, s1 * r1, h), p3 = L(c0 * r1, s0 * r1, h);
+    let nd = map((c0 + c1) / 2, (s0 + s1) / 2, slope);
+    const nl = Math.hypot(nd[0], nd[1], nd[2]) || 1;
+    pushQuad(g, p0, p1, p2, p3, [nd[0] / nl, nd[1] / nl, nd[2] / nl],
+      [[i / seg, 0], [(i + 1) / seg, 0], [(i + 1) / seg, 1], [i / seg, 1]]);
+    if (caps) {
+      const nA = map(0, 0, -1), nB = map(0, 0, 1);
+      if (r0 > 1e-4) { const k = g.pos.length / 3; [L(0, 0, -h), p1, p0].forEach(p => { g.pos.push(p[0], p[1], p[2]); g.nrm.push(nA[0], nA[1], nA[2]); g.uv.push(0, 0); }); g.idx.push(k, k + 1, k + 2); }
+      if (r1 > 1e-4) { const k = g.pos.length / 3; [L(0, 0, h), p3, p2].forEach(p => { g.pos.push(p[0], p[1], p[2]); g.nrm.push(nB[0], nB[1], nB[2]); g.uv.push(0, 0); }); g.idx.push(k, k + 1, k + 2); }
+    }
+  }
+  return g;
+}
+function addSphere(g, cx, cy, cz, r, seg, rings) {
+  seg = seg || 18; rings = rings || 12;
+  const base = g.pos.length / 3;
+  for (let j = 0; j <= rings; j++) {
+    const v = j / rings, phi = v * Math.PI;
+    for (let i = 0; i <= seg; i++) {
+      const u = i / seg, th = u * Math.PI * 2;
+      const nx = Math.sin(phi) * Math.cos(th), ny = Math.cos(phi), nz = Math.sin(phi) * Math.sin(th);
+      g.pos.push(cx + nx * r, cy + ny * r, cz + nz * r); g.nrm.push(nx, ny, nz); g.uv.push(u, 1 - v);
+    }
+  }
+  for (let j = 0; j < rings; j++) for (let i = 0; i < seg; i++) {
+    const a = base + j * (seg + 1) + i, b = a + seg + 1;
+    g.idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  return g;
+}
+function addDisc(g, cx, cy, cz, r, seg, up) {
+  seg = seg || 32; const s = up === false ? -1 : 1;
+  const c = g.pos.length / 3;
+  g.pos.push(cx, cy, cz); g.nrm.push(0, s, 0); g.uv.push(.5, .5);
+  for (let i = 0; i <= seg; i++) {
+    const a = i / seg * Math.PI * 2;
+    g.pos.push(cx + Math.cos(a) * r, cy, cz + Math.sin(a) * r); g.nrm.push(0, s, 0);
+    g.uv.push(.5 + Math.cos(a) * .5, .5 + Math.sin(a) * .5);
+  }
+  for (let i = 0; i < seg; i++) g.idx.push(c, c + 1 + (s > 0 ? i : i + 1), c + 1 + (s > 0 ? i + 1 : i));
+  return g;
+}
+function addTorus(g, cx, cy, cz, R, r, axis, seg, seg2) {
+  seg = seg || 26; seg2 = seg2 || 8;
+  const put = (u, v, w) => axis === 1 ? [u, w, v] : axis === 0 ? [w, u, v] : [u, v, w];
+  const base = g.pos.length / 3;
+  for (let i = 0; i <= seg; i++) {
+    const a = i / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    for (let j = 0; j <= seg2; j++) {
+      const b = j / seg2 * Math.PI * 2, cb = Math.cos(b), sb = Math.sin(b);
+      const p = put(ca * (R + r * cb), sa * (R + r * cb), r * sb);
+      const n = put(ca * cb, sa * cb, sb);
+      g.pos.push(cx + p[0], cy + p[1], cz + p[2]); g.nrm.push(n[0], n[1], n[2]); g.uv.push(i / seg, j / seg2);
+    }
+  }
+  for (let i = 0; i < seg; i++) for (let j = 0; j < seg2; j++) {
+    const a = base + i * (seg2 + 1) + j, b = a + seg2 + 1;
+    g.idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  return g;
+}
+function addPlaneXZ(g, cx, cz, size, y) {
+  const h = size / 2;
+  pushQuad(g, [cx - h, y, cz + h], [cx + h, y, cz + h], [cx + h, y, cz - h], [cx - h, y, cz - h], [0, 1, 0],
+    [[0, 0], [1, 0], [1, 1], [0, 1]]);
+  return g;
+}
+/* 显示面板：一个带 UV 的矩形，facing 决定朝向，tilt 为向下倾斜角（度） */
+function addPanel(g, cx, cy, cz, w, h, facing, tiltDeg) {
+  const t = (tiltDeg || 0) * DEG;
+  const F = { "-x": [[-1, 0, 0], [0, 0, -1]], "+x": [[1, 0, 0], [0, 0, 1]], "+z": [[0, 0, 1], [-1, 0, 0]], "-z": [[0, 0, -1], [1, 0, 0]] }[facing || "-z"];
+  const n0 = F[0], right = F[1], up0 = [0, 1, 0];
+  // 绕 right 轴下倾 t：n = n0*cos t - up*sin t ; up = up0*cos t + n0*sin t
+  const n = [n0[0] * Math.cos(t) - up0[0] * Math.sin(t), n0[1] * Math.cos(t) - up0[1] * Math.sin(t), n0[2] * Math.cos(t) - up0[2] * Math.sin(t)];
+  const up = [up0[0] * Math.cos(t) + n0[0] * Math.sin(t), up0[1] * Math.cos(t) + n0[1] * Math.sin(t), up0[2] * Math.cos(t) + n0[2] * Math.sin(t)];
+  const hw = w / 2, hh = h / 2;
+  const P = (sx, sy) => [cx + right[0] * sx * hw + up[0] * sy * hh, cy + right[1] * sx * hw + up[1] * sy * hh, cz + right[2] * sx * hw + up[2] * sy * hh];
+  pushQuad(g, P(-1, -1), P(1, -1), P(1, 1), P(-1, 1), n, [[0, 0], [1, 0], [1, 1], [0, 1]]);
+  return g;
+}
+/* 任意方向的圆棒（轮辐、拉绳、撑杆等） */
+function addRod(g, from, to, r, seg) {
+  seg = seg || 8;
+  let dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
+  const len = Math.hypot(dx, dy, dz) || 1e-5;
+  dx /= len; dy /= len; dz /= len;
+  let ux = 0, uy = 1, uz = 0;
+  if (Math.abs(dy) > 0.94) { ux = 1; uy = 0; }
+  let ax = uy * dz - uz * dy, ay = uz * dx - ux * dz, az = ux * dy - uy * dx;
+  let l = Math.hypot(ax, ay, az) || 1; ax /= l; ay /= l; az /= l;
+  const bx = dy * az - dz * ay, by = dz * ax - dx * az, bz = dx * ay - dy * ax;
+  for (let i = 0; i < seg; i++) {
+    const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+    const P = (a, base) => [base[0] + (ax * Math.cos(a) + bx * Math.sin(a)) * r,
+      base[1] + (ay * Math.cos(a) + by * Math.sin(a)) * r,
+      base[2] + (az * Math.cos(a) + bz * Math.sin(a)) * r];
+    const n0 = [ax * Math.cos(a0) + bx * Math.sin(a0), ay * Math.cos(a0) + by * Math.sin(a0), az * Math.cos(a0) + bz * Math.sin(a0)];
+    pushQuad(g, P(a0, from), P(a1, from), P(a1, to), P(a0, to), n0);
+  }
+  return g;
+}
+
+/* ===================== 4. 全局配置 ===================== */
+const CFG = {
+  /* 火炮本体（203mm 重型榴弹炮） */
+  caliber: 0.203,          // 炮膛内径 m（推进药圆柱与之同粗）
+  shellMass: 110,          // kg
+  dragCd: 0.155,
+  trunnionY: 3.6,          // 耳轴（俯仰轴）高度 m —— 同时是弹道起点高度基准
+  muzzleLen: 6.6,          // 耳轴到炮口距离 m
+  breechLen: 2.1,          // 耳轴到炮尾距离 m
+  elevMin: -2, elevMax: 65,
+  deckY: 0.45,             // 回转平台高度
+  crewY: 1.45,             // 装填作业平台高度
+  turnR: 6.8,              // 回转平台半径
+  elevRate: 3.5,           // 高低机随动速度 度/秒
+  traverseRate: 6.0,       // 方向杆全扳时回转速度 度/秒
+  traverseSlow: 1.2,       // 方向杆半扳
+  azPerTurn: 1.0,          // 方位阀门每转一圈 = 1.0 度
+  elevPerTurn: 0.5,        // 仰角阀门每转一圈 = 0.5 度
+  pxPerTurn: 320,          // 鼠标拖动多少像素 = 阀门一圈
+  handleStep: 1,           // 射角把手粗调步进（度）
+  recoilMax: 1.15,         // 后坐行程 m
+  charges: [220, 315, 410, 510, 625, 760],  // 1~6 袋推进药对应炮口初速 m/s
+  maxBags: 6,
+  rackRefill: 1.6,         // 待发弹药架自动补充耗时 s
+  /* 玩家 */
+  eyeH: 1.68, walk: 3.4, run: 6.4,
+  /* 时间 */
+  timeScales: [1, 2, 4, 8, 16, 32]
+};
+
+const AMMO = {
+  he: {
+    id: "he", name: "高爆弹", short: "HE", cls: "he", color: [0.24, 0.66, 0.27],
+    radius: 150, kills: { soft: true }, tip: "极大杀伤半径，仅能杀伤软目标"
+  },
+  heat: {
+    id: "heat", name: "破甲弹", short: "HEAT", cls: "heat", color: [0.74, 0.33, 0.17],
+    radius: 60, kills: { soft: true, armor: true }, tip: "中等半径，可击毁装甲单位"
+  },
+  ap: {
+    id: "ap", name: "穿甲弹", short: "AP", cls: "ap", color: [0.065, 0.065, 0.075],
+    radius: 35, kills: { soft: true, armor: true, bunker: true }, tip: "杀伤半径最小，可击毁装甲与混凝土工事"
+  }
+};
+const AMMO_ORDER = ["he", "heat", "ap"];
+
+const TCLASS = {
+  soft: { id: "soft", name: "步兵/车辆集群", color: [0.80, 0.72, 0.26], size: 14, glyph: "circle", mark: "◯" },
+  armor: { id: "armor", name: "装甲单位", color: [0.28, 0.40, 0.60], size: 16, glyph: "tri", mark: "△" },
+  bunker: { id: "bunker", name: "混凝土工事", color: [0.60, 0.60, 0.58], size: 18, glyph: "square", mark: "□" }
+};
+
+/* ===================== 5. 地图注册表（可扩展接口） =====================
+   要加入新地图，只需 MapRegistry.register({...}) 并实现下列成员：
+     id            : 唯一字符串
+     name          : 显示名
+     radius        : 地图半径（米），地图桌与地面渲染据此取范围
+     groundColor   : [r,g,b] 地表基色
+     heightAt(x,z) : 地形高程（米）。弹道落点判定、玩家行走、地图桌等级均走此接口，
+                     返回非 0 即为起伏地形，无需改动其它代码。
+     spawnTargets(rng, wave) : 返回 [{cls:'soft'|'armor'|'bunker', x, z}] 目标表
+     props (可选)  : 额外静态模型构建回调 (addTo)=>{}
+   然后调用 setActiveMap('你的id') 即可切换。                                */
+const MapRegistry = {
+  byId: {}, list: [],
+  register(def) { this.byId[def.id] = def; this.list.push(def); return def; }
+};
+
+MapRegistry.register({
+  id: "flat_range",
+  name: "平原靶场（默认）",
+  radius: 60000,
+  groundColor: [0.318, 0.345, 0.243],
+  heightAt(x, z) { return 0; },
+  spawnTargets(rng, wave) {
+    const out = [];
+    const mk = (cls, minR, maxR) => {
+      const a = rng() * 360, r = minR + rng() * (maxR - minR);
+      out.push({ cls, x: Math.sin(a * DEG) * r, z: -Math.cos(a * DEG) * r });
+    };
+    // 近中远混编：保证每波都有能用低装药打的近目标与需要满装药的远目标
+    mk("soft", 2200, 7000);
+    mk("soft", 7000, 20000);
+    mk("soft", 20000, 34500);
+    mk("armor", 4000, 14000);
+    mk("armor", 14000, 30000);
+    mk("bunker", 3500, 21000);
+    if (wave >= 2) mk("armor", 8000, 26000);
+    if (wave >= 3) mk("bunker", 6000, 20000);
+    if (wave >= 4) mk("soft", 12000, 33000);
+    return out;
+  }
+});
+
+/* 示例：如需山地图，照此注册即可（此处不启用）
+MapRegistry.register({
+  id:"hills", name:"丘陵地", radius:60000, groundColor:[0.30,0.33,0.22],
+  heightAt(x,z){ return 120*Math.sin(x/3100)*Math.cos(z/2600) + 40*Math.sin(x/700+z/900); },
+  spawnTargets(rng,wave){ ... }
+});
+*/
+
+let ACTIVE_MAP = MapRegistry.byId.flat_range;
+function heightAt(x, z) { return ACTIVE_MAP.heightAt(x, z); }
+/* 切换地图：重建静态场景、交互物件与目标（新地图只需 register 后调用本函数） */
+function setActiveMap(id) {
+  const m = MapRegistry.byId[id];
+  if (!m) return false;
+  ACTIVE_MAP = m;
+  for (const it of sceneItems) {
+    gl.deleteBuffer(it.mesh.vbo); gl.deleteBuffer(it.mesh.nbo);
+    if (it.mesh.ubo) gl.deleteBuffer(it.mesh.ubo);
+    gl.deleteBuffer(it.mesh.ibo);
+  }
+  sceneItems = []; curMesh = null;
+  buildScene(); initInteractables();
+  targets.length = 0; waveNo = 0; killCount = 0;
+  shells.length = 0; explosions.length = 0; scorches.length = 0;
+  mapTable.impacts.length = 0; mapTable.lines.length = 0; mapTable.activeLine = null;
+  spawnWave(true);
+  mapTable.dirty = true;
+  toast("已切换地图：" + m.name, "warn", 6);
+  return true;
+}
+
+/* ===================== 6. 弹道内核 =====================
+   与「机械式计算机」共用同一积分器：固定步长 RK4 + 空气阻力 + 高度密度衰减。
+   因此计算机给出的仰角，实际开炮必然命中同高度的该距离。                     */
+const BAL = (() => {
+  const G0 = 9.80665, RHO0 = 1.225, HSCALE = 8500;
+  const area = Math.PI * (CFG.caliber / 2) ** 2;
+  const kBase = 0.5 * RHO0 * CFG.dragCd * area / CFG.shellMass;
+  const DT = 0.02;
+
+  function acc(y, vd, vy, o) {
+    const k = kBase * Math.exp(-Math.max(y, 0) / HSCALE) * Math.hypot(vd, vy);
+    o[0] = -k * vd; o[1] = -G0 - k * vy;
+  }
+  const a1 = [0, 0], a2 = [0, 0], a3 = [0, 0], a4 = [0, 0];
+  /* 就地推进一步（二维弹道平面：d 为水平射程，y 为高度） */
+  function step(s, dt) {
+    const { y, vd, vy } = s;
+    acc(y, vd, vy, a1);
+    acc(y + vy * dt / 2, vd + a1[0] * dt / 2, vy + a1[1] * dt / 2, a2);
+    acc(y + (vy + a1[1] * dt / 2) * dt / 2, vd + a2[0] * dt / 2, vy + a2[1] * dt / 2, a3);
+    acc(y + (vy + a2[1] * dt / 2) * dt, vd + a3[0] * dt, vy + a3[1] * dt, a4);
+    s.d += dt * (s.vd + (dt / 6) * (a1[0] + a2[0] + a3[0]));
+    s.y += dt * (s.vy + (dt / 6) * (a1[1] + a2[1] + a3[1]));
+    s.vd += dt / 6 * (a1[0] + 2 * a2[0] + 2 * a3[0] + a4[0]);
+    s.vy += dt / 6 * (a1[1] + 2 * a2[1] + 2 * a3[1] + a4[1]);
+    s.t += dt;
+  }
+  function launchState(charge, elevDeg) {
+    const th = elevDeg * DEG, v0 = CFG.charges[clamp(charge, 1, 6) - 1];
+    return {
+      d: CFG.muzzleLen * Math.cos(th), y: CFG.trunnionY + CFG.muzzleLen * Math.sin(th),
+      vd: v0 * Math.cos(th), vy: v0 * Math.sin(th), t: 0
+    };
+  }
+  /* 完整飞行：返回落点水平距离、飞行时间、弹道顶点、落速。targetY 为目标海拔（默认 0） */
+  function fly(charge, elevDeg, targetY) {
+    const s = launchState(charge, elevDeg);
+    const ty = targetY || 0;
+    let apex = s.y, guard = 0;
+    while (guard++ < 60000) {
+      const pd = s.d, py = s.y;
+      step(s, DT);
+      if (s.y > apex) apex = s.y;
+      if (s.y <= ty && s.t > 0.4) {
+        const f = (py - ty) / Math.max(py - s.y, 1e-9);
+        return { range: pd + (s.d - pd) * f, tof: s.t - DT * (1 - f), apex, vimp: Math.hypot(s.vd, s.vy) };
+      }
+    }
+    return { range: s.d, tof: s.t, apex, vimp: Math.hypot(s.vd, s.vy) };
+  }
+  /* 各装药的最大射程与最佳角（启动时算一次） */
+  const table = [];
+  for (let c = 1; c <= 6; c++) {
+    let lo = 20, hi = 75;
+    for (let i = 0; i < 42; i++) {
+      const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+      if (fly(c, m1).range < fly(c, m2).range) lo = m1; else hi = m2;
+    }
+    const best = (lo + hi) / 2, r = fly(c, best);
+    table.push({ charge: c, v0: CFG.charges[c - 1], optAngle: best, maxRange: r.range, tof: r.tof });
+  }
+  /* 解算：给定装药与距离，求仰角。high=true 取高角（曲射）解。
+     返回 {angle, tof, reachable}；超出该装药最大射程返回 null。 */
+  function solve(charge, range, high, targetY) {
+    const T = table[clamp(charge, 1, 6) - 1];
+    if (range > T.maxRange || range < 40) return null;
+    let lo = high ? T.optAngle : CFG.elevMin, hi = high ? 88 : T.optAngle;
+    for (let i = 0; i < 64; i++) {
+      const m = (lo + hi) / 2, r = fly(charge, m, targetY).range;
+      if ((r < range) !== !!high) lo = m; else hi = m;
+    }
+    const ang = (lo + hi) / 2;
+    return { angle: ang, tof: fly(charge, ang, targetY).tof, reachable: ang <= CFG.elevMax + 1e-6 && ang >= CFG.elevMin - 1e-6 };
+  }
+  return { DT, step, launchState, fly, table, solve, kBase };
+})();
+
+/* ===================== 7. 目标与波次 ===================== */
+let rngSeed = 20240917;
+function rng() { rngSeed = (rngSeed * 1103515245 + 12345) & 0x7fffffff; return rngSeed / 0x7fffffff; }
+
+const targets = [];      // {id,cls,x,z,alive,killedBy,killTime}
+let waveNo = 0, killCount = 0, targetIdSeq = 0;
+
+function spawnWave(announce) {
+  waveNo++;
+  const list = ACTIVE_MAP.spawnTargets(rng, waveNo);
+  let n = 0;
+  for (const t of list) {
+    targets.push({
+      id: ++targetIdSeq, cls: t.cls, x: t.x, z: t.z,
+      y: heightAt(t.x, t.z), alive: true, killedBy: null, wave: waveNo
+    });
+    n++;
+  }
+  mapTable.dirty = true;
+  if (announce !== false) {
+    toast(`侦察通报：第 ${waveNo} 波敌对目标已出现，共 ${n} 个（软目标 ${list.filter(t => t.cls === "soft").length} / 装甲 ${list.filter(t => t.cls === "armor").length} / 工事 ${list.filter(t => t.cls === "bunker").length}）`, "warn", 7);
+    notebook.add("侦察", `第 ${waveNo} 波目标出现，共 ${n} 个`);
+    sfx.radio();
+  }
+}
+function aliveTargets() { return targets.filter(t => t.alive); }
+function targetDist(t) { return Math.hypot(t.x - GUN.x, t.z - GUN.z); }
+function targetAz(t) { return norm360(Math.atan2(t.x - GUN.x, -(t.z - GUN.z)) * RAD); }
+/* ===================== 8. 状态 ===================== */
+const GUN = { x: 0, z: 0 };          // 火炮在地图上的位置（地图桌与解算的原点）
+
+const gun = {
+  az: 0,                 // 当前方位角（度，正北 0，顺时针）
+  elevTargetCoarse: 0,   // 射角把手设定（整度）
+  elevFine: 0,           // 仰角阀门细调偏移（度）
+  elev: 0,               // 实际仰角
+  breechOpen: false,
+  breechAnim: 0,         // 0 关 1 开
+  loaded: null,          // 已装填弹头 AMMO.x
+  bags: 0,               // 已装填推进药袋数
+  recoil: 0, recoilVel: 0,
+  leverTilt: 0,          // -1..1 方向杆偏转
+  azWheelAngle: 0, elevWheelAngle: 0,
+  handleFrac: 0,         // 把手行程 0..1
+  lastFire: -99,
+  shotNo: 0,
+  interlockMsgT: -99
+};
+const gunElevTarget = () => clamp(gun.elevTargetCoarse + gun.elevFine, CFG.elevMin, CFG.elevMax);
+
+const player = {
+  pos: [6.4, 0, 8.6], yaw: -35 * DEG, pitch: -6 * DEG,
+  vy: 0, onDeck: false, held: null,       // held: {kind:'shell', ammo:AMMO.x} | {kind:'bags', n:3}
+  station: null                            // 正在操作的机构 id
+};
+const state = {
+  clock: 0, running: false, timeScaleIdx: 2, zoom: false, fov: 62 * DEG,
+  shellCam: false, mode: "free", overlay: null, hint: "", lastImpact: null
+};
+const timeScale = () => CFG.timeScales[state.timeScaleIdx];
+
+/* 颜色板 */
+const C = {
+  gunGreen: [0.243, 0.278, 0.208, 1], gunGreen2: [0.196, 0.227, 0.169, 1],
+  steel: [0.316, 0.336, 0.316, 1], steelDark: [0.176, 0.192, 0.184, 1],
+  black: [0.075, 0.078, 0.078, 1], rubber: [0.12, 0.12, 0.125, 1],
+  brass: [0.62, 0.49, 0.20, 1], red: [0.62, 0.18, 0.14, 1], redBright: [0.80, 0.24, 0.18, 1],
+  yellow: [0.78, 0.66, 0.20, 1], white: [0.86, 0.87, 0.83, 1],
+  deck: [0.255, 0.271, 0.235, 1], panelCase: [0.106, 0.118, 0.106, 1],
+  wood: [0.40, 0.29, 0.17, 1], canvasCol: [0.44, 0.42, 0.33, 1],
+  concrete: [0.52, 0.52, 0.49, 1], glass: [0.30, 0.42, 0.40, 1]
+};
+
+/* ===================== 9. 场景构建器 =====================
+   按 (节点, 颜色, 贴图, 层) 归并几何，最终生成少量 mesh，逐帧只更新节点矩阵。 */
+const NODES = ["world", "base", "barrel", "breech", "lever", "azwheel", "elevwheel", "handle", "hand"];
+const nodeMat = {}; NODES.forEach(n => nodeMat[n] = m4.identity(m4.create()));
+
+const SB = {
+  groups: new Map(),
+  get(node, color, opt) {
+    opt = opt || {};
+    const key = [node, color.join("_"), opt.tex || "", opt.layer || "near", opt.emissive || 0, opt.grid ? 1 : 0].join("|");
+    let e = this.groups.get(key);
+    if (!e) {
+      e = { node, color, tex: opt.tex || null, layer: opt.layer || "near", emissive: opt.emissive || 0, grid: !!opt.grid, g: G() };
+      this.groups.set(key, e);
+    }
+    return e.g;
+  },
+  build() {
+    const items = [];
+    for (const e of this.groups.values()) {
+      if (!e.g.idx.length) continue;
+      items.push({ mesh: makeMesh(e.g), node: e.node, color: e.color, tex: e.tex, layer: e.layer, emissive: e.emissive, grid: e.grid });
+    }
+    this.groups.clear();
+    return items;
+  }
+};
+let sceneItems = [];
+
+/* ---- 交互物件 ---- */
+const interactables = [];
+function addInteract(o) { interactables.push(o); return o; }
+const tmpV = [0, 0, 0], tmpV2 = [0, 0, 0];
+function interactWorldPos(o, out) {
+  const p = typeof o.local === "function" ? o.local() : o.local;
+  return m4.xform(out || [0, 0, 0], nodeMat[o.node], p);
+}
+/* ===================== 10. 程序化贴图（全部本地绘制） ===================== */
+const FONT_CN = '"Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
+const FONT_MONO = 'Consolas,"DejaVu Sans Mono",monospace';
+const TEX = {};
+function makeTexFromCanvas(c) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  const o = { canvas: c, ctx: c.getContext("2d"), tex };
+  o.upload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, o.tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, o.canvas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  };
+  return o;
+}
+function regTex(name, w, h) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const t = makeTexFromCanvas(c); t.w = w; t.h = h; t.cache = "";
+  TEX[name] = t; return t;
+}
+
+/* --- 机构显示器：黑底荧光数字 --- */
+function paintDisplay(t, title, value, sub, col) {
+  const g = t.ctx, w = t.w, h = t.h;
+  g.fillStyle = "#07090a"; g.fillRect(0, 0, w, h);
+  g.strokeStyle = "#2b3630"; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+  g.fillStyle = "#111a16"; g.fillRect(10, 10, w - 20, h - 20);
+  g.font = "600 22px " + FONT_CN; g.textAlign = "left"; g.textBaseline = "top";
+  g.fillStyle = "#6f8a76"; g.fillText(title, 20, 16);
+  g.font = "bold 92px " + FONT_MONO; g.textAlign = "right"; g.textBaseline = "alphabetic";
+  g.shadowColor = col; g.shadowBlur = 26; g.fillStyle = col;
+  g.fillText(value, w - 58, h - 26);
+  g.shadowBlur = 0;
+  g.font = "600 28px " + FONT_CN; g.fillStyle = "#5f7a68"; g.fillText("度", w - 16, h - 30);
+  if (sub) { g.font = "500 20px " + FONT_MONO; g.textAlign = "left"; g.fillStyle = "#7d9a86"; g.fillText(sub, 20, h - 20); }
+  t.upload();
+}
+function updateDisplays() {
+  const az = norm360(gun.az).toFixed(1).padStart(5, "0");
+  const azKey = "A" + az;
+  if (TEX.azdisp.cache !== azKey) {
+    TEX.azdisp.cache = azKey;
+    paintDisplay(TEX.azdisp, "方位角  AZIMUTH", az, "精度 0.1°   " + compassLetter(gun.az), "#9fe6a0");
+  }
+  const el = gun.elev.toFixed(2).padStart(5, "0"), tg = gunElevTarget().toFixed(2);
+  const elKey = "E" + el + "/" + tg;
+  if (TEX.elevdisp.cache !== elKey) {
+    TEX.elevdisp.cache = elKey;
+    paintDisplay(TEX.elevdisp, "仰角  ELEVATION", el, "精度 0.01°  设定 " + tg + "°", "#ffd88a");
+  }
+}
+function compassLetter(a) {
+  const s = ["正北", "东北", "正东", "东南", "正南", "西南", "正西", "西北"];
+  return s[Math.round(norm360(a) / 45) % 8];
+}
+
+/* --- 弹药架标牌 --- */
+function paintPlate(t, text, sub, bg, fg) {
+  const g = t.ctx, w = t.w, h = t.h;
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.strokeStyle = "rgba(0,0,0,.55)"; g.lineWidth = 8; g.strokeRect(4, 4, w - 8, h - 8);
+  g.fillStyle = fg; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "bold " + Math.round(h * 0.42) + "px " + FONT_CN;
+  g.fillText(text, w / 2, h * 0.38, w - 26);
+  g.font = "600 " + Math.round(h * 0.22) + "px " + FONT_MONO;
+  g.fillText(sub, w / 2, h * 0.76, w - 26);
+  t.upload();
+}
+/* --- 地面方位圈 --- */
+function paintRose(t) {
+  const g = t.ctx, w = t.w, h = t.h, cx = w / 2, cy = h / 2, R = w / 2 - 6;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = "#3d4232"; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.fill();
+  g.fillStyle = "#2f3427"; g.beginPath(); g.arc(cx, cy, R * 0.705, 0, 7); g.fill();
+  const P = (a, r) => [cx + Math.sin(a * DEG) * r, cy + Math.cos(a * DEG) * r];
+  for (let a = 0; a < 360; a += 1) {
+    const major = a % 10 === 0, mid = a % 5 === 0;
+    const len = major ? R * 0.20 : mid ? R * 0.12 : R * 0.06;
+    const [x0, y0] = P(a, R * 0.99), [x1, y1] = P(a, R * 0.99 - len);
+    g.strokeStyle = major ? "#e6ecd8" : "rgba(220,230,205,.55)";
+    g.lineWidth = major ? 5 : mid ? 3.5 : 2;
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+  }
+  g.textAlign = "center"; g.textBaseline = "middle";
+  for (let a = 0; a < 360; a += 10) {
+    const [x, y] = P(a, R * 0.72);
+    g.save(); g.translate(x, y); g.rotate(-a * DEG + Math.PI);
+    g.font = "bold 30px " + FONT_MONO; g.fillStyle = "#eef2e2";
+    g.fillText(String(a).padStart(3, "0"), 0, 0); g.restore();
+  }
+  const NS = [[0, "N"], [90, "E"], [180, "S"], [270, "W"]];
+  for (const [a, s] of NS) {
+    const [x, y] = P(a, R * 0.55);
+    g.save(); g.translate(x, y); g.rotate(-a * DEG + Math.PI);
+    g.font = "bold 52px " + FONT_MONO; g.fillStyle = a === 0 ? "#ffdca8" : "#cfd8c0";
+    g.fillText(s, 0, 0); g.restore();
+  }
+  t.upload();
+}
+/* --- 机械计算机面板显示 --- */
+function paintCompDisp() {
+  const t = TEX.compdisp; if (!t) return;
+  const g = t.ctx, w = t.w, h = t.h;
+  g.fillStyle = "#080b09"; g.fillRect(0, 0, w, h);
+  g.strokeStyle = "#2b3630"; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+  g.font = "600 26px " + FONT_CN; g.textAlign = "left"; g.textBaseline = "top";
+  g.fillStyle = "#7f9a86"; g.fillText("机械式射表计算机 M-1", 18, 14);
+  g.font = "500 26px " + FONT_MONO;
+  const s = comp.lastSolution;
+  g.fillStyle = "#cfe0c6";
+  g.fillText("装药 " + comp.charge + " 袋   距离 " + fmtInt(comp.range) + " m", 18, 58);
+  if (s && s.ok) {
+    g.font = "bold 46px " + FONT_MONO; g.fillStyle = "#8fe08f";
+    g.fillText("低角 " + s.low.toFixed(2) + "°", 18, 100);
+    g.fillStyle = "#e8c98a";
+    g.fillText("高角 " + (s.high == null ? " --- " : s.high.toFixed(2) + "°"), 18, 152);
+  } else {
+    g.font = "bold 40px " + FONT_MONO; g.fillStyle = "#e08f8f";
+    g.fillText(s ? "超出射程" : "待解算", 18, 116);
+  }
+  t.upload();
+}
+/* ===================== 11. 动态网格（弹头/药包/目标/爆炸） ===================== */
+const MESH = {};
+function buildDynMeshes() {
+  const R = CFG.caliber / 2;
+  { // 弹头：沿 +Y 竖立，底面 y=0，全长约 0.99m
+    const g = G();
+    addCyl(g, 0, 0.05, 0, R * 1.03, R * 1.03, 0.10, 1, 20);      // 弹带
+    addCyl(g, 0, 0.36, 0, R, R, 0.52, 1, 20);                    // 弹体
+    const prof = [[0.62, 1.00], [0.70, 0.955], [0.78, 0.875], [0.86, 0.745], [0.93, 0.545], [0.99, 0.10]];
+    for (let i = 0; i < prof.length - 1; i++) {
+      const [y0, r0] = prof[i], [y1, r1] = prof[i + 1];
+      addCyl(g, 0, (y0 + y1) / 2, 0, r0 * R, r1 * R, y1 - y0, 1, 20, false);
+    }
+    MESH.shell = makeMesh(g);
+  }
+  { // 推进药包：与炮膛内径同粗的圆柱形固体，沿 +Y
+    const g = G();
+    addCyl(g, 0, 0.15, 0, R, R, 0.30, 1, 18);
+    addCyl(g, 0, 0.06, 0, R * 1.02, R * 1.02, 0.03, 1, 18);
+    addCyl(g, 0, 0.24, 0, R * 1.02, R * 1.02, 0.03, 1, 18);
+    MESH.bag = makeMesh(g);
+  }
+  { const g = G(); addBox(g, 0, 0.5, 0, 1, 1, 1); MESH.cube = makeMesh(g); }
+  { const g = G(); addSphere(g, 0, 0, 0, 1, 20, 14); MESH.sphere = makeMesh(g); }
+  { const g = G(); addDisc(g, 0, 0, 0, 1, 40, true); MESH.disc = makeMesh(g); }
+  { // 观测标记：上下两个锥体组成的菱形（尺寸 1 单位，按距离缩放）
+    const g = G();
+    addCyl(g, 0, 0.25, 0, 0.5, 0.001, 0.5, 1, 4, false);
+    addCyl(g, 0, -0.25, 0, 0.001, 0.5, 0.5, 1, 4, false);
+    MESH.diamond = makeMesh(g);
+  }
+  { const g = G(); addCyl(g, 0, 0, 0, 1, 1, 1, 1, 14); MESH.cyl = makeMesh(g); }
+}
+
+/* ===================== 12. 静态场景建模 ===================== */
+/* 待发弹药架卡位（base 局部坐标，作业平台面 y=CFG.crewY 之上） */
+const SHELL_SLOTS = [
+  { x: -3.15, z: 4.45, ammo: "he" },
+  { x: -2.35, z: 4.45, ammo: "heat" },
+  { x: -1.55, z: 4.45, ammo: "ap" }
+];
+const BAG_RACK = { x: 2.55, z: 4.45 };
+const PROPS = { table: { x: 12, z: 3 }, comp: { x: 15.9, z: 3 } };
+
+const walkBase = [
+  { t: "disc", cx: 0, cz: 0, r: CFG.turnR, top: CFG.deckY },
+  { t: "box", x0: -4.0, x1: 4.0, z0: 2.95, z1: 5.40, top: CFG.crewY },
+  { t: "box", x0: -1.15, x1: 1.15, z0: 5.40, z1: 5.73, top: 1.12 },
+  { t: "box", x0: -1.15, x1: 1.15, z0: 5.73, z1: 6.06, top: 0.79 }
+];
+const blockBase = [
+  { x0: -1.85, x1: 1.85, z0: -2.6, z1: 2.75, top: 3.2 },
+  { x0: -4.0, x1: -1.15, z0: 2.95, z1: 5.40, top: 1.45 },
+  { x0: 1.15, x1: 4.0, z0: 2.95, z1: 5.40, top: 1.45 }
+];
+const blockWorld = [
+  { x0: 10.35, x1: 13.65, z0: 1.35, z1: 4.65, top: 1.05 },
+  { x0: 15.15, x1: 16.65, z0: 2.15, z1: 3.85, top: 1.15 }
+];
+
+function buildScene() {
+  const S = (n, c, o) => SB.get(n, c, o);
+  const FAR = { layer: "far" };
+
+  /* ---------- 地面 ---------- */
+  const gc = ACTIVE_MAP.groundColor.concat([1]);
+  addPlaneXZ(S("world", gc, { layer: "far", grid: true }), 0, 0, 260000, 0);
+  addDisc(S("world", gc, { grid: true }), 0, 0.004, 0, 118, 64, true);
+
+  /* ---------- 方位圈（画在地面，随炮塔指针读数） ---------- */
+  addDisc(S("world", [1, 1, 1, 1], { tex: "azrose", emissive: 0.35 }), GUN.x, 0.02, GUN.z, 10.6, 72, true);
+
+  /* ---------- 回转平台 ---------- */
+  addCyl(S("base", C.steelDark), 0, 0.225, 0, CFG.turnR, CFG.turnR, 0.45, 1, 56);
+  addDisc(S("base", C.deck), 0, 0.452, 0, CFG.turnR - 0.02, 56, true);
+  for (let i = 0; i < 24; i++) {  // 平台面板螺栓
+    const a = i / 24 * Math.PI * 2;
+    addCyl(S("base", C.steel), Math.cos(a) * (CFG.turnR - 0.35), 0.465, Math.sin(a) * (CFG.turnR - 0.35), 0.07, 0.07, 0.05, 1, 8);
+  }
+  addBox(S("base", C.white), 0, 0.47, -(CFG.turnR - 0.45), 0.26, 0.05, 0.9);   // 方位指针
+  addBox(S("base", C.redBright), 0, 0.475, -(CFG.turnR - 0.12), 0.10, 0.05, 0.3);
+
+  /* ---------- 座圈与 U 形摇架 ---------- */
+  addCyl(S("base", C.gunGreen2), 0, 0.78, 0, 2.45, 1.95, 0.66, 1, 40);
+  for (const sx of [-1, 1]) {
+    addBox(S("base", C.gunGreen), sx * 1.32, 2.35, -0.1, 0.52, 2.5, 3.1);
+    addCyl(S("base", C.steel), sx * 1.32, CFG.trunnionY, 0, 0.5, 0.5, 0.62, 0, 20);
+    addCyl(S("base", C.steelDark), sx * 1.62, CFG.trunnionY, 0, 0.2, 0.2, 0.1, 0, 14);
+  }
+  addBox(S("base", C.gunGreen2), 0, 1.35, -1.35, 2.9, 0.5, 0.7);
+  addBox(S("base", C.gunGreen2), 0, 1.35, 1.5, 2.9, 0.5, 0.7);
+  // 高低机弧齿（装饰）
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * 60 * DEG - 10 * DEG;
+    addBox(S("base", C.steel), 1.05, CFG.trunnionY - Math.cos(a) * 1.75, Math.sin(a) * 1.75, 0.3, 0.14, 0.12);
+  }
+
+  /* ---------- 炮身（barrel 节点：z+ 为炮尾，z- 为炮口） ---------- */
+  const bl = CFG.breechLen, ml = CFG.muzzleLen;
+  addCyl(S("barrel", C.gunGreen), 0, 0, (bl - ml) / 2 + 0.0, 0.27, 0.34, ml + bl - 1.0, 2, 26);
+  addCyl(S("barrel", C.gunGreen2), 0, 0, bl - 0.55, 0.5, 0.5, 1.1, 2, 26);       // 炮尾环
+  addCyl(S("barrel", C.steelDark), 0, 0, -ml + 0.55, 0.44, 0.44, 1.1, 2, 26);    // 炮口制退器
+  for (const sx of [-1, 1]) {
+    addBox(S("barrel", C.steelDark), sx * 0.5, 0, -ml + 0.55, 0.14, 0.5, 0.8);
+    addCyl(S("barrel", C.steel), sx * 0.44, 0.42, -1.2, 0.17, 0.17, 4.6, 2, 16); // 反后坐筒
+    addCyl(S("barrel", C.steelDark), sx * 0.44, 0.42, -3.6, 0.11, 0.11, 1.2, 2, 12);
+  }
+  addCyl(S("barrel", C.black, { emissive: 0.5 }), 0, 0, -ml + 0.1, 0.108, 0.108, 0.9, 2, 18); // 炮口内膛
+  addCyl(S("barrel", C.black, { emissive: 0.4 }), 0, 0, bl - 0.65, 0.106, 0.106, 0.9, 2, 18); // 药室
+  /* ---------- 炮闩（breech 节点，横楔式，向 +X 滑开） ---------- */
+  addBox(S("breech", C.steel), 0, 0, 0, 1.0, 0.94, 0.34);
+  addBox(S("breech", C.steelDark), 0, 0, -0.18, 0.62, 0.62, 0.06);
+  addCyl(S("breech", C.brass), 0.34, -0.28, 0.2, 0.05, 0.05, 0.42, 2, 10);
+  addSphere(S("breech", C.red), 0.34, -0.28, 0.44, 0.09, 10, 8);
+
+  /* ---------- 装填作业平台 ---------- */
+  addBox(S("base", C.steelDark), 0, CFG.crewY - 0.07, 4.18, 8.0, 0.14, 2.45);
+  for (const sx of [-1, 1]) for (const z of [3.1, 4.2, 5.3]) addCyl(S("base", C.steel), sx * 3.8, (CFG.crewY - 0.07) / 2 + 0.22, z, 0.09, 0.09, CFG.crewY - 0.52, 1, 10);
+  for (let i = 0; i < 3; i++) {  // 台阶
+    const top = [1.12, 0.79, 0.46][i];
+    addBox(S("base", C.steel), 0, top - 0.06, 5.565 + i * 0.33, 2.3, 0.12, 0.33);
+  }
+  for (const sx of [-1, 1]) {   // 栏杆
+    addCyl(S("base", C.steelDark), sx * 3.95, CFG.crewY + 0.55, 3.3, 0.05, 0.05, 1.1, 1, 8);
+    addCyl(S("base", C.steelDark), sx * 3.95, CFG.crewY + 0.55, 5.25, 0.05, 0.05, 1.1, 1, 8);
+    addCyl(S("base", C.steelDark), sx * 3.95, CFG.crewY + 1.05, 4.27, 0.05, 0.05, 2.0, 2, 8);
+  }
+
+  /* ---------- 左：方向机站位 ---------- */
+  const LX = -2.55;
+  addBox(S("base", C.gunGreen2), LX, 0.62, 1.2, 1.1, 0.34, 2.4);          // 机构箱
+  addBox(S("base", C.steelDark), LX, 0.83, 0.55, 0.46, 0.12, 0.95);        // 方向杆导槽
+  addBox(S("base", C.steel), LX, 0.86, 0.08, 0.5, 0.16, 0.1);
+  addBox(S("base", C.steel), LX, 0.86, 1.02, 0.5, 0.16, 0.1);
+  addCyl(S("lever", C.steel), 0, 0.36, 0, 0.05, 0.042, 0.72, 1, 12);
+  addSphere(S("lever", C.redBright), 0, 0.76, 0, 0.095, 12, 10);
+  addCyl(S("lever", C.steelDark), 0, 0.02, 0, 0.11, 0.11, 0.12, 1, 12);
+  // 方位阀门（轮缘 + 4 根轮辐 + 轮毂 + 手柄）
+  addTorus(S("azwheel", C.steelDark), 0, 0, 0, 0.33, 0.045, 0, 30, 8);
+  for (let i = 0; i < 4; i++) {
+    const a = i / 4 * Math.PI * 2;
+    addRod(S("azwheel", C.steel), [0, 0, 0], [0, Math.cos(a) * 0.33, Math.sin(a) * 0.33], 0.028, 6);
+  }
+  addCyl(S("azwheel", C.steel), 0, 0, 0, 0.09, 0.09, 0.16, 0, 14);
+  addCyl(S("azwheel", C.brass), 0.09, 0.30, 0, 0.045, 0.045, 0.13, 0, 10);
+  addCyl(S("base", C.steelDark), LX + 0.12, 1.32, 1.85, 0.14, 0.14, 0.3, 0, 14);
+  // 显示器（方位角，两处）
+  for (const z of [0.55, 1.85]) {
+    addCyl(S("base", C.steel), LX - 0.33, 1.3, z, 0.05, 0.05, 1.7, 1, 10);
+    addBox(S("base", C.panelCase), LX - 0.33, 2.14, z, 0.2, 0.36, 0.8);
+    addPanel(S("base", [1, 1, 1, 1], { tex: "azdisp", emissive: 0.85 }), LX - 0.435, 2.14, z, 0.7, 0.265, "-x", 14);
+  }
+  addPanel(S("base", [1, 1, 1, 1], { tex: "plate_az", emissive: 0.25 }), LX, 0.797, 2.0, 0.62, 0.2, "-x", -90);
+
+  /* ---------- 右：高低机站位 ---------- */
+  const RX = 2.55;
+  addBox(S("base", C.gunGreen2), RX, 0.62, 1.2, 1.1, 0.34, 2.4);
+  addCyl(S("base", C.steel), RX, 1.58, 0.55, 0.055, 0.055, 1.5, 1, 10);   // 把手滑轨
+  addBox(S("base", C.steelDark), RX, 0.83, 0.55, 0.42, 0.12, 0.5);
+  addBox(S("base", C.steelDark), RX, 2.35, 0.55, 0.42, 0.12, 0.5);
+  addPanel(S("base", [1, 1, 1, 1], { tex: "elevscale", emissive: 0.3 }), RX + 0.115, 1.58, 0.32, 0.2, 1.5, "+x", 0);
+  addCyl(S("handle", C.steelDark), 0, 0, 0, 0.1, 0.1, 0.18, 1, 12);
+  addCyl(S("handle", C.steel), 0.19, 0, 0, 0.055, 0.055, 0.38, 0, 12);
+  addSphere(S("handle", C.brass), 0.42, 0, 0, 0.085, 12, 10);
+  // 仰角阀门
+  addTorus(S("elevwheel", C.steelDark), 0, 0, 0, 0.33, 0.045, 0, 30, 8);
+  for (let i = 0; i < 4; i++) {
+    const a = i / 4 * Math.PI * 2;
+    addRod(S("elevwheel", C.steel), [0, 0, 0], [0, Math.cos(a) * 0.33, Math.sin(a) * 0.33], 0.028, 6);
+  }
+  addCyl(S("elevwheel", C.steel), 0, 0, 0, 0.09, 0.09, 0.16, 0, 14);
+  addCyl(S("elevwheel", C.brass), -0.09, 0.30, 0, 0.045, 0.045, 0.13, 0, 10);
+  addCyl(S("base", C.steelDark), RX - 0.12, 1.32, 1.85, 0.14, 0.14, 0.3, 0, 14);
+  for (const z of [0.55, 1.85]) {
+    addCyl(S("base", C.steel), RX + 0.33, 1.3, z, 0.05, 0.05, 1.7, 1, 10);
+    addBox(S("base", C.panelCase), RX + 0.33, 2.14, z, 0.2, 0.36, 0.8);
+    addPanel(S("base", [1, 1, 1, 1], { tex: "elevdisp", emissive: 0.85 }), RX + 0.435, 2.14, z, 0.7, 0.265, "+x", 14);
+  }
+  addPanel(S("base", [1, 1, 1, 1], { tex: "plate_el", emissive: 0.25 }), RX, 0.797, 2.0, 0.62, 0.2, "+x", -90);
+
+  /* ---------- 发火绳 ---------- */
+  addRod(S("base", C.steelDark), [-1.05, 2.9, 2.62], [-1.05, 2.62, 3.34], 0.014, 6);
+  addCyl(S("base", C.wood), -1.05, 2.48, 3.36, 0.045, 0.045, 0.26, 1, 10);
+  addSphere(S("base", C.brass), -1.05, 2.33, 3.36, 0.055, 10, 8);
+
+  /* ---------- 弹头待发架（3 个卡位） ---------- */
+  SHELL_SLOTS.forEach((s, i) => {
+    addBox(S("base", C.steelDark), s.x, CFG.crewY + 0.06, s.z, 0.62, 0.12, 0.62);
+    addTorus(S("base", C.steel), s.x, CFG.crewY + 0.62, s.z, 0.15, 0.035, 1, 16, 6);
+    addCyl(S("base", C.steelDark), s.x - 0.26, CFG.crewY + 0.4, s.z, 0.035, 0.035, 0.7, 1, 8);
+    addCyl(S("base", C.steelDark), s.x + 0.26, CFG.crewY + 0.4, s.z, 0.035, 0.035, 0.7, 1, 8);
+    addBox(S("base", C.panelCase), s.x, CFG.crewY + 1.12, s.z - 0.02, 0.56, 0.24, 0.06);
+    addPanel(S("base", [1, 1, 1, 1], { tex: "plate_" + s.ammo, emissive: 0.35 }), s.x, CFG.crewY + 1.12, s.z + 0.02, 0.52, 0.2, "+z", 0);
+  });
+  /* ---------- 推进药待发架 ---------- */
+  addBox(S("base", C.steelDark), BAG_RACK.x, CFG.crewY + 0.06, BAG_RACK.z, 1.5, 0.12, 0.9);
+  for (const sx of [-1, 1]) addBox(S("base", C.steelDark), BAG_RACK.x + sx * 0.72, CFG.crewY + 0.55, BAG_RACK.z, 0.06, 1.1, 0.9);
+  addBox(S("base", C.steelDark), BAG_RACK.x, CFG.crewY + 0.53, BAG_RACK.z, 1.5, 0.06, 0.9);
+  addBox(S("base", C.panelCase), BAG_RACK.x, CFG.crewY + 1.22, BAG_RACK.z - 0.02, 0.9, 0.26, 0.06);
+  addPanel(S("base", [1, 1, 1, 1], { tex: "plate_bag", emissive: 0.35 }), BAG_RACK.x, CFG.crewY + 1.22, BAG_RACK.z + 0.02, 0.86, 0.22, "+z", 0);
+
+  /* ---------- 地图作业桌 ---------- */
+  const T = PROPS.table;
+  addBox(S("world", C.wood), T.x, 1.0, T.z, 3.3, 0.1, 3.3);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    addCyl(S("world", C.steelDark), T.x + sx * 1.45, 0.475, T.z + sz * 1.45, 0.07, 0.07, 0.95, 1, 10);
+  addBox(S("world", C.steelDark), T.x, 0.55, T.z, 3.0, 0.08, 0.2);
+  for (const [dx, dz, w, d] of [[0, 1.58, 3.3, 0.14], [0, -1.58, 3.3, 0.14], [1.58, 0, 0.14, 3.3], [-1.58, 0, 0.14, 3.3]])
+    addBox(S("world", C.steel), T.x + dx, 1.09, T.z + dz, w, 0.12, d);
+  addPlaneXZ(S("world", [1, 1, 1, 1], { tex: "maptable", emissive: 0.55 }), T.x, T.z, 3.0, 1.056);
+  // 桌上的笔记本
+  addBox(S("world", C.canvasCol), T.x - 1.15, 1.075, T.z + 1.2, 0.26, 0.03, 0.34);
+  addBox(S("world", C.red), T.x - 1.15, 1.092, T.z + 1.2, 0.24, 0.005, 0.32);
+  addCyl(S("world", C.brass), T.x - 0.92, 1.08, T.z + 1.24, 0.008, 0.008, 0.18, 0, 6);
+
+  /* ---------- 机械式计算机 ---------- */
+  const K = PROPS.comp;
+  addBox(S("world", C.gunGreen2), K.x, 0.55, K.z, 1.4, 1.1, 1.6);
+  addBox(S("world", C.steelDark), K.x, 1.13, K.z, 1.5, 0.08, 1.7);
+  addBox(S("world", C.panelCase), K.x - 0.62, 1.42, K.z, 0.24, 0.56, 1.2);
+  addPanel(S("world", [1, 1, 1, 1], { tex: "compdisp", emissive: 0.8 }), K.x - 0.755, 1.42, K.z, 0.76, 0.42, "-x", 22);
+  for (let i = 0; i < 3; i++) {
+    addCyl(S("world", C.brass), K.x - 0.71, 0.86, K.z - 0.45 + i * 0.45, 0.13, 0.13, 0.07, 0, 16);
+    addCyl(S("world", C.steelDark), K.x - 0.76, 0.86, K.z - 0.45 + i * 0.45, 0.02, 0.02, 0.1, 0, 8);
+  }
+  addCyl(S("world", C.steel), K.x - 0.7, 0.55, K.z + 0.62, 0.04, 0.04, 0.3, 0, 10);
+  addCyl(S("world", C.wood), K.x - 0.85, 0.42, K.z + 0.62, 0.04, 0.04, 0.22, 1, 10);
+  addBox(S("world", C.steel), K.x, 0.06, K.z, 1.5, 0.12, 1.7);
+
+  /* ---------- 瞄准标杆与杂物 ---------- */
+  for (const a of [0, 90, 180, 270]) {
+    const px = GUN.x + Math.sin(a * DEG) * 46, pz = GUN.z - Math.cos(a * DEG) * 46;
+    addCyl(S("world", C.white), px, 1.6, pz, 0.085, 0.085, 3.2, 1, 10);
+    addCyl(S("world", C.redBright), px, 2.6, pz, 0.09, 0.09, 0.55, 1, 10);
+    addCyl(S("world", C.redBright), px, 1.5, pz, 0.09, 0.09, 0.55, 1, 10);
+    addBox(S("world", C.panelCase), px, 3.45, pz, 0.62, 0.3, 0.05);
+    addPanel(S("world", [1, 1, 1, 1], { tex: "stake_" + a, emissive: 0.4 }), px, 3.45, pz,
+      0.58, 0.26, a === 0 ? "+z" : a === 180 ? "-z" : a === 90 ? "-x" : "+x", 0);
+  }
+  const crates = [[9.2, 1.2], [9.8, 2.0], [9.3, 2.6], [17.4, 4.6], [17.9, 3.9], [8.6, -2.4], [9.4, -3.0]];
+  crates.forEach(([x, z], i) => {
+    const h = 0.6 + (i % 3) * 0.12;
+    addBox(S("world", i % 2 ? C.wood : C.gunGreen), x, h / 2, z, 0.9, h, 1.3);
+    addBox(S("world", C.steelDark), x, h + 0.03, z, 0.94, 0.06, 1.34);
+  });
+  for (let row = 0; row < 2; row++) for (let i = 0; i < 13; i++) {  // 沙袋掩体
+    const a = -0.85 + i * 0.135 + row * 0.067;
+    addBox(S("world", C.canvasCol), GUN.x + Math.sin(a) * (12.6 + row * 0.1), 0.21 + row * 0.42, GUN.z - Math.cos(a) * (12.6 + row * 0.1), 0.86, 0.42, 0.52);
+  }
+  sceneItems = SB.build();
+}
+/* ===================== 13. 贴图初始化 ===================== */
+const mapCanvas = document.createElement("canvas");
+mapCanvas.width = 1024; mapCanvas.height = 1024; mapCanvas.id = "tablecanvas";
+$("tablecanvasholder").appendChild(mapCanvas);
+
+function paintElevScale(t) {
+  const g = t.ctx, w = t.w, h = t.h;
+  g.fillStyle = "#12160f"; g.fillRect(0, 0, w, h);
+  g.strokeStyle = "#3a4436"; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+  const yOf = deg => h - (0.06 + (deg / CFG.elevMax) * 0.80) * h;
+  g.textBaseline = "middle";
+  for (let d = 0; d <= CFG.elevMax; d++) {
+    const y = yOf(d), major = d % 5 === 0;
+    g.strokeStyle = major ? "#dfe8d0" : "rgba(210,225,195,.5)";
+    g.lineWidth = major ? 4 : 2;
+    g.beginPath(); g.moveTo(w - 8, y); g.lineTo(w - 8 - (major ? 42 : 22), y); g.stroke();
+    if (major) {
+      g.font = "bold 34px " + FONT_MONO; g.fillStyle = "#eef2e2"; g.textAlign = "left";
+      g.fillText(String(d), 14, y);
+    }
+  }
+  g.save(); g.translate(w * 0.5, h * 0.03); g.font = "600 26px " + FONT_CN;
+  g.fillStyle = "#9ab08c"; g.textAlign = "center"; g.fillText("射角", 0, 0); g.restore();
+  t.upload();
+}
+function paintStake(t, az) {
+  const g = t.ctx, w = t.w, h = t.h;
+  g.fillStyle = "#0e120d"; g.fillRect(0, 0, w, h);
+  g.strokeStyle = "#c9d3bb"; g.lineWidth = 5; g.strokeRect(4, 4, w - 8, h - 8);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "bold 56px " + FONT_MONO; g.fillStyle = az === 0 ? "#ffd9a0" : "#e6eedd";
+  g.fillText(String(az).padStart(3, "0") + "°", w / 2, h * 0.40);
+  g.font = "600 26px " + FONT_CN; g.fillStyle = "#93a389";
+  g.fillText("瞄准标杆 46m", w / 2, h * 0.78);
+  t.upload();
+}
+function initTextures() {
+  regTex("azdisp", 512, 200); regTex("elevdisp", 512, 200);
+  paintDisplay(TEX.azdisp, "方位角  AZIMUTH", "000.0", "精度 0.1°", "#9fe6a0");
+  paintDisplay(TEX.elevdisp, "仰角  ELEVATION", "00.00", "精度 0.01°", "#ffd88a");
+  regTex("azrose", 1024, 1024); paintRose(TEX.azrose);
+  regTex("compdisp", 512, 256);
+  regTex("elevscale", 128, 1024); paintElevScale(TEX.elevscale);
+  regTex("plate_he", 512, 197); paintPlate(TEX.plate_he, "高爆弹", "HE  R=" + AMMO.he.radius + "m", "#20521f", "#dff2dc");
+  regTex("plate_heat", 512, 197); paintPlate(TEX.plate_heat, "破甲弹", "HEAT R=" + AMMO.heat.radius + "m", "#6b3418", "#ffe2d2");
+  regTex("plate_ap", 512, 197); paintPlate(TEX.plate_ap, "穿甲弹", "AP  R=" + AMMO.ap.radius + "m", "#131313", "#dcdcdc");
+  regTex("plate_bag", 512, 131); paintPlate(TEX.plate_bag, "推进药 1~6 袋", "PROPELLANT CHARGE", "#4a3d16", "#f2e6c0");
+  regTex("plate_az", 512, 165); paintPlate(TEX.plate_az, "方向机", "TRAVERSE", "#20261e", "#cfe0c6");
+  regTex("plate_el", 512, 165); paintPlate(TEX.plate_el, "高低机", "ELEVATION", "#20261e", "#cfe0c6");
+  for (const a of [0, 90, 180, 270]) { regTex("stake_" + a, 256, 116); paintStake(TEX["stake_" + a], a); }
+  TEX.maptable = makeTexFromCanvas(mapCanvas);
+  TEX.maptable.w = 1024; TEX.maptable.h = 1024;
+}
+/* ===================== 14. 节点矩阵 ===================== */
+const AZW = [-3.20, 1.32, 1.85], ELW = [3.20, 1.32, 1.85];
+const LEVER_PIVOT = [-2.55, 0.86, 0.55], HANDLE_X = 2.55, HANDLE_Z = 0.55;
+const handleY = () => 0.92 + gun.handleFrac * 1.20;
+const tmpM = [m4.create(), m4.create(), m4.create()];
+const invView = m4.create();
+
+function updateNodes() {
+  m4.identity(nodeMat.world);
+  m4.fromTRS(nodeMat.base, [GUN.x, 0, GUN.z], 0, -gun.az * DEG, 0, 1);
+  m4.mul(nodeMat.barrel, nodeMat.base, m4.fromTRS(tmpM[0], [0, CFG.trunnionY, 0], gun.elev * DEG, 0, 0, 1));
+  m4.mul(nodeMat.barrel, nodeMat.barrel, m4.fromTRS(tmpM[0], [0, 0, gun.recoil], 0, 0, 0, 1));
+  m4.mul(nodeMat.breech, nodeMat.barrel, m4.fromTRS(tmpM[0], [gun.breechAnim * 0.78, 0, CFG.breechLen - 0.72], 0, 0, 0, 1));
+  m4.mul(nodeMat.lever, nodeMat.base, m4.fromTRS(tmpM[0], LEVER_PIVOT, gun.leverTilt * 0.40, 0, 0, 1));
+  m4.mul(nodeMat.azwheel, nodeMat.base, m4.fromTRS(tmpM[0], AZW, gun.azWheelAngle, 0, 0, 1));
+  m4.mul(nodeMat.elevwheel, nodeMat.base, m4.fromTRS(tmpM[0], ELW, gun.elevWheelAngle, 0, 0, 1));
+  m4.mul(nodeMat.handle, nodeMat.base, m4.fromTRS(tmpM[0], [HANDLE_X, handleY(), HANDLE_Z], 0, 0, 0, 1));
+  m4.mul(nodeMat.hand, invView, m4.fromTRS(tmpM[0], [0.34, -0.30, -0.62], 0, 0, 0, 1));
+}
+
+/* base 局部 <-> 世界 */
+function worldToBase(wx, wz, out) {
+  const a = gun.az * DEG, dx = wx - GUN.x, dz = wz - GUN.z;
+  out[0] = dx * Math.cos(a) + dz * Math.sin(a);
+  out[1] = -dx * Math.sin(a) + dz * Math.cos(a);
+  return out;
+}
+function baseToWorld(lx, lz, out) {
+  const a = -gun.az * DEG;
+  out[0] = GUN.x + lx * Math.cos(a) + lz * Math.sin(a);
+  out[1] = GUN.z - lx * Math.sin(a) + lz * Math.cos(a);
+  return out;
+}
+
+/* ===================== 15. 玩家与相机 ===================== */
+const keys = {};
+const _bl = [0, 0];
+function surfaceAt(wx, wz, feetY) {
+  let top = heightAt(wx, wz);
+  worldToBase(wx, wz, _bl);
+  const lx = _bl[0], lz = _bl[1];
+  for (const s of walkBase) {
+    let inside = false;
+    if (s.t === "disc") inside = (lx * lx + lz * lz) <= s.r * s.r;
+    else inside = lx >= s.x0 && lx <= s.x1 && lz >= s.z0 && lz <= s.z1;
+    if (inside && s.top > top && s.top <= feetY + 0.62) top = s.top;
+  }
+  return top;
+}
+function highestAt(wx, wz) {   // 忽略跨越限制，用于判断"撞墙"
+  let top = heightAt(wx, wz);
+  worldToBase(wx, wz, _bl);
+  for (const s of walkBase) {
+    const inside = s.t === "disc" ? (_bl[0] ** 2 + _bl[1] ** 2) <= s.r * s.r
+      : (_bl[0] >= s.x0 && _bl[0] <= s.x1 && _bl[1] >= s.z0 && _bl[1] <= s.z1);
+    if (inside && s.top > top) top = s.top;
+  }
+  return top;
+}
+function pushOutColliders(p) {
+  // base 局部障碍
+  worldToBase(p[0], p[2], _bl);
+  for (const b of blockBase) {
+    if (p[1] > b.top - 0.25) continue;
+    if (_bl[0] > b.x0 - 0.32 && _bl[0] < b.x1 + 0.32 && _bl[1] > b.z0 - 0.32 && _bl[1] < b.z1 + 0.32) {
+      const dxl = _bl[0] - (b.x0 - 0.32), dxr = (b.x1 + 0.32) - _bl[0];
+      const dzl = _bl[1] - (b.z0 - 0.32), dzr = (b.z1 + 0.32) - _bl[1];
+      const m = Math.min(dxl, dxr, dzl, dzr);
+      let nlx = _bl[0], nlz = _bl[1];
+      if (m === dxl) nlx = b.x0 - 0.32; else if (m === dxr) nlx = b.x1 + 0.32;
+      else if (m === dzl) nlz = b.z0 - 0.32; else nlz = b.z1 + 0.32;
+      baseToWorld(nlx, nlz, _bl);
+      p[0] = _bl[0]; p[2] = _bl[1];
+    }
+  }
+  for (const b of blockWorld) {
+    if (p[1] > b.top - 0.25) continue;
+    if (p[0] > b.x0 - 0.3 && p[0] < b.x1 + 0.3 && p[2] > b.z0 - 0.3 && p[2] < b.z1 + 0.3) {
+      const dxl = p[0] - (b.x0 - 0.3), dxr = (b.x1 + 0.3) - p[0];
+      const dzl = p[2] - (b.z0 - 0.3), dzr = (b.z1 + 0.3) - p[2];
+      const m = Math.min(dxl, dxr, dzl, dzr);
+      if (m === dxl) p[0] = b.x0 - 0.3; else if (m === dxr) p[0] = b.x1 + 0.3;
+      else if (m === dzl) p[2] = b.z0 - 0.3; else p[2] = b.z1 + 0.3;
+    }
+  }
+}
+function camDir(out) {
+  const cp = Math.cos(player.pitch);
+  out[0] = Math.sin(player.yaw) * cp; out[1] = Math.sin(player.pitch); out[2] = -Math.cos(player.yaw) * cp;
+  return out;
+}
+const STATIONS = {
+  lever: { p: [-4.30, CFG.deckY, 0.80], yaw: 90 * DEG, pitch: -20 * DEG },
+  azwheel: { p: [-4.30, CFG.deckY, 1.85], yaw: 90 * DEG, pitch: -20 * DEG },
+  handle: { p: [4.30, CFG.deckY, 0.80], yaw: -90 * DEG, pitch: -18 * DEG },
+  elevwheel: { p: [4.30, CFG.deckY, 1.85], yaw: -90 * DEG, pitch: -20 * DEG }
+};
+function updatePlayer(dt) {
+  if (player.station && STATIONS[player.station]) {
+    const st = STATIONS[player.station];
+    baseToWorld(st.p[0], st.p[2], _bl);
+    player.pos[0] = _bl[0]; player.pos[2] = _bl[1]; player.pos[1] = st.p[1];
+    player.yaw = st.yaw + gun.az * DEG;
+    player.pitch = st.pitch;
+    return;
+  }
+  if (state.overlay) return;
+  let fx = 0, fz = 0;
+  if (keys["w"]) fz += 1; if (keys["s"]) fz -= 1;
+  if (keys["d"]) fx += 1; if (keys["a"]) fx -= 1;
+  const spd = (keys["shift"] ? CFG.run : CFG.walk) * dt;
+  if (fx || fz) {
+    const l = Math.hypot(fx, fz); fx /= l; fz /= l;
+    const sy = Math.sin(player.yaw), cy = Math.cos(player.yaw);
+    const dx = (sy * fz + cy * fx) * spd, dz = (-cy * fz + sy * fx) * spd;
+    const nx = player.pos[0] + dx, nz = player.pos[2] + dz;
+    // 分轴尝试，避免卡墙
+    if (highestAt(nx, player.pos[2]) <= player.pos[1] + 0.62) player.pos[0] = nx;
+    if (highestAt(player.pos[0], nz) <= player.pos[1] + 0.62) player.pos[2] = nz;
+    pushOutColliders(player.pos);
+  }
+  const top = surfaceAt(player.pos[0], player.pos[2], player.pos[1]);
+  if (player.pos[1] < top) player.pos[1] = Math.min(top, player.pos[1] + 6 * dt + 0.02);
+  else if (player.pos[1] > top) {
+    player.vy -= 19 * dt; player.pos[1] += player.vy * dt;
+    if (player.pos[1] <= top) { player.pos[1] = top; player.vy = 0; }
+  } else player.vy = 0;
+}
+function eyePos(out) {
+  out[0] = player.pos[0]; out[1] = player.pos[1] + CFG.eyeH; out[2] = player.pos[2];
+  return out;
+}
+
+/* ===================== 16. 交互物件 ===================== */
+function initInteractables() {
+  interactables.length = 0;
+  addInteract({
+    id: "lever", node: "base", local: [LEVER_PIVOT[0], LEVER_PIVOT[1] + 0.72, LEVER_PIVOT[2]], r: 0.5,
+    name: "方向杆", hint: () => "扳动方向杆 · 粗调方位", grab: "lever"
+  });
+  addInteract({
+    id: "azwheel", node: "base", local: AZW, r: 0.5,
+    name: "方位阀门", hint: () => "转动阀门 · 精调方位（0.1°）", grab: "azwheel"
+  });
+  addInteract({
+    id: "handle", node: "base", local: () => [HANDLE_X + 0.3, handleY(), HANDLE_Z], r: 0.5,
+    name: "射角把手", hint: () => "纵向拉动把手 · 设定射角", grab: "handle"
+  });
+  addInteract({
+    id: "elevwheel", node: "base", local: ELW, r: 0.5,
+    name: "仰角阀门", hint: () => "转动阀门 · 精调仰角（0.01°）", grab: "elevwheel"
+  });
+  addInteract({
+    id: "breech", node: "breech", local: [0.34, -0.28, 0.44], r: 0.55,
+    name: "炮闩把手", hint: () => gun.breechOpen ? "关闭炮闩" : "打开炮闩（需回到 0° 定角装填位）",
+    act: toggleBreech
+  });
+  addInteract({
+    id: "chamber", node: "barrel", local: [0, 0, CFG.breechLen - 0.1], r: 0.7,
+    name: "炮膛", hint: chamberHint, act: loadIntoChamber
+  });
+  SHELL_SLOTS.forEach((s, i) => addInteract({
+    id: "slot" + i, node: "base", local: [s.x, CFG.crewY + 0.5, s.z], r: 0.42,
+    name: AMMO[s.ammo].name + "待发架", slot: i,
+    hint: () => rack.shells[i] ? "取用" + AMMO[s.ammo].name + "（" + AMMO[s.ammo].tip + "）" : "补充中…",
+    act: () => takeShell(i)
+  }));
+  addInteract({
+    id: "bags", node: "base", local: [BAG_RACK.x, CFG.crewY + 0.55, BAG_RACK.z], r: 0.75,
+    name: "推进药待发架",
+    hint: () => rack.bags > 0 ? "抱取 1 袋推进药（当前手持 " + (player.held && player.held.kind === "bags" ? player.held.n : 0) + "/6）" : "补充中…",
+    act: takeBag
+  });
+  addInteract({
+    id: "lanyard", node: "base", local: [-1.05, 2.33, 3.36], r: 0.5,
+    name: "发火绳", hint: fireHint, act: pullLanyard
+  });
+  addInteract({
+    id: "table", node: "world", local: [PROPS.table.x, 1.15, PROPS.table.z], r: 2.1,
+    name: "地图作业桌", hint: () => "查看地图 / 绘制攻击指示线", act: () => openOverlay("table")
+  });
+  addInteract({
+    id: "comp", node: "world", local: [PROPS.comp.x - 0.7, 1.3, PROPS.comp.z], r: 1.5,
+    name: "机械式射表计算机", hint: () => "输入装药与距离 → 解算仰角", act: () => openOverlay("comp")
+  });
+  addInteract({
+    id: "nb", node: "world", local: [PROPS.table.x - 1.15, 1.12, PROPS.table.z + 1.2], r: 0.45,
+    name: "笔记本", hint: () => "翻阅笔记本（也可随时按 N）", act: () => openOverlay("nb")
+  });
+}
+/* 视线拾取 */
+const _ip = [0, 0, 0], _eye = [0, 0, 0], _dir = [0, 0, 0];
+function pickInteract() {
+  eyePos(_eye); camDir(_dir);
+  let best = null, bestT = 1e9;
+  for (const o of interactables) {
+    interactWorldPos(o, _ip);
+    const ox = _ip[0] - _eye[0], oy = _ip[1] - _eye[1], oz = _ip[2] - _eye[2];
+    const t = ox * _dir[0] + oy * _dir[1] + oz * _dir[2];
+    if (t < 0.1 || t > 3.3) continue;
+    const px = _eye[0] + _dir[0] * t - _ip[0], py = _eye[1] + _dir[1] * t - _ip[1], pz = _eye[2] + _dir[2] * t - _ip[2];
+    const d2 = px * px + py * py + pz * pz;
+    if (d2 > o.r * o.r) continue;
+    if (t < bestT) { bestT = t; best = o; }
+  }
+  return best;
+}
+/* ===================== 17. 待发弹药架（自动补充） ===================== */
+const rack = {
+  shells: [true, true, true], shellT: [0, 0, 0],
+  bagSlots: [true, true, true, true, true, true], bagT: [0, 0, 0, 0, 0, 0]
+};
+function updateRack(dt) {
+  for (let i = 0; i < 3; i++) if (!rack.shells[i]) {
+    rack.shellT[i] -= dt;
+    if (rack.shellT[i] <= 0) { rack.shells[i] = true; sfx.clank(0.35); }
+  }
+  for (let i = 0; i < 6; i++) if (!rack.bagSlots[i]) {
+    rack.bagT[i] -= dt;
+    if (rack.bagT[i] <= 0) rack.bagSlots[i] = true;
+  }
+}
+function bagsInRack() { return rack.bagSlots.reduce((a, b) => a + (b ? 1 : 0), 0); }
+
+function takeShell(i) {
+  if (!rack.shells[i]) return toast("该卡位的弹头正在自动补充（" + CFG.rackRefill.toFixed(1) + "s）", "warn");
+  if (player.held) return toast(player.held.kind === "shell" ? "双手已抱着一枚弹头，先送入炮膛" : "手上还抱着推进药，先送入炮膛", "warn");
+  player.held = { kind: "shell", ammo: AMMO[SHELL_SLOTS[i].ammo] };
+  rack.shells[i] = false; rack.shellT[i] = CFG.rackRefill;
+  sfx.clank();
+  toast("取用" + player.held.ammo.name + "：" + player.held.ammo.tip + "。待发架将自动补充。");
+}
+function takeBag() {
+  if (player.held && player.held.kind === "shell") return toast("双手抱着弹头，无法再拿推进药", "warn");
+  const n = player.held ? player.held.n : 0;
+  if (n >= CFG.maxBags) return toast("最多同时抱取 " + CFG.maxBags + " 袋推进药", "warn");
+  let idx = -1;
+  for (let i = 5; i >= 0; i--) if (rack.bagSlots[i]) { idx = i; break; }
+  if (idx < 0) return toast("推进药架正在自动补充", "warn");
+  rack.bagSlots[idx] = false; rack.bagT[idx] = CFG.rackRefill * 0.75;
+  player.held = { kind: "bags", n: n + 1 };
+  sfx.cloth();
+}
+function atLoadAngle() { return Math.abs(gun.elev) <= 0.6; }
+function toggleBreech() {
+  if (gun.recoil > 0.05) return toast("炮身正在复进，稍候", "warn");
+  if (!gun.breechOpen) {
+    if (!atLoadAngle()) return toast("必须先把火炮降回 0° 定角装填位才能开闩（把手推到底 + 阀门归零）", "bad", 5);
+    gun.breechOpen = true; sfx.breech();
+    toast("炮闩已打开。装填顺序：先弹头，后推进药。");
+  } else {
+    gun.breechOpen = false; sfx.breech();
+    if (gun.loaded && gun.bags > 0) toast("炮闩闭锁完成 —— 现在可以抬升射角并击发。装药 " + gun.bags + " 袋。");
+    else toast("炮闩闭锁（膛内" + (gun.loaded ? "仅有弹头，无推进药" : "空") + "）", "warn");
+  }
+}
+function chamberHint() {
+  if (!gun.breechOpen) return "炮闩未打开，无法装填";
+  if (!atLoadAngle()) return "需回到 0° 定角装填位";
+  if (player.held && player.held.kind === "shell") return gun.loaded ? "膛内已有弹头" : "将" + player.held.ammo.name + "推入炮膛";
+  if (player.held && player.held.kind === "bags") return gun.loaded ? "装入 " + player.held.n + " 袋推进药" : "先装弹头，再装推进药";
+  return "膛内：" + (gun.loaded ? gun.loaded.name : "空") + " / 推进药 " + gun.bags + " 袋";
+}
+function loadIntoChamber() {
+  if (!gun.breechOpen) return toast("炮闩未打开", "warn");
+  if (!atLoadAngle()) return toast("必须在 0° 定角装填位装填", "warn");
+  if (!player.held) return toast("手上没有可装填的物品（到待发架取弹头或推进药）", "warn");
+  if (player.held.kind === "shell") {
+    if (gun.loaded) return toast("膛内已有弹头，需先装药击发", "warn");
+    gun.loaded = player.held.ammo; player.held = null; sfx.ram();
+    toast("弹头已推入炮膛：" + gun.loaded.name + "（杀伤半径 " + gun.loaded.radius + "m）");
+  } else {
+    if (!gun.loaded) return toast("必须先装入弹头，再装推进药", "warn");
+    const room = CFG.maxBags - gun.bags;
+    if (room <= 0) return toast("药室已满（" + CFG.maxBags + " 袋）", "warn");
+    const put = Math.min(room, player.held.n);
+    gun.bags += put;
+    player.held = (player.held.n - put > 0) ? { kind: "bags", n: player.held.n - put } : null;
+    sfx.cloth(0.6);
+    const T = BAL.table[gun.bags - 1];
+    toast("装入 " + put + " 袋推进药 → 当前 " + gun.bags + " 袋（初速 " + T.v0 + " m/s，最大射程 " + fmtKM(T.maxRange) + "）");
+  }
+}
+function fireHint() {
+  if (gun.breechOpen) return "炮闩未闭锁";
+  if (!gun.loaded) return "膛内无弹头";
+  if (gun.bags <= 0) return "膛内无推进药";
+  if (gun.recoil > 0.05) return "炮身复进中";
+  return "拉发火绳 —— 击发！";
+}
+function canFire() { return !gun.breechOpen && gun.loaded && gun.bags > 0 && gun.recoil <= 0.05; }
+
+/* ===================== 18. 炮弹 / 爆炸 ===================== */
+const shells = [];      // 飞行中的炮弹
+const explosions = [];  // 爆炸特效
+const scorches = [];    // 弹坑痕迹
+const flashes = [];     // 炮口焰
+let camShake = 0;
+
+function pullLanyard() {
+  if (!canFire()) return toast(fireHint(), "warn");
+  if (shells.length >= 6) return toast("同时飞行的炮弹过多", "warn");
+  const charge = gun.bags, ammo = gun.loaded, elev = gun.elev, az = gun.az;
+  const dir = [Math.sin(az * DEG), 0, -Math.cos(az * DEG)];
+  const sh = {
+    ammo, charge, az, elev, dir, s: BAL.launchState(charge, elev),
+    acc: 0, trail: [], no: ++gun.shotNo, tFire: state.clock
+  };
+  shells.push(sh);
+  gun.loaded = null; gun.bags = 0;
+  gun.recoilVel = 9.5; camShake = 1;
+  flashes.push({ t: 0, dur: 0.22 });
+  sfx.boom();
+  const pred = BAL.fly(charge, elev);
+  notebook.add("射击", `第 ${sh.no} 发 ${ammo.name}｜装药 ${charge} 袋｜方位 ${norm360(az).toFixed(1)}°｜仰角 ${elev.toFixed(2)}°｜预计落点 ${fmtInt(pred.range)} m / 飞行 ${pred.tof.toFixed(1)} s`);
+  toast(`第 ${sh.no} 发已击发：${ammo.name}，装药 ${charge} 袋，仰角 ${elev.toFixed(2)}°，预计飞行 ${pred.tof.toFixed(1)} 秒`, "", 5);
+  mapTable.dirty = true;
+  return true;
+}
+function shellWorld(sh, out) {
+  out[0] = GUN.x + sh.dir[0] * sh.s.d;
+  out[1] = sh.s.y;
+  out[2] = GUN.z + sh.dir[2] * sh.s.d;
+  return out;
+}
+function updateShells(dt) {
+  for (let i = shells.length - 1; i >= 0; i--) {
+    const sh = shells[i];
+    sh.acc += dt;
+    let guard = 0;
+    while (sh.acc >= BAL.DT && guard++ < 4000) {
+      const pd = sh.s.d, py = sh.s.y;
+      BAL.step(sh.s, BAL.DT);
+      sh.acc -= BAL.DT;
+      const wx = GUN.x + sh.dir[0] * sh.s.d, wz = GUN.z + sh.dir[2] * sh.s.d;
+      const gy = heightAt(wx, wz);
+      if (sh.s.y <= gy && sh.s.t > 0.4) {
+        const f = (py - gy) / Math.max(py - sh.s.y, 1e-9);
+        const d = pd + (sh.s.d - pd) * f;
+        impact(sh, GUN.x + sh.dir[0] * d, gy, GUN.z + sh.dir[2] * d, d, sh.s.t - BAL.DT * (1 - f));
+        shells.splice(i, 1);
+        guard = 1e9; break;
+      }
+      if (sh.trail.length === 0 || sh.s.d - sh.trail[sh.trail.length - 1][3] > 45) {
+        sh.trail.push([wx, sh.s.y, wz, sh.s.d]);
+        if (sh.trail.length > 900) sh.trail.shift();
+      }
+    }
+    if (guard < 1e9) mapTable.dirty = true;
+  }
+}
+function impact(sh, ix, iy, iz, range, tof) {
+  const A = sh.ammo;
+  const killed = [], immune = [];
+  for (const t of targets) {
+    if (!t.alive) continue;
+    const d = Math.hypot(t.x - ix, t.z - iz);
+    if (d <= A.radius) {
+      if (A.kills[t.cls]) {
+        t.alive = false; t.killedBy = A.id; t.killTime = state.clock; killCount++;
+        killed.push(t);
+      } else immune.push(t);
+    }
+  }
+  explosions.push({ x: ix, y: iy, z: iz, r: A.radius, t: 0, ammo: A });
+  scorches.push({ x: ix, y: iy, z: iz, r: A.radius });
+  while (scorches.length > 26) scorches.shift();
+  const rec = {
+    no: sh.no, x: ix, z: iz, r: A.radius, ammo: A.id, range, tof,
+    az: norm360(Math.atan2(ix - GUN.x, -(iz - GUN.z)) * RAD), kills: killed.length, t: state.clock
+  };
+  mapTable.impacts.push(rec);
+  while (mapTable.impacts.length > 40) mapTable.impacts.shift();
+  mapTable.dirty = true;
+  sfx.impact(range);
+  let msg = `第 ${sh.no} 发落点：距离 ${fmtInt(range)} m，方位 ${rec.az.toFixed(1)}°，飞行 ${tof.toFixed(1)} s`;
+  if (killed.length) msg += ` —— 击毁 ${killed.length} 个目标（${killed.map(t => TCLASS[t.cls].name).join("、")}）`;
+  else msg += " —— 未命中任何目标";
+  if (immune.length) msg += `；另有 ${immune.length} 个目标在杀伤范围内但${A.name}无法击毁（${immune.map(t => TCLASS[t.cls].name).join("、")}）`;
+  toast(msg, killed.length ? "" : "warn", 8);
+  notebook.add("弹着", msg);
+  if (killed.length) sfx.radio(0.5);
+  state.lastImpact = rec;
+  if (aliveTargets().length === 0) {
+    setTimeout(() => {
+      toast("战区已无存活目标，新一波目标正在进入…", "warn", 6);
+      spawnWave(true);
+    }, 1600);
+  }
+}
+function updateEffects(dt, dtScaled) {
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    explosions[i].t += dtScaled;
+    if (explosions[i].t > 9) explosions.splice(i, 1);
+  }
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    flashes[i].t += dt;
+    if (flashes[i].t > flashes[i].dur) flashes.splice(i, 1);
+  }
+  // 后坐复进
+  gun.recoilVel -= (36 * gun.recoil + 6.2 * gun.recoilVel) * dt;
+  gun.recoil += gun.recoilVel * dt;
+  if (gun.recoil >= CFG.recoilMax) { gun.recoil = CFG.recoilMax; gun.recoilVel = Math.min(0, gun.recoilVel); }
+  if (gun.recoil < 0) { gun.recoil = 0; gun.recoilVel = 0; }
+  camShake = Math.max(0, camShake - dt * 2.2);
+}
+
+/* ===================== 19. 火炮机构随动 ===================== */
+function updateGun(dt) {
+  if (Math.abs(gun.leverTilt) > 0.1) {
+    const rate = Math.abs(gun.leverTilt) > 0.55 ? CFG.traverseRate : CFG.traverseSlow;
+    gun.az = norm360(gun.az + Math.sign(gun.leverTilt) * rate * dt);
+    mapTable.dirty = true;
+  }
+  if (player.station !== "lever") gun.leverTilt *= Math.exp(-9 * dt);
+  const tgt = gunElevTarget();
+  if (Math.abs(gun.elev - tgt) > 1e-5) {
+    if (gun.breechOpen) {
+      if (state.clock - gun.interlockMsgT > 6) {
+        gun.interlockMsgT = state.clock;
+        toast("高低机联锁：炮闩打开时禁止抬升炮身", "warn");
+      }
+    } else {
+      const step = CFG.elevRate * dt;
+      gun.elev += clamp(tgt - gun.elev, -step, step);
+      if (Math.abs(gun.elev - tgt) < 1e-5) gun.elev = tgt;
+    }
+  }
+}
+/* ===================== 20. 地图作业桌 ===================== */
+const mapTable = {
+  dirty: true, lastPaint: -99,
+  cx: 0, cz: 0, span: 80000,
+  lines: [], impacts: [], lineSeq: 0, activeLine: null,
+  drag: null, preview: null
+};
+function mapW2C(x, z) {
+  const s = 1024 / mapTable.span;
+  return [(x - mapTable.cx) * s + 512, (z - mapTable.cz) * s + 512];
+}
+function mapC2W(px, py) {
+  const s = mapTable.span / 1024;
+  return [(px - 512) * s + mapTable.cx, (py - 512) * s + mapTable.cz];
+}
+function drawGlyph(g, px, py, cls, size) {
+  g.beginPath();
+  if (cls === "circle") g.arc(px, py, size, 0, 7);
+  else if (cls === "tri") { g.moveTo(px, py - size * 1.15); g.lineTo(px + size, py + size * 0.75); g.lineTo(px - size, py + size * 0.75); g.closePath(); }
+  else { g.rect(px - size * 0.9, py - size * 0.9, size * 1.8, size * 1.8); }
+}
+function paintMap() {
+  const g = mapCanvas.getContext("2d"), W = 1024;
+  const s = W / mapTable.span;
+  g.fillStyle = "#20261b"; g.fillRect(0, 0, W, W);
+  /* 地形底色 */
+  g.fillStyle = "#2b3423"; g.fillRect(0, 0, W, W);
+  /* 公里网 */
+  let step = 5000;
+  if (mapTable.span <= 8000) step = 500; else if (mapTable.span <= 20000) step = 1000;
+  else if (mapTable.span <= 50000) step = 2000;
+  const [wx0, wz0] = mapC2W(0, 0), [wx1, wz1] = mapC2W(W, W);
+  g.lineWidth = 1; g.font = "12px " + FONT_MONO; g.textBaseline = "top";
+  for (let x = Math.ceil(wx0 / step) * step; x < wx1; x += step) {
+    const p = mapW2C(x, 0)[0];
+    const major = Math.abs(x % (step * 5)) < 1;
+    g.strokeStyle = major ? "rgba(150,175,130,.30)" : "rgba(150,175,130,.14)";
+    g.beginPath(); g.moveTo(p, 0); g.lineTo(p, W); g.stroke();
+    if (major) { g.fillStyle = "rgba(190,210,170,.55)"; g.textAlign = "left"; g.fillText((x / 1000).toFixed(0) + "E", p + 3, 4); }
+  }
+  for (let z = Math.ceil(wz0 / step) * step; z < wz1; z += step) {
+    const p = mapW2C(0, z)[1];
+    const major = Math.abs(z % (step * 5)) < 1;
+    g.strokeStyle = major ? "rgba(150,175,130,.30)" : "rgba(150,175,130,.14)";
+    g.beginPath(); g.moveTo(0, p); g.lineTo(W, p); g.stroke();
+    if (major) { g.fillStyle = "rgba(190,210,170,.55)"; g.textAlign = "left"; g.fillText((-z / 1000).toFixed(0) + "N", 4, p + 3); }
+  }
+  const [gx, gy] = mapW2C(GUN.x, GUN.z);
+  /* 各装药最大射程弧 */
+  g.setLineDash([7, 7]);
+  for (let i = 0; i < 6; i++) {
+    const R = BAL.table[i].maxRange * s;
+    if (R < 26 || R > 3200) continue;
+    g.strokeStyle = i === 5 ? "rgba(226,196,110,.42)" : "rgba(150,190,150,.22)";
+    g.lineWidth = 1.4;
+    g.beginPath(); g.arc(gx, gy, R, 0, 7); g.stroke();
+    g.fillStyle = "rgba(210,225,180,.5)"; g.font = "12px " + FONT_MONO; g.textAlign = "center";
+    if (R > 60) g.fillText("装药" + (i + 1) + " " + (BAL.table[i].maxRange / 1000).toFixed(1) + "km", gx, gy - R - 14);
+  }
+  g.setLineDash([]);
+  /* 距离环 */
+  const ringStep = mapTable.span <= 12000 ? 1000 : 5000;
+  for (let r = ringStep; r <= 60000; r += ringStep) {
+    const R = r * s; if (R < 22 || R > 2400) continue;
+    g.strokeStyle = "rgba(120,170,190,.20)"; g.lineWidth = 1;
+    g.beginPath(); g.arc(gx, gy, R, 0, 7); g.stroke();
+    g.fillStyle = "rgba(150,200,215,.45)"; g.font = "11px " + FONT_MONO; g.textAlign = "left";
+    g.fillText((r / 1000) + "km", gx + R * 0.7071 + 2, gy - R * 0.7071);
+  }
+  /* 方位射线 */
+  for (let a = 0; a < 360; a += 30) {
+    const L = 3000;
+    g.strokeStyle = "rgba(120,170,190,.16)"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(gx, gy);
+    g.lineTo(gx + Math.sin(a * DEG) * L, gy - Math.cos(a * DEG) * L); g.stroke();
+  }
+  /* 炮口指向 */
+  g.strokeStyle = "rgba(255,214,120,.85)"; g.lineWidth = 2; g.setLineDash([12, 6]);
+  const maxR = (gun.bags > 0 ? BAL.table[gun.bags - 1].maxRange : BAL.table[5].maxRange) * s;
+  g.beginPath(); g.moveTo(gx, gy);
+  g.lineTo(gx + Math.sin(gun.az * DEG) * maxR, gy - Math.cos(gun.az * DEG) * maxR); g.stroke();
+  g.setLineDash([]);
+  /* 弹着与杀伤范围 */
+  for (const im of mapTable.impacts) {
+    const [px, py] = mapW2C(im.x, im.z);
+    const R = Math.max(2.5, im.r * s);
+    const A = AMMO[im.ammo];
+    g.fillStyle = `rgba(${Math.round(A.color[0] * 255 + 60)},${Math.round(A.color[1] * 255 + 40)},${Math.round(A.color[2] * 255 + 40)},.24)`;
+    g.beginPath(); g.arc(px, py, R, 0, 7); g.fill();
+    g.strokeStyle = im.kills ? "rgba(255,120,90,.95)" : "rgba(230,200,120,.8)";
+    g.lineWidth = 2; g.beginPath(); g.arc(px, py, R, 0, 7); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.6)"; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(px - 6, py); g.lineTo(px + 6, py); g.moveTo(px, py - 6); g.lineTo(px, py + 6); g.stroke();
+    g.fillStyle = "rgba(255,235,200,.9)"; g.font = "bold 13px " + FONT_MONO; g.textAlign = "left";
+    g.fillText("#" + im.no + " " + A.short, px + R + 4, py - 4);
+  }
+  /* 目标 */
+  for (const t of targets) {
+    const [px, py] = mapW2C(t.x, t.z);
+    if (px < -40 || py < -40 || px > W + 40 || py > W + 40) continue;
+    const T = TCLASS[t.cls];
+    if (t.alive) {
+      g.lineWidth = 2.6; g.strokeStyle = "#e8523a";
+      g.fillStyle = `rgba(${Math.round(T.color[0] * 255)},${Math.round(T.color[1] * 255)},${Math.round(T.color[2] * 255)},.85)`;
+      drawGlyph(g, px, py, T.glyph, 9); g.fill(); g.stroke();
+      g.fillStyle = "rgba(255,225,200,.92)"; g.font = "bold 13px " + FONT_MONO; g.textAlign = "left";
+      g.fillText("T" + t.id, px + 12, py - 12);
+      g.fillStyle = "rgba(220,230,200,.72)"; g.font = "11px " + FONT_MONO;
+      g.fillText(fmtInt(targetDist(t)) + "m " + targetAz(t).toFixed(1) + "°", px + 12, py + 2);
+    } else {
+      /* 击杀标记（保留） */
+      g.strokeStyle = "#8d99a6"; g.lineWidth = 2.2;
+      g.beginPath(); g.moveTo(px - 8, py - 8); g.lineTo(px + 8, py + 8); g.moveTo(px + 8, py - 8); g.lineTo(px - 8, py + 8); g.stroke();
+      g.strokeStyle = "rgba(140,155,165,.55)"; g.lineWidth = 1.2;
+      drawGlyph(g, px, py, T.glyph, 11); g.stroke();
+      g.fillStyle = "rgba(160,175,180,.75)"; g.font = "11px " + FONT_MONO; g.textAlign = "left";
+      g.fillText("已击毁 " + (t.killedBy ? AMMO[t.killedBy].short : ""), px + 13, py + 3);
+    }
+  }
+  /* 飞行中的炮弹 */
+  for (const sh of shells) {
+    if (sh.trail.length > 1) {
+      g.strokeStyle = "rgba(255,240,170,.75)"; g.lineWidth = 2;
+      g.beginPath();
+      for (let i = 0; i < sh.trail.length; i++) {
+        const [px, py] = mapW2C(sh.trail[i][0], sh.trail[i][2]);
+        i ? g.lineTo(px, py) : g.moveTo(px, py);
+      }
+      g.stroke();
+    }
+    const wx = GUN.x + sh.dir[0] * sh.s.d, wz = GUN.z + sh.dir[2] * sh.s.d;
+    const [px, py] = mapW2C(wx, wz);
+    g.fillStyle = "#fff3b0"; g.beginPath(); g.arc(px, py, 5, 0, 7); g.fill();
+    g.strokeStyle = "#ff9d4a"; g.lineWidth = 2; g.beginPath(); g.arc(px, py, 9, 0, 7); g.stroke();
+    g.fillStyle = "rgba(255,245,200,.95)"; g.font = "bold 12px " + FONT_MONO; g.textAlign = "left";
+    g.fillText(`#${sh.no} ${fmtInt(sh.s.d)}m H${fmtInt(sh.s.y)}m T${sh.s.t.toFixed(0)}s`, px + 12, py + 4);
+  }
+  /* 攻击指示线 */
+  const drawLine = (L, active) => {
+    const [x0, y0] = mapW2C(L.x0, L.z0), [x1, y1] = mapW2C(L.x1, L.z1);
+    g.strokeStyle = active ? "#ffd45e" : "rgba(255,120,110,.9)";
+    g.lineWidth = active ? 3 : 2.2;
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    const a = Math.atan2(y1 - y0, x1 - x0);
+    g.beginPath();
+    g.moveTo(x1, y1);
+    g.lineTo(x1 - Math.cos(a - 0.4) * 16, y1 - Math.sin(a - 0.4) * 16);
+    g.moveTo(x1, y1);
+    g.lineTo(x1 - Math.cos(a + 0.4) * 16, y1 - Math.sin(a + 0.4) * 16);
+    g.stroke();
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const label = `${L.az.toFixed(1)}° / ${fmtInt(L.dist)}m`;
+    g.font = "bold 14px " + FONT_MONO; g.textAlign = "center";
+    const tw = g.measureText(label).width;
+    g.fillStyle = "rgba(15,20,14,.8)"; g.fillRect(mx - tw / 2 - 5, my - 20, tw + 10, 19);
+    g.fillStyle = active ? "#ffe38a" : "#ffd0c0"; g.fillText(label, mx, my - 6);
+  };
+  for (const L of mapTable.lines) drawLine(L, L === mapTable.activeLine);
+  if (mapTable.preview) drawLine(mapTable.preview, true);
+  /* 炮位 */
+  g.strokeStyle = "#7fe0ff"; g.lineWidth = 3;
+  g.beginPath(); g.arc(gx, gy, 11, 0, 7); g.stroke();
+  g.beginPath(); g.moveTo(gx - 16, gy); g.lineTo(gx + 16, gy); g.moveTo(gx, gy - 16); g.lineTo(gx, gy + 16); g.stroke();
+  g.fillStyle = "#7fe0ff"; g.font = "bold 14px " + FONT_MONO; g.textAlign = "left";
+  g.fillText("我方 203mm 榴弹炮", gx + 18, gy + 22);
+  /* 图廓与图例 */
+  g.strokeStyle = "rgba(230,240,210,.5)"; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, W - 6);
+  g.fillStyle = "rgba(12,16,11,.82)"; g.fillRect(12, W - 132, 322, 120);
+  g.strokeStyle = "rgba(200,215,180,.4)"; g.lineWidth = 1.5; g.strokeRect(12, W - 132, 322, 120);
+  g.font = "bold 15px " + FONT_CN; g.fillStyle = "#d6e2c6"; g.textAlign = "left"; g.textBaseline = "top";
+  g.fillText(ACTIVE_MAP.name + "　图例", 22, W - 126);
+  g.font = "13px " + FONT_CN;
+  let yy = W - 102;
+  for (const k of ["soft", "armor", "bunker"]) {
+    const T = TCLASS[k];
+    g.fillStyle = `rgba(${Math.round(T.color[0] * 255)},${Math.round(T.color[1] * 255)},${Math.round(T.color[2] * 255)},.9)`;
+    g.strokeStyle = "#e8523a"; g.lineWidth = 2;
+    drawGlyph(g, 32, yy + 7, T.glyph, 7); g.fill(); g.stroke();
+    g.fillStyle = "#cdd8bd"; g.fillText(T.name + "（" + (k === "soft" ? "HE/HEAT/AP 均可" : k === "armor" ? "需 HEAT 或 AP" : "仅 AP 可摧毁") + "）", 48, yy);
+    yy += 21;
+  }
+  g.fillStyle = "#9fb08f"; g.font = "12px " + FONT_MONO;
+  g.fillText("✕ = 已击毁（保留标记）　比例 " + (mapTable.span / 1000).toFixed(0) + "km 幅宽", 22, yy + 2);
+  /* 图名框 */
+  g.fillStyle = "rgba(12,16,11,.82)"; g.fillRect(W - 300, 12, 288, 92);
+  g.strokeRect(W - 300, 12, 288, 92);
+  g.fillStyle = "#d6e2c6"; g.font = "bold 16px " + FONT_CN; g.fillText("炮兵作业图", W - 290, 20);
+  g.font = "13px " + FONT_MONO; g.fillStyle = "#b7c8a8";
+  g.fillText("炮位方位 " + norm360(gun.az).toFixed(1) + "°  仰角 " + gun.elev.toFixed(2) + "°", W - 290, 44);
+  g.fillText("累计击毁 " + killCount + "　波次 " + waveNo + "　存活 " + aliveTargets().length, W - 290, 64);
+  g.fillText("N↑  1 格 = " + (step >= 1000 ? (step / 1000) + " km" : step + " m"), W - 290, 84);
+  TEX.maptable.upload();
+  mapTable.dirty = false;
+  mapTable.lastPaint = state.clock;
+}
+function addMapLine(x0, z0, x1, z1, silent) {
+  const dist = Math.hypot(x1 - x0, z1 - z0);
+  const az = norm360(Math.atan2(x1 - x0, -(z1 - z0)) * RAD);
+  const L = { id: ++mapTable.lineSeq, x0, z0, x1, z1, dist, az };
+  mapTable.lines.push(L);
+  if (mapTable.lines.length > 12) mapTable.lines.shift();
+  mapTable.activeLine = L;
+  mapTable.dirty = true;
+  if (!silent) {
+    notebook.add("测算", `指示线 L${L.id}：方位 ${az.toFixed(1)}°，距离 ${fmtInt(dist)} m（${(dist / 1000).toFixed(2)} km）`);
+    toast(`指示线 L${L.id}：方位 ${az.toFixed(1)}°，距离 ${fmtInt(dist)} m —— 已记入笔记本`);
+  }
+  renderLineList();
+  return L;
+}
+function deleteMapLine(id) {
+  const i = mapTable.lines.findIndex(l => l.id === id);
+  if (i < 0) return;
+  if (mapTable.lines[i] === mapTable.activeLine) mapTable.activeLine = null;
+  mapTable.lines.splice(i, 1);
+  mapTable.dirty = true; renderLineList();
+}
+/* ===================== 21. 随身笔记本（按条删除） ===================== */
+const notebook = {
+  entries: [], seq: 0,
+  add(tag, text) {
+    this.entries.unshift({ id: ++this.seq, clock: nowClock(), tag, text });
+    while (this.entries.length > 120) this.entries.pop();
+    if (state.overlay === "nb") this.render();
+    $("nbcount").textContent = "共 " + this.entries.length + " 条";
+    return this.entries[0];
+  },
+  del(id) {
+    const i = this.entries.findIndex(e => e.id === id);
+    if (i >= 0) { this.entries.splice(i, 1); this.render(); toast("已删除 1 条笔记"); }
+  },
+  clear() { this.entries.length = 0; this.render(); toast("笔记本已清空"); },
+  render() {
+    const ul = $("nblist"); ul.innerHTML = "";
+    $("nbempty").style.display = this.entries.length ? "none" : "block";
+    $("nbcount").textContent = "共 " + this.entries.length + " 条";
+    for (const e of this.entries) {
+      const li = document.createElement("li");
+      const t = document.createElement("span"); t.className = "t"; t.textContent = e.clock;
+      const x = document.createElement("span"); x.className = "x";
+      const tg = document.createElement("span"); tg.className = "tagn"; tg.textContent = e.tag;
+      x.appendChild(tg); x.appendChild(document.createTextNode(e.text));
+      const b = document.createElement("button"); b.className = "del"; b.textContent = "删除";
+      b.onclick = () => notebook.del(e.id);
+      li.appendChild(t); li.appendChild(x); li.appendChild(b);
+      ul.appendChild(li);
+    }
+  }
+};
+
+/* ===================== 22. 机械式射表计算机 ===================== */
+const comp = {
+  charge: 3, range: 12000, lastSolution: null,
+  digits: [10000, 1000, 100, 10, 1],
+  setRange(v) { this.range = clamp(Math.round(v), 0, 49999); this.render(); },
+  solve() {
+    const low = BAL.solve(this.charge, this.range, false);
+    const high = BAL.solve(this.charge, this.range, true);
+    const T = BAL.table[this.charge - 1];
+    this.lastSolution = low ? {
+      ok: true, charge: this.charge, range: this.range,
+      low: low.angle, lowT: low.tof, lowOK: low.reachable,
+      high: high ? high.angle : null, highT: high ? high.tof : null, highOK: high ? high.reachable : false
+    } : { ok: false, charge: this.charge, range: this.range, maxRange: T.maxRange };
+    sfx.crank();
+    this.render(); paintCompDisp();
+    return this.lastSolution;
+  },
+  toNote() {
+    const s = this.lastSolution;
+    if (!s) return toast("请先摇动手柄解算", "warn");
+    if (!s.ok) { notebook.add("解算", `装药 ${s.charge} 袋 / 距离 ${fmtInt(s.range)} m：超出射程（该装药最大 ${fmtInt(s.maxRange)} m）`); return toast("已记入笔记本"); }
+    notebook.add("解算", `装药 ${s.charge} 袋 / 距离 ${fmtInt(s.range)} m → 低角 ${s.low.toFixed(2)}°（${s.lowT.toFixed(1)}s）${s.high != null ? "｜高角 " + s.high.toFixed(2) + "°（" + s.highT.toFixed(1) + "s）" + (s.highOK ? "" : "[超仰角上限]") : ""}`);
+    toast("解算结果已记入笔记本");
+  },
+  render() {
+    // 装药盘
+    const kn = $("compcharge"); kn.innerHTML = "";
+    for (let c = 1; c <= 6; c++) {
+      const b = document.createElement("button");
+      b.textContent = c + " 袋"; if (c === this.charge) b.className = "sel";
+      b.onclick = () => { comp.charge = c; sfx.tick(); comp.render(); };
+      kn.appendChild(b);
+    }
+    const T = BAL.table[this.charge - 1];
+    $("compchargenote").textContent = `初速 ${T.v0} m/s　最大射程 ${fmtInt(T.maxRange)} m（${(T.maxRange / 1000).toFixed(2)} km）@ ${T.optAngle.toFixed(1)}°`;
+    // 距离输入鼓
+    const dr = $("compdrum"); dr.innerHTML = "";
+    const digs = String(this.range).padStart(5, "0").split("");
+    this.digits.forEach((place, i) => {
+      const d = document.createElement("div"); d.className = "digit";
+      const up = document.createElement("button"); up.textContent = "▲";
+      up.onclick = () => { sfx.tick(); comp.setRange(comp.range + place); };
+      const dv = document.createElement("div"); dv.className = "dv"; dv.textContent = digs[i];
+      const dn = document.createElement("button"); dn.textContent = "▼";
+      dn.onclick = () => { sfx.tick(); comp.setRange(comp.range - place); };
+      const lb = document.createElement("div"); lb.className = "lbl";
+      lb.textContent = place >= 1000 ? (place / 1000) + "k" : place + "m";
+      d.appendChild(up); d.appendChild(dv); d.appendChild(dn); d.appendChild(lb);
+      dr.appendChild(d);
+    });
+    // 输出
+    const s = this.lastSolution;
+    const setOut = (idNum, idTxt, ang, tof, ok) => {
+      if (ang == null) { $(idNum).textContent = "--.--"; $(idTxt).textContent = "无解"; return; }
+      $(idNum).textContent = ang.toFixed(2);
+      $(idTxt).textContent = "飞行 " + tof.toFixed(1) + " s" + (ok ? "" : "　⚠ 超出火炮仰角上限 " + CFG.elevMax + "°");
+    };
+    if (!s) { setOut("outlow", "outlowt", null); setOut("outhigh", "outhight", null); $("compmsg").textContent = "选择装药量与目标距离后，摇动手柄。"; }
+    else if (!s.ok) {
+      setOut("outlow", "outlowt", null); setOut("outhigh", "outhight", null);
+      $("compmsg").innerHTML = `<b style="color:#e0a08a">距离 ${fmtInt(s.range)} m 超出装药 ${s.charge} 袋的最大射程 ${fmtInt(s.maxRange)} m —— 请增加装药量。</b>`;
+    } else {
+      setOut("outlow", "outlowt", s.low, s.lowT, s.lowOK);
+      setOut("outhigh", "outhight", s.high, s.highT, s.highOK);
+      $("compmsg").innerHTML = `装药 <b>${s.charge}</b> 袋 · 距离 <b>${fmtInt(s.range)}</b> m：把火炮仰角调到上述任一角度即可命中同高度目标（装药越多，同距离所需仰角越低、弹道越平）。`;
+    }
+  }
+};
+
+/* ===================== 23. 提示条 ===================== */
+function toast(msg, cls, secs) {
+  const d = document.createElement("div");
+  d.className = "toast" + (cls ? " " + cls : "");
+  d.textContent = msg;
+  const box = $("toasts");
+  box.appendChild(d);
+  while (box.children.length > 5) box.removeChild(box.firstChild);
+  setTimeout(() => { d.style.transition = "opacity .5s"; d.style.opacity = "0"; setTimeout(() => d.remove(), 500); }, (secs || 4.5) * 1000);
+}
+
+/* ===================== 24. 音效（WebAudio 合成，无外部文件） ===================== */
+const sfx = {
+  ctx: null, on: true, noise: null,
+  ensure() {
+    if (this.ctx) { if (this.ctx.state === "suspended") this.ctx.resume(); return this.ctx; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    this.ctx = new AC();
+    const len = this.ctx.sampleRate * 2;
+    this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = this.noise.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return this.ctx;
+  },
+  env(node, t0, a, dcy, peak) {
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + a);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + a + dcy);
+    node.connect(g); g.connect(this.ctx.destination);
+    return g;
+  },
+  nz(t0, dur, freq, q, peak, type) {
+    const c = this.ctx, src = c.createBufferSource();
+    src.buffer = this.noise; src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = type || "lowpass"; f.frequency.setValueAtTime(freq, t0); f.Q.value = q || 1;
+    src.connect(f);
+    this.env(f, t0, 0.004, dur, peak);
+    src.start(t0); src.stop(t0 + dur + 0.1);
+    return f;
+  },
+  tone(t0, f0, f1, dur, peak, type) {
+    const c = this.ctx, o = c.createOscillator();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t0);
+    o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t0 + dur);
+    this.env(o, t0, 0.006, dur, peak);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  },
+  boom() {
+    if (!this.on || !this.ensure()) return;
+    const t = this.ctx.currentTime;
+    this.tone(t, 120, 26, 1.9, 0.85);
+    this.tone(t + 0.005, 58, 20, 2.6, 0.55);
+    this.nz(t, 0.5, 900, 0.7, 0.75);
+    this.nz(t + 0.02, 2.2, 220, 0.5, 0.30);
+    this.nz(t + 0.35, 2.6, 90, 0.4, 0.12);
+  },
+  impact(dist) {
+    if (!this.on || !this.ensure()) return;
+    const delay = Math.min(dist / 343 / Math.max(timeScale(), 1), 22);
+    setTimeout(() => {
+      if (!this.on || !this.ctx) return;
+      const t = this.ctx.currentTime, far = clamp(1 - dist / 42000, 0.12, 1);
+      this.tone(t, 70 * far + 18, 16, 1.6, 0.30 * far + 0.05);
+      this.nz(t, 1.4, 140 + 500 * far, 0.5, 0.22 * far + 0.03);
+    }, delay * 1000);
+  },
+  clank(v) { if (!this.on || !this.ensure()) return; const t = this.ctx.currentTime; this.nz(t, 0.16, 2600, 3, (v || 0.5) * 0.5, "bandpass"); this.tone(t, 620, 300, 0.2, (v || 0.5) * 0.16, "triangle"); },
+  cloth(v) { if (!this.on || !this.ensure()) return; this.nz(this.ctx.currentTime, 0.28, 700, 0.8, (v || 1) * 0.16); },
+  breech() { if (!this.on || !this.ensure()) return; const t = this.ctx.currentTime; this.nz(t, 0.34, 1500, 1.4, 0.34, "bandpass"); this.tone(t + 0.24, 240, 120, 0.28, 0.3, "square"); },
+  ram() { if (!this.on || !this.ensure()) return; const t = this.ctx.currentTime; this.nz(t, 0.3, 420, 1.2, 0.4); this.tone(t + 0.16, 180, 70, 0.4, 0.35, "triangle"); },
+  crank() { if (!this.on || !this.ensure()) return; const t = this.ctx.currentTime; for (let i = 0; i < 7; i++) this.nz(t + i * 0.055, 0.05, 3200, 6, 0.16, "bandpass"); },
+  tick() { if (!this.on || !this.ensure()) return; this.nz(this.ctx.currentTime, 0.04, 4200, 8, 0.14, "bandpass"); },
+  radio(v) {
+    if (!this.on || !this.ensure()) return;
+    const t = this.ctx.currentTime;
+    this.tone(t, 1180, 1180, 0.09, (v || 1) * 0.09, "square");
+    this.tone(t + 0.13, 1560, 1560, 0.09, (v || 1) * 0.09, "square");
+  }
+};
+/* ===================== 25. 覆盖窗口 ===================== */
+const OVS = { start: "ov-start", help: "ov-help", nb: "ov-nb", comp: "ov-comp", table: "ov-table" };
+function openOverlay(name) {
+  if (state.overlay === name) return closeOverlay();
+  if (state.overlay) $(OVS[state.overlay]).classList.remove("show");
+  state.overlay = name;
+  $(OVS[name]).classList.add("show");
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (name === "nb") notebook.render();
+  if (name === "comp") { comp.render(); }
+  if (name === "table") { renderLineList(); renderTargetList(); mapTable.dirty = true; }
+  state.zoom = false;
+}
+function closeOverlay() {
+  if (state.overlay && OVS[state.overlay]) $(OVS[state.overlay]).classList.remove("show");
+  state.overlay = null;
+  if (state.running) canvas.requestPointerLock();
+}
+function renderLineList() {
+  const ul = $("linelist"); if (!ul) return;
+  ul.innerHTML = "";
+  if (!mapTable.lines.length) {
+    const li = document.createElement("li"); li.style.border = "none";
+    li.innerHTML = '<span class="note">尚未绘制指示线。</span>';
+    ul.appendChild(li); return;
+  }
+  for (const L of mapTable.lines.slice().reverse()) {
+    const li = document.createElement("li");
+    if (L === mapTable.activeLine) li.className = "act";
+    const r = document.createElement("div"); r.className = "lr";
+    r.innerHTML = `<span class="mono">L${L.id}　方位 <b>${L.az.toFixed(1)}°</b>　距离 <b>${fmtInt(L.dist)}</b> m</span>`;
+    const bs = document.createElement("span"); bs.className = "tbtns";
+    const b1 = document.createElement("button"); b1.textContent = "选定";
+    b1.onclick = () => { mapTable.activeLine = L; mapTable.dirty = true; renderLineList(); };
+    const b2 = document.createElement("button"); b2.textContent = "→ 计算机";
+    b2.onclick = () => { comp.setRange(L.dist); mapTable.activeLine = L; toast("距离 " + fmtInt(L.dist) + " m 已送入机械计算机"); };
+    const b3 = document.createElement("button"); b3.textContent = "记入笔记";
+    b3.onclick = () => { notebook.add("测算", `指示线 L${L.id}：方位 ${L.az.toFixed(1)}°，距离 ${fmtInt(L.dist)} m`); toast("已记入笔记本"); };
+    const b4 = document.createElement("button"); b4.className = "del"; b4.textContent = "删除";
+    b4.onclick = () => deleteMapLine(L.id);
+    bs.append(b1, b2, b3, b4);
+    li.appendChild(r); li.appendChild(bs);
+    ul.appendChild(li);
+  }
+}
+function renderTargetList() {
+  const ul = $("tgtlist"); if (!ul) return;
+  ul.innerHTML = "";
+  const arr = targets.slice().sort((a, b) => (a.alive === b.alive ? targetDist(a) - targetDist(b) : (a.alive ? -1 : 1)));
+  for (const t of arr) {
+    const T = TCLASS[t.cls];
+    const li = document.createElement("li");
+    if (!t.alive) li.className = "dead";
+    const sq = document.createElement("span"); sq.className = "sq";
+    sq.style.background = `rgb(${Math.round(T.color[0] * 255)},${Math.round(T.color[1] * 255)},${Math.round(T.color[2] * 255)})`;
+    const sp = document.createElement("span");
+    sp.innerHTML = `<span class="mono">T${t.id}</span> ${T.mark} ${T.name}　<span class="mono">${fmtInt(targetDist(t))}m / ${targetAz(t).toFixed(1)}°</span>`;
+    li.appendChild(sq); li.appendChild(sp);
+    li.title = t.alive ? "点击：从炮位向该目标画指示线" : "已击毁";
+    li.onclick = () => {
+      if (!t.alive) return;
+      addMapLine(GUN.x, GUN.z, t.x, t.z);
+      mapTable.cx = (GUN.x + t.x) / 2; mapTable.cz = (GUN.z + t.z) / 2;
+      mapTable.span = clamp(targetDist(t) * 2.4, 3000, 140000);
+      mapTable.dirty = true;
+    };
+    ul.appendChild(li);
+  }
+  $("tablesub").textContent = `存活目标 ${aliveTargets().length} · 累计击毁 ${killCount} · 第 ${waveNo} 波`;
+}
+
+/* ===================== 26. 地图桌鼠标操作 ===================== */
+function mapEventPos(ev) {
+  const r = mapCanvas.getBoundingClientRect();
+  return [(ev.clientX - r.left) / r.width * 1024, (ev.clientY - r.top) / r.height * 1024];
+}
+mapCanvas.addEventListener("contextmenu", e => e.preventDefault());
+mapCanvas.addEventListener("mousedown", ev => {
+  const [px, py] = mapEventPos(ev);
+  const w = mapC2W(px, py);
+  if (ev.button === 2) { mapTable.drag = { pan: true, px, py, cx: mapTable.cx, cz: mapTable.cz }; return; }
+  if (ev.button !== 0) return;
+  // 点到目标 → 直接从炮位画线
+  let hit = null;
+  for (const t of aliveTargets()) {
+    const [tx, ty] = mapW2C(t.x, t.z);
+    if (Math.hypot(tx - px, ty - py) < 16) { hit = t; break; }
+  }
+  if (hit) { addMapLine(GUN.x, GUN.z, hit.x, hit.z); return; }
+  const start = ev.shiftKey ? w : [GUN.x, GUN.z];
+  mapTable.drag = { x0: start[0], z0: start[1] };
+  mapTable.preview = { x0: start[0], z0: start[1], x1: w[0], z1: w[1], dist: 0, az: 0 };
+});
+mapCanvas.addEventListener("mousemove", ev => {
+  const d = mapTable.drag; if (!d) return;
+  const [px, py] = mapEventPos(ev);
+  if (d.pan) {
+    const s = mapTable.span / 1024;
+    mapTable.cx = d.cx - (px - d.px) * s; mapTable.cz = d.cz - (py - d.py) * s;
+    mapTable.dirty = true; return;
+  }
+  const w = mapC2W(px, py);
+  const P = mapTable.preview;
+  P.x1 = w[0]; P.z1 = w[1];
+  P.dist = Math.hypot(P.x1 - P.x0, P.z1 - P.z0);
+  P.az = norm360(Math.atan2(P.x1 - P.x0, -(P.z1 - P.z0)) * RAD);
+  mapTable.dirty = true;
+});
+window.addEventListener("mouseup", ev => {
+  const d = mapTable.drag; if (!d) return;
+  mapTable.drag = null;
+  if (d.pan) return;
+  const P = mapTable.preview; mapTable.preview = null;
+  if (P && P.dist > mapTable.span * 0.004) addMapLine(P.x0, P.z0, P.x1, P.z1);
+  mapTable.dirty = true;
+});
+mapCanvas.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const [px, py] = mapEventPos(ev);
+  const before = mapC2W(px, py);
+  mapTable.span = clamp(mapTable.span * (ev.deltaY > 0 ? 1.18 : 0.847), 1200, 150000);
+  const after = mapC2W(px, py);
+  mapTable.cx += before[0] - after[0]; mapTable.cz += before[1] - after[1];
+  mapTable.dirty = true;
+}, { passive: false });
+
+/* ===================== 27. 输入 ===================== */
+let tickAcc = 0;
+function stationInput(dx, dy) {
+  switch (player.station) {
+    case "lever":
+      gun.leverTilt = clamp(gun.leverTilt + dx * 0.008, -1, 1);
+      break;
+    case "azwheel": {
+      const turns = dx / CFG.pxPerTurn;
+      gun.azWheelAngle += turns * Math.PI * 2;
+      gun.az = norm360(gun.az + turns * CFG.azPerTurn);
+      tickAcc += Math.abs(turns);
+      if (tickAcc > 0.12) { tickAcc = 0; sfx.tick(); }
+      mapTable.dirty = true; break;
+    }
+    case "handle": {
+      const f = clamp(gun.handleFrac - dy * 0.0022, 0, 1);
+      const coarse = clamp(Math.round(f * CFG.elevMax), 0, CFG.elevMax);
+      if (coarse !== gun.elevTargetCoarse) { gun.elevTargetCoarse = coarse; sfx.tick(); }
+      gun.handleFrac = coarse / CFG.elevMax;
+      break;
+    }
+    case "elevwheel": {
+      const turns = dx / CFG.pxPerTurn;
+      gun.elevWheelAngle += turns * Math.PI * 2;
+      gun.elevFine = clamp(gun.elevFine + turns * CFG.elevPerTurn, -6, 6);
+      tickAcc += Math.abs(turns);
+      if (tickAcc > 0.12) { tickAcc = 0; sfx.tick(); }
+      break;
+    }
+  }
+}
+function grabStation(id) {
+  player.station = id;
+  const names = { lever: "方向杆", azwheel: "方位阀门", handle: "射角把手", elevwheel: "仰角阀门" };
+  const tips = {
+    lever: "左右移动鼠标扳动方向杆（越靠边转速越快）",
+    azwheel: "左右移动鼠标转动阀门：一圈 = " + CFG.azPerTurn.toFixed(1) + "° 方位",
+    handle: "上下移动鼠标拉动把手：每格 " + CFG.handleStep + "°，松手后火炮自动随动到该射角",
+    elevwheel: "左右移动鼠标转动阀门：一圈 = " + CFG.elevPerTurn.toFixed(2) + "° 仰角"
+  };
+  $("opmode").style.display = "block";
+  $("opmode").dataset.name = names[id];
+  $("opmode").dataset.tip = tips[id];
+  sfx.clank(0.3);
+}
+function releaseStation() {
+  if (!player.station) return;
+  player.station = null;
+  $("opmode").style.display = "none";
+  sfx.clank(0.25);
+}
+function doInteract() {
+  if (player.station) return releaseStation();
+  const o = pickInteract();
+  if (!o) return;
+  if (o.grab) grabStation(o.grab);
+  else if (o.act) o.act();
+}
+function nearInteract(id, dist) {
+  const o = interactables.find(x => x.id === id);
+  if (!o) return false;
+  interactWorldPos(o, _ip); eyePos(_eye);
+  return Math.hypot(_ip[0] - _eye[0], _ip[1] - _eye[1], _ip[2] - _eye[2]) < (dist || 4.5);
+}
+window.addEventListener("keydown", e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  if (k === "shift") keys["shift"] = true; else keys[k] = true;
+  if (e.key === "Tab") e.preventDefault();
+  if (state.overlay) {
+    if (k === "escape" || (state.overlay === "help" && k === "h") || (state.overlay === "nb" && k === "n")
+      || (state.overlay === "table" && (k === "t" || k === "tab")) || (state.overlay === "comp" && k === "b")) {
+      if (state.overlay !== "start") closeOverlay();
+    }
+    if (state.overlay === "comp" && k === "enter") comp.solve();
+    return;
+  }
+  switch (k) {
+    case "e": doInteract(); break;
+    case "escape": releaseStation(); break;
+    case "f": if (nearInteract("breech", 4.0)) toggleBreech(); else toast("离炮闩太远", "warn"); break;
+    case "g": if (nearInteract("lanyard", 4.5)) pullLanyard(); else toast("离发火绳太远，走到炮尾左侧拉绳", "warn"); break;
+    case "n": openOverlay("nb"); break;
+    case "t": case "tab": if (nearInteract("table", 4.2)) openOverlay("table"); else toast("需要走到地图作业桌旁", "warn"); break;
+    case "b": if (nearInteract("comp", 4.2)) openOverlay("comp"); else toast("需要走到机械计算机旁", "warn"); break;
+    case "h": openOverlay("help"); break;
+    case "v":
+      if (!shells.length && !state.shellCam) { toast("当前没有飞行中的炮弹", "warn"); break; }
+      state.shellCam = !state.shellCam;
+      state.camShell = state.shellCam ? shells[shells.length - 1] : null;
+      break;
+    case "m": sfx.on = !sfx.on; toast("音效已" + (sfx.on ? "开启" : "关闭")); break;
+    case "[": state.timeScaleIdx = clamp(state.timeScaleIdx - 1, 0, CFG.timeScales.length - 1); toast("弹道时间倍率 ×" + timeScale()); break;
+    case "]": state.timeScaleIdx = clamp(state.timeScaleIdx + 1, 0, CFG.timeScales.length - 1); toast("弹道时间倍率 ×" + timeScale()); break;
+  }
+});
+window.addEventListener("keyup", e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  if (k === "shift") keys["shift"] = false; else keys[k] = false;
+});
+canvas.addEventListener("mousedown", e => {
+  if (state.overlay) return;
+  if (!document.pointerLockElement) { canvas.requestPointerLock(); return; }
+  if (e.button === 0) doInteract();
+  if (e.button === 2) state.zoom = true;
+});
+window.addEventListener("mouseup", e => { if (e.button === 2) state.zoom = false; });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+document.addEventListener("mousemove", e => {
+  if (!document.pointerLockElement) return;
+  const dx = e.movementX || 0, dy = e.movementY || 0;
+  if (player.station) { stationInput(dx, dy); return; }
+  const sens = (state.zoom ? 0.00042 : 0.0021);
+  player.yaw += dx * sens;
+  player.pitch = clamp(player.pitch - dy * sens, -78 * DEG, 78 * DEG);
+});
+window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+document.addEventListener("pointerlockchange", () => {
+  if (!document.pointerLockElement && state.running && !state.overlay) {
+    state.hint = "点击画面继续";
+  } else state.hint = "";
+});
+
+/* ===================== 28. HUD ===================== */
+function tag(cls, text) { return `<span class="tag ${cls}">${text}</span>`; }
+/* 作业流程提示（引导玩家走完分装弹药的完整工序） */
+function nextStep() {
+  if (gun.breechOpen) {
+    if (!atLoadAngle()) return "回到 0° 定角装填位（射角把手推到底 + 仰角阀门归零）";
+    if (player.held && player.held.kind === "shell") return "把弹头推入炮膛（准心对准炮膛按 E）";
+    if (player.held && player.held.kind === "bags") return gun.loaded ? "把 " + player.held.n + " 袋推进药装入炮膛" : "先装弹头：放下推进药前需先送入弹头";
+    if (!gun.loaded) return "到左侧弹头待发架取一发弹头（三种弹头）";
+    if (gun.bags < 1) return "到右侧推进药架抱取 1~6 袋推进药（决定弹道与射程）";
+    return "关闩（F）→ 抬升射角 → 拉发火绳";
+  }
+  if (canFire()) return "已可击发：抬升到解算仰角后拉发火绳（G）";
+  if (gun.loaded && gun.bags < 1) return "膛内缺推进药：开闩补装";
+  if (shells.length) return "炮弹飞行中：按 V 观测弹道，或到地图桌看实时弹着";
+  if (!atLoadAngle()) return "先把射角把手拉到 0°（定角装填位）才能开闩";
+  return "打开炮闩（F 或点炮闩把手）开始装填";
+}
+function updateHUD() {
+  const el = gunElevTarget();
+  const ammoTag = gun.loaded ? tag(gun.loaded.cls, gun.loaded.name) : tag("no", "空膛");
+  const heldTxt = !player.held ? '<span class="k">空手</span>'
+    : player.held.kind === "shell" ? tag(player.held.ammo.cls, "抱着 " + player.held.ammo.name)
+      : tag("ok", "抱着 " + player.held.n + " 袋推进药");
+  let st, stc = "ok";
+  if (gun.breechOpen) { st = "炮闩已开 · 装填中"; stc = "no"; }
+  else if (canFire()) st = "可击发";
+  else if (gun.loaded && !gun.bags) { st = "缺推进药"; stc = "no"; }
+  else if (!gun.loaded) { st = "空膛，需装填"; stc = "no"; }
+  else st = "复进中";
+  const T = gun.bags > 0 ? BAL.table[gun.bags - 1] : null;
+  $("gunstate").innerHTML =
+    `<div class="row"><span class="k">方位角</span><span class="big">${norm360(gun.az).toFixed(1)}°</span></div>` +
+    `<div class="row"><span class="k">仰角 / 设定</span><span class="big">${gun.elev.toFixed(2)}° <span style="font-size:12px;color:#8f9a88">/ ${el.toFixed(2)}°</span></span></div>` +
+    `<div class="row"><span class="k">炮闩</span><span class="v">${gun.breechOpen ? tag("no", "开") : tag("ok", "闭锁")}</span></div>` +
+    `<div class="row"><span class="k">膛内</span><span class="v">${ammoTag} + 推进药 <b>${gun.bags}</b>/6</span></div>` +
+    `<div class="row"><span class="k">双手</span><span class="v">${heldTxt}</span></div>` +
+    `<div class="row"><span class="k">状态</span><span class="v">${tag(stc, st)}</span></div>` +
+    (T ? `<div class="row"><span class="k">当前装药射程</span><span class="v mono">${fmtInt(T.maxRange)} m 上限</span></div>` : "") +
+    `<div class="row"><span class="k">待发架</span><span class="v mono">弹头 ${rack.shells.filter(Boolean).length}/3　药包 ${bagsInRack()}/6</span></div>` +
+    `<div style="margin-top:5px;padding-top:5px;border-top:1px solid var(--line);color:#e6dfa8;font-size:12.5px">▶ ${nextStep()}</div>`;
+  $("mission").innerHTML =
+    `<div class="row"><span class="k">累计击毁</span><span class="big">${killCount}</span></div>` +
+    `<div class="row"><span class="k">存活目标</span><span class="v">${aliveTargets().length}</span></div>` +
+    `<div class="row"><span class="k">波次</span><span class="v">第 ${waveNo} 波</span></div>` +
+    `<div class="row"><span class="k">飞行中炮弹</span><span class="v">${shells.length}</span></div>` +
+    `<div class="row"><span class="k">弹道时间</span><span class="v mono">×${timeScale()}　[ / ]</span></div>` +
+    `<div class="row"><span class="k">地图</span><span class="v" style="font-size:12px">${ACTIVE_MAP.name}</span></div>`;
+  // 准心提示
+  const h = $("hint");
+  if (state.hint) { h.style.display = "block"; h.innerHTML = state.hint; }
+  else if (player.station) { h.style.display = "none"; }
+  else {
+    const o = pickInteract();
+    if (o) { h.style.display = "block"; h.innerHTML = `<b>[E]</b> ${o.name} — ${o.hint()}`; }
+    else h.style.display = "none";
+  }
+  // 操作机构提示
+  if (player.station) {
+    const box = $("opmode");
+    let extra = "";
+    if (player.station === "lever") extra = `方向杆偏转 ${(gun.leverTilt * 100).toFixed(0)}%　当前方位 <b>${norm360(gun.az).toFixed(1)}°</b>`;
+    if (player.station === "azwheel") extra = `阀门转数 ${(gun.azWheelAngle / Math.PI / 2).toFixed(2)} 圈　当前方位 <b>${norm360(gun.az).toFixed(1)}°</b>`;
+    if (player.station === "handle") extra = `把手设定 <b>${gun.elevTargetCoarse}°</b>　实际仰角 <b>${gun.elev.toFixed(2)}°</b>`;
+    if (player.station === "elevwheel") extra = `细调 ${gun.elevFine >= 0 ? "+" : ""}${gun.elevFine.toFixed(2)}°　实际仰角 <b>${gun.elev.toFixed(2)}°</b>`;
+    box.innerHTML = `<b>${box.dataset.name}</b> — ${box.dataset.tip}<br>${extra}<br><span style="color:#9aa593;font-size:12px">按 E 或 Esc 松手</span>`;
+  }
+  // 炮弹信息
+  const si = $("shellinfo");
+  if (state.shellCam && state.camShell) {
+    const sh = state.camShell;
+    si.style.display = "block";
+    si.innerHTML = `<b>第 ${sh.no} 发 ${sh.ammo.name}</b>　装药 ${sh.charge} 袋<br>` +
+      `<span class="mono">水平 ${fmtInt(sh.s.d)} m　高度 ${fmtInt(sh.s.y)} m　速度 ${fmtInt(Math.hypot(sh.s.vd, sh.s.vy))} m/s　T+${sh.s.t.toFixed(1)}s</span>`;
+  } else if (state.shellCam) {
+    si.style.display = "block";
+    si.innerHTML = `<b>弹着观测</b>　<span class="mono">${state.lastImpact ? "距离 " + fmtInt(state.lastImpact.range) + " m　方位 " + state.lastImpact.az.toFixed(1) + "°　命中 " + state.lastImpact.kills : ""}</span>`;
+  } else si.style.display = "none";
+  $("zoomring").style.display = state.zoom ? "block" : "none";
+  if (state.zoom) $("zoomlabel").textContent = `观测镜 ×${(62 / 9).toFixed(1)}　方位 ${norm360(player.yaw * RAD).toFixed(1)}°`;
+}
+/* ===================== 29. 线段绘制 ===================== */
+const Lines = {
+  pos: [], col: [], vbo: gl.createBuffer(), cbo: gl.createBuffer(), cap: 0,
+  clear() { this.pos.length = 0; this.col.length = 0; },
+  seg(a, b, c) {
+    this.pos.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    this.col.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+  },
+  ring(cx, cy, cz, r, c, seg) {
+    seg = seg || 64;
+    let px = cx + r, pz = cz;
+    for (let i = 1; i <= seg; i++) {
+      const a = i / seg * Math.PI * 2, nx = cx + Math.cos(a) * r, nz = cz + Math.sin(a) * r;
+      this.seg([px, cy, pz], [nx, cy, nz], c); px = nx; pz = nz;
+    }
+  },
+  flush(proj, view, alpha) {
+    if (!this.pos.length) return;
+    gl.useProgram(shLine.p);
+    gl.uniformMatrix4fv(shLine.u.uProj, false, proj);
+    gl.uniformMatrix4fv(shLine.u.uView, false, view);
+    gl.uniform3fv(shLine.u.uFogColor, ENV.fog);
+    gl.uniform1f(shLine.u.uFogDensity, ENV.fogDensity);
+    gl.uniform1f(shLine.u.uAlpha, alpha == null ? 1 : alpha);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.pos), gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(shLine.a.aPos);
+    gl.vertexAttribPointer(shLine.a.aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.cbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.col), gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(shLine.a.aCol);
+    gl.vertexAttribPointer(shLine.a.aCol, 3, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.LINES, 0, this.pos.length / 3);
+    gl.useProgram(shMain.p);
+    curMesh = null;
+    this.clear();
+  }
+};
+
+/* ===================== 30. 渲染 ===================== */
+const projNear = m4.create(), projFar = m4.create(), view = m4.create(), MM = m4.create(), MM2 = m4.create();
+const camEye = [0, 0, 0], camAt = [0, 0, 0], _sw = [0, 0, 0], _mz = [0, 0, 0];
+let fovCur = 62 * DEG;
+
+function drawObj(mesh, mat, color, opt) {
+  opt = opt || {};
+  gl.uniformMatrix4fv(shMain.u.uModel, false, mat);
+  gl.uniform4f(shMain.u.uColor, color[0], color[1], color[2], color[3] == null ? 1 : color[3]);
+  gl.uniform1f(shMain.u.uEmissive, opt.emissive || 0);
+  gl.uniform1f(shMain.u.uUseTex, 0);
+  gl.uniform1f(shMain.u.uGrid, 0);
+  bindMesh(mesh);
+  gl.drawElements(gl.TRIANGLES, mesh.count, mesh.type, 0);
+}
+function muzzleWorld(out) {
+  return m4.xform(out, nodeMat.barrel, [0, 0, -CFG.muzzleLen]);
+}
+function drawScene(layer, proj) {
+  gl.useProgram(shMain.p);
+  gl.uniformMatrix4fv(shMain.u.uProj, false, proj);
+  gl.uniformMatrix4fv(shMain.u.uView, false, view);
+  gl.uniform3fv(shMain.u.uLightDir, ENV.sun);
+  gl.uniform3fv(shMain.u.uFogColor, ENV.fog);
+  gl.uniform1f(shMain.u.uFogDensity, ENV.fogDensity);
+  gl.uniform3f(shMain.u.uGridColor, 0.62, 0.66, 0.55);
+  gl.uniform1i(shMain.u.uTex, 0);
+  gl.activeTexture(gl.TEXTURE0);
+  /* 静态 */
+  for (const it of sceneItems) {
+    if (it.layer !== layer) continue;
+    gl.uniformMatrix4fv(shMain.u.uModel, false, nodeMat[it.node]);
+    gl.uniform4f(shMain.u.uColor, it.color[0], it.color[1], it.color[2], it.color[3] == null ? 1 : it.color[3]);
+    gl.uniform1f(shMain.u.uEmissive, it.emissive);
+    gl.uniform1f(shMain.u.uGrid, it.grid ? 1 : 0);
+    if (it.tex && TEX[it.tex]) {
+      gl.uniform1f(shMain.u.uUseTex, 1);
+      gl.bindTexture(gl.TEXTURE_2D, TEX[it.tex].tex);
+    } else gl.uniform1f(shMain.u.uUseTex, 0);
+    bindMesh(it.mesh);
+    gl.drawElements(gl.TRIANGLES, it.mesh.count, it.mesh.type, 0);
+  }
+  gl.uniform1f(shMain.u.uUseTex, 0);
+  gl.uniform1f(shMain.u.uGrid, 0);
+
+  if (layer === "far") {
+    /* 目标方块与观测标记 */
+    const fovK = fovCur / (62 * DEG);
+    for (const t of targets) {
+      const T = TCLASS[t.cls];
+      const d = Math.hypot(t.x - camEye[0], t.z - camEye[2]);
+      if (t.alive) {
+        m4.fromTRS(MM, [t.x, t.y, t.z], 0, 0, 0, T.size);
+        drawObj(MESH.cube, MM, T.color);
+        const sc = clamp(d * 0.014 * fovK, 3, 1400);
+        m4.fromTRS(MM, [t.x, t.y + T.size + sc * 0.75, t.z], 0, state.clock * 0.7, 0, sc);
+        drawObj(MESH.diamond, MM, [0.92, 0.28, 0.20], { emissive: 0.8 });
+      } else {
+        m4.fromTRS(MM, [t.x, t.y, t.z], 0, 0, 0, T.size * 0.82);
+        drawObj(MESH.cube, MM, [0.13, 0.12, 0.11]);
+        const sc = clamp(d * 0.010 * fovK, 2, 900);
+        m4.fromTRS(MM, [t.x, t.y + T.size + sc * 0.7, t.z], 0, 0, 0, sc);
+        drawObj(MESH.diamond, MM, [0.34, 0.36, 0.34], { emissive: 0.35 });
+      }
+    }
+  }
+  /* 炮弹 */
+  for (const sh of shells) {
+    shellWorld(sh, _sw);
+    const d = Math.hypot(_sw[0] - camEye[0], _sw[1] - camEye[1], _sw[2] - camEye[2]);
+    if (layer === "far" ? d < 68 : d > 92) continue;
+    const gamma = Math.atan2(sh.s.vy, sh.s.vd);
+    const scale = (state.camShell === sh && state.shellCam) ? 1 : clamp(d * 0.004, 1, 90);
+    m4.fromTRS(MM, _sw, gamma - Math.PI / 2, -sh.az * DEG, 0, scale);
+    drawObj(MESH.shell, MM, sh.ammo.color, { emissive: 0.25 });
+  }
+  /* 弹坑 */
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(false);
+  for (let i = 0; i < scorches.length; i++) {
+    const s = scorches[i];
+    const d = Math.hypot(s.x - camEye[0], s.z - camEye[2]);
+    if (layer === "far" ? d < 68 : d > 92) continue;
+    m4.fromTRS(MM, [s.x, s.y + 0.05 + i * 0.004, s.z], 0, 0, 0, s.r * 0.92);
+    drawObj(MESH.disc, MM, [0.10, 0.09, 0.08, 0.55], { emissive: 0.9 });
+    m4.fromTRS(MM, [s.x, s.y + 0.07 + i * 0.004, s.z], 0, 0, 0, s.r * 0.30);
+    drawObj(MESH.disc, MM, [0.06, 0.05, 0.045, 0.85], { emissive: 0.9 });
+  }
+  /* 爆炸 */
+  for (const ex of explosions) {
+    const d = Math.hypot(ex.x - camEye[0], ex.z - camEye[2]);
+    if (layer === "far" ? d < 68 : d > 92) continue;
+    const t = ex.t;
+    if (t < 1.4) {   // 火球
+      const r = Math.min(ex.r * 0.42, 16 + t * 120), a = clamp(1 - t / 1.4, 0, 1);
+      m4.fromTRS(MM, [ex.x, ex.y + r * 0.55, ex.z], 0, 0, 0, r);
+      drawObj(MESH.sphere, MM, [1.0, 0.62 - t * 0.2, 0.18, a * 0.92], { emissive: 1 });
+    }
+    for (let k = 0; k < 3; k++) {  // 烟柱
+      const tt = t - k * 0.45; if (tt < 0) continue;
+      const rr = Math.min(ex.r * 0.5, 12 + tt * 26 + k * 6);
+      const a = clamp(0.6 - tt / 12, 0, 0.6);
+      m4.fromTRS(MM, [ex.x, ex.y + rr * 0.6 + tt * 26 + k * 10, ex.z], 0, 0, 0, rr);
+      drawObj(MESH.sphere, MM, [0.30, 0.28, 0.26, a], { emissive: 0.5 });
+    }
+  }
+  /* 炮口焰 */
+  for (const f of flashes) {
+    muzzleWorld(_mz);
+    const d = Math.hypot(_mz[0] - camEye[0], _mz[1] - camEye[1], _mz[2] - camEye[2]);
+    if (layer === "far" ? d < 68 : d > 92) continue;
+    const k = f.t / f.dur;
+    m4.fromTRS(MM, _mz, 0, 0, 0, 3.2 * (1 - k * 0.5));
+    drawObj(MESH.sphere, MM, [1.0, 0.85, 0.45, (1 - k) * 0.85], { emissive: 1 });
+    m4.fromTRS(MM, [_mz[0], _mz[1], _mz[2]], 0, 0, 0, 7 * (0.3 + k));
+    drawObj(MESH.sphere, MM, [0.44, 0.40, 0.34, (1 - k) * 0.30], { emissive: 0.6 });
+  }
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+
+  if (layer === "near") {
+    /* 待发架上的弹头 */
+    SHELL_SLOTS.forEach((s, i) => {
+      if (!rack.shells[i]) return;
+      m4.mul(MM, nodeMat.base, m4.fromTRS(MM2, [s.x, CFG.crewY + 0.12, s.z], 0, 0, 0, 1));
+      drawObj(MESH.shell, MM, AMMO[s.ammo].color);
+    });
+    /* 待发架上的推进药 */
+    for (let i = 0; i < 6; i++) {
+      if (!rack.bagSlots[i]) continue;
+      const col = i % 3, row = i < 3 ? 0 : 1;
+      m4.mul(MM, nodeMat.base, m4.fromTRS(MM2,
+        [BAG_RACK.x, CFG.crewY + (row ? 0.66 : 0.22), BAG_RACK.z - 0.28 + col * 0.28], 0, 0, Math.PI / 2, 1));
+      drawObj(MESH.bag, MM, C.yellow);
+    }
+    /* 膛内弹头（开闩时可见） */
+    if (gun.loaded) {
+      m4.mul(MM, nodeMat.barrel, m4.fromTRS(MM2, [0, 0, CFG.breechLen - 1.25], -Math.PI / 2, 0, 0, 1));
+      drawObj(MESH.shell, MM, gun.loaded.color);
+    }
+    for (let i = 0; i < gun.bags; i++) {
+      m4.mul(MM, nodeMat.barrel, m4.fromTRS(MM2, [0, 0, CFG.breechLen - 0.95 + i * 0.06], -Math.PI / 2, 0, 0, 1));
+      drawObj(MESH.bag, MM, C.yellow);
+    }
+    /* 手持物 */
+    if (player.held) {
+      if (player.held.kind === "shell") {
+        m4.mul(MM, nodeMat.hand, m4.fromTRS(MM2, [0, -0.2, 0], -0.5, 0.4, 0.25, 1));
+        drawObj(MESH.shell, MM, player.held.ammo.color);
+      } else {
+        for (let i = 0; i < player.held.n; i++) {
+          const c = i % 3, r = i < 3 ? 0 : 1;
+          m4.mul(MM, nodeMat.hand, m4.fromTRS(MM2, [-0.16 + c * 0.12, -0.16 + r * 0.21, -0.05 - r * 0.06], 0, 0, Math.PI / 2, 1));
+          drawObj(MESH.bag, MM, C.yellow);
+        }
+      }
+    }
+  }
+}
+function drawSky() {
+  gl.useProgram(shSky.p);
+  m4.mul(MM, projFar, view);
+  m4.invert(MM2, MM);
+  gl.uniformMatrix4fv(shSky.u.uInvVP, false, MM2);
+  gl.uniform3fv(shSky.u.uSunDir, ENV.sun);
+  gl.uniform3fv(shSky.u.uHorizon, ENV.horizon);
+  gl.uniform3fv(shSky.u.uZenith, ENV.zenith);
+  gl.uniform3fv(shSky.u.uGround, ENV.groundSky);
+  gl.bindBuffer(gl.ARRAY_BUFFER, skyQuad);
+  gl.enableVertexAttribArray(shSky.a.aPos);
+  gl.vertexAttribPointer(shSky.a.aPos, 2, gl.FLOAT, false, 0, 0);
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.depthMask(true);
+  gl.enable(gl.DEPTH_TEST);
+  gl.useProgram(shMain.p);
+  curMesh = null;
+}
+function setupCamera(dt) {
+  const targetFov = state.zoom ? 9 * DEG : 62 * DEG;
+  fovCur += (targetFov - fovCur) * Math.min(1, dt * 12);
+  const aspect = canvas.width / canvas.height;
+  m4.perspective(projNear, fovCur, aspect, 0.06, 92);
+  m4.perspective(projFar, fovCur, aspect, 68, 260000);
+  if (state.shellCam && state.camShell && shells.indexOf(state.camShell) >= 0) {
+    const sh = state.camShell;
+    shellWorld(sh, _sw);
+    const sp = Math.hypot(sh.s.vd, sh.s.vy) || 1;
+    const back = 34 + sp * 0.05;
+    camEye[0] = _sw[0] - sh.dir[0] * (sh.s.vd / sp) * back;
+    camEye[1] = _sw[1] - (sh.s.vy / sp) * back + 9;
+    camEye[2] = _sw[2] - sh.dir[2] * (sh.s.vd / sp) * back;
+    camAt[0] = _sw[0]; camAt[1] = _sw[1]; camAt[2] = _sw[2];
+  } else if (state.shellCam && state.lastImpact) {
+    const im = state.lastImpact;
+    camEye[0] = im.x - 120; camEye[1] = im.y + 90; camEye[2] = im.z + 150;
+    camAt[0] = im.x; camAt[1] = im.y; camAt[2] = im.z;
+  } else {
+    if (state.shellCam) { state.shellCam = false; state.camShell = null; }
+    eyePos(camEye);
+    if (camShake > 0) {
+      camEye[0] += (Math.random() - 0.5) * camShake * 0.28;
+      camEye[1] += (Math.random() - 0.5) * camShake * 0.24;
+      camEye[2] += (Math.random() - 0.5) * camShake * 0.28;
+    }
+    camDir(_dir);
+    camAt[0] = camEye[0] + _dir[0]; camAt[1] = camEye[1] + _dir[1]; camAt[2] = camEye[2] + _dir[2];
+  }
+  m4.lookAt(view, camEye, camAt, [0, 1, 0]);
+  m4.invert(invView, view);
+}
+function render(dt) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+  const w = Math.floor(canvas.clientWidth * dpr), h = Math.floor(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  gl.clearColor(ENV.fog[0], ENV.fog[1], ENV.fog[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  drawSky();
+  /* 远景通道 */
+  drawScene("far", projFar);
+  /* 弹道轨迹与杀伤环（远景） */
+  for (const sh of shells) {
+    for (let i = 1; i < sh.trail.length; i++) {
+      const a = sh.trail[i - 1], b = sh.trail[i];
+      const k = i / sh.trail.length;
+      Lines.seg([a[0], a[1], a[2]], [b[0], b[1], b[2]], [0.95 * k + 0.2, 0.85 * k + 0.1, 0.35 * k]);
+    }
+    if (sh.trail.length) {
+      const a = sh.trail[sh.trail.length - 1];
+      shellWorld(sh, _sw);
+      Lines.seg([a[0], a[1], a[2]], _sw, [1, 0.95, 0.5]);
+      Lines.seg([_sw[0], _sw[1], _sw[2]], [_sw[0], heightAt(_sw[0], _sw[2]), _sw[2]], [0.35, 0.42, 0.35]);
+    }
+  }
+  for (const ex of explosions) {
+    const a = clamp(1 - ex.t / 9, 0, 1);
+    Lines.ring(ex.x, ex.y + 1.2, ex.z, ex.r, [1.0 * a, 0.45 * a, 0.2 * a], 72);
+    Lines.ring(ex.x, ex.y + 0.6, ex.z, ex.r * 0.5, [0.9 * a, 0.5 * a, 0.2 * a], 48);
+  }
+  for (const s of scorches) Lines.ring(s.x, s.y + 0.3, s.z, s.r, [0.32, 0.26, 0.20], 56);
+  Lines.flush(projFar, view, 1);
+  /* 近景通道 */
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+  drawScene("near", projNear);
+  Lines.flush(projNear, view, 1);
+}
+/* ===================== 31. 帮助 ===================== */
+const HELP = [
+  ["h3", "移动与视角"],
+  ["<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>", "行走（<kbd>Shift</kbd> 疾行）。回转平台、装填作业平台可直接踏上，后部有台阶"],
+  ["移动鼠标", "环视；<kbd>点击画面</kbd> 锁定鼠标，<kbd>Esc</kbd> 释放"],
+  ["<kbd>右键</kbd>按住", "观测镜（视场 62°→9°），用于观察远处目标方块"],
+  ["<kbd>E</kbd> / <kbd>左键</kbd>", "对准心所指物件交互：取弹、装填、抓握操纵机构"],
+  ["h3", "装填（定角装填）"],
+  ["<kbd>F</kbd> 或点炮闩把手", "开 / 闭炮闩。<b>必须先把火炮降到 0° 定角装填位</b>"],
+  ["弹头待发架", "三个卡位分别是高爆弹（绿）/破甲弹（橙）/穿甲弹（黑），取走后自动补充"],
+  ["推进药待发架", "每次抱取 1 袋，最多 6 袋；药包为与炮膛同内径的圆柱固体，取走后自动补充"],
+  ["炮膛", "先送弹头，再送推进药（1~6 袋决定初速与弹道）；然后关闩"],
+  ["h3", "瞄准"],
+  ["方向杆", "抓住后左右移动鼠标扳杆：半扳 " + CFG.traverseSlow + "°/s，全扳 " + CFG.traverseRate + "°/s，360° 无死角"],
+  ["方位阀门", "抓住后左右移动鼠标转动：一圈 = " + CFG.azPerTurn.toFixed(1) + "°，配合 0.1° 显示器精调"],
+  ["射角把手", "抓住后上下移动鼠标：每格 1°，松手后火炮自动随动到该射角（0~" + CFG.elevMax + "°）"],
+  ["仰角阀门", "抓住后左右移动鼠标转动：一圈 = " + CFG.elevPerTurn.toFixed(2) + "°，配合 0.01° 显示器精调"],
+  ["<kbd>G</kbd> 或点发火绳", "击发（需闭闩 + 有弹头 + 有推进药）"],
+  ["h3", "指挥所"],
+  ["<kbd>T</kbd> / 点地图桌", "地图作业桌：拖动画攻击指示线得方位与距离、看目标与弹着、实时炮弹位置"],
+  ["<kbd>B</kbd> / 点计算机", "机械式射表计算机：输入装药量 + 距离 → 输出仰角（低角/高角）"],
+  ["<kbd>N</kbd>", "随身笔记本：自动记录测算、解算、射击、弹着；可逐条删除"],
+  ["h3", "观测"],
+  ["<kbd>V</kbd>", "弹道观测视角（跟随飞行中的炮弹，落地后停留在弹着点）"],
+  ["<kbd>[</kbd> <kbd>]</kbd>", "弹道时间倍率 ×1 ~ ×32（远距离飞行可达 90 秒以上）"],
+  ["<kbd>M</kbd>", "音效开关　<kbd>H</kbd> 本表"]
+];
+function buildHelp() {
+  const g = $("helpgrid"); g.innerHTML = "";
+  for (const [a, b] of HELP) {
+    if (a === "h3") { const h = document.createElement("h3"); h.textContent = b; g.appendChild(h); continue; }
+    const k = document.createElement("div"); k.innerHTML = a;
+    const d = document.createElement("div"); d.className = "d"; d.innerHTML = b;
+    g.appendChild(k); g.appendChild(d);
+  }
+}
+
+/* ===================== 32. 初始化与主循环 ===================== */
+function wireUI() {
+  $("btn-start").onclick = () => {
+    sfx.ensure(); state.running = true;
+    closeOverlay();
+    toast("任务：清除战区内全部敌对目标。地图桌与机械计算机在炮位东侧。", "warn", 9);
+    sfx.radio();
+  };
+  $("btn-help-close").onclick = closeOverlay;
+  $("btn-nb-close").onclick = closeOverlay;
+  $("btn-comp-close").onclick = closeOverlay;
+  $("btn-table-close").onclick = closeOverlay;
+  $("btn-nb-clear").onclick = () => notebook.clear();
+  $("btn-nb-gun").onclick = () => {
+    notebook.add("炮位", `方位 ${norm360(gun.az).toFixed(1)}°｜仰角 ${gun.elev.toFixed(2)}°（设定 ${gunElevTarget().toFixed(2)}°）｜膛内 ${gun.loaded ? gun.loaded.name : "空"} + ${gun.bags} 袋药｜炮闩${gun.breechOpen ? "开" : "闭"}`);
+    toast("当前火炮状态已记入笔记本");
+  };
+  $("btn-comp-solve").onclick = () => comp.solve();
+  $("btn-comp-note").onclick = () => comp.toNote();
+  $("btn-comp-zero").onclick = () => { comp.setRange(0); sfx.tick(); };
+  $("btn-comp-fromline").onclick = () => {
+    const L = mapTable.activeLine || mapTable.lines[mapTable.lines.length - 1];
+    if (!L) return toast("地图桌上还没有指示线", "warn");
+    comp.setRange(L.dist);
+    toast("已取用指示线 L" + L.id + " 的距离 " + fmtInt(L.dist) + " m");
+  };
+  $("btn-table-zin").onclick = () => { mapTable.span = clamp(mapTable.span * 0.7, 1200, 150000); mapTable.dirty = true; };
+  $("btn-table-zout").onclick = () => { mapTable.span = clamp(mapTable.span / 0.7, 1200, 150000); mapTable.dirty = true; };
+  $("btn-table-center").onclick = () => { mapTable.cx = GUN.x; mapTable.cz = GUN.z; mapTable.dirty = true; };
+  $("btn-table-clearlines").onclick = () => { mapTable.lines.length = 0; mapTable.activeLine = null; mapTable.dirty = true; renderLineList(); };
+  $("btn-table-clearboom").onclick = () => { mapTable.impacts.length = 0; mapTable.dirty = true; };
+  for (const id of ["ov-help", "ov-nb", "ov-comp"]) {
+    $(id).addEventListener("mousedown", e => { if (e.target === $(id)) closeOverlay(); });
+  }
+}
+function init() {
+  initTextures();
+  buildDynMeshes();
+  buildScene();
+  initInteractables();
+  buildHelp();
+  wireUI();
+  comp.render(); paintCompDisp();
+  spawnWave(false);
+  notebook.add("准备", "进入炮位：203mm 重型榴弹炮，分装式弹药，装药 1~6 袋，最大射程 " + fmtInt(BAL.table[5].maxRange) + " m");
+  notebook.add("侦察", `第 1 波目标已标定在地图桌上，共 ${targets.length} 个`);
+  mapTable.cx = GUN.x; mapTable.cz = GUN.z;
+  state.overlay = "start";
+  /* 对外接口：控制台里 HOWITZER.MapRegistry.register({...}) 后
+     HOWITZER.setActiveMap("你的id") 即可换用新地图（含起伏地形） */
+  window.HOWITZER = {
+    MapRegistry, setActiveMap, BAL, CFG, AMMO, TCLASS,
+    state, gun, targets, notebook, mapTable, comp, spawnWave, version: "1.0"
+  };
+  updateNodes(); updateDisplays(); paintMap();
+  requestAnimationFrame(frame);
+}
+let lastT = 0;
+function frame(now) {
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.08) : 0.016;
+  lastT = now;
+  if (state.running) {
+    state.clock += dt;
+    const dts = dt * timeScale();
+    updateRack(dt);
+    updatePlayer(dt);
+    updateGun(dt);
+    updateEffects(dt, dts);
+    updateShells(dts);
+    if (shells.length) mapTable.dirty = true;
+  }
+  setupCamera(dt);
+  updateNodes();
+  updateDisplays();
+  updateHUD();
+  if (mapTable.dirty && state.clock - mapTable.lastPaint > 0.1) paintMap();
+  render(dt);
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>

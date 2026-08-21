@@ -1,0 +1,3695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+<title>MBT-9A «铁砧» — 高精度坦克全物理模拟</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#04060a;color:#bfd0bf;
+  font-family:Consolas,"Cascadia Mono",Menlo,"Microsoft YaHei",monospace;-webkit-font-smoothing:antialiased}
+canvas{position:fixed;left:0;top:0;display:block}
+#hud{pointer-events:none;z-index:5}
+.panel{position:fixed;background:rgba(6,12,9,.70);border:1px solid rgba(130,190,130,.22);
+  border-radius:3px;padding:7px 9px;font-size:11px;line-height:1.55;color:#9dbe9d;z-index:8;
+  box-shadow:0 2px 14px rgba(0,0,0,.5) inset,0 0 0 1px rgba(0,0,0,.4)}
+#help{right:9px;bottom:9px;width:322px;max-height:64%;overflow:hidden}
+#help h3{font-size:11px;color:#cfe39c;letter-spacing:2px;margin-bottom:4px;font-weight:600}
+#help .k{display:inline-block;min-width:74px;color:#e4c96b}
+#help .sec{margin-top:5px;border-top:1px dashed rgba(130,190,130,.18);padding-top:4px}
+#help .hint{color:#6f8a6f}
+#boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+  background:radial-gradient(ellipse at 50% 38%,#13241c 0%,#060a0d 62%,#020406 100%);z-index:30;cursor:pointer;
+  transition:opacity .45s}
+#boot h1{font-size:clamp(20px,3.2vw,34px);letter-spacing:.22em;color:#dbead9;font-weight:600;text-shadow:0 0 24px rgba(120,255,150,.18)}
+#boot h2{font-size:12px;letter-spacing:.34em;color:#7fa07f;margin-top:10px;font-weight:400}
+#boot .spec{margin-top:22px;font-size:11px;color:#87a487;text-align:center;line-height:1.9;max-width:640px}
+#boot .spec b{color:#cfe39c}
+#boot .go{margin-top:26px;padding:9px 26px;border:1px solid rgba(150,220,150,.4);border-radius:2px;
+  color:#d8ecc8;font-size:12px;letter-spacing:.3em;animation:pulse 2.1s infinite}
+@keyframes pulse{0%,100%{background:rgba(120,200,120,.05)}50%{background:rgba(120,200,120,.16)}}
+#err{position:fixed;left:0;top:0;right:0;max-height:52%;overflow:auto;background:rgba(70,6,6,.94);
+  color:#ffc0c0;font-size:11.5px;padding:10px 12px;white-space:pre-wrap;z-index:60;display:none;
+  border-bottom:1px solid #ff6b6b;line-height:1.5}
+#log{position:fixed;left:50%;transform:translateX(-50%);top:8px;width:min(560px,72vw);z-index:9;
+  pointer-events:none;text-align:center}
+#log div{font-size:11.5px;color:#d6e7b6;background:rgba(6,12,9,.62);border-left:2px solid #8fbf5f;
+  padding:2px 8px;margin-bottom:3px;border-radius:2px;opacity:1;transition:opacity .6s}
+#log div.warn{color:#ffd9a0;border-left-color:#e0a040}
+#log div.bad{color:#ffb0b0;border-left-color:#e05050}
+#log div.good{color:#b6ffcf;border-left-color:#40e080}
+#dbg{left:9px;top:44px;width:300px;display:none;font-size:10.5px}
+#dbg b{color:#cfe39c}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<div id="log"></div>
+<div id="dbg" class="panel"></div>
+<div id="help" class="panel">
+  <h3>操纵规程 / CONTROLS <span class="hint">[H 折叠]</span></h3>
+  <div><span class="k">W / S</span>油门 / 制动·倒挡</div>
+  <div><span class="k">A / D</span>差速转向（原地转向：静止时按住）</div>
+  <div><span class="k">Space</span>主制动　<span class="k">X</span>驻车制动</div>
+  <div><span class="k">[ / ]</span>手动降/升挡　<span class="k">G</span>自动/手动</div>
+  <div class="sec"><span class="k">鼠标</span>炮塔/火炮随动（点击画面锁定指针）</div>
+  <div><span class="k">左键</span>主炮击发　<span class="k">右键</span>并列机枪</div>
+  <div><span class="k">Shift</span>精瞄 ×0.24　<span class="k">, / .</span>灵敏度 ±　<span class="k">Y</span>Y 轴反向</div>
+  <div><span class="k">Q</span>炮塔归中　<span class="k">T</span>激光测距　<span class="k">F</span>稳定器</div>
+  <div><span class="k">1 2 3</span>尾翼稳定脱壳穿甲弹 / 破甲弹 / 榴弹</div>
+  <div><span class="k">R</span>装填/换弹　<span class="k">L</span>自动装弹机 ⇄ 人工装填</div>
+  <div class="sec"><span class="k">C</span>视角：炮向驾驶 / 跟车 / 环绕 / 炮长镜 / 车长席 / 电影</div>
+  <div><span class="k">滚轮</span>机位距离（镜内为 ×3⇄×12 倍率）</div>
+  <div><span class="k">中键拖拽</span>环绕视角调整机位（或 Ctrl+拖拽）</div>
+  <div><span class="k">N</span>慢动作　<span class="k">P</span>暂停　<span class="k">K</span>复位</div>
+  <div><span class="k">V</span>地面材质　<span class="k">F1</span>物理调试　<span class="k">F2</span>接地力矢量</div>
+</div>
+<div id="err"></div>
+<div id="boot">
+  <h1>M B T - 9 A　«铁 砧»</h1>
+  <h2>H I G H - F I D E L I T Y　T A N K　P H Y S I C S</h2>
+  <div class="spec">
+    战斗全重 <b>56.2 t</b>　·　1200 hp V12 增压柴油机　·　液力机械综合传动 7F/2R<br/>
+    扭杆悬挂 6×2 负重轮（每侧 3 组液压减振器）　·　<b>84 链节/侧</b> 单销履带（切线-圆弧包络实时求解）<br/>
+    125 mm 滑膛炮　·　双向稳定器　·　转盘式自动装弹机（22 发）　·　激光测距 + 弹道计算机<br/>
+    <span style="color:#6f8a6f">240 Hz 定步长刚体积分　·　半隐式履带-地面摩擦求解器　·　发动机-变速-履带完整传动链耦合</span>
+  </div>
+  <div class="go">点 击 进 入 车 组</div>
+</div>
+<script>
+'use strict';
+/* ══════════════════════════════════════════════════════════════════════════════
+   MBT-9A «铁砧»  —  单文件高精度坦克物理模拟
+   0. 诊断 / 1. 数学 / 2. 渲染 / 3. 地形 / 4. 车体建模 / 5. 履带求解
+   6. 物理 / 7. 武器系统 / 8. 特效 / 9. 音频 / 10. HUD / 11. 输入与主循环
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ────────────────────────────── 0. 诊断 ────────────────────────────── */
+const ERRBOX = document.getElementById('err');
+let errCount = 0;
+function fatal(where, e){
+  errCount++;
+  if(errCount > 6) return;
+  ERRBOX.style.display = 'block';
+  const msg = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e);
+  ERRBOX.textContent += '【' + where + '】\n' + msg + '\n\n';
+  console.error(where, e);
+}
+window.addEventListener('error', ev => fatal('运行时', ev.error || ev.message));
+window.addEventListener('unhandledrejection', ev => fatal('Promise', ev.reason));
+
+/* ────────────────────────────── 1. 数学 ────────────────────────────── */
+const PI = Math.PI, TAU = PI * 2, D2R = PI / 180, R2D = 180 / PI;
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const clamp01 = v => v < 0 ? 0 : (v > 1 ? 1 : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const mix = lerp;
+const sgn = v => v < 0 ? -1 : (v > 0 ? 1 : 0);
+const sq = v => v * v;
+function smoothstep(e0, e1, x){ const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); }
+function approach(cur, tgt, rate, dt){ const d = tgt - cur, m = rate * dt; return Math.abs(d) <= m ? tgt : cur + sgn(d) * m; }
+// 一阶低通（时间常数 tau）
+function lowpass(cur, tgt, tau, dt){ const a = 1 - Math.exp(-dt / Math.max(1e-6, tau)); return cur + (tgt - cur) * a; }
+function wrapPi(a){ a = (a + PI) % TAU; if(a < 0) a += TAU; return a - PI; }
+// 确定性随机
+let _seed = 1337;
+function srand(){ _seed = (_seed * 1664525 + 1013904223) & 0x7fffffff; return _seed / 0x7fffffff; }
+function rnd(a = 1, b){ return b === undefined ? srand() * a : a + srand() * (b - a); }
+function rndN(){ // 近似正态
+  return (srand() + srand() + srand() + srand() - 2) * 0.7071;
+}
+
+class V3 {
+  constructor(x = 0, y = 0, z = 0){ this.x = x; this.y = y; this.z = z; }
+  set(x, y, z){ this.x = x; this.y = y; this.z = z; return this; }
+  copy(v){ this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+  clone(){ return new V3(this.x, this.y, this.z); }
+  add(v){ return new V3(this.x + v.x, this.y + v.y, this.z + v.z); }
+  sub(v){ return new V3(this.x - v.x, this.y - v.y, this.z - v.z); }
+  mul(s){ return new V3(this.x * s, this.y * s, this.z * s); }
+  mulV(v){ return new V3(this.x * v.x, this.y * v.y, this.z * v.z); }
+  addS(v, s){ return new V3(this.x + v.x * s, this.y + v.y * s, this.z + v.z * s); }
+  neg(){ return new V3(-this.x, -this.y, -this.z); }
+  dot(v){ return this.x * v.x + this.y * v.y + this.z * v.z; }
+  cross(v){ return new V3(this.y * v.z - this.z * v.y, this.z * v.x - this.x * v.z, this.x * v.y - this.y * v.x); }
+  len(){ return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+  len2(){ return this.x * this.x + this.y * this.y + this.z * this.z; }
+  dist(v){ return this.sub(v).len(); }
+  unit(){ const l = this.len(); return l > 1e-12 ? this.mul(1 / l) : new V3(0, 0, 0); }
+  lerpTo(v, t){ return new V3(lerp(this.x, v.x, t), lerp(this.y, v.y, t), lerp(this.z, v.z, t)); }
+  // 原地运算（热路径）
+  iadd(v){ this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  isub(v){ this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  iaddS(v, s){ this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
+  imul(s){ this.x *= s; this.y *= s; this.z *= s; return this; }
+  izero(){ this.x = this.y = this.z = 0; return this; }
+  arr(){ return [this.x, this.y, this.z]; }
+  bad(){ return !(isFinite(this.x) && isFinite(this.y) && isFinite(this.z)); }
+}
+const v3 = (x, y, z) => new V3(x, y, z);
+const V_UP = v3(0, 1, 0), V_ZERO = v3(0, 0, 0);
+
+class Quat {
+  constructor(x = 0, y = 0, z = 0, w = 1){ this.x = x; this.y = y; this.z = z; this.w = w; }
+  clone(){ return new Quat(this.x, this.y, this.z, this.w); }
+  set(x, y, z, w){ this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  static axis(ax, ang){ const h = ang * 0.5, s = Math.sin(h); const u = ax.unit();
+    return new Quat(u.x * s, u.y * s, u.z * s, Math.cos(h)); }
+  // 偏航(Y) → 俯仰(X) → 横滚(Z)
+  static euler(yaw, pitch, roll){
+    return Quat.axis(v3(0,1,0), yaw).mul(Quat.axis(v3(1,0,0), pitch)).mul(Quat.axis(v3(0,0,1), roll));
+  }
+  mul(q){
+    const a = this, b = q;
+    return new Quat(
+      a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+      a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+      a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+      a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z);
+  }
+  conj(){ return new Quat(-this.x, -this.y, -this.z, this.w); }
+  norm(){ const l = Math.hypot(this.x, this.y, this.z, this.w) || 1;
+    this.x /= l; this.y /= l; this.z /= l; this.w /= l; return this; }
+  // 体 → 世界
+  rot(v){
+    const tx = 2*(this.y*v.z - this.z*v.y), ty = 2*(this.z*v.x - this.x*v.z), tz = 2*(this.x*v.y - this.y*v.x);
+    return new V3(
+      v.x + this.w*tx + this.y*tz - this.z*ty,
+      v.y + this.w*ty + this.z*tx - this.x*tz,
+      v.z + this.w*tz + this.x*ty - this.y*tx);
+  }
+  // 世界 → 体
+  inv(v){ return this.conj().rot(v); }
+  // 以体坐标角速度积分
+  integrate(w, dt){
+    const qx = this.x, qy = this.y, qz = this.z, qw = this.w;
+    const h = dt * 0.5;
+    this.x += h * ( qw*w.x + qy*w.z - qz*w.y);
+    this.y += h * ( qw*w.y + qz*w.x - qx*w.z);
+    this.z += h * ( qw*w.z + qx*w.y - qy*w.x);
+    this.w += h * (-qx*w.x - qy*w.y - qz*w.z);
+    return this.norm();
+  }
+  static slerp(a, b, t){
+    let d = a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w, s = 1;
+    if(d < 0){ d = -d; s = -1; }
+    if(d > 0.9995) return new Quat(lerp(a.x, s*b.x, t), lerp(a.y, s*b.y, t), lerp(a.z, s*b.z, t), lerp(a.w, s*b.w, t)).norm();
+    const th = Math.acos(d), st = Math.sin(th);
+    const wa = Math.sin((1-t)*th)/st, wb = s*Math.sin(t*th)/st;
+    return new Quat(a.x*wa+b.x*wb, a.y*wa+b.y*wb, a.z*wa+b.z*wb, a.w*wa+b.w*wb).norm();
+  }
+}
+
+/* 4×4 矩阵：列主序（与 GL 一致） */
+const M4 = {
+  ident(){ return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); },
+  copy(m){ return new Float32Array(m); },
+  mul(a, b, out){
+    out = out || new Float32Array(16);
+    const a00=a[0],a01=a[1],a02=a[2],a03=a[3], a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+          a20=a[8],a21=a[9],a22=a[10],a23=a[11], a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+    for(let i = 0; i < 4; i++){
+      const b0 = b[i*4], b1 = b[i*4+1], b2 = b[i*4+2], b3 = b[i*4+3];
+      out[i*4  ] = a00*b0 + a10*b1 + a20*b2 + a30*b3;
+      out[i*4+1] = a01*b0 + a11*b1 + a21*b2 + a31*b3;
+      out[i*4+2] = a02*b0 + a12*b1 + a22*b2 + a32*b3;
+      out[i*4+3] = a03*b0 + a13*b1 + a23*b2 + a33*b3;
+    }
+    return out;
+  },
+  trans(x, y, z){ const m = M4.ident(); m[12]=x; m[13]=y; m[14]=z; return m; },
+  scale(x, y, z){ const m = M4.ident(); m[0]=x; m[5]=y; m[10]=z; return m; },
+  rotX(a){ const m = M4.ident(), c = Math.cos(a), s = Math.sin(a); m[5]=c; m[6]=s; m[9]=-s; m[10]=c; return m; },
+  rotY(a){ const m = M4.ident(), c = Math.cos(a), s = Math.sin(a); m[0]=c; m[2]=-s; m[8]=s; m[10]=c; return m; },
+  rotZ(a){ const m = M4.ident(), c = Math.cos(a), s = Math.sin(a); m[0]=c; m[1]=s; m[4]=-s; m[5]=c; return m; },
+  fromQuatPos(q, p, out){
+    out = out || new Float32Array(16);
+    const x=q.x,y=q.y,z=q.z,w=q.w, x2=x+x,y2=y+y,z2=z+z;
+    const xx=x*x2,xy=x*y2,xz=x*z2, yy=y*y2,yz=y*z2,zz=z*z2, wx=w*x2,wy=w*y2,wz=w*z2;
+    out[0]=1-(yy+zz); out[1]=xy+wz;     out[2]=xz-wy;     out[3]=0;
+    out[4]=xy-wz;     out[5]=1-(xx+zz); out[6]=yz+wx;     out[7]=0;
+    out[8]=xz+wy;     out[9]=yz-wx;     out[10]=1-(xx+yy);out[11]=0;
+    out[12]=p.x;      out[13]=p.y;      out[14]=p.z;      out[15]=1;
+    return out;
+  },
+  perspective(fovy, asp, n, f){
+    const t = 1 / Math.tan(fovy * 0.5), m = new Float32Array(16);
+    m[0]=t/asp; m[5]=t; m[10]=(f+n)/(n-f); m[11]=-1; m[14]=2*f*n/(n-f);
+    return m;
+  },
+  ortho(l, r, b, t, n, f){
+    const m = new Float32Array(16);
+    m[0]=2/(r-l); m[5]=2/(t-b); m[10]=-2/(f-n); m[15]=1;
+    m[12]=-(r+l)/(r-l); m[13]=-(t+b)/(t-b); m[14]=-(f+n)/(f-n);
+    return m;
+  },
+  lookAt(eye, ctr, up){
+    let z = eye.sub(ctr); if(z.len2() < 1e-12) z = v3(0,0,1); z = z.unit();
+    let x = up.cross(z); if(x.len2() < 1e-9) x = v3(1,0,0).cross(z); x = x.unit();
+    const y = z.cross(x);
+    const m = new Float32Array(16);
+    m[0]=x.x; m[1]=y.x; m[2]=z.x; m[3]=0;
+    m[4]=x.y; m[5]=y.y; m[6]=z.y; m[7]=0;
+    m[8]=x.z; m[9]=y.z; m[10]=z.z; m[11]=0;
+    m[12]=-x.dot(eye); m[13]=-y.dot(eye); m[14]=-z.dot(eye); m[15]=1;
+    return m;
+  },
+  invert(m){
+    const o = new Float32Array(16);
+    const a00=m[0],a01=m[1],a02=m[2],a03=m[3], a10=m[4],a11=m[5],a12=m[6],a13=m[7],
+          a20=m[8],a21=m[9],a22=m[10],a23=m[11], a30=m[12],a31=m[13],a32=m[14],a33=m[15];
+    const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10, b03=a01*a12-a02*a11,
+          b04=a01*a13-a03*a11, b05=a02*a13-a03*a12, b06=a20*a31-a21*a30, b07=a20*a32-a22*a30,
+          b08=a20*a33-a23*a30, b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+    let det = b00*b11 - b01*b10 + b02*b09 + b03*b08 - b04*b07 + b05*b06;
+    if(!det) return M4.ident();
+    det = 1 / det;
+    o[0]=(a11*b11-a12*b10+a13*b09)*det; o[1]=(a02*b10-a01*b11-a03*b09)*det;
+    o[2]=(a31*b05-a32*b04+a33*b03)*det; o[3]=(a22*b04-a21*b05-a23*b03)*det;
+    o[4]=(a12*b08-a10*b11-a13*b07)*det; o[5]=(a00*b11-a02*b08+a03*b07)*det;
+    o[6]=(a32*b02-a30*b05-a33*b01)*det; o[7]=(a20*b05-a22*b02+a23*b01)*det;
+    o[8]=(a10*b10-a11*b08+a13*b06)*det; o[9]=(a01*b08-a00*b10-a03*b06)*det;
+    o[10]=(a30*b04-a31*b02+a33*b00)*det; o[11]=(a21*b02-a20*b04-a23*b00)*det;
+    o[12]=(a11*b07-a10*b09-a12*b06)*det; o[13]=(a00*b09-a01*b07+a02*b06)*det;
+    o[14]=(a31*b01-a30*b03-a32*b00)*det; o[15]=(a20*b03-a21*b01+a22*b00)*det;
+    return o;
+  },
+  nrm3(m){ // 上 3×3 的逆转置
+    const a=m[0],b=m[1],c=m[2], d=m[4],e=m[5],f=m[6], g=m[8],h=m[9],i=m[10];
+    const A=e*i-f*h, B=f*g-d*i, C=d*h-e*g;
+    let det = a*A + b*B + c*C;
+    if(Math.abs(det) < 1e-12) det = 1;
+    const id = 1 / det;
+    return new Float32Array([
+      A*id, B*id, C*id,
+      (c*h-b*i)*id, (a*i-c*g)*id, (b*g-a*h)*id,
+      (b*f-c*e)*id, (c*d-a*f)*id, (a*e-b*d)*id]);
+  },
+  xf(m, p){ // 变换点
+    const w = m[3]*p.x + m[7]*p.y + m[11]*p.z + m[15] || 1;
+    return new V3(
+      (m[0]*p.x + m[4]*p.y + m[8]*p.z + m[12]) / w,
+      (m[1]*p.x + m[5]*p.y + m[9]*p.z + m[13]) / w,
+      (m[2]*p.x + m[6]*p.y + m[10]*p.z + m[14]) / w);
+  },
+  xfd(m, p){ // 变换方向
+    return new V3(
+      m[0]*p.x + m[4]*p.y + m[8]*p.z,
+      m[1]*p.x + m[5]*p.y + m[9]*p.z,
+      m[2]*p.x + m[6]*p.y + m[10]*p.z);
+  }
+};
+
+/* 值噪声 / fBm —— 地形与纹理共用（与 GLSL 侧同构） */
+function hash2(x, y){
+  let h = x * 374761393 + y * 668265263;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) & 0xffffff) / 0xffffff;
+}
+function vnoise(x, y){
+  const ix = Math.floor(x), iy = Math.floor(y);
+  let fx = x - ix, fy = y - iy;
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy), c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return lerp(lerp(a, b, fx), lerp(c, d, fx), fy);
+}
+function fbm(x, y, oct = 4, lac = 2.03, gain = 0.5){
+  let s = 0, a = 0.5, f = 1;
+  for(let i = 0; i < oct; i++){ s += a * vnoise(x * f, y * f); f *= lac; a *= gain; }
+  return s;
+}
+
+/* 消息日志 */
+const LOGEL = document.getElementById('log');
+const LOG = {
+  push(txt, cls){
+    const d = document.createElement('div');
+    if(cls) d.className = cls;
+    d.textContent = txt;
+    LOGEL.appendChild(d);
+    while(LOGEL.children.length > 6) LOGEL.removeChild(LOGEL.firstChild);
+    setTimeout(() => { d.style.opacity = '0'; }, 3400);
+    setTimeout(() => { if(d.parentNode) d.parentNode.removeChild(d); }, 4200);
+  }
+};
+
+/* ────────────────────────────── 2. 渲染器 ────────────────────────────── */
+const VS_MAIN = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec3 aCol;
+uniform mat4 uProj, uView, uModel, uLightVP;
+uniform mat3 uNrmMat;
+out vec3 vW; out vec3 vN; out vec3 vC; out vec4 vLP;
+void main(){
+  vec4 wp = uModel * vec4(aPos, 1.0);
+  vW = wp.xyz;
+  vN = normalize(uNrmMat * aNrm);
+  vC = aCol;
+  vLP = uLightVP * wp;
+  gl_Position = uProj * uView * wp;
+}`;
+
+const FS_MAIN = `#version 300 es
+precision highp float;
+in vec3 vW; in vec3 vN; in vec3 vC; in vec4 vLP;
+uniform vec3 uSunDir, uSunCol, uSkyCol, uGndCol, uCamPos, uColorMul, uFogCol, uFlashPos, uFlashCol;
+uniform float uSpec, uShin, uFogDen, uDetail, uEmis;
+uniform highp sampler2DShadow uShadow;
+out vec4 oCol;
+
+float h21(vec2 p){ p = fract(p * vec2(127.31, 311.7)); p += dot(p, p + 34.53); return fract(p.x * p.y); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }
+
+float shadowF(float ndl){
+  vec3 p = vLP.xyz / vLP.w;
+  p = p * 0.5 + 0.5;
+  if(p.z > 1.0 || p.x < 0.002 || p.x > 0.998 || p.y < 0.002 || p.y > 0.998) return 1.0;
+  float bias = max(0.00035, 0.0022 * (1.0 - ndl));
+  float s = 0.0;
+  vec2 tx = vec2(1.0 / 2048.0);
+  for(int y = -1; y <= 1; y++)
+    for(int x = -1; x <= 1; x++)
+      s += texture(uShadow, vec3(p.xy + vec2(float(x), float(y)) * tx, p.z - bias));
+  return s / 9.0;
+}
+void main(){
+  vec3 N = normalize(vN);
+  vec3 L = normalize(uSunDir);
+  vec3 V = normalize(uCamPos - vW);
+  vec3 alb = vC * uColorMul;
+  if(uDetail > 0.5){
+    float n = vn(vW.xz * 0.7) * 0.55 + vn(vW.xz * 3.1) * 0.3 + vn(vW.xz * 11.0) * 0.15;
+    alb *= 0.72 + 0.56 * n;
+    alb *= 1.0 - 0.25 * smoothstep(0.55, 1.0, vn(vW.xz * 0.11));
+  }
+  float ndl = max(dot(N, L), 0.0);
+  float sh = ndl > 0.0 ? shadowF(ndl) : 1.0;
+  vec3 dif = uSunCol * ndl * sh;
+  vec3 amb = mix(uGndCol, uSkyCol, 0.5 + 0.5 * N.y);
+  // 炮口闪光点光源
+  vec3 fd = uFlashPos - vW;
+  float fl2 = dot(fd, fd);
+  vec3 flash = uFlashCol * max(dot(N, normalize(fd)), 0.0) / (1.0 + fl2 * 0.06);
+  vec3 H = normalize(L + V);
+  float spe = pow(max(dot(N, H), 0.0), uShin) * uSpec * sh * ndl;
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 5.0) * 0.35;
+  vec3 col = alb * (dif + amb + flash) + (uSunCol * spe) + amb * fres * 0.5 + alb * uEmis;
+  float d = length(uCamPos - vW);
+  float f = 1.0 - exp(-pow(d * uFogDen, 1.55));
+  col = mix(col, uFogCol * (0.85 + 0.3 * max(dot(normalize(vW - uCamPos), L), 0.0)), clamp(f, 0.0, 1.0));
+  col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
+  oCol = vec4(pow(clamp(col, 0.0, 1.0), vec3(0.4545)), 1.0);
+}`;
+
+const VS_SHADOW = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+uniform mat4 uLightVP, uModel;
+void main(){ gl_Position = uLightVP * uModel * vec4(aPos, 1.0); }`;
+const FS_SHADOW = `#version 300 es
+precision highp float;
+void main(){}`;
+
+const VS_SKY = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 aP;
+uniform mat4 uInvVP; uniform vec3 uCamPos;
+out vec3 vDir;
+void main(){
+  vec4 p = uInvVP * vec4(aP, 1.0, 1.0);
+  vDir = p.xyz / p.w - uCamPos;
+  gl_Position = vec4(aP, 0.0, 1.0);
+}`;
+const FS_SKY = `#version 300 es
+precision highp float;
+in vec3 vDir;
+uniform vec3 uSunDir, uSkyCol, uFogCol, uSunCol;
+out vec4 oCol;
+float h21(vec2 p){ p = fract(p * vec2(127.31, 311.7)); p += dot(p, p + 34.53); return fract(p.x * p.y); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }
+float fbm(vec2 p){ float s = 0.0, a = 0.5; for(int i = 0; i < 5; i++){ s += a * vn(p); p *= 2.07; a *= 0.5; } return s; }
+void main(){
+  vec3 d = normalize(vDir);
+  float up = clamp(d.y, -1.0, 1.0);
+  vec3 zen = uSkyCol * 1.15;
+  vec3 hor = uFogCol * 1.02;
+  vec3 col = mix(hor, zen, pow(clamp(up, 0.0, 1.0), 0.62));
+  float sd = max(dot(d, normalize(uSunDir)), 0.0);
+  col += uSunCol * (pow(sd, 900.0) * 12.0 + pow(sd, 24.0) * 0.35 + pow(sd, 5.0) * 0.10);
+  if(up > 0.012){
+    vec2 uv = d.xz / max(d.y, 0.02) * 0.055;
+    float c = fbm(uv * 1.6 + vec2(3.1, 1.7));
+    c = smoothstep(0.52, 0.92, c) * smoothstep(0.012, 0.22, up);
+    float sh = smoothstep(0.35, 0.85, fbm(uv * 1.6 + normalize(uSunDir).xz * 0.35 + vec2(3.1, 1.7)));
+    col = mix(col, mix(vec3(0.42, 0.45, 0.50), vec3(1.06, 1.02, 0.98), 1.0 - sh * 0.75), c * 0.88);
+  }
+  col = mix(col, hor, exp(-max(up, 0.0) * 26.0) * 0.55);
+  col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);
+  oCol = vec4(pow(clamp(col, 0.0, 1.0), vec3(0.4545)), 1.0);
+}`;
+
+const VS_PART = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec2 aUV;
+layout(location=2) in vec4 aCol;
+uniform mat4 uProj, uView;
+out vec2 vUV; out vec4 vC;
+void main(){ vUV = aUV; vC = aCol; gl_Position = uProj * uView * vec4(aPos, 1.0); }`;
+const FS_PART = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec4 vC;
+uniform float uSoft;
+out vec4 oCol;
+float h21(vec2 p){ p = fract(p * vec2(127.31, 311.7)); p += dot(p, p + 34.53); return fract(p.x * p.y); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }
+void main(){
+  float r = length(vUV - 0.5) * 2.0;
+  float a = smoothstep(1.0, uSoft, r);
+  float n = vn(vUV * 5.0 + vC.r * 21.0) * 0.45 + 0.72;
+  a *= n;
+  if(a < 0.004) discard;
+  oCol = vec4(vC.rgb, vC.a * a);
+}`;
+
+const VS_LINE = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aCol;
+uniform mat4 uProj, uView;
+out vec3 vC;
+void main(){ vC = aCol; gl_Position = uProj * uView * vec4(aPos, 1.0); }`;
+const FS_LINE = `#version 300 es
+precision highp float;
+in vec3 vC; out vec4 oCol;
+void main(){ oCol = vec4(vC, 1.0); }`;
+
+function mkProg(gl, vsSrc, fsSrc, name){
+  const sh = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      throw new Error(name + ' 着色器编译失败:\n' + gl.getShaderInfoLog(s));
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(name + ' 链接失败: ' + gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < n; i++){
+    const inf = gl.getActiveUniform(p, i);
+    u[inf.name.replace('[0]', '')] = gl.getUniformLocation(p, inf.name);
+  }
+  return { p, u };
+}
+
+/* sRGB → 线性 */
+function C(hex, mulv){
+  const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const m = mulv === undefined ? 1 : mulv;
+  return [Math.pow(r, 2.2) * m, Math.pow(g, 2.2) * m, Math.pow(b, 2.2) * m];
+}
+
+/* ── 网格构建器：所有零件烘焙进单一网格，自动修正绕序 ── */
+class MB {
+  constructor(){
+    this.P = []; this.N = []; this.CO = []; this.I = [];
+    this.m = M4.ident(); this.stk = [];
+  }
+  save(){ this.stk.push(M4.copy(this.m)); return this; }
+  restore(){ this.m = this.stk.pop() || M4.ident(); return this; }
+  apply(mm){ this.m = M4.mul(this.m, mm); return this; }
+  t(x, y, z){ return this.apply(M4.trans(x, y, z)); }
+  rx(a){ return this.apply(M4.rotX(a)); }
+  ry(a){ return this.apply(M4.rotY(a)); }
+  rz(a){ return this.apply(M4.rotZ(a)); }
+  sc(x, y, z){ return this.apply(M4.scale(x, y === undefined ? x : y, z === undefined ? x : z)); }
+  _pv(p){ // 局部 → 构建空间
+    const m = this.m;
+    return [m[0]*p[0] + m[4]*p[1] + m[8]*p[2] + m[12],
+            m[1]*p[0] + m[5]*p[1] + m[9]*p[2] + m[13],
+            m[2]*p[0] + m[6]*p[1] + m[10]*p[2] + m[14]];
+  }
+  _nv(n){
+    const m = this.m;
+    const x = m[0]*n[0] + m[4]*n[1] + m[8]*n[2],
+          y = m[1]*n[0] + m[5]*n[1] + m[9]*n[2],
+          z = m[2]*n[0] + m[6]*n[1] + m[10]*n[2];
+    const l = Math.hypot(x, y, z) || 1;
+    return [x/l, y/l, z/l];
+  }
+  vert(p, n, col){
+    const w = this._pv(p), nn = this._nv(n);
+    this.P.push(w[0], w[1], w[2]);
+    this.N.push(nn[0], nn[1], nn[2]);
+    this.CO.push(col[0], col[1], col[2]);
+    return this.P.length / 3 - 1;
+  }
+  // 平面四边形，hint 为期望外法线（局部空间）
+  quad(p0, p1, p2, p3, col, hint){
+    const ux = p1[0]-p0[0], uy = p1[1]-p0[1], uz = p1[2]-p0[2];
+    const vx = p3[0]-p0[0], vy = p3[1]-p0[1], vz = p3[2]-p0[2];
+    let nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    if(hint && (nx*hint[0] + ny*hint[1] + nz*hint[2]) < 0){
+      const t = p1; p1 = p3; p3 = t;
+      nx = -nx; ny = -ny; nz = -nz;
+    }
+    const n = [nx, ny, nz];
+    const a = this.vert(p0, n, col), b = this.vert(p1, n, col),
+          c = this.vert(p2, n, col), d = this.vert(p3, n, col);
+    this.I.push(a, b, c, a, c, d);
+    return this;
+  }
+  tri(p0, p1, p2, col, hint){
+    const ux = p1[0]-p0[0], uy = p1[1]-p0[1], uz = p1[2]-p0[2];
+    const vx = p2[0]-p0[0], vy = p2[1]-p0[1], vz = p2[2]-p0[2];
+    let nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+    const l = Math.hypot(nx, ny, nz);
+    if(l < 1e-12) return this;
+    nx /= l; ny /= l; nz /= l;
+    if(hint && (nx*hint[0] + ny*hint[1] + nz*hint[2]) < 0){
+      const t = p1; p1 = p2; p2 = t;
+      nx = -nx; ny = -ny; nz = -nz;
+    }
+    const n = [nx, ny, nz];
+    const a = this.vert(p0, n, col), b = this.vert(p1, n, col), c = this.vert(p2, n, col);
+    this.I.push(a, b, c);
+    return this;
+  }
+  // 中心在 (cx,cy,cz) 的长方体
+  box(sx, sy, sz, col, cx = 0, cy = 0, cz = 0){
+    const x0 = cx - sx/2, x1 = cx + sx/2, y0 = cy - sy/2, y1 = cy + sy/2, z0 = cz - sz/2, z1 = cz + sz/2;
+    const p = (x, y, z) => [x, y, z];
+    this.quad(p(x0,y0,z1), p(x1,y0,z1), p(x1,y1,z1), p(x0,y1,z1), col, [0,0,1]);
+    this.quad(p(x1,y0,z0), p(x0,y0,z0), p(x0,y1,z0), p(x1,y1,z0), col, [0,0,-1]);
+    this.quad(p(x1,y0,z1), p(x1,y0,z0), p(x1,y1,z0), p(x1,y1,z1), col, [1,0,0]);
+    this.quad(p(x0,y0,z0), p(x0,y0,z1), p(x0,y1,z1), p(x0,y1,z0), col, [-1,0,0]);
+    this.quad(p(x0,y1,z1), p(x1,y1,z1), p(x1,y1,z0), p(x0,y1,z0), col, [0,1,0]);
+    this.quad(p(x0,y0,z0), p(x1,y0,z0), p(x1,y0,z1), p(x0,y0,z1), col, [0,-1,0]);
+    return this;
+  }
+  // 放样：pts = [[x,z],...]（俯视多边形），底面 y0 顶面 y1
+  loft(bot, top, y0, y1, col, capB, capT){
+    const n = bot.length;
+    let cx = 0, cz = 0;
+    for(let i = 0; i < n; i++){ cx += bot[i][0] + top[i][0]; cz += bot[i][1] + top[i][1]; }
+    cx /= n * 2; cz /= n * 2;
+    for(let i = 0; i < n; i++){
+      const j = (i + 1) % n;
+      const b0 = [bot[i][0], y0, bot[i][1]], b1 = [bot[j][0], y0, bot[j][1]];
+      const t1 = [top[j][0], y1, top[j][1]], t0 = [top[i][0], y1, top[i][1]];
+      const mx = (b0[0] + b1[0]) / 2 - cx, mz = (b0[2] + b1[2]) / 2 - cz;
+      this.quad(b0, b1, t1, t0, col, [mx, 0.001, mz]);
+    }
+    if(capT !== false){
+      for(let i = 1; i < n - 1; i++)
+        this.tri([top[0][0], y1, top[0][1]], [top[i][0], y1, top[i][1]], [top[i+1][0], y1, top[i+1][1]], col, [0,1,0]);
+    }
+    if(capB !== false){
+      for(let i = 1; i < n - 1; i++)
+        this.tri([bot[0][0], y0, bot[0][1]], [bot[i][0], y0, bot[i][1]], [bot[i+1][0], y0, bot[i+1][1]], col, [0,-1,0]);
+    }
+    return this;
+  }
+  // 圆柱/圆台，轴向 y，中心在原点
+  cyl(r0, r1, h, segs, col, o){
+    o = o || {};
+    const smooth = o.smooth !== false, caps = o.caps !== false;
+    const a0 = o.a0 || 0, sweep = o.sweep || TAU;
+    const y0 = -h/2, y1 = h/2;
+    const N = segs, closed = Math.abs(sweep - TAU) < 1e-6;
+    const cnt = closed ? N : N + 1;
+    const ring0 = [], ring1 = [];
+    for(let i = 0; i < cnt; i++){
+      const a = a0 + sweep * (i / N);
+      ring0.push([Math.cos(a) * r0, y0, Math.sin(a) * r0]);
+      ring1.push([Math.cos(a) * r1, y1, Math.sin(a) * r1]);
+    }
+    const dr = (r0 - r1), ny = dr / Math.max(1e-6, Math.hypot(dr, h)) * (h > 0 ? 1 : 1);
+    for(let i = 0; i < (closed ? N : N); i++){
+      const j = (i + 1) % cnt;
+      if(!closed && i + 1 >= cnt) break;
+      if(smooth){
+        const aA = a0 + sweep * (i / N), aB = a0 + sweep * ((i + 1) / N);
+        const nA = [Math.cos(aA), ny, Math.sin(aA)], nB = [Math.cos(aB), ny, Math.sin(aB)];
+        const lA = Math.hypot(nA[0], nA[1], nA[2]), lB = Math.hypot(nB[0], nB[1], nB[2]);
+        nA[0]/=lA; nA[1]/=lA; nA[2]/=lA; nB[0]/=lB; nB[1]/=lB; nB[2]/=lB;
+        const iA0 = this.vert(ring0[i], nA, col), iB0 = this.vert(ring0[j], nB, col),
+              iB1 = this.vert(ring1[j], nB, col), iA1 = this.vert(ring1[i], nA, col);
+        this.I.push(iA0, iB0, iB1, iA0, iB1, iA1);
+      } else {
+        this.quad(ring0[i], ring0[j], ring1[j], ring1[i], col, [ring0[i][0] + ring0[j][0], 0.001, ring0[i][2] + ring0[j][2]]);
+      }
+    }
+    if(caps){
+      if(r1 > 1e-6) for(let i = 1; i < cnt - (closed ? 0 : 1); i++){
+        const j = (i + 1) % cnt;
+        this.tri(ring1[0], ring1[i], ring1[j], col, [0,1,0]);
+      }
+      if(r0 > 1e-6) for(let i = 1; i < cnt - (closed ? 0 : 1); i++){
+        const j = (i + 1) % cnt;
+        this.tri(ring0[0], ring0[i], ring0[j], col, [0,-1,0]);
+      }
+    }
+    return this;
+  }
+  sphere(r, segs, col, hemi){
+    const rings = Math.max(3, segs >> 1);
+    for(let iy = 0; iy < rings; iy++){
+      const v0 = iy / rings, v1 = (iy + 1) / rings;
+      const t0 = (hemi ? v0 * 0.5 : v0) * PI, t1 = (hemi ? v1 * 0.5 : v1) * PI;
+      for(let ix = 0; ix < segs; ix++){
+        const u0 = ix / segs * TAU, u1 = (ix + 1) / segs * TAU;
+        const P = (t, u) => [Math.sin(t) * Math.cos(u) * r, Math.cos(t) * r, Math.sin(t) * Math.sin(u) * r];
+        const p00 = P(t0, u0), p10 = P(t0, u1), p11 = P(t1, u1), p01 = P(t1, u0);
+        const nn = q => { const l = Math.hypot(q[0], q[1], q[2]) || 1; return [q[0]/l, q[1]/l, q[2]/l]; };
+        const a = this.vert(p00, nn(p00), col), b = this.vert(p10, nn(p10), col),
+              c = this.vert(p11, nn(p11), col), d = this.vert(p01, nn(p01), col);
+        this.I.push(a, b, c, a, c, d);
+      }
+    }
+    return this;
+  }
+  // 沿 z 轴的斜面板（楔形装甲）：宽 w，前缘高 h0，后缘高 h1，长 d
+  wedge(w, h0, h1, d, col){
+    const x0 = -w/2, x1 = w/2, z0 = -d/2, z1 = d/2;
+    this.quad([x0,0,z0], [x1,0,z0], [x1,h1,z0], [x0,h1,z0], col, [0,0,-1]);
+    this.quad([x1,0,z1], [x0,0,z1], [x0,h0,z1], [x1,h0,z1], col, [0,0,1]);
+    this.quad([x0,h1,z0], [x1,h1,z0], [x1,h0,z1], [x0,h0,z1], col, [0,1,0]);
+    this.quad([x0,0,z0], [x0,0,z1], [x1,0,z1], [x1,0,z0], col, [0,-1,0]);
+    this.quad([x1,0,z0], [x1,0,z1], [x1,h0,z1], [x1,h1,z0], col, [1,0,0]);
+    this.quad([x0,0,z1], [x0,0,z0], [x0,h1,z0], [x0,h0,z1], col, [-1,0,0]);
+    return this;
+  }
+  count(){ return this.I.length; }
+  build(gl){
+    const nv = this.P.length / 3;
+    const data = new Float32Array(nv * 9);
+    for(let i = 0; i < nv; i++){
+      data[i*9  ] = this.P[i*3];   data[i*9+1] = this.P[i*3+1]; data[i*9+2] = this.P[i*3+2];
+      data[i*9+3] = this.N[i*3];   data[i*9+4] = this.N[i*3+1]; data[i*9+5] = this.N[i*3+2];
+      data[i*9+6] = this.CO[i*3];  data[i*9+7] = this.CO[i*3+1]; data[i*9+8] = this.CO[i*3+2];
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    const S = 36;
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, S, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, S, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, S, 24);
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(this.I), gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao, n: this.I.length, tris: this.I.length / 3, verts: nv };
+  }
+}
+
+const R = {
+  gl: null, cv: null, W: 1, H: 1, dpr: 1, ok: false,
+  sunDir: v3(0.42, 0.63, -0.36).unit(),
+  sunCol: [1.62, 1.52, 1.34],
+  skyCol: [0.34, 0.47, 0.72],
+  gndCol: [0.20, 0.19, 0.15],
+  fogCol: [0.63, 0.70, 0.79],
+  fogDen: 0.00034,
+  flashPos: [0, -999, 0], flashCol: [0, 0, 0],
+  shSize: 2048, tris: 0, calls: 0,
+
+  init(cv){
+    this.cv = cv;
+    const PS = window.__PRESET__;
+    if(PS && PS.sh) this.shSize = PS.sh;
+    const gl = cv.getContext('webgl2', {
+      antialias: true, depth: true, stencil: false, alpha: false,
+      powerPreference: 'high-performance', preserveDrawingBuffer: !!PS
+    });
+    if(!gl) return false;
+    this.gl = gl;
+    this.pMain = mkProg(gl, VS_MAIN, FS_MAIN, '主');
+    this.pShadow = mkProg(gl, VS_SHADOW, FS_SHADOW, '阴影');
+    this.pSky = mkProg(gl, VS_SKY, FS_SKY, '天空');
+    this.pPart = mkProg(gl, VS_PART, FS_PART, '粒子');
+    this.pLine = mkProg(gl, VS_LINE, FS_LINE, '线');
+
+    // 阴影贴图
+    this.shTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.shTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, this.shSize, this.shSize, 0,
+      gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    this.shFB = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shFB);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this.shTex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // 天空全屏四边形
+    this.skyVAO = gl.createVertexArray();
+    gl.bindVertexArray(this.skyVAO);
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    // 粒子动态缓冲
+    this.maxPart = 7000;
+    this.partData = new Float32Array(this.maxPart * 4 * 9);
+    this.partVAO = gl.createVertexArray();
+    gl.bindVertexArray(this.partVAO);
+    this.partVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.partVB);
+    gl.bufferData(gl.ARRAY_BUFFER, this.partData.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 36, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 36, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 36, 20);
+    const pidx = new Uint32Array(this.maxPart * 6);
+    for(let i = 0; i < this.maxPart; i++){
+      pidx[i*6] = i*4; pidx[i*6+1] = i*4+1; pidx[i*6+2] = i*4+2;
+      pidx[i*6+3] = i*4; pidx[i*6+4] = i*4+2; pidx[i*6+5] = i*4+3;
+    }
+    const pib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, pidx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+
+    // 调试线动态缓冲
+    this.maxLine = 6000;
+    this.lineData = new Float32Array(this.maxLine * 2 * 6);
+    this.lineVAO = gl.createVertexArray();
+    gl.bindVertexArray(this.lineVAO);
+    this.lineVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineVB);
+    gl.bufferData(gl.ARRAY_BUFFER, this.lineData.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    gl.bindVertexArray(null);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.frontFace(gl.CCW);
+    this.ok = true;
+    this.resize();
+    return true;
+  },
+
+  resize(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = dpr;
+    const w = Math.max(2, Math.round(innerWidth * dpr)), h = Math.max(2, Math.round(innerHeight * dpr));
+    this.cv.width = w; this.cv.height = h;
+    this.cv.style.width = innerWidth + 'px';
+    this.cv.style.height = innerHeight + 'px';
+    this.W = w; this.H = h;
+  },
+
+  // 阴影相机跟随焦点
+  lightVP(focus, radius){
+    const d = this.sunDir.mul(radius * 2.2);
+    const eye = focus.add(d);
+    const view = M4.lookAt(eye, focus, v3(0, 1, 0));
+    const proj = M4.ortho(-radius, radius, -radius, radius, 1, radius * 4.6);
+    return M4.mul(proj, view);
+  },
+
+  beginShadow(focus, radius){
+    const gl = this.gl;
+    this.LVP = this.lightVP(focus, radius);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shFB);
+    gl.viewport(0, 0, this.shSize, this.shSize);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(this.pShadow.p);
+    gl.uniformMatrix4fv(this.pShadow.u.uLightVP, false, this.LVP);
+    gl.cullFace(gl.FRONT);
+    this.pass = 'shadow';
+  },
+
+  beginMain(cam){
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.W, this.H);
+    gl.cullFace(gl.BACK);
+    gl.clearColor(this.fogCol[0], this.fogCol[1], this.fogCol[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this.cam = cam;
+    // 天空
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    const sp = this.pSky;
+    gl.useProgram(sp.p);
+    gl.bindVertexArray(this.skyVAO);
+    gl.uniformMatrix4fv(sp.u.uInvVP, false, M4.invert(M4.mul(cam.proj, cam.view)));
+    gl.uniform3f(sp.u.uCamPos, cam.pos.x, cam.pos.y, cam.pos.z);
+    gl.uniform3f(sp.u.uSunDir, this.sunDir.x, this.sunDir.y, this.sunDir.z);
+    gl.uniform3fv(sp.u.uSkyCol, this.skyCol);
+    gl.uniform3fv(sp.u.uFogCol, this.fogCol);
+    gl.uniform3fv(sp.u.uSunCol, this.sunCol);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    // 主程序
+    const P = this.pMain;
+    gl.useProgram(P.p);
+    gl.uniformMatrix4fv(P.u.uProj, false, cam.proj);
+    gl.uniformMatrix4fv(P.u.uView, false, cam.view);
+    gl.uniformMatrix4fv(P.u.uLightVP, false, this.LVP || M4.ident());
+    gl.uniform3f(P.u.uSunDir, this.sunDir.x, this.sunDir.y, this.sunDir.z);
+    gl.uniform3fv(P.u.uSunCol, this.sunCol);
+    gl.uniform3fv(P.u.uSkyCol, this.skyCol);
+    gl.uniform3fv(P.u.uGndCol, this.gndCol);
+    gl.uniform3fv(P.u.uFogCol, this.fogCol);
+    gl.uniform1f(P.u.uFogDen, this.fogDen);
+    gl.uniform3f(P.u.uCamPos, cam.pos.x, cam.pos.y, cam.pos.z);
+    gl.uniform3fv(P.u.uFlashPos, this.flashPos);
+    gl.uniform3fv(P.u.uFlashCol, this.flashCol);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.shTex);
+    gl.uniform1i(P.u.uShadow, 0);
+    this.pass = 'main';
+    this.tris = 0; this.calls = 0;
+  },
+
+  draw(mesh, model, o){
+    if(!mesh) return;
+    const gl = this.gl;
+    if(this.pass === 'shadow'){
+      if(o && o.noShadow) return;
+      gl.uniformMatrix4fv(this.pShadow.u.uModel, false, model);
+      gl.bindVertexArray(mesh.vao);
+      gl.drawElements(gl.TRIANGLES, mesh.n, gl.UNSIGNED_INT, 0);
+      return;
+    }
+    const P = this.pMain, u = P.u;
+    gl.uniformMatrix4fv(u.uModel, false, model);
+    gl.uniformMatrix3fv(u.uNrmMat, false, M4.nrm3(model));
+    gl.uniform3fv(u.uColorMul, (o && o.color) || ONE3);
+    gl.uniform1f(u.uSpec, o && o.spec !== undefined ? o.spec : 0.30);
+    gl.uniform1f(u.uShin, o && o.shin !== undefined ? o.shin : 26);
+    gl.uniform1f(u.uDetail, o && o.detail ? 1 : 0);
+    gl.uniform1f(u.uEmis, (o && o.emis) || 0);
+    gl.bindVertexArray(mesh.vao);
+    gl.drawElements(gl.TRIANGLES, mesh.n, gl.UNSIGNED_INT, 0);
+    this.tris += mesh.tris; this.calls++;
+  },
+
+  drawParticles(list, cam){
+    if(!list.length) return;
+    const gl = this.gl;
+    const right = cam.right, up = cam.up;
+    let n = 0;
+    const D = this.partData;
+    for(let i = 0; i < list.length && n < this.maxPart; i++){
+      const p = list[i];
+      let rx, ry, rz, ux, uy, uz;
+      if(p.ground){ // 贴地四边形
+        const c = Math.cos(p.rot || 0), s = Math.sin(p.rot || 0);
+        rx = c * p.size; ry = 0; rz = s * p.size;
+        ux = -s * p.size; uy = 0; uz = c * p.size;
+      } else {
+        const c = Math.cos(p.rot || 0), s = Math.sin(p.rot || 0);
+        rx = (right.x * c + up.x * s) * p.size; ry = (right.y * c + up.y * s) * p.size; rz = (right.z * c + up.z * s) * p.size;
+        ux = (up.x * c - right.x * s) * p.size; uy = (up.y * c - right.y * s) * p.size; uz = (up.z * c - right.z * s) * p.size;
+      }
+      const P = p.pos, A = p.a, col = p.col;
+      const o = n * 36;
+      const put = (k, X, Y, Z, U, V) => {
+        D[o+k*9  ] = X; D[o+k*9+1] = Y; D[o+k*9+2] = Z;
+        D[o+k*9+3] = U; D[o+k*9+4] = V;
+        D[o+k*9+5] = col[0]; D[o+k*9+6] = col[1]; D[o+k*9+7] = col[2]; D[o+k*9+8] = A;
+      };
+      put(0, P.x - rx - ux, P.y - ry - uy, P.z - rz - uz, 0, 0);
+      put(1, P.x + rx - ux, P.y + ry - uy, P.z + rz - uz, 1, 0);
+      put(2, P.x + rx + ux, P.y + ry + uy, P.z + rz + uz, 1, 1);
+      put(3, P.x - rx + ux, P.y - ry + uy, P.z - rz + uz, 0, 1);
+      n++;
+    }
+    if(!n) return;
+    gl.useProgram(this.pPart.p);
+    gl.bindVertexArray(this.partVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.partVB);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, D, 0, n * 36);
+    gl.uniformMatrix4fv(this.pPart.u.uProj, false, cam.proj);
+    gl.uniformMatrix4fv(this.pPart.u.uView, false, cam.view);
+    gl.uniform1f(this.pPart.u.uSoft, 0.15);
+    gl.enable(gl.BLEND);
+    gl.depthMask(false);
+    gl.disable(gl.CULL_FACE);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_INT, 0);
+    gl.enable(gl.CULL_FACE);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    this.calls++;
+  },
+
+  drawAdditive(list, cam){
+    if(!list.length) return;
+    const gl = this.gl;
+    this.gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    // 复用同一路径，只改混合模式
+    const oldBlend = true;
+    let n = 0;
+    const D = this.partData;
+    const right = cam.right, up = cam.up;
+    for(let i = 0; i < list.length && n < this.maxPart; i++){
+      const p = list[i];
+      const c = Math.cos(p.rot || 0), s = Math.sin(p.rot || 0);
+      const rx = (right.x * c + up.x * s) * p.size, ry = (right.y * c + up.y * s) * p.size, rz = (right.z * c + up.z * s) * p.size;
+      const ux = (up.x * c - right.x * s) * p.size, uy = (up.y * c - right.y * s) * p.size, uz = (up.z * c - right.z * s) * p.size;
+      const P = p.pos, A = p.a, col = p.col, o = n * 36;
+      const put = (k, X, Y, Z, U, V) => {
+        D[o+k*9  ] = X; D[o+k*9+1] = Y; D[o+k*9+2] = Z;
+        D[o+k*9+3] = U; D[o+k*9+4] = V;
+        D[o+k*9+5] = col[0]; D[o+k*9+6] = col[1]; D[o+k*9+7] = col[2]; D[o+k*9+8] = A;
+      };
+      put(0, P.x - rx - ux, P.y - ry - uy, P.z - rz - uz, 0, 0);
+      put(1, P.x + rx - ux, P.y + ry - uy, P.z + rz - uz, 1, 0);
+      put(2, P.x + rx + ux, P.y + ry + uy, P.z + rz + uz, 1, 1);
+      put(3, P.x - rx + ux, P.y - ry + uy, P.z - rz + uz, 0, 1);
+      n++;
+    }
+    if(!n) return;
+    gl.useProgram(this.pPart.p);
+    gl.bindVertexArray(this.partVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.partVB);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, D, 0, n * 36);
+    gl.uniformMatrix4fv(this.pPart.u.uProj, false, cam.proj);
+    gl.uniformMatrix4fv(this.pPart.u.uView, false, cam.view);
+    gl.uniform1f(this.pPart.u.uSoft, 0.02);
+    gl.enable(gl.BLEND);
+    gl.depthMask(false);
+    gl.disable(gl.CULL_FACE);
+    gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_INT, 0);
+    gl.enable(gl.CULL_FACE);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    this.calls++;
+  },
+
+  drawLines(pts, cam){
+    if(!pts.length) return;
+    const gl = this.gl;
+    const n = Math.min(pts.length, this.maxLine * 2);
+    const D = this.lineData;
+    for(let i = 0; i < n; i++){
+      const p = pts[i];
+      D[i*6] = p[0]; D[i*6+1] = p[1]; D[i*6+2] = p[2];
+      D[i*6+3] = p[3]; D[i*6+4] = p[4]; D[i*6+5] = p[5];
+    }
+    gl.useProgram(this.pLine.p);
+    gl.bindVertexArray(this.lineVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineVB);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, D, 0, n * 6);
+    gl.uniformMatrix4fv(this.pLine.u.uProj, false, cam.proj);
+    gl.uniformMatrix4fv(this.pLine.u.uView, false, cam.view);
+    gl.drawArrays(gl.LINES, 0, n);
+    this.calls++;
+  }
+};
+const ONE3 = new Float32Array([1, 1, 1]);
+
+/* ────────────────────────────── 3. 地形 ────────────────────────────── */
+/* 地面材质：μ 纵向附着 / μlat 侧向抗滑 / rr 滚动阻力系数 / soft 陷车系数 */
+const GROUNDS = [
+  { name: '干燥土路', mu: 0.88, muLat: 0.55, rr: 0.048, soft: 0.16,
+    dust: [0.62, 0.53, 0.40], lo: 0x5f5c42, hi: 0x8d8463, rk: 0x7a736a },
+  { name: '湿泥地　', mu: 0.50, muLat: 0.30, rr: 0.092, soft: 0.62,
+    dust: [0.30, 0.25, 0.19], lo: 0x3d3a2c, hi: 0x5a5341, rk: 0x5f5a52 },
+  { name: '松软沙地', mu: 0.61, muLat: 0.36, rr: 0.108, soft: 0.74,
+    dust: [0.82, 0.74, 0.55], lo: 0x9a8f6a, hi: 0xc0b489, rk: 0x9c9484 },
+  { name: '岩石戈壁', mu: 0.96, muLat: 0.62, rr: 0.034, soft: 0.04,
+    dust: [0.52, 0.50, 0.47], lo: 0x5c5a55, hi: 0x86837c, rk: 0x8e8a82 },
+  { name: '冰雪路面', mu: 0.24, muLat: 0.13, rr: 0.028, soft: 0.10,
+    dust: [0.92, 0.95, 1.00], lo: 0xa8b2ba, hi: 0xe6ecf2, rk: 0x8d949a }
+];
+
+const TER = {
+  mi: 0,
+  mat: GROUNDS[0],
+  rings: [],
+  props: null,
+  cx: 1e9, cz: 1e9,
+  h0: 0,
+
+  // 解析高度场（渲染与物理共用同一函数 —— 保证视觉与受力完全一致）
+  h(x, z){
+    let h = (fbm(x * 0.00385, z * 0.00385, 5) - 0.5) * 33.0
+          + (fbm(x * 0.0212 + 11.3, z * 0.0212 + 7.7, 3) - 0.5) * 5.4
+          + (vnoise(x * 0.147, z * 0.147) - 0.5) * 0.46
+          + (vnoise(x * 0.51 + 5.1, z * 0.51 + 3.3) - 0.5) * 0.11;
+    // ① 起始场坪 + 靶场通视走廊（正北 2.1 km，纵坡 0.42%）
+    const padW = smoothstep(58, 24, Math.hypot(x, z));
+    const rw = smoothstep(62, 34, Math.abs(x)) * smoothstep(6, 56, z) * smoothstep(2320, 2120, z);
+    const w = Math.max(padW, rw);
+    if(w > 0.002){
+      const flat = this.h0 + Math.max(0, z - 60) * 0.0042
+                 + (vnoise(x * 0.147, z * 0.147) - 0.5) * 0.30 * rw;
+      h = lerp(h, flat, w);
+    }
+    // ② 东侧驾驶试验场 x∈[40,124]
+    const cw = smoothstep(36, 48, x) * smoothstep(132, 118, x);
+    const cz = smoothstep(-106, -88, z) * smoothstep(106, 88, z);
+    h += (Math.sin(z * 1.87) * 0.205 + Math.sin(z * 4.1 + 1.2) * 0.055) * cw * cz;  // 搓板路（悬挂共振）
+    h += 3.35 * Math.exp(-sq((z - 44) / 7.2)) * cw;                                 // 土垄（越垄腾空）
+    h += 1.55 * Math.exp(-sq((z - 20) / 4.0)) * cw;
+    h -= 2.45 * Math.exp(-sq((z + 42) / 4.6)) * cw;                                 // 反坦克壕
+    // ③ 爬坡试验丘（约 32% 纵坡）中心 (-118, 46)
+    h += 19.5 * Math.pow(Math.max(0, 1 - Math.hypot(x + 118, z - 46) / 66), 1.55);
+    return h;
+  },
+  nrm(x, z){
+    const e = 0.62;
+    const hx = this.h(x + e, z) - this.h(x - e, z);
+    const hz = this.h(x, z + e) - this.h(x, z - e);
+    return v3(-hx, 2 * e, -hz).unit();
+  },
+  slope(x, z){ return Math.acos(clamp(this.nrm(x, z).y, -1, 1)); },
+
+  colorAt(x, z, ny){
+    const m = this.mat;
+    const lo = C(m.lo), hi = C(m.hi), rk = C(m.rk);
+    const s = clamp01((1 - ny) * 4.6);                  // 坡度 → 裸岩
+    const n = vnoise(x * 0.083, z * 0.083) * 0.6 + vnoise(x * 0.31, z * 0.31) * 0.4;
+    const veg = clamp01(0.55 + 0.9 * (n - 0.5)) * (1 - s);
+    const c = [0, 0, 0];
+    for(let i = 0; i < 3; i++){
+      let v = lerp(lo[i], hi[i], n);
+      v = lerp(v, rk[i], s * 0.85);
+      if(this.mi === 0 || this.mi === 1) v = lerp(v, [0.055, 0.10, 0.035][i], veg * 0.34);
+      c[i] = v * (0.86 + 0.28 * vnoise(x * 1.7 + 9, z * 1.7 + 4));
+    }
+    return c;
+  },
+
+  grid(gl, cx, cz, half, step, hole){
+    const nx = Math.round(half * 2 / step);
+    const vN = nx + 1;
+    const data = new Float32Array(vN * vN * 9);
+    const x0 = cx - half, z0 = cz - half;
+    for(let j = 0; j < vN; j++){
+      const z = z0 + j * step;
+      for(let i = 0; i < vN; i++){
+        const x = x0 + i * step;
+        const y = this.h(x, z);
+        const n = this.nrm(x, z);
+        const c = this.colorAt(x, z, n.y);
+        const o = (j * vN + i) * 9;
+        data[o] = x; data[o+1] = y; data[o+2] = z;
+        data[o+3] = n.x; data[o+4] = n.y; data[o+5] = n.z;
+        data[o+6] = c[0]; data[o+7] = c[1]; data[o+8] = c[2];
+      }
+    }
+    const idx = [];
+    for(let j = 0; j < nx; j++){
+      const zc = z0 + (j + 0.5) * step;
+      for(let i = 0; i < nx; i++){
+        const xc = x0 + (i + 0.5) * step;
+        if(hole && Math.abs(xc - hole.x) < hole.r && Math.abs(zc - hole.z) < hole.r) continue;
+        const a = j * vN + i, b = a + 1, c = a + vN, d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 36, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 36, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 36, 24);
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(idx), gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao, vb, ib, n: idx.length, tris: idx.length / 3 };
+  },
+
+  dispose(gl){
+    for(const r of this.rings){ gl.deleteVertexArray(r.vao); gl.deleteBuffer(r.vb); gl.deleteBuffer(r.ib); }
+    this.rings.length = 0;
+  },
+
+  update(gl, cx, cz, force){
+    if(!force && Math.hypot(cx - this.cx, cz - this.cz) < 34) return;
+    const qx = Math.round(cx / 20) * 20, qz = Math.round(cz / 20) * 20;
+    this.dispose(gl);
+    this.cx = qx; this.cz = qz;
+    const PS = window.__PRESET__;
+    if(PS && PS.lite){                        // 低配/离线验证模式
+      this.rings.push(this.grid(gl, qx, qz, 110, 5.5, null));
+      this.rings.push(this.grid(gl, qx, qz, 900, 60, { x: qx, z: qz, r: 100 }));
+      return;
+    }
+    this.rings.push(this.grid(gl, qx, qz, 128, 2.6, null));
+    this.rings.push(this.grid(gl, qx, qz, 520, 12, { x: qx, z: qz, r: 118 }));
+    this.rings.push(this.grid(gl, qx, qz, 2100, 52, { x: qx, z: qz, r: 500 }));
+  },
+
+  setMat(gl, i){
+    this.mi = ((i % GROUNDS.length) + GROUNDS.length) % GROUNDS.length;
+    this.mat = GROUNDS[this.mi];
+    R.fogCol = this.mi === 4 ? [0.78, 0.83, 0.88] : (this.mi === 2 ? [0.74, 0.70, 0.60] : [0.63, 0.70, 0.79]);
+    if(gl) this.update(gl, this.cx, this.cz, true);
+  },
+
+  draw(shadowPass){
+    for(let i = 0; i < this.rings.length; i++){
+      if(shadowPass && i > 1) continue;
+      R.draw(this.rings[i], IDM, { detail: 1, spec: this.mi === 4 ? 0.22 : 0.05, shin: 12 });
+    }
+    if(this.props) R.draw(this.props, IDM, { spec: 0.12, shin: 14 });
+  },
+
+  buildProps(gl){
+    const b = new MB();
+    const rockC = C(0x6d6a63), rockD = C(0x4a4842), conc = C(0x9d9a90), wood = C(0x6b5439);
+    _seed = 90210;
+    // 散石
+    for(let i = 0; i < 190; i++){
+      const a = rnd(TAU), r = 34 + rnd(0, 420) * (0.4 + rnd());
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if(Math.hypot(x, z) < 30) continue;
+      if(Math.abs(x) < 42 && z > 24 && z < 2200) continue;      // 保持靶场通视
+      const s = rnd(0.35, 1.9), y = this.h(x, z);
+      b.save(); b.t(x, y - s * 0.25, z); b.ry(rnd(TAU)); b.rz(rnd(-0.3, 0.3));
+      b.sphere(s, 7, rnd() > 0.5 ? rockC : rockD);
+      b.restore();
+    }
+    // 混凝土路障（场坪边缘）
+    for(let i = 0; i < 9; i++){
+      const x = -26 + i * 6.5, z = -22 + Math.sin(i * 1.7) * 2;
+      const y = this.h(x, z);
+      b.save(); b.t(x, y, z); b.ry(rnd(-0.4, 0.4));
+      b.loft([[-1.0,-1.0],[1.0,-1.0],[1.0,1.0],[-1.0,1.0]], [[-0.25,-0.25],[0.25,-0.25],[0.25,0.25],[-0.25,0.25]], 0, 1.15, conc);
+      b.restore();
+    }
+    // 距离标杆（500 / 1000 / 1500 / 2000 m）
+    for(const d of [500, 1000, 1500, 2000]){
+      for(const sx of [-1, 1]){
+        const x = sx * 26, z = d, y = this.h(x, z);
+        b.save(); b.t(x, y, z);
+        b.save(); b.t(0, 2.4, 0); b.cyl(0.09, 0.09, 4.8, 8, wood); b.restore();
+        b.save(); b.t(sx * 0.75, 4.2, 0); b.box(1.5, 0.9, 0.08, C(0xc8412e)); b.restore();
+        b.save(); b.t(sx * 0.75, 3.2, 0); b.box(1.5, 0.9, 0.08, C(0xe8e2d0)); b.restore();
+        b.restore();
+      }
+    }
+    // 试验场碑
+    b.save(); b.t(14, this.h(14, 18) + 1.1, 18); b.ry(-0.5);
+    b.box(3.2, 2.2, 0.22, conc); b.t(0, 0, 0.16); b.box(2.6, 1.5, 0.04, C(0x2c3a2a));
+    b.restore();
+    this.props = b.build(gl);
+  }
+};
+const IDM = M4.ident();
+
+/* ────────────────────── 4. 车辆几何 & 尺寸参数 ────────────────────── */
+/* 网格坐标系：原点 = 车体底板中心；+X 右 / +Y 上 / +Z 车头 */
+const G = {
+  cogY: 0.62, cogZ: -0.06,          // 质心（网格系）
+  gauge: 2.88,                      // 履带中心距
+  trackW: 0.58,
+  wheelR: 0.345, wheelYs: -0.115,   // 负重轮静平衡轴心高
+  wheelZ: [2.42, 1.36, 0.30, -0.76, -1.82, -2.88],
+  armLen: 0.44,
+  susFree: -0.245, susMax: 0.355, susStatic: 0.130,
+  sprkZ: -3.58, sprkR: 0.318, sprkY: 0.335,
+  idlZ: 3.34, idlR: 0.298, idlY: 0.145,
+  rolZ: [1.62, -0.32, -2.30], rolR: 0.108, rolY: 0.615,
+  links: 84,
+  turretY: 1.22, turretZ: -0.34,
+  trunY: 0.44, trunZ: 1.02,         // 炮耳（炮塔系）
+  barrelL: 6.05,
+  muzzleR: 0.0625,
+  recoilMax: 0.335
+};
+G.hullSect = [
+  { z:  3.56, p: [0.30, 0.98, 0.40, 0.99, 0.46, 0.90, 0.50] },
+  { z:  2.70, p: [0.15, 1.10, 0.53, 1.66, 0.68, 1.28, 0.76] },
+  { z:  1.52, p: [0.02, 1.14, 0.66, 1.80, 0.96, 1.52, 1.20] },
+  { z:  0.20, p: [0.00, 1.14, 0.66, 1.80, 1.10, 1.55, 1.245] },
+  { z: -1.70, p: [0.00, 1.14, 0.66, 1.80, 1.10, 1.55, 1.20] },
+  { z: -3.16, p: [0.07, 1.12, 0.64, 1.78, 1.06, 1.52, 1.12] },
+  { z: -3.70, p: [0.32, 1.04, 0.60, 1.70, 1.00, 1.44, 1.04] }
+];
+
+const PAL = {
+  hull:   C(0x4d5442), hullB: C(0x454c3c), hullD: C(0x363c30),
+  dark:   C(0x272b23), black: C(0x121412),
+  steel:  C(0x6e726c), steelD: C(0x4b4f4a), steelL: C(0x8d918a),
+  rubber: C(0x1d1f1e), track: C(0x5a5e58), shoe: C(0x83877f),
+  glass:  C(0x24424e), lens: C(0xb9cfc6), amber: C(0xd8a23a),
+  canvas: C(0x6b6549), red: C(0x8f3120), era: C(0x515841),
+  tan:    C(0x8d7f5a), tanD: C(0x6f6444), rust: C(0x6a4a2c)
+};
+
+/* ── 履带包络求解：切线-圆弧凸包（橡皮筋绕过全部轮系） ──
+   平面坐标 (u=z, v=y)，顺时针遍历；外法线 n = perpCCW(t)。
+   每帧按当前负重轮实际位置求解 → 履带真实贴合地形与悬挂行程。   */
+function beltSolve(circles){
+  const list = circles;
+  const n = list.length;
+  const tangents = [];
+  for(let i = 0; i < n; i++){
+    const A = list[i], B = list[(i + 1) % n];
+    const dx = B.u - A.u, dy = B.v - A.v;
+    const L = Math.max(1e-6, Math.hypot(dx, dy));
+    const ux = dx / L, uy = dy / L;
+    const s = clamp((A.r - B.r) / L, -1, 1);
+    const k = Math.sqrt(Math.max(0, 1 - s * s));
+    const nx = s * ux - k * uy, ny = s * uy + k * ux;   // 外公切线外法线
+    tangents.push({ nx, ny,
+      p1u: A.u + A.r * nx, p1v: A.v + A.r * ny,
+      p2u: B.u + B.r * nx, p2v: B.v + B.r * ny });
+  }
+  const segs = [];
+  let total = 0;
+  for(let i = 0; i < n; i++){
+    const c = list[i];
+    const cin = tangents[(i - 1 + n) % n], cout = tangents[i];
+    const a0 = Math.atan2(cin.ny, cin.nx), a1 = Math.atan2(cout.ny, cout.nx);
+    const raw = a1 - a0;
+    let d;
+    if(c.fix){                       // 主动轮/诱导轮：大包角（≈π），顺时针
+      d = raw; while(d > 0) d -= TAU; while(d < -TAU) d += TAU;
+    } else {                         // 负重轮/托带轮：小包角，允许折角（越垄时为正）
+      d = wrapPi(raw);
+    }
+    const aLen = Math.abs(d) * c.r;
+    if(aLen > 1e-5){ segs.push({ arc: 1, cu: c.u, cv: c.v, r: c.r, a0, d, len: aLen, s0: total }); total += aLen; }
+    const lLen = Math.hypot(cout.p2u - cout.p1u, cout.p2v - cout.p1v);
+    if(lLen > 1e-5){
+      const midv = (cout.p1v + cout.p2v) * 0.5;
+      segs.push({ arc: 0, u0: cout.p1u, v0: cout.p1v, u1: cout.p2u, v1: cout.p2v,
+                  len: lLen, s0: total, top: midv > 0.16 ? 1 : 0, bot: midv < -0.05 ? 1 : 0 });
+      total += lLen;
+    }
+  }
+  return { segs, total, used: n };
+}
+// 取路径上弧长 s 处的点与切向（并施加松边下垂）
+function beltPoint(belt, s, sag, out){
+  const segs = belt.segs;
+  s = s % belt.total; if(s < 0) s += belt.total;
+  let lo = 0, hi = segs.length - 1, si = 0;
+  while(lo <= hi){
+    const md = (lo + hi) >> 1;
+    if(segs[md].s0 <= s){ si = md; lo = md + 1; } else hi = md - 1;
+  }
+  const sg = segs[si];
+  const f = clamp01((s - sg.s0) / sg.len);
+  if(sg.arc){
+    const a = sg.a0 + sg.d * f;
+    const nx = Math.cos(a), ny = Math.sin(a);
+    out.u = sg.cu + sg.r * nx; out.v = sg.cv + sg.r * ny;
+    if(sg.d > 0){ out.tu = -ny; out.tv = nx; }        // 折角段（反向弧）
+    else { out.tu = ny; out.tv = -nx; }               // perpCW(n)
+  } else {
+    out.u = lerp(sg.u0, sg.u1, f); out.v = lerp(sg.v0, sg.v1, f);
+    const dl = Math.max(1e-6, sg.len);
+    out.tu = (sg.u1 - sg.u0) / dl; out.tv = (sg.v1 - sg.v0) / dl;
+    if(sg.top && sag > 0){
+      const g = Math.sin(PI * f);
+      out.v -= sag * g;
+      out.tv -= sag * PI * Math.cos(PI * f) / dl * 0.6;
+      const l2 = Math.hypot(out.tu, out.tv) || 1;
+      out.tu /= l2; out.tv /= l2;
+    }
+  }
+  return out;
+}
+
+/* ── 各部件网格 ── */
+const MESH = {};
+
+function buildRoadWheel(b, R0, hub){
+  // 双轮缘负重轮：橡胶胎面 + 钢制轮盘 + 轮毂螺栓
+  b.save(); b.rz(-PI / 2);                       // 轴向 → X
+  for(const off of [-0.088, 0.088]){
+    b.save(); b.t(0, off, 0);
+    b.cyl(R0, R0, 0.115, 20, PAL.rubber, { smooth: true });
+    b.cyl(R0 * 0.80, R0 * 0.80, 0.135, 18, PAL.steelD, { smooth: true });
+    b.cyl(R0 * 0.42, R0 * 0.42, 0.16, 14, PAL.steel, { smooth: true });
+    b.restore();
+  }
+  b.cyl(R0 * 0.30, R0 * 0.30, 0.30, 12, PAL.steelD, { smooth: true });
+  b.cyl(hub ? 0.10 : 0.115, hub ? 0.10 : 0.115, 0.34, 10, PAL.steelL, { smooth: true });
+  for(let i = 0; i < 8; i++){
+    const a = i / 8 * TAU;
+    b.save(); b.t(Math.cos(a) * R0 * 0.32, 0.175, Math.sin(a) * R0 * 0.32);
+    b.cyl(0.026, 0.026, 0.05, 6, PAL.steelL); b.restore();
+    b.save(); b.t(Math.cos(a) * R0 * 0.32, -0.175, Math.sin(a) * R0 * 0.32);
+    b.cyl(0.026, 0.026, 0.05, 6, PAL.steelL); b.restore();
+  }
+  b.restore();
+}
+
+function buildMeshes(gl){
+  /* ══ 车体 ══ */
+  const b = new MB();
+  const HS = p => { const [y0, wl, yl, wh, yh, wr, yr] = p;
+    return [[-wl, y0], [-wl, yl], [-wh, yl + 0.14], [-wh, yh], [-wr, yr],
+            [wr, yr], [wh, yh], [wh, yl + 0.14], [wl, yl], [wl, y0]]; };
+  const st = G.hullSect.map(s => ({ z: s.z, pts: HS(s.p) }));
+  // 主装甲壳体放样
+  for(let i = 0; i < st.length - 1; i++){
+    const A = st[i], B = st[i + 1], n = A.pts.length;
+    let cx = 0, cy = 0;
+    for(let k = 0; k < n; k++){ cx += A.pts[k][0]; cy += A.pts[k][1]; }
+    cx /= n; cy /= n;
+    for(let k = 0; k < n; k++){
+      const j = (k + 1) % n;
+      const p0 = [A.pts[k][0], A.pts[k][1], A.z], p1 = [A.pts[j][0], A.pts[j][1], A.z];
+      const p2 = [B.pts[j][0], B.pts[j][1], B.z], p3 = [B.pts[k][0], B.pts[k][1], B.z];
+      const mx = (p0[0] + p1[0]) / 2 - cx, my = (p0[1] + p1[1]) / 2 - cy;
+      const col = (my > 0.34 && Math.abs(mx) < 0.5) ? PAL.hullB : PAL.hull;
+      b.quad(p0, p1, p2, p3, col, [mx, my, 0]);
+    }
+  }
+  // 首尾封板
+  for(const [S, hz] of [[st[0], 1], [st[st.length - 1], -1]]){
+    for(let k = 1; k < S.pts.length - 1; k++)
+      b.tri([S.pts[0][0], S.pts[0][1], S.z], [S.pts[k][0], S.pts[k][1], S.z],
+            [S.pts[k+1][0], S.pts[k+1][1], S.z], PAL.hullD, [0, 0, hz]);
+  }
+  // 首下装甲 + 拖钩 + 防浪板
+  b.save(); b.t(0, 0.34, 3.60); b.rx(0.32); b.box(1.9, 0.42, 0.10, PAL.hullD); b.restore();
+  for(const sx of [-1, 1]){
+    b.save(); b.t(sx * 0.72, 0.52, 3.62); b.box(0.16, 0.30, 0.22, PAL.steelD);
+    b.t(0, 0, 0.13); b.cyl(0.075, 0.075, 0.16, 8, PAL.steel); b.restore();
+  }
+  // 首上装甲（倾斜 70°）ERA 反应装甲阵列
+  const gz0 = 1.52, gy0 = 1.20, gz1 = 3.50, gy1 = 0.52;
+  const gA = Math.atan2(gy0 - gy1, gz1 - gz0);
+  for(let r = 0; r < 5; r++){
+    for(let c = 0; c < 7; c++){
+      const t = 0.10 + r * 0.19;
+      const z = lerp(gz0, gz1, t), y = lerp(gy0, gy1, t);
+      const x = -1.34 + c * 0.446;
+      if(Math.abs(x) < 0.30 && r >= 3) continue;    // 驾驶员观察窗位置
+      b.save(); b.t(x, y + 0.055, z); b.rx(gA);
+      b.box(0.40, 0.115, 0.165, r % 2 ? PAL.era : PAL.hullB);
+      b.restore();
+    }
+  }
+  // 驾驶员舱盖 + 潜望镜
+  b.save(); b.t(-0.02, 1.245, 1.62);
+  b.cyl(0.30, 0.30, 0.075, 14, PAL.hullB, { smooth: true });
+  b.t(0, 0.055, 0); b.cyl(0.26, 0.24, 0.05, 14, PAL.hullD, { smooth: true });
+  b.t(0.14, 0.04, 0.12); b.box(0.13, 0.06, 0.05, PAL.glass);
+  b.restore();
+  for(let i = -1; i <= 1; i++){
+    b.save(); b.t(i * 0.28, 1.30, 1.94); b.rx(-0.22);
+    b.box(0.16, 0.10, 0.08, PAL.steelD);
+    b.t(0, 0, 0.045); b.box(0.11, 0.055, 0.012, PAL.glass);
+    b.restore();
+  }
+  // 车体顶部细节：备件箱、系留环、通风口
+  b.save(); b.t(-1.30, 1.30, 0.60); b.box(0.40, 0.14, 0.90, PAL.hullD); b.restore();
+  b.save(); b.t(1.30, 1.30, 0.60); b.box(0.40, 0.14, 0.90, PAL.hullD); b.restore();
+  for(let i = 0; i < 8; i++){
+    const sx = i % 2 ? 1 : -1, z = 1.2 - Math.floor(i / 2) * 1.4;
+    b.save(); b.t(sx * 1.44, 1.27, z); b.rx(PI / 2); b.cyl(0.035, 0.035, 0.16, 6, PAL.steel); b.restore();
+  }
+  /* 发动机甲板：散热格栅 / 进气 / 排气 */
+  b.save(); b.t(0, 1.26, -2.30);
+  b.box(2.30, 0.10, 1.30, PAL.hullB);
+  for(let i = 0; i < 13; i++){
+    b.save(); b.t(0, 0.09, -0.56 + i * 0.093); b.rx(-0.45);
+    b.box(2.16, 0.055, 0.062, PAL.steelD); b.restore();
+  }
+  b.restore();
+  b.save(); b.t(0, 1.28, -1.15); b.box(1.60, 0.14, 0.70, PAL.hullB);
+  for(let i = 0; i < 7; i++){ b.save(); b.t(-0.66 + i * 0.22, 0.10, 0); b.box(0.14, 0.05, 0.62, PAL.dark); b.restore(); }
+  b.restore();
+  b.save(); b.t(1.20, 1.20, -3.05); b.rz(-0.12);              // 排气口（车左）
+  b.box(0.62, 0.44, 0.52, PAL.steelD);
+  b.t(0, 0, -0.28);
+  for(let i = 0; i < 5; i++){ b.save(); b.t(0, -0.16 + i * 0.085, 0); b.box(0.56, 0.045, 0.06, PAL.black); b.restore(); }
+  b.restore();
+  // 尾板：拖车钩 / 备用履带 / 尾灯
+  b.save(); b.t(0, 0.66, -3.74); b.box(2.20, 1.00, 0.10, PAL.hullD);
+  b.t(0, -0.22, -0.10); b.box(0.34, 0.20, 0.16, PAL.steel);
+  b.restore();
+  for(let i = 0; i < 6; i++){
+    b.save(); b.t(-0.72 + i * 0.29, 1.02, -3.80); b.rx(0.1);
+    b.box(0.26, 0.30, 0.05, PAL.track); b.restore();
+  }
+  for(const sx of [-1, 1]){
+    b.save(); b.t(sx * 1.02, 1.12, -3.80); b.box(0.20, 0.16, 0.10, sx > 0 ? PAL.red : PAL.amber); b.restore();
+  }
+  // 外挂油桶（车尾）
+  for(const sx of [-1, 1]){
+    b.save(); b.t(sx * 0.82, 1.02, -4.02); b.rz(PI / 2);
+    b.cyl(0.29, 0.29, 0.86, 14, PAL.hullB, { smooth: true });
+    b.restore();
+    b.save(); b.t(sx * 0.82, 0.70, -4.02); b.box(0.20, 0.44, 0.16, PAL.steelD); b.restore();
+  }
+  // 前灯组 + 护罩
+  for(const sx of [-1, 1]){
+    b.save(); b.t(sx * 1.32, 0.90, 3.30); b.rx(-0.2);
+    b.cyl(0.13, 0.13, 0.13, 12, PAL.steelD, { smooth: true });
+    b.t(0, 0.075, 0); b.cyl(0.115, 0.115, 0.03, 12, PAL.lens, { smooth: true });
+    b.restore();
+    b.save(); b.t(sx * 1.32, 1.06, 3.30); b.box(0.30, 0.05, 0.24, PAL.steelD); b.restore();
+  }
+  // 侧裙板（含 ERA）与挡泥板
+  for(const sx of [-1, 1]){
+    for(let i = 0; i < 6; i++){
+      const z = 2.60 - i * 1.06;
+      b.save(); b.t(sx * 1.84, 0.66, z); b.rz(sx * 0.03);
+      b.box(0.07, 0.88, 1.00, i < 3 ? PAL.era : PAL.hullB);
+      if(i < 3){ b.t(sx * 0.055, 0.02, 0); b.box(0.05, 0.72, 0.90, PAL.hullD); }
+      b.restore();
+    }
+    b.save(); b.t(sx * 1.80, 1.14, 3.02); b.rx(0.22); b.box(0.60, 0.06, 0.62, PAL.hullD); b.restore();
+    b.save(); b.t(sx * 1.80, 0.90, 3.28); b.box(0.56, 0.42, 0.05, PAL.rubber); b.restore();
+    // 拖缆
+    b.save(); b.t(sx * 1.79, 1.02, 0.4); b.rx(PI / 2); b.cyl(0.032, 0.032, 3.4, 6, PAL.steelD); b.restore();
+  }
+  MESH.hull = b.build(gl);
+
+  /* ══ 炮塔（局部原点 = 炮塔环中心，y=0 为环平面） ══ */
+  const t = new MB();
+  const plan = [[0.66, 1.50], [1.16, 0.62], [1.24, -0.50], [1.06, -1.66],
+                [-1.06, -1.66], [-1.24, -0.50], [-1.16, 0.62], [-0.66, 1.50]];
+  const sc = (p, kx, kz, dz) => p.map(q => [q[0] * kx, q[1] * kz + dz]);
+  t.loft(sc(plan, 1.00, 1.00, 0), sc(plan, 1.02, 0.99, -0.03), 0.00, 0.30, PAL.hull, false, false);
+  t.loft(sc(plan, 1.02, 0.99, -0.03), sc(plan, 0.96, 0.94, -0.10), 0.30, 0.52, PAL.hull, false, false);
+  t.loft(sc(plan, 0.96, 0.94, -0.10), sc(plan, 0.84, 0.86, -0.18), 0.52, 0.68, PAL.hullB, false, true);
+  // 炮塔座圈
+  t.save(); t.t(0, 0.02, 0); t.cyl(1.16, 1.16, 0.10, 24, PAL.steelD, { smooth: true }); t.restore();
+  // 炮塔正面 ERA / 附加装甲
+  for(let r = 0; r < 3; r++) for(let c = 0; c < 5; c++){
+    const x = -0.52 + c * 0.26, y = 0.10 + r * 0.19, z = 1.36 - r * 0.06 - Math.abs(x) * 0.22;
+    t.save(); t.t(x, y, z); t.rx(-0.30); t.box(0.24, 0.17, 0.13, r % 2 ? PAL.era : PAL.hullD); t.restore();
+  }
+  for(const sx of [-1, 1]) for(let i = 0; i < 4; i++){
+    t.save(); t.t(sx * (1.12 - i * 0.03), 0.16 + (i % 2) * 0.17, 0.72 - i * 0.42); t.ry(sx * 0.1);
+    t.box(0.11, 0.16, 0.36, PAL.era); t.restore();
+  }
+  // 火炮防盾（炮耳处）
+  t.save(); t.t(0, G.trunY, G.trunZ - 0.10);
+  t.loft([[-0.62, -0.34], [0.62, -0.34], [0.56, 0.30], [-0.56, 0.30]],
+         [[-0.50, -0.30], [0.50, -0.30], [0.44, 0.26], [-0.44, 0.26]], -0.40, 0.34, PAL.hullB);
+  t.restore();
+  // 炮耳轴承
+  for(const sx of [-1, 1]){
+    t.save(); t.t(sx * 0.56, G.trunY, G.trunZ); t.rz(PI / 2);
+    t.cyl(0.13, 0.13, 0.14, 12, PAL.steelD, { smooth: true }); t.restore();
+  }
+  // 车长指挥塔 + 舱盖 + 周视潜望镜
+  t.save(); t.t(-0.52, 0.68, -0.42);                       // 车长指挥塔（车右）
+  t.cyl(0.44, 0.42, 0.24, 16, PAL.hullB, { smooth: true });
+  for(let i = 0; i < 7; i++){
+    const a = i / 7 * TAU;
+    t.save(); t.t(Math.cos(a) * 0.40, 0.02, Math.sin(a) * 0.40); t.ry(-a);
+    t.box(0.17, 0.10, 0.06, PAL.steelD); t.t(0, 0, 0.035); t.box(0.13, 0.07, 0.012, PAL.glass);
+    t.restore();
+  }
+  t.t(0, 0.14, 0); t.cyl(0.42, 0.40, 0.06, 16, PAL.hullD, { smooth: true });
+  t.t(-0.06, 0.04, 0); t.cyl(0.34, 0.34, 0.05, 14, PAL.hull, { smooth: true });
+  t.restore();
+  // 装填手舱盖
+  t.save(); t.t(0.54, 0.70, -0.30); t.cyl(0.32, 0.31, 0.08, 14, PAL.hullB, { smooth: true });
+  t.t(0, 0.06, 0); t.cyl(0.29, 0.28, 0.05, 14, PAL.hullD, { smooth: true }); t.restore();
+  // 炮长主瞄准镜（装甲盖 + 光学窗）
+  t.save(); t.t(0.44, 0.62, 0.66);                         // 炮长主瞄准镜（车左）
+  t.box(0.44, 0.34, 0.52, PAL.hullB);
+  t.t(0, 0.02, 0.27); t.box(0.30, 0.20, 0.04, PAL.glass);
+  t.restore();
+  // 车长独立热像仪
+  t.save(); t.t(-0.52, 0.94, -0.42);                       // 车长独立热像仪
+  t.cyl(0.17, 0.17, 0.30, 12, PAL.hullD, { smooth: true });
+  t.t(0, 0.06, 0.16); t.box(0.22, 0.16, 0.05, PAL.glass);
+  t.restore();
+  // 激光测距窗（防盾上方）
+  t.save(); t.t(0.34, 0.60, 1.24); t.rx(-0.25); t.box(0.26, 0.14, 0.06, PAL.glass); t.restore();
+  // 12.7 mm 高射机枪（枪架 + 弹箱）
+  t.save(); t.t(-0.52, 0.84, -0.18);                       // 12.7 高机
+  t.cyl(0.055, 0.055, 0.26, 8, PAL.steelD);
+  t.t(0, 0.20, 0.05); t.box(0.10, 0.13, 0.52, PAL.dark);
+  t.t(0, 0.015, 0.44); t.rx(PI / 2); t.cyl(0.026, 0.022, 0.92, 8, PAL.black, { smooth: true });
+  t.restore();
+  t.save(); t.t(-0.80, 0.86, -0.30); t.box(0.22, 0.20, 0.34, PAL.dark); t.restore();
+  // 烟幕弹发射器（左右各 6 管）
+  for(const sx of [-1, 1]) for(let i = 0; i < 6; i++){
+    t.save(); t.t(sx * (0.86 + (i % 2) * 0.12), 0.44, -0.10 - Math.floor(i / 2) * 0.24);
+    t.rz(sx * -0.42); t.rx(-0.30);
+    t.cyl(0.062, 0.062, 0.30, 8, PAL.dark, { smooth: true });
+    t.t(0, 0.16, 0); t.cyl(0.055, 0.055, 0.04, 8, PAL.rust);
+    t.restore();
+  }
+  // 尾舱行李架（框架 + 网格）
+  t.save(); t.t(0, 0.30, -1.98);
+  t.box(2.00, 0.06, 0.06, PAL.steelD);
+  t.t(0, 0.44, 0); t.box(2.00, 0.06, 0.06, PAL.steelD);
+  t.restore();
+  for(let i = 0; i < 7; i++){
+    t.save(); t.t(-0.90 + i * 0.30, 0.52, -1.98); t.box(0.045, 0.50, 0.045, PAL.steelD); t.restore();
+  }
+  for(let i = 0; i < 4; i++){
+    t.save(); t.t(0, 0.30 + i * 0.15, -1.80); t.rz(PI / 2); t.cyl(0.022, 0.022, 1.96, 5, PAL.steelD); t.restore();
+  }
+  t.save(); t.t(-0.40, 0.46, -1.90); t.box(0.70, 0.32, 0.24, PAL.canvas); t.restore();
+  t.save(); t.t(0.46, 0.44, -1.92); t.box(0.52, 0.28, 0.22, PAL.tanD); t.restore();
+  // 炮塔侧面备用履带板
+  for(const sx of [-1, 1]) for(let i = 0; i < 3; i++){
+    t.save(); t.t(sx * 1.20, 0.30, -0.90 - i * 0.24); t.rz(sx * 0.06);
+    t.box(0.05, 0.26, 0.20, PAL.track); t.restore();
+  }
+  // 顶部泄压板 / 吊环 / 风速传感器底座
+  t.save(); t.t(0, 0.69, -1.30); t.box(0.90, 0.03, 0.60, PAL.hullD); t.restore();
+  for(const sx of [-1, 1]){
+    t.save(); t.t(sx * 0.80, 0.70, 0.30); t.rx(PI / 2); t.cyl(0.028, 0.028, 0.14, 6, PAL.steel); t.restore();
+  }
+  MESH.turret = t.build(gl);
+
+  /* ══ 火炮后座组件（局部原点 = 炮耳，+Z 指向炮口） ══ */
+  const g = new MB();
+  g.save(); g.rx(PI / 2);                                    // 圆柱轴 → +Z
+  g.cyl(0.108, 0.098, 1.30, 18, PAL.steelD, { smooth: true });
+  g.save(); g.t(0, 0.95, 0); g.cyl(0.132, 0.132, 1.90, 18, PAL.steel, { smooth: true }); g.restore();  // 热护套
+  g.save(); g.t(0, 2.42, 0); g.cyl(0.185, 0.185, 0.46, 16, PAL.steelD, { smooth: true }); g.restore(); // 抽气装置
+  g.save(); g.t(0, 3.30, 0); g.cyl(0.082, 0.072, 3.40, 16, PAL.steel, { smooth: true }); g.restore();
+  g.save(); g.t(0, 5.02, 0); g.cyl(0.078, 0.078, 0.10, 14, PAL.steelL, { smooth: true }); g.restore();
+  g.save(); g.t(0, 6.00, 0); g.cyl(0.070, 0.066, 0.14, 14, PAL.steelL, { smooth: true }); g.restore();
+  for(const zz of [1.34, 1.92, 2.85]){
+    g.save(); g.t(0, zz, 0); g.cyl(0.142, 0.142, 0.055, 16, PAL.dark, { smooth: true }); g.restore();
+  }
+  g.restore();
+  // 炮尾/闭锁机 + 抽筒机 + 后座防护
+  g.save(); g.t(0, 0.02, -0.56); g.box(0.44, 0.50, 0.66, PAL.steelD);
+  g.t(0, 0, -0.36); g.box(0.34, 0.42, 0.12, PAL.steel); g.restore();
+  g.save(); g.t(0.26, -0.12, -0.30); g.box(0.14, 0.22, 0.40, PAL.steel); g.restore();
+  g.save(); g.t(-0.28, 0.06, -0.22); g.box(0.12, 0.30, 0.36, PAL.dark); g.restore();
+  g.save(); g.t(0, -0.30, 0.20); g.box(0.50, 0.16, 0.70, PAL.steelD); g.restore();     // 摇架
+  MESH.gun = g.build(gl);
+  // 炮闩（开闭动作单独绘制）
+  const bl = new MB();
+  bl.box(0.34, 0.30, 0.10, PAL.steelL);
+  MESH.breech = bl.build(gl);
+
+  /* ══ 行走部分 ══ */
+  const w = new MB(); buildRoadWheel(w, G.wheelR, false); MESH.wheel = w.build(gl);
+  const id = new MB(); buildRoadWheel(id, G.idlR, true); MESH.idler = id.build(gl);
+  // 主动轮（含 13 齿）
+  const sp = new MB();
+  sp.save(); sp.rz(-PI / 2);
+  sp.cyl(G.sprkR * 0.62, G.sprkR * 0.62, 0.34, 14, PAL.steelD, { smooth: true });
+  sp.cyl(0.10, 0.10, 0.40, 10, PAL.steelL, { smooth: true });
+  for(const off of [-0.135, 0.135]){
+    sp.save(); sp.t(0, off, 0);
+    sp.cyl(G.sprkR * 0.92, G.sprkR * 0.92, 0.05, 20, PAL.steel, { smooth: true });
+    sp.restore();
+    for(let i = 0; i < 13; i++){
+      const a = i / 13 * TAU;
+      sp.save(); sp.t(Math.cos(a) * G.sprkR * 0.94, off, Math.sin(a) * G.sprkR * 0.94); sp.ry(-a);
+      sp.box(0.10, 0.055, 0.075, PAL.steelL);
+      sp.restore();
+    }
+  }
+  for(let i = 0; i < 6; i++){
+    const a = i / 6 * TAU;
+    sp.save(); sp.t(Math.cos(a) * G.sprkR * 0.42, 0, Math.sin(a) * G.sprkR * 0.42);
+    sp.cyl(0.05, 0.05, 0.30, 8, PAL.steelD); sp.restore();
+  }
+  sp.restore();
+  MESH.sprocket = sp.build(gl);
+  // 托带轮
+  const rl = new MB();
+  rl.save(); rl.rz(-PI / 2);
+  rl.cyl(G.rolR, G.rolR, 0.20, 12, PAL.rubber, { smooth: true });
+  rl.cyl(G.rolR * 0.5, G.rolR * 0.5, 0.24, 10, PAL.steelD, { smooth: true });
+  rl.restore();
+  MESH.roller = rl.build(gl);
+  // 平衡肘（扭杆摆臂）：局部原点 = 枢轴，沿 -Z 伸出
+  const am = new MB();
+  am.save(); am.t(0, 0, -G.armLen / 2);
+  am.box(0.16, 0.17, G.armLen, PAL.hullD);
+  am.restore();
+  am.save(); am.rz(PI / 2); am.cyl(0.105, 0.105, 0.22, 10, PAL.steelD, { smooth: true }); am.restore();
+  am.save(); am.t(0, 0, -G.armLen); am.rz(PI / 2); am.cyl(0.075, 0.075, 0.30, 10, PAL.steel, { smooth: true }); am.restore();
+  MESH.arm = am.build(gl);
+  // 液压减振器：单位长度沿 +Y（按行程拉伸）
+  const dp = new MB();
+  dp.save(); dp.t(0, 0.5, 0); dp.cyl(0.055, 0.048, 1.0, 10, PAL.steel, { smooth: true }); dp.restore();
+  dp.save(); dp.t(0, 0.02, 0); dp.cyl(0.075, 0.075, 0.10, 10, PAL.steelD, { smooth: true }); dp.restore();
+  MESH.damper = dp.build(gl);
+
+  /* ══ 履带链节（单块履带板：底板 + 橡胶垫 + 导向齿 + 销耳 + 防滑筋） ══ */
+  const lk = new MB();
+  const PW = G.trackW, PT = 0.030, PL = 0.176;
+  lk.box(PW, PT, PL, PAL.track);                                       // 底板
+  lk.save(); lk.t(0, -PT / 2 - 0.012, 0); lk.box(PW * 0.86, 0.024, PL * 0.80, PAL.shoe); lk.restore(); // 接地面
+  for(const zz of [-0.048, 0.048]){                                    // 防滑筋
+    lk.save(); lk.t(0, -PT / 2 - 0.026, zz); lk.box(PW * 0.92, 0.030, 0.030, PAL.shoe); lk.restore();
+  }
+  lk.save(); lk.t(0, PT / 2 + 0.055, 0); lk.box(0.085, 0.11, 0.058, PAL.steelD); lk.restore();          // 导向齿
+  for(const sx of [-1, 1]){
+    lk.save(); lk.t(sx * PW * 0.30, PT / 2 + 0.022, PL * 0.42); lk.rz(PI / 2);
+    lk.cyl(0.026, 0.026, 0.13, 6, PAL.steelL); lk.restore();
+    lk.save(); lk.t(sx * PW * 0.30, PT / 2 + 0.022, -PL * 0.42); lk.rz(PI / 2);
+    lk.cyl(0.026, 0.026, 0.13, 6, PAL.steelL); lk.restore();
+  }
+  lk.save(); lk.t(0, PT / 2 + 0.018, PL * 0.44); lk.box(PW * 0.78, 0.036, 0.045, PAL.track); lk.restore();
+  MESH.link = lk.build(gl);
+
+  /* ══ 天线（单位长度，沿 +Y，逐段绘制） ══ */
+  const an = new MB();
+  an.save(); an.t(0, 0.5, 0); an.cyl(0.016, 0.010, 1.0, 6, PAL.dark, { smooth: true }); an.restore();
+  MESH.antenna = an.build(gl);
+
+  /* ══ 炮弹（穿甲弹芯 / 弹丸） ══ */
+  const sh = new MB();
+  sh.save(); sh.rx(PI / 2);
+  sh.cyl(0.024, 0.010, 0.30, 8, PAL.steelL, { smooth: true });
+  sh.save(); sh.t(0, -0.20, 0); sh.cyl(0.030, 0.030, 0.16, 8, PAL.dark, { smooth: true }); sh.restore();
+  sh.restore();
+  MESH.shell = sh.build(gl);
+
+  /* ══ 目标车（简化剪影 + 一体化履带带） ══ */
+  const tg = new MB();
+  const tst = [
+    { z: 3.3, p: [0.32, 0.95, 0.42, 0.98, 0.50, 0.86, 0.54] },
+    { z: 1.4, p: [0.04, 1.12, 0.62, 1.72, 0.96, 1.44, 1.16] },
+    { z: -1.8, p: [0.02, 1.12, 0.62, 1.72, 1.06, 1.48, 1.20] },
+    { z: -3.5, p: [0.28, 1.04, 0.58, 1.64, 0.98, 1.40, 1.04] }
+  ].map(s => ({ z: s.z, pts: HS(s.p) }));
+  for(let i = 0; i < tst.length - 1; i++){
+    const A = tst[i], B = tst[i + 1], n = A.pts.length;
+    let cx = 0, cy = 0;
+    for(let k = 0; k < n; k++){ cx += A.pts[k][0]; cy += A.pts[k][1]; }
+    cx /= n; cy /= n;
+    for(let k = 0; k < n; k++){
+      const j = (k + 1) % n;
+      tg.quad([A.pts[k][0], A.pts[k][1], A.z], [A.pts[j][0], A.pts[j][1], A.z],
+              [B.pts[j][0], B.pts[j][1], B.z], [B.pts[k][0], B.pts[k][1], B.z], PAL.tan,
+              [(A.pts[k][0] + A.pts[j][0]) / 2 - cx, (A.pts[k][1] + A.pts[j][1]) / 2 - cy, 0]);
+    }
+  }
+  for(const [S, hz] of [[tst[0], 1], [tst[tst.length - 1], -1]])
+    for(let k = 1; k < S.pts.length - 1; k++)
+      tg.tri([S.pts[0][0], S.pts[0][1], S.z], [S.pts[k][0], S.pts[k][1], S.z],
+             [S.pts[k+1][0], S.pts[k+1][1], S.z], PAL.tanD, [0, 0, hz]);
+  // 目标炮塔
+  tg.save(); tg.t(0, 1.20, -0.30);
+  tg.loft(sc(plan, 0.96, 0.94, 0), sc(plan, 0.86, 0.86, -0.10), 0, 0.62, PAL.tan);
+  tg.save(); tg.t(0, 0.40, 1.0); tg.rx(PI / 2); tg.cyl(0.10, 0.075, 5.2, 12, PAL.tanD, { smooth: true }); tg.restore();
+  tg.save(); tg.t(0.4, 0.66, -0.4); tg.cyl(0.36, 0.34, 0.20, 12, PAL.tanD, { smooth: true }); tg.restore();
+  tg.restore();
+  // 静态履带带 + 轮系
+  for(const sx of [-1, 1]){
+    tg.save(); tg.t(sx * G.gauge / 2, 0, 0);
+    for(const zz of G.wheelZ){ tg.save(); tg.t(0, G.wheelYs, zz); buildRoadWheel(tg, G.wheelR, false); tg.restore(); }
+    tg.save(); tg.t(0, G.sprkY, G.sprkZ); buildRoadWheel(tg, G.sprkR, true); tg.restore();
+    tg.save(); tg.t(0, G.idlY, G.idlZ); buildRoadWheel(tg, G.idlR, true); tg.restore();
+    const belt = beltSolve(nominalCircles());
+    const P = { u: 0, v: 0, tu: 0, tv: 0 };
+    const n = G.links;
+    for(let i = 0; i < n; i++){
+      beltPoint(belt, belt.total * i / n, 0.045, P);
+      tg.save();
+      tg.t(0, P.v, P.u); tg.rx(Math.atan2(-P.tv, P.tu));
+      tg.box(G.trackW, 0.032, belt.total / n * 1.02, PAL.track);
+      tg.t(0, 0.06, 0); tg.box(0.08, 0.09, 0.05, PAL.steelD);
+      tg.restore();
+    }
+    tg.restore();
+  }
+  MESH.target = tg.build(gl);
+}
+// 名义（静平衡）轮系圆表：诱导轮(前) → 负重轮(前→后) → 主动轮(后) → 托带轮(后→前)
+function nominalCircles(){
+  const out = [{ u: G.idlZ, v: G.idlY, r: G.idlR, fix: 1 }];
+  for(let i = 0; i < G.wheelZ.length; i++) out.push({ u: G.wheelZ[i], v: G.wheelYs, r: G.wheelR });
+  out.push({ u: G.sprkZ, v: G.sprkY, r: G.sprkR, fix: 1 });
+  for(let i = G.rolZ.length - 1; i >= 0; i--) out.push({ u: G.rolZ[i], v: G.rolY, r: G.rolR });
+  return out;
+}
+
+/* ────────────────────────────── 5. 物理 ────────────────────────────── */
+const PH = {
+  dt: 1 / 240, g: 9.807, rho: 1.225,
+  mass: 56200,                     // 战斗全重 kg
+  kSpring: 352000,                 // 扭杆刚度 N/m（每轮）
+  cComp: 26000, cReb: 44000,       // 带减振器轮位阻尼
+  cComp2: 9000, cReb2: 15000,      // 无减振器轮位（履带内摩擦）
+  shockWheels: [0, 1, 5],
+  kBump: 4.2e6, kHard: 5.4e6, cHard: 2.4e5, Nmax: 720000,
+  kBelly: 1.3e6, cBelly: 1.5e5, Fbelly: 1.1e6,
+  Itrack: 300,                     // 履带环等效转动惯量（含负重轮折算）
+  trackMass: 1850,
+  Ieng: 3.2, idleRpm: 720, maxRpm: 2680, redline: 2560,
+  curve: [[400,1200],[700,2900],[1000,3820],[1300,4300],[1600,4430],
+          [1900,4280],[2200,3950],[2450,3480],[2680,2700]],
+  gears: [3.60, 2.72, 2.10, 1.66, 1.38, 1.17, 1.02],
+  rev: [-3.40, -1.95],
+  final: 4.20, effT: 0.90,
+  clutchK: 900, clutchCap: 6200, tcK: 2.95, tcStall: 2.10, tqSprkMax: 62000,
+  brakeMax: 78000, steerMax: 120000,
+  upRpm: 2320, dnRpm: 1180, shiftTime: 0.34,
+  Iturret: 14500,
+  azRate: 0.96, azAcc: 2.60,        // 55°/s，电驱高响应炮塔
+  elRate: 0.63, elAcc: 2.20,        // 36°/s
+  azKp: 16, elKp: 18,               // 伺服比例增益
+  elMin: -9 * D2R, elMax: 20 * D2R,
+  mRecoil: 2350, kRecoil: 985000, cRecoil: 33000,
+  fuelCap: 1300
+};
+
+const AMMO = {
+  AP: { name: '尾翼稳定脱壳穿甲弹', short: 'APFSDS', m: 7.05, v0: 1750, cd: 0.31, A: 0.00159,
+        pen0: 640, penK: 22, kind: 'ap', col: [1.0, 0.86, 0.45], tracer: 1.0, blast: 0.6 },
+  HEAT: { name: '破甲弹', short: 'HEAT-FS', m: 19.0, v0: 915, cd: 0.42, A: 0.0123,
+        pen0: 700, penK: 0, kind: 'heat', col: [1.0, 0.62, 0.30], tracer: 1.4, blast: 2.4 },
+  HE: { name: '杀爆榴弹', short: 'HE-FRAG', m: 23.0, v0: 850, cd: 0.45, A: 0.0123,
+        pen0: 70, penK: 0, kind: 'he', col: [1.0, 0.72, 0.36], tracer: 1.6, blast: 4.2 }
+};
+const AMMO_KEYS = ['AP', 'HEAT', 'HE'];
+
+const T = {
+  pos: v3(0, 0, 0), q: new Quat(), vel: v3(0, 0, 0), omega: v3(0, 0, 0),
+  F: v3(0, 0, 0), Tq: v3(0, 0, 0),
+  I: v3(1, 1, 1), grounded: 0, airTime: 0, odo: 0,
+  wheels: [], probes: [],
+  trk: null, eng: null, tr: null, tur: null, gun: null, ld: null, ammo: null,
+  fx: { dustL: 0, dustR: 0, exh: 0, flash: 0 },
+  dbg: { fw: [], ct: [] },
+
+  init(){
+    this.wheels = [];
+    const pivY = 0.03;
+    const cs = Math.sqrt(Math.max(0, 1 - sq((G.wheelYs - pivY) / G.armLen)));
+    for(const side of [-1, 1]){
+      for(let i = 0; i < G.wheelZ.length; i++){
+        this.wheels.push({
+          side, idx: i,
+          x: side * G.gauge / 2,
+          pivY, pivZ: G.wheelZ[i] + G.armLen * cs,
+          trav: G.susStatic, travV: 0, need: 0,
+          contact: 0, N: 0, pen: 0,
+          cp: v3(0, 0, 0), gn: v3(0, 1, 0), wc: v3(0, 0, 0),
+          shock: PH.shockWheels.indexOf(i) >= 0,
+          spin: 0
+        });
+      }
+    }
+    // 车体触地探针（腹部/裙板底缘）—— 越垄骑坎时防止穿地并可真实"托底"
+    this.probes = [];
+    const pp = [[0, 0.30, 3.50], [-0.95, 0.10, 2.60], [0.95, 0.10, 2.60],
+                [-1.10, 0.02, 0.60], [1.10, 0.02, 0.60], [-1.10, 0.02, -1.70],
+                [1.10, 0.02, -1.70], [-0.90, 0.20, -3.55], [0.90, 0.20, -3.55],
+                [-1.82, 0.24, 1.40], [1.82, 0.24, 1.40], [-1.82, 0.24, -1.40], [1.82, 0.24, -1.40]];
+    for(const p of pp) this.probes.push({ p: v3(p[0], p[1] - G.cogY, p[2] - G.cogZ), hit: 0, N: 0 });
+
+    // 惯量张量（近似长方体 + 非均匀分布修正）
+    const m = PH.mass, a = 3.62, h = 2.45, l = 7.35, kf = 1.16;
+    this.I = v3(m / 12 * (h * h + l * l) * kf, m / 12 * (a * a + l * l) * kf, m / 12 * (a * a + h * h) * kf);
+
+    this.trk = {
+      L: { w: 0, v: 0, tq: 0, brk: 0, slip: 0, F: 0, N: 0, off: 0, sag: 0.05, tens: 0, belt: null, wr: 0 },
+      R: { w: 0, v: 0, tq: 0, brk: 0, slip: 0, F: 0, N: 0, off: 0, sag: 0.05, tens: 0, belt: null, wr: 0 }
+    };
+    this.eng = { rpm: 0, w: 0, thr: 0, thrIn: 0, tq: 0, load: 0, on: false, temp: 22, oil: 0,
+                 fuel: PH.fuelCap, kW: 0, starter: 0, smoke: 0 };
+    this.tr = { gear: 1, mode: 'A', shift: 0, hold: 0, ratio: PH.gears[0], tcSlip: 0, tcMult: 1,
+                wIn: 0, dir: 1, clutch: 0, pivot: 0, dv: 0 };
+    this.tur = { az: 0, azV: 0, el: 0, elV: 0, cmdYaw: 0, cmdEl: 0, cmdAz: 0, stab: true,
+                 drift: 0, reactTq: 0, center: 0 };
+    this.gun = { rec: 0, recV: 0, breech: 0, fired: 0, wear: 0, heat: 0, coax: 0, coaxT: 0,
+                 lrf: 0, lrfT: 0, solEl: 0, mgBelt: 1200, mgHeat: 0 };
+    this.ld = { state: 'READY', t: 0, tt: 1, seq: 0, auto: true, fatigue: 0, sel: 'AP',
+                loaded: 'AP', carAngle: 0, carTarget: 0, rammer: 0, ejecting: 0, resupply: 0 };
+    this.ammo = { car: { AP: 12, HEAT: 6, HE: 4 }, hull: { AP: 10, HEAT: 6, HE: 7 }, carMax: 22 };
+    this.reset(0, -14);
+  },
+
+  reset(x, z, keepYaw){
+    // 精确按静平衡姿态落位：车高 = 地面 + 负重轮半径 + 履带厚 + 底板到质心
+    const rideH = G.cogY - (G.susFree + G.susStatic) + G.wheelR + 0.052;
+    const yaw = keepYaw ? Math.atan2(this.fwd().x, this.fwd().z) : 0;
+    const n = TER.nrm(x, z);
+    const f0 = v3(Math.sin(yaw), 0, Math.cos(yaw));
+    const r0 = v3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const pitch = -Math.asin(clamp(n.dot(f0), -0.7, 0.7));
+    const roll = Math.asin(clamp(n.dot(r0), -0.7, 0.7));
+    this.q = Quat.euler(yaw, pitch, roll);
+    this.pos = v3(x, TER.h(x, z) + rideH / Math.max(0.6, n.y), z);
+    this.vel = v3(0, 0, 0); this.omega = v3(0, 0, 0);
+    // 抬升至无轮触底（起伏/坡地稳妥落位）
+    for(let it = 0; it < 8; it++){
+      let worst = 0;
+      const up = this.up();
+      for(const w of this.wheels){
+        const c = this.wheelCenterMesh(w, 0);
+        const wc = this.meshPt(c.x, c.y, c.z);
+        const need = (TER.h(wc.x, wc.z) + G.wheelR + 0.052 - wc.y) / Math.max(0.3, up.y);
+        worst = Math.max(worst, need - G.susMax);
+      }
+      for(const pr of this.probes){
+        const wp = this.toWorld(pr.p);
+        worst = Math.max(worst, TER.h(wp.x, wp.z) - wp.y + 0.05);
+      }
+      if(worst <= 0.002) break;
+      this.pos.y += worst * 1.05;
+    }
+    for(const w of this.wheels){ w.trav = G.susStatic; w.travV = 0; w.spin = 0; }
+    this.trk.L.w = this.trk.R.w = 0; this.trk.L.v = this.trk.R.v = 0;
+    if(!this.eng.on){ this.eng.rpm = 0; this.eng.w = 0; this.eng.temp = 22; }  // 复位不熄火
+    this.tr.gear = 1; this.tr.dir = 1; this.tr.shift = 0;
+    this.tur.az = 0; this.tur.el = 0; this.tur.azV = 0; this.tur.elV = 0;
+    this.tur.cmdYaw = 0; this.tur.cmdEl = 0;
+    this.gun.rec = 0; this.gun.recV = 0;
+    this.ld.state = 'READY'; this.ld.loaded = this.ld.sel;
+    this.airTime = 0;
+  },
+
+  /* 坐标工具 */
+  up(){ return this.q.rot(V_UP); },
+  fwd(){ return this.q.rot(v3(0, 0, 1)); },
+  // 方向学：OpenGL 右手系下 屏幕右 = forward × up。车头 +Z、上 +Y ⇒ 车右 = -X（+X 为车左）
+  right(){ return this.q.rot(v3(-1, 0, 0)); },
+  left(){ return this.q.rot(v3(1, 0, 0)); },
+  toWorld(bp){ return this.pos.add(this.q.rot(bp)); },
+  meshToBody(x, y, z){ return v3(x, y - G.cogY, z - G.cogZ); },
+  meshPt(x, y, z){ return this.toWorld(this.meshToBody(x, y, z)); },
+  velAt(rWorld){ return this.vel.add(this.q.rot(this.omega).cross(rWorld)); },
+  addF(Fw, rWorld){ this.F.iadd(Fw); this.Tq.iadd(rWorld.cross(Fw)); },
+  wheelCenterMesh(w, trav){
+    const y = G.susFree + trav;
+    const s = clamp((y - w.pivY) / G.armLen, -0.98, 0.98);
+    return { x: w.x, y, z: w.pivZ - G.armLen * Math.sqrt(1 - s * s), s };
+  },
+  speed(){ return this.vel.dot(this.fwd()); },
+  kmh(){ return this.speed() * 3.6; }
+};
+
+/* ── 发动机 & 传动 ── */
+function engTorque(rpm){
+  const c = PH.curve;
+  if(rpm <= c[0][0]) return c[0][1] * clamp01(rpm / c[0][0]);
+  for(let i = 0; i < c.length - 1; i++){
+    if(rpm <= c[i + 1][0]){
+      const f = (rpm - c[i][0]) / (c[i + 1][0] - c[i][0]);
+      return lerp(c[i][1], c[i + 1][1], f);
+    }
+  }
+  return c[c.length - 1][1] * Math.max(0, 1 - (rpm - PH.maxRpm) / 300);
+}
+
+function stepDrivetrain(dt, IN){
+  const e = T.eng, tr = T.tr, L = T.trk.L, Rr = T.trk.R;
+  // 制动器独立于动力装置（发动机停车时仍可制动/驻车）
+  const bf = Math.max(IN.brake, IN.park ? 1 : 0);
+  L.brk = PH.brakeMax * bf; Rr.brk = PH.brakeMax * bf;
+  // 起动机
+  if(!e.on){
+    if(e.starter > 0){
+      e.starter -= dt;
+      e.w = lowpass(e.w, 42, 0.5, dt);
+      if(e.w > 30 && e.starter < 1.1){ e.on = true; LOG.push('发动机启动　1200 hp V12 增压柴油机', 'good'); }
+    } else e.w = lowpass(e.w, 0, 0.9, dt);
+    e.rpm = e.w * 60 / TAU;
+    e.tq = 0; tr.clutch = 0;
+    L.tq = Rr.tq = 0;
+    return;
+  }
+  if(e.fuel <= 0){ e.on = false; LOG.push('燃料耗尽 — 发动机停车', 'bad'); return; }
+
+  // 油门：驻车/转向补偿（液压转向单元耗功，调速器自动补油）
+  let thr = IN.thr;
+  if(Math.abs(IN.steer) > 0.05) thr = Math.max(thr, 0.55 * Math.abs(IN.steer));
+  const idleGov = clamp01((PH.idleRpm + 90 - e.rpm) / 190);        // 柴油机全程调速器
+  thr = clamp01(Math.max(thr, idleGov));
+  e.thr = lowpass(e.thr, thr, 0.10, dt);                     // 涡轮迟滞/喷油响应
+
+  // 换挡逻辑：按涡轮（输出）转速排挡，避免扭矩中断期空转误升挡
+  const wantDir = IN.rev ? -1 : 1;
+  if(wantDir !== tr.dir && Math.abs(T.speed()) < 1.2){ tr.dir = wantDir; tr.gear = 1; tr.shift = 0.45; }
+  if(tr.shift > 0) tr.shift -= dt;
+  if(tr.hold > 0) tr.hold -= dt;
+  const sprkW = (L.w + Rr.w) * 0.5;
+  const ratioOf = g => (tr.dir > 0 ? PH.gears[g - 1] : PH.rev[g - 1]) || 1;
+  const turbRpm = g => Math.abs(sprkW * ratioOf(g) * PH.final) * 60 / TAU;
+  if(tr.mode === 'A' && tr.shift <= 0 && tr.hold <= 0){
+    const g0 = tr.gear, maxG = tr.dir > 0 ? PH.gears.length : PH.rev.length;
+    if(turbRpm(g0) > PH.upRpm && g0 < maxG && turbRpm(g0 + 1) > PH.dnRpm + 220 && e.thr > 0.12){
+      tr.gear = g0 + 1; tr.shift = PH.shiftTime; tr.hold = 0.9;
+    } else if(turbRpm(g0) < PH.dnRpm && g0 > 1){
+      tr.gear = g0 - 1; tr.shift = PH.shiftTime * 0.7; tr.hold = 0.7;
+    }
+  }
+  tr.ratio = ratioOf(tr.gear);
+
+  // 中心（原地）转向判定：主动力路置空挡，仅靠转向单元反向驱动两侧
+  const vAvg = (L.v + Rr.v) * 0.5;
+  const pivot = (IN.thr < 0.09 && Math.abs(IN.steer) > 0.30 && Math.abs(vAvg) < 2.2) ? 1 : 0;
+  tr.pivot = pivot;
+
+  // 液力变矩器（泵轮容量 ∝ ω²）+ 高速闭锁离合器 + 反拖
+  const totalRatio = tr.ratio * PH.final;
+  tr.wIn = sprkW * totalRatio;
+  let tqOut = 0, load = 0;
+  if(tr.shift <= 0 && !IN.neutral && !pivot){
+    const wE = Math.max(24, e.w);
+    const sr = clamp(tr.wIn / wE, -0.6, 1.8);          // 速比
+    tr.tcSlip = e.w - tr.wIn;
+    const lock = (sr > 0.86 && Math.abs(tr.wIn) > 26) ? 1 : 0;
+    if(lock){
+      tr.tcMult = 1;
+      load = clamp(PH.clutchK * (e.w - tr.wIn) * 1.7, -PH.clutchCap, PH.clutchCap);
+      tqOut = load;
+    } else {
+      const cap = sq(wE / PH.tcK);                      // 失速容量：≈ 峰值扭矩 @1850 r/min
+      tr.tcMult = lerp(PH.tcStall, 1.0, clamp01(sr / 0.88));
+      if(sr > 1.0) load = -sq(wE / (PH.tcK * 1.5)) * (sr - 1) * 2.2;   // 涡轮超速反拖
+      else load = Math.min(cap, cap * clamp01(1.10 - sr * sr));
+      tqOut = load * tr.tcMult;
+    }
+    tr.clutch = lock ? 2 : 1;
+  } else { tr.tcSlip = e.w; tr.clutch = 0; tr.tcMult = 1; }
+
+  // 发动机动力学
+  const derate = 1 - 0.55 * clamp01((e.temp - 112) / 18);
+  const cut = e.rpm > PH.redline ? clamp01((PH.maxRpm - e.rpm) / (PH.maxRpm - PH.redline)) : 1;
+  const ind = engTorque(e.rpm) * e.thr * derate * cut;
+  const fric = 90 + 0.055 * engTorque(e.rpm) * (e.rpm / 900) + (e.rpm > PH.maxRpm ? (e.rpm - PH.maxRpm) * 3 : 0);
+  e.tq = ind;
+  const dwE = (ind - fric - load) / PH.Ieng;
+  e.w = Math.max(6, e.w + dwE * dt);
+  e.rpm = e.w * 60 / TAU;
+  e.kW = Math.max(0, (ind - fric) * e.w / 1000);
+  e.load = clamp01(load / 3200);
+  const bsfc = 0.225;                                            // kg/kWh
+  e.fuel -= e.kW * bsfc / 0.84 / 3600 * dt;
+  e.temp += ((28 + e.load * 96 + clamp01(e.rpm / PH.maxRpm) * 22) - (e.temp - 22) * (0.55 + Math.abs(T.speed()) * 0.09)) * dt * 0.028;
+  e.smoke = lowpass(e.smoke, clamp01(e.load * 1.5 + Math.max(0, dwE) * 0.004), 0.18, dt);
+
+  // 输出扭矩分配：横向传动（液压转向单元 —— 速差伺服 + 再生式差速）
+  const tqSprk = clamp(tqOut * totalRatio * PH.effT, -PH.tqSprkMax, PH.tqSprkMax);  // 受传动装置额定扭矩限制
+  const steer = IN.steer;
+  const dvT = pivot ? 1.35 * steer : clamp(0.46 * Math.abs(vAvg) * steer, -2.9, 2.9);
+  const steerCap = PH.steerMax * (0.30 + 0.70 * e.thr) * clamp01((e.rpm - 560) / 620);
+  const tqDiff = clamp(((dvT - (L.v - Rr.v)) / G.sprkR) * 30000, -steerCap, steerCap);
+  tr.dv = dvT;
+  // 中心转向时机械路径被锁定（横向传动壳体制动）→ 平均车速伺服归零，不会顺坡漂移
+  const drive = pivot ? clamp(-vAvg / G.sprkR * 26000, -46000, 46000) : tqSprk;
+  L.tq = drive * 0.5 + tqDiff;
+  Rr.tq = drive * 0.5 - tqDiff;
+  // 转向单元耗功计入发动机负荷
+  e.load = clamp01((Math.abs(load) + Math.abs(tqDiff) * 0.045) / 3600);
+  // 制动：主制动 + 驻车 + 小半径转向内侧制动
+  if(Math.abs(steer) > 0.75 && Math.abs(vAvg) > 1.5 && !pivot){
+    const inner = steer > 0 ? Rr : L;
+    inner.brk = Math.max(inner.brk, PH.brakeMax * 0.22 * (Math.abs(steer) - 0.75) / 0.25);
+  }
+}
+
+/* ── 悬挂 / 接地 / 履带-地面耦合（半隐式摩擦求解） ── */
+function stepChassis(dt){
+  const mat = TER.mat;
+  const up = T.up(), fwd = T.fwd();
+  T.dbg.ct.length = 0;
+  let nGround = 0;
+
+  // 1) 每轮悬挂力
+  for(const w of T.wheels){
+    const wcm0 = T.wheelCenterMesh(w, 0);
+    const wc0 = T.meshPt(wcm0.x, wcm0.y, wcm0.z);
+    const th = TER.h(wc0.x, wc0.z);
+    const Reff = G.wheelR + 0.052;                       // 含履带板厚
+    const uy = Math.max(0.30, up.y);
+    let need = (th + Reff - wc0.y) / uy;
+    w.need = need;
+    let pen = 0;
+    if(need > G.susMax){ pen = need - G.susMax; need = G.susMax; }
+    w.pen = pen;
+    const prev = w.trav;
+    if(need > 0){ w.trav = need; w.contact = 1; nGround++; }
+    else { w.trav = Math.max(0, lowpass(w.trav, 0, 0.10, dt)); w.contact = 0; }
+    w.travV = (w.trav - prev) / dt;
+
+    const wcm = T.wheelCenterMesh(w, w.trav);
+    w.wc = T.meshPt(wcm.x, wcm.y, wcm.z);
+    if(!w.contact){ w.N = 0; w.gn = v3(0, 1, 0); continue; }
+
+    const gn = TER.nrm(w.wc.x, w.wc.z);
+    w.gn = gn;
+    const cp = w.wc.addS(gn, -(G.wheelR + 0.052));
+    w.cp = cp;
+    const r = cp.sub(T.pos);
+    const vn = T.velAt(r).dot(gn);                       // 接近速度（负 = 压向地面）
+    // 扭杆 + 缓冲块 + 减振器（压缩/回弹非对称）
+    let Fs = PH.kSpring * w.trav;
+    if(w.trav > 0.30) Fs += PH.kBump * sq(w.trav - 0.30);
+    const cC = w.shock ? PH.cComp : PH.cComp2, cR = w.shock ? PH.cReb : PH.cReb2;
+    Fs += (w.travV > 0 ? cC : cR) * clamp(w.travV, -6, 6);
+    // 行程用尽：机械硬止（带接触阻尼，避免储能弹射）
+    if(pen > 0) Fs += PH.kHard * pen - PH.cHard * Math.min(0, vn);
+    Fs = clamp(Fs, 0, PH.Nmax);
+    w.N = Fs;
+    T.addF(gn.mul(Fs), r);
+    T.dbg.ct.push({ p: cp, n: gn, N: Fs });
+  }
+  T.grounded = nGround;
+  if(nGround === 0) T.airTime += dt; else T.airTime = 0;
+
+  // 2) 履带-地面摩擦（纵向按侧整体求解，横向逐轮 → 自然产生转向阻力矩）
+  for(const key of ['L', 'R']){
+    const tk = T.trk[key], side = key === 'L' ? 1 : -1;   // 车左 = +X 侧
+    let N = 0, cx = 0, cy = 0, cz = 0, nx = 0, ny = 0, nz = 0, cnt = 0;
+    for(const w of T.wheels){
+      if(w.side !== side || !w.contact) continue;
+      N += w.N; cx += w.cp.x * w.N; cy += w.cp.y * w.N; cz += w.cp.z * w.N;
+      nx += w.gn.x; ny += w.gn.y; nz += w.gn.z; cnt++;
+    }
+    tk.N = N;
+    if(cnt === 0 || N < 1){ tk.slip = 0; tk.F = 0; tk.rr = 0; continue; }
+    const cp = v3(cx / N, cy / N, cz / N);
+    const gn = v3(nx / cnt, ny / cnt, nz / cnt).unit();
+    let f = fwd.sub(gn.mul(fwd.dot(gn)));
+    if(f.len2() < 1e-6) f = fwd;
+    f = f.unit();
+    const r = cp.sub(T.pos);
+    const vc = T.velAt(r);
+    const vLong = vc.dot(f);
+    const slip = vLong - tk.v;
+    tk.slip = slip;
+    // 附着系数：泥沙软地随滑转下降（挖坑效应）
+    const dig = 1 - mat.soft * clamp01(Math.abs(slip) / 3.4) * 0.55;
+    const mu = mat.mu * dig * (1 - 0.12 * clamp01(Math.abs(T.omega.y) * 0.4));
+    const v0 = 0.34;
+    const c = mu * N / v0;
+    const mInv = 2 / PH.mass + sq(G.sprkR) / PH.Itrack;
+    let F = -c * slip / (1 + dt * c * mInv);
+    F = clamp(F, -mu * N, mu * N);
+    tk.F = F;
+    T.addF(f.mul(F), r);
+    // 滚动阻力（履带内摩擦 + 土壤压实）→ 作为主动轮阻力矩加载至传动链
+    tk.rr = mat.rr * (1 + mat.soft * 0.8) * N;
+  }
+  // 横向摩擦（逐轮）
+  {
+    let cnt = 0;
+    for(const w of T.wheels) if(w.contact) cnt++;
+    const mShare = PH.mass / Math.max(1, cnt);
+    const mInv = 1 / mShare + sq(1.55) * cnt / T.I.y;
+    for(const w of T.wheels){
+      if(!w.contact || w.N < 1) continue;
+      let f = fwd.sub(w.gn.mul(fwd.dot(w.gn)));
+      f = f.len2() < 1e-6 ? fwd : f.unit();
+      const lat = w.gn.cross(f).unit();
+      const r = w.cp.sub(T.pos);
+      const vLat = T.velAt(r).dot(lat);
+      const muL = mat.muLat * (1 - 0.25 * clamp01(Math.abs(T.trk[w.side > 0 ? 'L' : 'R'].slip) / 4));
+      const c = muL * w.N / 0.30;
+      let F = -c * vLat / (1 + dt * c * mInv);
+      F = clamp(F, -muL * w.N, muL * w.N);
+      T.addF(lat.mul(F), r);
+    }
+  }
+
+  // 3) 车体触地探针（托底 / 骑坎）
+  for(const pr of T.probes){
+    const wp = T.toWorld(pr.p);
+    const th = TER.h(wp.x, wp.z);
+    const d = th - wp.y;
+    pr.hit = 0; pr.N = 0;
+    if(d > 0){
+      const gn = TER.nrm(wp.x, wp.z);
+      const r = wp.sub(T.pos);
+      const vn = T.velAt(r).dot(gn);
+      const F = clamp(PH.kBelly * d - PH.cBelly * vn, 0, PH.Fbelly);
+      T.addF(gn.mul(F), r);
+      // 车体擦地摩擦
+      const vt = T.velAt(r).addS(gn, -vn);
+      if(vt.len() > 0.05) T.addF(vt.unit().mul(-Math.min(F * 0.55, vt.len() * 9000)), r);
+      pr.hit = 1; pr.N = F;
+    }
+  }
+
+  // 4) 空气阻力 + 角阻尼
+  const v = T.vel.len();
+  if(v > 0.1) T.F.iaddS(T.vel.unit(), -0.5 * PH.rho * 9.2 * v * v);
+  T.Tq.iaddS(T.q.rot(T.omega), -26000);
+
+  // 5) 履带环动力学
+  for(const key of ['L', 'R']){
+    const tk = T.trk[key];
+    const tqGround = -tk.F * G.sprkR;
+    const tqRR = -sgn(tk.w) * (tk.rr || 0) * G.sprkR;
+    const visc = -tk.w * 34;
+    let w = tk.w + (tk.tq + tqGround + tqRR + visc) / PH.Itrack * dt;
+    if(tk.brk > 0){
+      const dwBrk = tk.brk / PH.Itrack * dt;
+      w = Math.abs(w) <= dwBrk ? 0 : w - sgn(w) * dwBrk;
+    }
+    if(!isFinite(w)) w = 0;
+    tk.w = clamp(w, -140, 140);
+    tk.v = tk.w * G.sprkR;
+    tk.off += tk.v * dt;
+    tk.wr += Math.abs(tk.v) * dt;
+    // 松边张力 → 上支履带下垂量
+    const tension = clamp01(Math.abs(tk.tq) / 26000) * (tk.tq * (tk.v >= 0 ? 1 : -1) > 0 ? 1 : 0.25);
+    tk.tens = lowpass(tk.tens, tension, 0.22, dt);
+    tk.sag = lowpass(tk.sag, 0.018 + 0.062 * (1 - tk.tens), 0.30, dt);
+  }
+
+  // 6) 刚体积分
+  if(T.F.bad() || T.Tq.bad()){ T.F.set(0, 0, 0); T.Tq.set(0, 0, 0); }
+  T.vel.iaddS(T.F, dt / PH.mass);
+  const dp = T.vel.mul(dt);
+  T.pos.iadd(dp);
+  T.odo += Math.hypot(dp.x, dp.z);
+  const tb = T.q.inv(T.Tq), w = T.omega;
+  const Iw = v3(T.I.x * w.x, T.I.y * w.y, T.I.z * w.z);
+  const gy = w.cross(Iw);
+  T.omega.iaddS(v3((tb.x - gy.x) / T.I.x, (tb.y - gy.y) / T.I.y, (tb.z - gy.z) / T.I.z), dt);
+  T.omega.imul(1 - 0.02 * dt);
+  T.q.integrate(T.omega, dt);
+  // 安全网
+  if(T.pos.bad() || T.vel.len() > 200){ T.reset(T.pos.x || 0, T.pos.z || 0); LOG.push('物理状态异常 — 已复位', 'bad'); }
+  const floor = TER.h(T.pos.x, T.pos.z) - 4;
+  if(T.pos.y < floor) T.reset(T.pos.x, T.pos.z);
+
+  // 负重轮自转（视觉）
+  for(const w of T.wheels) w.spin += T.trk[w.side > 0 ? 'L' : 'R'].v / G.wheelR * dt;
+}
+
+/* ────────────────────── 6. 粒子特效 ────────────────────── */
+const FX = {
+  P: [], A: [], D: [],
+  max: 2600, maxA: 500, maxD: 1000,
+  spawn(list, cap, o){
+    if(list.length >= cap) list.shift();
+    list.push(o);
+    return o;
+  },
+  puff(pos, vel, size, col, life, o){
+    o = o || {};
+    return this.spawn(this.P, this.max, {
+      pos: pos.clone(), vel: vel.clone(), size, s0: size, s1: o.s1 || size * 3.2,
+      col, a0: o.a || 0.55, a: o.a || 0.55, life, t: 0,
+      grav: o.grav === undefined ? 0.5 : o.grav, drag: o.drag === undefined ? 1.1 : o.drag,
+      rot: rnd(TAU), rotV: rnd(-1.2, 1.2), ground: 0
+    });
+  },
+  glow(pos, vel, size, col, life, a){
+    return this.spawn(this.A, this.maxA, {
+      pos: pos.clone(), vel: vel.clone(), size, s0: size, s1: size * (0.2 + rnd()),
+      col, a0: a === undefined ? 1 : a, a: a === undefined ? 1 : a, life, t: 0,
+      grav: 0, drag: 2.0, rot: rnd(TAU), rotV: 0, ground: 0
+    });
+  },
+  spark(pos, dir, n, col){
+    for(let i = 0; i < n; i++){
+      const v = dir.mul(rnd(4, 26)).add(v3(rndN() * 7, rndN() * 7 + 3, rndN() * 7));
+      this.glow(pos, v, rnd(0.06, 0.16), col || [1.0, 0.72, 0.30], rnd(0.25, 0.85), 1);
+    }
+  },
+  mark(pos, yaw, size, a){
+    return this.spawn(this.D, this.maxD, {
+      pos: pos.clone(), vel: v3(0, 0, 0), size, s0: size, s1: size,
+      col: [0.05, 0.045, 0.04], a0: a, a, life: 62, t: 0,
+      grav: 0, drag: 0, rot: yaw, rotV: 0, ground: 1
+    });
+  },
+  update(dt){
+    for(const L of [this.P, this.A, this.D]){
+      for(let i = L.length - 1; i >= 0; i--){
+        const p = L[i];
+        p.t += dt;
+        if(p.t >= p.life){ L.splice(i, 1); continue; }
+        const f = p.t / p.life;
+        if(!p.ground){
+          p.pos.iaddS(p.vel, dt);
+          p.vel.y += p.grav * dt;
+          const d = Math.max(0, 1 - p.drag * dt);
+          p.vel.imul(d);
+          p.rot += p.rotV * dt;
+          const th = TER.h(p.pos.x, p.pos.z);
+          if(p.pos.y < th + 0.05 && p.grav < 0.2){ p.pos.y = th + 0.05; p.vel.x *= 0.9; p.vel.z *= 0.9; p.vel.y = 0; }
+        }
+        p.size = lerp(p.s0, p.s1, f);
+        p.a = p.a0 * (p.ground ? Math.pow(1 - f, 0.6) : (1 - f) * (f < 0.14 ? f / 0.14 : 1));
+      }
+    }
+  },
+  clear(){ this.P.length = 0; this.A.length = 0; this.D.length = 0; }
+};
+
+/* ────────────────────── 7. 目标与弹道 ────────────────────── */
+const TGT = [], SHOT = [];
+function initTargets(){
+  TGT.length = 0;
+  const spec = [
+    { x: -14, z: 520, yaw: 0.42 }, { x: 22, z: 760, yaw: -0.9 },
+    { x: -26, z: 1010, yaw: 2.2 }, { x: 18, z: 1290, yaw: -2.6 },
+    { x: -22, z: 1620, yaw: 1.1 }, { x: 8, z: 1980, yaw: 0.2 },
+    { x: 25, z: 330, yaw: -1.5 }, { x: -30, z: 430, yaw: 0.8 }
+  ];
+  for(const s of spec){
+    TGT.push({
+      pos: v3(s.x, TER.h(s.x, s.z) + 0.47, s.z), yaw: s.yaw,
+      hp: 100, dead: 0, burn: 0, smokeT: 0,
+      hull: { c: v3(0, 0.62, 0), h: v3(1.80, 0.62, 3.62), tF: 520, tS: 90 },
+      tur: { c: v3(0, 1.52, -0.30), h: v3(1.15, 0.32, 1.60), tF: 640, tS: 180 },
+      hits: []
+    });
+  }
+}
+// 线段 × OBB（返回 {t, n, face}）
+function segOBB(p0, p1, ctr, yaw, half){
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const toL = p => { const d = p.sub(ctr); return v3(c * d.x - s * d.z, d.y, s * d.x + c * d.z); };
+  const a = toL(p0), b = toL(p1);
+  const d = b.sub(a);
+  let tmin = 0, tmax = 1, axis = -1, sign = 1;
+  const A = [a.x, a.y, a.z], D = [d.x, d.y, d.z], H = [half.x, half.y, half.z];
+  for(let i = 0; i < 3; i++){
+    if(Math.abs(D[i]) < 1e-9){ if(Math.abs(A[i]) > H[i]) return null; continue; }
+    let t1 = (-H[i] - A[i]) / D[i], t2 = (H[i] - A[i]) / D[i], sg = -1;
+    if(t1 > t2){ const tt = t1; t1 = t2; t2 = tt; sg = 1; }
+    if(t1 > tmin){ tmin = t1; axis = i; sign = sg; }
+    if(t2 < tmax) tmax = t2;
+    if(tmin > tmax) return null;
+  }
+  if(axis < 0) return null;
+  const nl = v3(axis === 0 ? sign : 0, axis === 1 ? sign : 0, axis === 2 ? sign : 0);
+  const nw = v3(c * nl.x + s * nl.z, nl.y, -s * nl.x + c * nl.z);
+  return { t: tmin, n: nw, axis };
+}
+function rayTargets(p0, p1){
+  let best = null;
+  for(const g of TGT){
+    for(const part of ['hull', 'tur']){
+      const pb = g[part];
+      const hit = segOBB(p0, p1, g.pos.add(pb.c), g.yaw, pb.h);
+      if(hit && (!best || hit.t < best.t)) best = { t: hit.t, n: hit.n, axis: hit.axis, g, part: pb, name: part };
+    }
+  }
+  return best;
+}
+// 侵彻计算：法线角 → 等效法向厚度（LOS）
+function penetrate(type, vel, dist, hit, dir){
+  const cosA = clamp(Math.abs(dir.unit().dot(hit.n)), 0.02, 1);
+  const ang = Math.acos(cosA) * R2D;
+  const th = hit.axis === 2 ? hit.part.tF : hit.part.tS;
+  const los = th / cosA;
+  let pen;
+  if(type.kind === 'ap') pen = type.pen0 * Math.pow(clamp01(vel / type.v0), 1.18);
+  else if(type.kind === 'heat') pen = type.pen0 * (1 - 0.10 * clamp01(dist / 3000));
+  else pen = type.pen0;
+  if(type.kind === 'ap' && ang > 70) return { pen, los, ang, res: 'RICOCHET' };
+  if(type.kind === 'heat' && ang > 80) return { pen, los, ang, res: 'RICOCHET' };
+  return { pen, los, ang, res: pen >= los ? 'PEN' : 'NOPEN' };
+}
+function fireShell(){
+  const g = T.gun, ld = T.ld;
+  if(ld.state !== 'READY'){ LOG.push('火炮未装填完毕', 'warn'); return; }
+  const type = AMMO[ld.loaded];
+  const dir = gunDirWorld();
+  const mz = muzzleWorld();
+  // 散布：炮管磨损 + 行进射击（稳定器残差）+ 弹种
+  const move = Math.min(1, Math.abs(T.speed()) / 12) * (T.tur.stab ? 0.55 : 2.2);
+  const disp = (type.kind === 'ap' ? 0.26 : 0.40) + g.wear * 0.9 + move * 0.9;
+  const rx = rndN() * disp * 0.001, ry = rndN() * disp * 0.001;
+  const right = T.q.rot(v3(1, 0, 0)), up = dir.cross(right).unit();
+  const d2 = dir.addS(right, rx).addS(up, ry).unit();
+  SHOT.push({
+    pos: mz.clone(), prev: mz.clone(), vel: d2.mul(type.v0).add(T.vel),
+    k: type.cd * type.A * PH.rho / (2 * type.m), type, t: 0, dist: 0, mg: 0, trail: 0
+  });
+  // 后座：弹丸动量 + 火药气体（约 1.35 倍）
+  g.recV = type.m * type.v0 * 1.35 / PH.mRecoil;
+  g.rec = 0.001;
+  g.fired++;
+  g.wear = Math.min(1, g.wear + (type.kind === 'ap' ? 0.0022 : 0.0013));
+  g.heat = Math.min(1, g.heat + 0.11);
+  // 炮口焰 / 冲击波扬尘
+  R.flashPos = [mz.x, mz.y, mz.z];
+  R.flashCol = [26, 18, 8];
+  T.fx.flash = 0.075;
+  for(let i = 0; i < 26; i++){
+    const sp = dir.mul(rnd(18, 74)).add(v3(rndN() * 9, rndN() * 9, rndN() * 9));
+    FX.glow(mz.addS(dir, rnd(0.1, 1.2)), sp, rnd(0.35, 1.5), [1.0, 0.72, 0.34], rnd(0.06, 0.30), 1);
+  }
+  for(let i = 0; i < 34; i++){
+    const sp = dir.mul(rnd(3, 26)).add(v3(rndN() * 6, rndN() * 5 + 1, rndN() * 6));
+    FX.puff(mz.addS(dir, rnd(0.2, 2.4)), sp, rnd(0.5, 1.4), [0.62, 0.60, 0.55], rnd(0.9, 2.4), { a: 0.42, s1: rnd(3, 7), grav: -0.2, drag: 1.6 });
+  }
+  const gh = TER.h(mz.x, mz.z);
+  if(mz.y - gh < 3.2){                        // 近地炮口冲击波扬尘
+    const dust = TER.mat.dust;
+    for(let i = 0; i < 40; i++){
+      const a = rnd(TAU), rr = rnd(1, 9);
+      const p = v3(mz.x + Math.cos(a) * rr * 0.6 + dir.x * rr, gh + 0.1, mz.z + Math.sin(a) * rr * 0.6 + dir.z * rr);
+      p.y = TER.h(p.x, p.z) + 0.1;
+      FX.puff(p, v3(dir.x * rnd(2, 9) + rndN() * 3, rnd(1, 4), dir.z * rnd(2, 9) + rndN() * 3),
+        rnd(0.8, 2.0), dust, rnd(1.4, 3.2), { a: 0.5, s1: rnd(4, 9), grav: -0.1, drag: 1.2 });
+    }
+  }
+  AUD.boom();
+  ld.state = 'RECOIL'; ld.t = 0; ld.tt = 0.60;
+  ld.loaded = null;
+}
+function fireMG(){
+  const g = T.gun;
+  if(g.mgBelt <= 0 || g.mgHeat > 1) return;
+  const dir = gunDirWorld();
+  const mz = muzzleWorld().addS(dir, -1.6).addS(T.right(), 0.42);
+  const disp = 1.3 + Math.min(1, Math.abs(T.speed()) / 10) * 1.6;
+  const right = T.q.rot(v3(1, 0, 0)), up = dir.cross(right).unit();
+  const d2 = dir.addS(right, rndN() * disp * 0.001).addS(up, rndN() * disp * 0.001).unit();
+  SHOT.push({
+    pos: mz.clone(), prev: mz.clone(), vel: d2.mul(830).add(T.vel),
+    k: 0.30 * 4.6e-5 * PH.rho / (2 * 0.0095), type: { kind: 'mg', m: 0.0095, v0: 830, pen0: 12, col: [1, 0.85, 0.5], tracer: 0.35, blast: 0.05, short: '7.62' },
+    t: 0, dist: 0, mg: 1, trail: 0
+  });
+  g.mgBelt--;
+  g.mgHeat = Math.min(1.25, g.mgHeat + 0.0055);
+  FX.glow(mz, dir.mul(6), 0.22, [1, 0.7, 0.3], 0.05, 1);
+  AUD.mg();
+}
+function stepShots(dt){
+  for(let i = SHOT.length - 1; i >= 0; i--){
+    const s = SHOT[i];
+    s.prev.copy(s.pos);
+    const v = s.vel.len();
+    s.vel.iaddS(s.vel, -s.k * v * dt);
+    s.vel.y -= PH.g * dt;
+    s.pos.iaddS(s.vel, dt);
+    s.t += dt;
+    s.dist += v * dt;
+    // 命中目标
+    const hit = rayTargets(s.prev, s.pos);
+    let impact = null, hitTgt = null;
+    if(hit){ impact = s.prev.lerpTo(s.pos, hit.t); hitTgt = hit; }
+    // 命中地形（分段检测）
+    if(!impact){
+      const N = 4;
+      for(let k = 1; k <= N; k++){
+        const p = s.prev.lerpTo(s.pos, k / N);
+        if(p.y <= TER.h(p.x, p.z)){ impact = p; break; }
+      }
+    }
+    if(impact){
+      onImpact(s, impact, hitTgt, v);
+      SHOT.splice(i, 1);
+      continue;
+    }
+    if(s.t > (s.mg ? 3.5 : 12) || s.dist > 6000) SHOT.splice(i, 1);
+  }
+}
+function onImpact(s, p, hit, vel){
+  const type = s.type;
+  const dust = TER.mat.dust;
+  if(hit){
+    const res = type.kind === 'mg' ? { res: 'NOPEN', pen: 12, los: 90, ang: 0 } : penetrate(type, vel, s.dist, hit, s.vel);
+    const g = hit.g;
+    if(!s.mg) g.hits.push({ dist: s.dist, res: res.res, ang: res.ang, los: res.los, pen: res.pen, part: hit.name });
+    FX.spark(p, s.vel.unit().mul(-1), type.kind === 'mg' ? 6 : 26, res.res === 'PEN' ? [1, 0.85, 0.55] : [1, 0.6, 0.25]);
+    if(!s.mg){
+      for(let i = 0; i < 14; i++)
+        FX.puff(p, v3(rndN() * 5, rnd(0.5, 4), rndN() * 5), rnd(0.3, 0.9), [0.35, 0.33, 0.30], rnd(0.6, 1.6), { a: 0.5, s1: 2.6, grav: -0.3 });
+      if(res.res === 'PEN'){
+        g.hp -= type.kind === 'he' ? 34 : 58;
+        for(let i = 0; i < 20; i++)
+          FX.glow(p, s.vel.unit().mul(rnd(6, 30)).add(v3(rndN() * 6, rndN() * 6, rndN() * 6)), rnd(0.15, 0.5), [1, 0.55, 0.2], rnd(0.3, 1.1), 1);
+        LOG.push(`命中 ${hit.name === 'tur' ? '炮塔' : '车体'}　${(s.dist).toFixed(0)} m　着角 ${res.ang.toFixed(0)}°　等效 ${res.los.toFixed(0)} mm　穿深 ${res.pen.toFixed(0)} mm　→ 穿透`, 'good');
+      } else if(res.res === 'RICOCHET'){
+        LOG.push(`跳弹！着角 ${res.ang.toFixed(0)}° 超过临界角　${(s.dist).toFixed(0)} m`, 'warn');
+        const rd = s.vel.unit().sub(hit.n.mul(2 * s.vel.unit().dot(hit.n)));
+        SHOT.push({ pos: p.addS(rd, 0.4), prev: p.clone(), vel: rd.mul(vel * 0.55), k: s.k, type, t: 0, dist: s.dist, mg: 0, trail: 0 });
+      } else {
+        LOG.push(`未击穿　等效 ${res.los.toFixed(0)} mm > 穿深 ${res.pen.toFixed(0)} mm　着角 ${res.ang.toFixed(0)}°`, 'bad');
+      }
+      if(g.hp <= 0 && !g.dead){
+        g.dead = 1; g.burn = 1;
+        LOG.push('目标被摧毁！', 'good');
+        for(let i = 0; i < 40; i++)
+          FX.glow(g.pos.add(v3(rndN() * 1.2, 1.4 + rnd(0, 1.5), rndN() * 1.6)), v3(rndN() * 8, rnd(3, 16), rndN() * 8), rnd(0.4, 1.6), [1, 0.5, 0.15], rnd(0.5, 1.6), 1);
+      }
+    }
+  } else {
+    // 地面弹坑与土柱
+    const n = TER.nrm(p.x, p.z);
+    const cnt = s.mg ? 4 : Math.round(16 + type.blast * 16);
+    for(let i = 0; i < cnt; i++){
+      const sp = n.mul(rnd(3, 14 + type.blast * 5)).add(v3(rndN() * 5, rnd(1, 6), rndN() * 5));
+      FX.puff(p, sp, rnd(0.35, 1.1) * (1 + type.blast * 0.3), dust, rnd(0.9, 2.6),
+        { a: 0.62, s1: rnd(2, 6) * (1 + type.blast * 0.4), grav: 1.2, drag: 0.9 });
+    }
+    if(!s.mg){
+      FX.spark(p, n, 14, [1, 0.7, 0.3]);
+      for(let i = 0; i < 8; i++)
+        FX.glow(p, n.mul(rnd(2, 10)), rnd(0.3, 1.0), [1, 0.6, 0.25], rnd(0.15, 0.5), 1);
+      FX.mark(v3(p.x, TER.h(p.x, p.z) + 0.03, p.z), rnd(TAU), 1.2 + type.blast * 0.5, 0.55);
+      AUD.impact(T.pos.dist(p));
+    }
+  }
+}
+// 弹道解算（迭代求高低修正量）
+function solveSuper(dist, type){
+  let ang = 0;
+  for(let it = 0; it < 6; it++){
+    let p = v3(0, 0, 0), vv = v3(0, Math.sin(ang), Math.cos(ang)).mul(type.v0);
+    const k = type.cd * type.A * PH.rho / (2 * type.m);
+    let dt = 0.004, guard = 0;
+    while(p.z < dist && guard++ < 4000){
+      const sp = vv.len();
+      vv.iaddS(vv, -k * sp * dt);
+      vv.y -= PH.g * dt;
+      p.iaddS(vv, dt);
+    }
+    const drop = -p.y;
+    if(!isFinite(drop)) break;
+    ang += Math.atan2(drop, Math.max(1, dist)) * 0.92;
+    if(Math.abs(drop) < 0.02) break;
+  }
+  return ang;
+}
+
+/* ── 炮塔/火炮伺服 · 双向稳定器 ── */
+function turretMat(){
+  return M4.mul(M4.trans(0, G.turretY - G.cogY, G.turretZ - G.cogZ), M4.rotY(T.tur.az));
+}
+function gunDirBody(){
+  const az = T.tur.az, el = T.tur.el;
+  return v3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+}
+function gunDirWorld(){ return T.q.rot(gunDirBody()); }
+function trunnionBody(){
+  const az = T.tur.az;
+  return v3(Math.sin(az) * G.trunZ, G.turretY + G.trunY - G.cogY, Math.cos(az) * G.trunZ + G.turretZ - G.cogZ);
+}
+function muzzleWorld(){
+  return T.toWorld(trunnionBody().addS(gunDirBody(), G.barrelL - T.gun.rec));
+}
+function sightWorld(){   // 炮长主瞄准镜位置（炮塔系 -0.44, 0.62, 0.66）
+  const az = T.tur.az, c = Math.cos(az), s = Math.sin(az);
+  const x = c * 0.44 + s * 0.66, z = -s * 0.44 + c * 0.66;
+  return T.toWorld(v3(x, G.turretY + 0.68 - G.cogY, z + G.turretZ - G.cogZ));
+}
+function stepTurret(dt, IN){
+  const tu = T.tur, g = T.gun, ld = T.ld;
+  let azT, elT;
+  if(tu.stab){
+    const ce = Math.cos(tu.cmdEl);
+    const dW = v3(Math.sin(tu.cmdYaw) * ce, Math.sin(tu.cmdEl), Math.cos(tu.cmdYaw) * ce);
+    const db = T.q.inv(dW);
+    azT = Math.atan2(db.x, db.z);
+    elT = Math.asin(clamp(db.y, -1, 1));
+  } else { azT = tu.cmdAz; elT = tu.cmdEl; }
+  elT += g.solEl;                                            // 弹道计算机高低修正
+  if(ld.auto && (ld.state === 'RAM1' || ld.state === 'RAM2' || ld.state === 'CAROUSEL'))
+    elT = 3.5 * D2R;                                          // 自动装弹机固定装填角
+  // 行军位置闭环（按 Q）：持续以车体系 0° 为目标，抵消回转反作用引起的车体偏转
+  if(tu.center){
+    azT = 0; elT = 0;
+    if(Math.abs(wrapPi(tu.az)) < 0.004 && Math.abs(tu.el) < 0.004){
+      const d = gunDirWorld();
+      tu.cmdYaw = Math.atan2(d.x, d.z); tu.cmdAz = 0; tu.cmdEl = 0;
+      tu.center = 0;
+      LOG.push('炮塔已至行军位置（0°/0°）', 'good');
+    }
+  }
+  elT = clamp(elT, PH.elMin, PH.elMax);
+  // 方位伺服
+  const eAz = wrapPi(azT - tu.az);
+  const vAz = clamp(eAz * PH.azKp, -PH.azRate, PH.azRate);
+  const prevAzV = tu.azV;
+  tu.azV = approach(tu.azV, vAz, PH.azAcc, dt);
+  tu.az = wrapPi(tu.az + tu.azV * dt);
+  // 炮塔回转反作用力矩（车体被"拧"一下）
+  tu.reactTq = -PH.Iturret * (tu.azV - prevAzV) / dt;
+  T.Tq.iadd(T.q.rot(v3(0, tu.reactTq, 0)));
+  // 高低伺服
+  const eEl = elT - tu.el;
+  const vEl = clamp(eEl * PH.elKp, -PH.elRate, PH.elRate);
+  tu.elV = approach(tu.elV, vEl, PH.elAcc, dt);
+  tu.el = clamp(tu.el + tu.elV * dt, PH.elMin, PH.elMax);
+  tu.drift = Math.hypot(eAz, eEl) * R2D;
+  // 后座 / 复进机（rec 为后座位移，正向 = 炮身后退）
+  if(g.rec > 0 || g.recV > 0){
+    let F = PH.kRecoil * g.rec + PH.cRecoil * g.recV;
+    if(g.rec >= G.recoilMax && g.recV > 0) F += 9e6 * (g.rec - G.recoilMax);
+    g.recV -= F / PH.mRecoil * dt;
+    g.rec += g.recV * dt;
+    if(g.rec <= 0){ g.rec = 0; g.recV = 0; }
+    const dirW = gunDirWorld();
+    const tr = T.toWorld(trunnionBody()).sub(T.pos);
+    T.addF(dirW.mul(-F), tr);
+  }
+  g.heat = Math.max(0, g.heat - dt * 0.030);
+  g.mgHeat = Math.max(0, g.mgHeat - dt * 0.045);
+  if(g.coaxT > 0) g.coaxT -= dt;
+  if(IN.mg && g.coaxT <= 0){ fireMG(); g.coaxT = 60 / 700; }
+}
+
+/* ── 装填循环（自动装弹机 / 人工装填） ── */
+const LD_AUTO = ['RECOIL', 'EXTRACT', 'CAROUSEL', 'RAM1', 'RAM2', 'CLOSE'];
+const LD_MAN = ['RECOIL', 'EXTRACT', 'GRAB', 'RAM1', 'CLOSE'];
+const LD_NAME = { READY: '待发', RECOIL: '后座复进', EXTRACT: '开闩抽筒', CAROUSEL: '转盘选弹',
+                  GRAB: '取弹', RAM1: '推弹丸', RAM2: '推药筒', CLOSE: '闭闩', RESUPPLY: '补弹（车体弹舱）' };
+function ldDuration(st){
+  const ld = T.ld, fat = 1 + ld.fatigue * 0.22;
+  switch(st){
+    case 'RECOIL': return 0.60;
+    case 'EXTRACT': return ld.auto ? 1.15 : 0.80 * fat;
+    case 'CAROUSEL': {
+      const slots = ld.sel === ld.lastType ? rnd(1, 3) : rnd(3, 8);
+      ld.carTarget = ld.carAngle + slots * (TAU / 22) * (rnd() > 0.5 ? 1 : -1);
+      return 0.45 + 0.30 * slots;
+    }
+    case 'GRAB': return (1.15 + rnd(0, 0.45)) * fat;
+    case 'RAM1': return ld.auto ? 1.85 : 1.35 * fat;
+    case 'RAM2': return 1.55;
+    case 'CLOSE': return ld.auto ? 0.60 : 0.45 * fat;
+    case 'RESUPPLY': return 24;
+  }
+  return 1;
+}
+function stepLoader(dt){
+  const ld = T.ld, g = T.gun;
+  ld.fatigue = clamp01(ld.fatigue - dt * 0.02);
+  if(ld.state === 'READY'){
+    ld.rammer = lowpass(ld.rammer, 0, 0.2, dt);
+    g.breech = lowpass(g.breech, 0, 0.15, dt);
+    return;
+  }
+  ld.t += dt;
+  // 各状态动作
+  if(ld.state === 'EXTRACT'){
+    g.breech = lowpass(g.breech, 1, 0.20, dt);
+    if(ld.ejecting === 0 && ld.t > 0.45){
+      ld.ejecting = 1;
+      const back = gunDirWorld().mul(-1);
+      const p = T.toWorld(trunnionBody()).addS(back, 0.9);
+      for(let i = 0; i < 5; i++)
+        FX.glow(p, back.mul(rnd(2, 7)).add(v3(rndN() * 2, rnd(1, 3), rndN() * 2)), 0.12, [0.9, 0.7, 0.35], 0.7, 0.9);
+      AUD.clank(0.6);
+    }
+  }
+  if(ld.state === 'CAROUSEL') ld.carAngle = lerp(ld.carAngle, ld.carTarget, clamp01(dt * 6));
+  if(ld.state === 'RAM1' || ld.state === 'RAM2'){
+    const f = clamp01(ld.t / ld.tt);
+    ld.rammer = Math.sin(f * PI);
+    g.breech = 1;
+  }
+  if(ld.state === 'CLOSE') g.breech = lowpass(g.breech, 0, 0.12, dt);
+
+  if(ld.t < ld.tt) return;
+  // 状态推进
+  const seq = ld.auto ? LD_AUTO : LD_MAN;
+  const i = seq.indexOf(ld.state);
+  if(ld.state === 'RESUPPLY'){
+    const need = Math.min(ld.resupply, T.ammo.hull[ld.sel]);
+    T.ammo.hull[ld.sel] -= need; T.ammo.car[ld.sel] += need;
+    LOG.push(`车体弹舱补弹完成：${ld.sel} ×${need}`, 'good');
+    ld.state = 'CAROUSEL'; ld.t = 0; ld.tt = ldDuration('CAROUSEL');
+    return;
+  }
+  if(i >= 0 && i < seq.length - 1){
+    let nx = seq[i + 1];
+    if(nx === 'CAROUSEL' || nx === 'GRAB'){
+      // 弹药可用性检查
+      if(T.ammo.car[ld.sel] <= 0){
+        const alt = AMMO_KEYS.find(k => T.ammo.car[k] > 0);
+        if(T.ammo.hull[ld.sel] > 0 && ld.auto){
+          ld.resupply = Math.min(6, T.ammo.hull[ld.sel]);
+          LOG.push(`转盘内 ${ld.sel} 已空 — 由车体弹舱补弹（约 24 s）`, 'warn');
+          ld.state = 'RESUPPLY'; ld.t = 0; ld.tt = ldDuration('RESUPPLY');
+          return;
+        } else if(alt){
+          LOG.push(`${ld.sel} 耗尽 — 自动改选 ${AMMO[alt].short}`, 'warn');
+          ld.sel = alt;
+        } else {
+          LOG.push('全部弹药耗尽！', 'bad');
+          ld.state = 'READY'; ld.loaded = null;
+          return;
+        }
+      }
+    }
+    if(nx === 'RAM2' && !ld.auto) nx = 'CLOSE';
+    ld.state = nx; ld.t = 0; ld.tt = ldDuration(nx);
+    if(nx === 'RAM1'){
+      T.ammo.car[ld.sel]--;
+      ld.lastType = ld.sel;
+      AUD.clank(0.9);
+    }
+    if(nx === 'CLOSE') AUD.clank(1.0);
+  } else {
+    ld.state = 'READY'; ld.loaded = ld.sel; ld.t = 0; ld.ejecting = 0;
+    ld.fatigue = clamp01(ld.fatigue + (ld.auto ? 0 : 0.10));
+    LOG.push(`装填完毕　${AMMO[ld.loaded].short}　${ld.auto ? '自动装弹机' : '人工装填'}`, 'good');
+  }
+}
+function startReload(force){
+  const ld = T.ld;
+  if(ld.state !== 'READY') return;
+  if(ld.loaded === ld.sel && !force){ LOG.push('已装填 ' + AMMO[ld.sel].short); return; }
+  ld.state = 'EXTRACT'; ld.t = 0; ld.tt = ldDuration('EXTRACT'); ld.ejecting = 0; ld.loaded = null;
+  LOG.push('退弹换装 → ' + AMMO[ld.sel].short, 'warn');
+}
+function laseRange(){
+  const g = T.gun;
+  const p0 = sightWorld(), dir = gunDirWorld();
+  const p1 = p0.addS(dir, 5000);
+  const hit = rayTargets(p0, p1);
+  let dist = 0;
+  if(hit) dist = 5000 * hit.t;
+  else {
+    for(let d = 20; d < 5000; d += 8){
+      const p = p0.addS(dir, d);
+      if(p.y <= TER.h(p.x, p.z)){ dist = d; break; }
+    }
+  }
+  if(dist > 0){
+    g.lrf = dist; g.lrfT = 6;
+    const type = AMMO[T.ld.loaded || T.ld.sel];
+    g.solEl = solveSuper(dist, type);
+    LOG.push(`激光测距 ${dist.toFixed(0)} m　弹种 ${type.short}　高低修正 ${(g.solEl * 1000).toFixed(1)} mil`, 'good');
+    AUD.beep();
+  } else { LOG.push('测距失败 — 无回波', 'warn'); }
+}
+
+/* ────────────────────── 8. 程序化音频 ────────────────────── */
+const AUD = {
+  on: false, ctx: null, noise: null,
+  init(){
+    if(this.on) return;
+    try{
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return;
+      const c = new AC();
+      this.ctx = c;
+      const master = c.createGain(); master.gain.value = 0.5; master.connect(c.destination);
+      this.master = master;
+      // 白噪声缓冲
+      const n = c.sampleRate * 2, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+      for(let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      this.noise = buf;
+      // ── 发动机：基频锯齿 + 二次谐波 + 涡轮啸叫 + 机械噪声
+      this.eg = c.createGain(); this.eg.gain.value = 0;
+      this.elp = c.createBiquadFilter(); this.elp.type = 'lowpass'; this.elp.frequency.value = 900;
+      this.eg.connect(this.elp); this.elp.connect(master);
+      this.o1 = c.createOscillator(); this.o1.type = 'sawtooth'; this.o1.frequency.value = 70;
+      this.g1 = c.createGain(); this.g1.gain.value = 0.55;
+      this.o1.connect(this.g1); this.g1.connect(this.eg); this.o1.start();
+      this.o2 = c.createOscillator(); this.o2.type = 'square'; this.o2.frequency.value = 35;
+      this.g2 = c.createGain(); this.g2.gain.value = 0.34;
+      this.o2.connect(this.g2); this.g2.connect(this.eg); this.o2.start();
+      this.o3 = c.createOscillator(); this.o3.type = 'sine'; this.o3.frequency.value = 560;
+      this.g3 = c.createGain(); this.g3.gain.value = 0.05;
+      this.o3.connect(this.g3); this.g3.connect(master); this.o3.start();
+      // 机械/进气噪声
+      this.en = c.createBufferSource(); this.en.buffer = buf; this.en.loop = true;
+      this.enf = c.createBiquadFilter(); this.enf.type = 'bandpass'; this.enf.frequency.value = 320; this.enf.Q.value = 0.8;
+      this.eng2 = c.createGain(); this.eng2.gain.value = 0;
+      this.en.connect(this.enf); this.enf.connect(this.eng2); this.eng2.connect(master); this.en.start();
+      // ── 履带链条噪声
+      this.tn = c.createBufferSource(); this.tn.buffer = buf; this.tn.loop = true;
+      this.tnf = c.createBiquadFilter(); this.tnf.type = 'bandpass'; this.tnf.frequency.value = 1600; this.tnf.Q.value = 0.9;
+      this.tng = c.createGain(); this.tng.gain.value = 0;
+      this.tn.connect(this.tnf); this.tnf.connect(this.tng); this.tng.connect(master); this.tn.start();
+      this.on = true;
+    } catch(e){ fatal('音频', e); }
+  },
+  update(dt){
+    if(!this.on) return;
+    const c = this.ctx, e = T.eng, t = c.currentTime;
+    const f = Math.max(18, e.rpm / 60 * 6);                 // V12 点火频率
+    this.o1.frequency.setTargetAtTime(f, t, 0.05);
+    this.o2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+    this.o3.frequency.setTargetAtTime(700 + e.rpm * 0.62, t, 0.08);
+    const run = e.on ? 1 : (e.w > 8 ? 0.4 : 0);
+    this.eg.gain.setTargetAtTime(run * (0.10 + 0.20 * e.load + 0.06 * clamp01(e.rpm / 2600)), t, 0.06);
+    this.elp.frequency.setTargetAtTime(420 + e.rpm * 0.55 + e.load * 700, t, 0.1);
+    this.g3.gain.setTargetAtTime(run * (0.006 + 0.030 * clamp01((e.rpm - 900) / 1700) * (0.3 + e.load)), t, 0.1);
+    this.eng2.gain.setTargetAtTime(run * (0.012 + 0.055 * e.load), t, 0.08);
+    const tv = (Math.abs(T.trk.L.v) + Math.abs(T.trk.R.v)) * 0.5;
+    this.tng.gain.setTargetAtTime(clamp01(tv / 14) * 0.13 * (T.grounded ? 1 : 0.15), t, 0.06);
+    this.tnf.frequency.setTargetAtTime(700 + tv * 210, t, 0.06);
+  },
+  burst(freq, Q, gain, dur, type, curve){
+    if(!this.on) return;
+    const c = this.ctx, t = c.currentTime;
+    const s = c.createBufferSource(); s.buffer = this.noise; s.loop = true;
+    const f = c.createBiquadFilter(); f.type = type || 'bandpass'; f.frequency.value = freq; f.Q.value = Q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(this.master);
+    s.start(t); s.stop(t + dur + 0.02);
+    if(curve){
+      const o = c.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(curve[0], t);
+      o.frequency.exponentialRampToValueAtTime(curve[1], t + dur * 0.8);
+      const og = c.createGain();
+      og.gain.setValueAtTime(gain * 1.5, t);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(og); og.connect(this.master); o.start(t); o.stop(t + dur + 0.02);
+    }
+  },
+  boom(){ this.burst(240, 0.5, 0.95, 1.5, 'lowpass', [80, 26]); this.burst(1400, 0.7, 0.35, 0.35); },
+  mg(){ this.burst(1100, 1.4, 0.16, 0.07, 'bandpass', [220, 90]); },
+  clank(v){ this.burst(2400, 3.5, 0.10 * v, 0.16); this.burst(620, 2.0, 0.06 * v, 0.22); },
+  beep(){
+    if(!this.on) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 1180;
+    const g = c.createGain(); g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.12);
+  },
+  impact(dist){
+    const a = clamp01(1 - dist / 2600);
+    if(a < 0.02) return;
+    this.burst(180, 0.6, 0.5 * a, 0.9, 'lowpass', [70, 30]);
+  }
+};
+
+/* ────────────────────── 9. 相机 ────────────────────── */
+const CM = { GUN: 0, CHASE: 1, ORBIT: 2, SIGHT: 3, CDR: 4, CINE: 5 };
+const CAM = {
+  mode: CM.GUN, names: ['炮向驾驶', '跟车视角', '环绕视角', '炮长镜', '车长席', '电影视角'],
+  dist: 15, yaw: 0, pitch: -0.16, zoom: 3, orbit: 0,
+  pos: v3(0, 5, -20), tgt: v3(0, 0, 0), up: v3(0, 1, 0), right: v3(1, 0, 0),
+  view: M4.ident(), proj: M4.ident(), fov: 55 * D2R, sm: null, smYaw: null, smEl: 0,
+  // 瞄准线方向（世界系）：不含弹道计算机高低修正 —— 修正量只加在火炮上
+  cmdDir(){
+    const tu = T.tur;
+    if(tu.stab) return { yaw: tu.cmdYaw, el: tu.cmdEl };
+    const d = T.q.rot(v3(Math.sin(tu.cmdAz || 0) * Math.cos(tu.cmdEl || 0),
+                         Math.sin(tu.cmdEl || 0), Math.cos(tu.cmdAz || 0) * Math.cos(tu.cmdEl || 0)));
+    return { yaw: Math.atan2(d.x, d.z), el: Math.asin(clamp(d.y, -1, 1)) };
+  },
+  update(dt, aspect){
+    const hullYaw = Math.atan2(T.fwd().x, T.fwd().z);
+    const ctr = T.toWorld(v3(0, 0.9, 0));
+    let eye, tgt, fov = this.fov;
+    if(this.mode === CM.GUN){
+      /* 炮向驾驶视角：机位在炮管指向的反侧，画面中心恒为炮管（指令）指向 */
+      const c = this.cmdDir();
+      if(this.smYaw === null) this.smYaw = c.yaw;
+      this.smYaw = this.smYaw + wrapPi(c.yaw - this.smYaw) * clamp01(dt * 16);   // 轻微平滑，无迟滞感
+      this.smEl = lerp(this.smEl, c.el, clamp01(dt * 10));
+      const yaw = this.smYaw, el = this.smEl;
+      const dH = v3(Math.sin(yaw), 0, Math.cos(yaw));
+      const d = this.dist * 0.82;
+      const rise = 0.38 * d + 1.15 - el * d * 0.55;                              // 抬炮时机位下沉，保持炮口在画面内
+      eye = ctr.addS(dH, -d).add(v3(0, rise, 0));
+      tgt = ctr.addS(v3(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el)), 110);
+    } else if(this.mode === CM.CHASE){
+      if(!this.sm) this.sm = ctr.clone();
+      const back = this.dist, hy = hullYaw + this.orbit;
+      // 车尾后方（-fwd 方向）架机：fwd = (sin hy, 0, cos hy)
+      const want = ctr.add(v3(-Math.sin(hy) * back, this.dist * 0.42 + 1.4, -Math.cos(hy) * back));
+      this.sm = this.sm.lerpTo(want, clamp01(dt * 3.4));
+      eye = this.sm.clone(); tgt = ctr.addS(T.vel, 0.16);
+    } else if(this.mode === CM.ORBIT){
+      const d = this.dist;
+      eye = ctr.add(v3(Math.sin(this.yaw) * Math.cos(this.pitch) * d, -Math.sin(this.pitch) * d, Math.cos(this.yaw) * Math.cos(this.pitch) * d));
+      tgt = ctr;
+    } else if(this.mode === CM.SIGHT){
+      // 炮长镜沿"瞄准线"（指令方向）—— 弹道计算机的高低修正加在火炮上，分划保持压住目标
+      const cd = this.cmdDir();
+      const ce = Math.cos(cd.el);
+      const dir = v3(Math.sin(cd.yaw) * ce, Math.sin(cd.el), Math.cos(cd.yaw) * ce);
+      eye = sightWorld().addS(dir, 0.15);
+      tgt = eye.addS(dir, 100);
+      fov = 2 * Math.atan(Math.tan(55 * D2R / 2) / this.zoom);
+    } else if(this.mode === CM.CDR){
+      const az = T.tur.az, c = Math.cos(az), s = Math.sin(az);
+      const cup = T.toWorld(v3(c * -0.52 + s * -0.42, G.turretY + 1.02 - G.cogY, -s * -0.52 + c * -0.42 + G.turretZ - G.cogZ));
+      const cd = this.cmdDir();
+      const dir = v3(Math.sin(cd.yaw), Math.sin(cd.el) * 0.7, Math.cos(cd.yaw));
+      eye = cup; tgt = cup.addS(dir, 60);
+      fov = 42 * D2R;
+    } else {
+      this.orbit += dt * 0.14;
+      const d = this.dist * 1.25;
+      eye = ctr.add(v3(Math.sin(this.orbit) * d, 3.2 + Math.sin(this.orbit * 0.7) * 2.2, Math.cos(this.orbit) * d));
+      tgt = ctr;
+    }
+    const th = TER.h(eye.x, eye.z) + 0.55;
+    if(eye.y < th && this.mode !== CM.SIGHT) eye.y = th;
+    this.pos = eye; this.tgt = tgt;
+    this.view = M4.lookAt(eye, tgt, v3(0, 1, 0));
+    this.proj = M4.perspective(fov, aspect, 0.12, 5200);
+    this.right = v3(this.view[0], this.view[4], this.view[8]);
+    this.up = v3(this.view[1], this.view[5], this.view[9]);
+    this.fovCur = fov;
+  }
+};
+
+/* ────────────────────── 10. 输入 ────────────────────── */
+const SIM = { t: 0, ts: 1, paused: false, dbg: false, vec: false, fps: 60, steps: 0, frames: 0, fpsT: 0,
+              maxFrames: 0, frameNo: 0 };
+const IN = {
+  k: {}, thr: 0, brake: 0, steer: 0, rev: false, park: false, neutral: false, mg: false,
+  lock: false, held: 0, btn: 0, sens: 1.0, fine: 0, invY: 0
+};
+function bindInput(){
+  const cv = document.getElementById('gl');
+  addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if(IN.k[k]) { if(k===' '||k==='f1'||k==='f2') e.preventDefault(); return; }
+    IN.k[k] = 1;
+    switch(k){
+      case 'c': CAM.mode = (CAM.mode + 1) % 6; LOG.push('视角：' + CAM.names[CAM.mode]); break;
+      case 'n': SIM.ts = SIM.ts === 1 ? 0.35 : (SIM.ts === 0.35 ? 0.12 : 1);
+                LOG.push('时间倍率 ×' + SIM.ts.toFixed(2)); break;
+      case 'p': SIM.paused = !SIM.paused; LOG.push(SIM.paused ? '暂停' : '继续'); break;
+      case 'r': startReload(true); break;
+      case 't': laseRange(); break;
+      case 'f': T.tur.stab = !T.tur.stab;
+                if(T.tur.stab){ const d = gunDirWorld(); T.tur.cmdYaw = Math.atan2(d.x, d.z); T.tur.cmdEl = Math.asin(clamp(d.y, -1, 1)) - T.gun.solEl; }
+                else { T.tur.cmdAz = T.tur.az; T.tur.cmdEl = T.tur.el - T.gun.solEl; }
+                LOG.push('双向稳定器 ' + (T.tur.stab ? '接通' : '断开'), T.tur.stab ? 'good' : 'warn'); break;
+      case 'l': T.ld.auto = !T.ld.auto;
+                LOG.push('装填方式：' + (T.ld.auto ? '自动装弹机（转盘 22 发）' : '人工装填'), 'warn'); break;
+      case 'g': T.tr.mode = T.tr.mode === 'A' ? 'M' : 'A'; LOG.push('变速箱：' + (T.tr.mode === 'A' ? '自动' : '手动')); break;
+      case 'x': IN.park = !IN.park; LOG.push('驻车制动 ' + (IN.park ? '已锁' : '释放'), IN.park ? 'warn' : ''); break;
+      case 'z': IN.neutral = !IN.neutral; LOG.push('空挡 ' + (IN.neutral ? 'ON' : 'OFF')); break;
+      case 'k': T.reset(T.pos.x, T.pos.z, true); FX.clear(); LOG.push('车辆复位（原地扶正）', 'warn'); break;
+      case 'v': TER.setMat(R.gl, TER.mi + 1); LOG.push('地面材质：' + TER.mat.name +
+                `　μ=${TER.mat.mu.toFixed(2)}　滚阻=${TER.mat.rr.toFixed(3)}`, 'warn'); break;
+      case 'h': document.getElementById('help').classList.toggle('hide'); break;
+      case '[': if(T.tr.mode === 'M' && T.tr.gear > 1){ T.tr.gear--; T.tr.shift = PH.shiftTime; } break;
+      case ']': { const mx = T.tr.dir > 0 ? PH.gears.length : PH.rev.length;
+                  if(T.tr.mode === 'M' && T.tr.gear < mx){ T.tr.gear++; T.tr.shift = PH.shiftTime; } } break;
+      case '1': case '2': case '3': {
+        const key = AMMO_KEYS[+k - 1];
+        T.ld.sel = key;
+        LOG.push('选弹：' + AMMO[key].name + `　转盘余 ${T.ammo.car[key]} 发`);
+        if(T.ld.state === 'READY' && T.ld.loaded !== key) startReload(true);
+        break; }
+      case 'e': if(!T.eng.on && T.eng.starter <= 0){ T.eng.starter = 1.6; LOG.push('起动机接通…'); } break;
+      case ',': IN.sens = clamp(IN.sens / 1.25, 0.16, 6.4);
+                LOG.push(`鼠标灵敏度 ${IN.sens.toFixed(2)}×`); break;
+      case '.': IN.sens = clamp(IN.sens * 1.25, 0.16, 6.4);
+                LOG.push(`鼠标灵敏度 ${IN.sens.toFixed(2)}×`); break;
+      case 'y': IN.invY = IN.invY ? 0 : 1; LOG.push('鼠标 Y 轴' + (IN.invY ? '反向（拉杆式）' : '正向')); break;
+      case 'q': T.tur.center = 1; LOG.push('炮塔转向行军位置…', 'warn'); break;
+      case 'f1': SIM.dbg = !SIM.dbg; document.getElementById('dbg').style.display = SIM.dbg ? 'block' : 'none'; e.preventDefault(); break;
+      case 'f2': SIM.vec = !SIM.vec; e.preventDefault(); break;
+      case ' ': e.preventDefault(); break;
+    }
+  });
+  addEventListener('keyup', e => { IN.k[e.key.toLowerCase()] = 0; });
+  addEventListener('blur', () => { IN.k = {}; });
+  cv.addEventListener('mousedown', e => {
+    IN.held = 1; IN.btn = e.button;
+    if(!IN.lock && cv.requestPointerLock) cv.requestPointerLock();
+    if(e.button === 0) fireShell();
+    if(e.button === 2) IN.mg = true;
+  });
+  addEventListener('mouseup', e => {
+    IN.held = 0; IN.btn = -1;
+    if(e.button === 2) IN.mg = false;
+  });
+  addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('pointerlockchange', () => { IN.lock = document.pointerLockElement === cv; });
+  addEventListener('mousemove', e => {
+    // 环绕视角：中键拖拽 / Ctrl+拖拽 调整机位
+    if(CAM.mode === CM.ORBIT && (IN.btn === 1 || (IN.held && IN.k['control']))){
+      CAM.yaw -= e.movementX * 0.005;
+      CAM.pitch = clamp(CAM.pitch + e.movementY * 0.004, -1.35, 0.9);
+      return;
+    }
+    // 灵敏度：随视场角等比缩放（镜内高倍率自动变细腻），Shift 精瞄
+    IN.fine = IN.k['shift'] ? 1 : 0;
+    const fovK = Math.tan((CAM.fovCur || CAM.fov) * 0.5) / Math.tan(55 * D2R * 0.5);
+    const s = 0.0030 * IN.sens * fovK * (IN.fine ? 0.24 : 1);
+    const dx = e.movementX, dy = (IN.invY ? -1 : 1) * e.movementY;
+    const tu = T.tur;
+    if(dx || dy) tu.center = 0;                    // 任何瞄准输入解除行军位置保持
+    // 鼠标右移 → 炮塔转向画面右侧（车右 = 局部 -X ⇒ 偏航角减小）
+    if(tu.stab){
+      tu.cmdYaw = wrapPi(tu.cmdYaw - dx * s);
+      tu.cmdEl = clamp(tu.cmdEl - dy * s, PH.elMin - 3 * D2R, PH.elMax + 3 * D2R);
+    } else {
+      tu.cmdAz = wrapPi((tu.cmdAz === undefined ? tu.az : tu.cmdAz) - dx * s);
+      tu.cmdEl = clamp((tu.cmdEl || 0) - dy * s, PH.elMin, PH.elMax);
+    }
+  });
+  addEventListener('wheel', e => {
+    if(CAM.mode === CM.SIGHT){
+      CAM.zoom = CAM.zoom > 6 ? 3 : 12;
+      LOG.push('瞄准镜倍率 ×' + CAM.zoom);
+    } else {
+      CAM.dist = clamp(CAM.dist * (1 + sgn(e.deltaY) * 0.12), 5, 60);
+    }
+    e.preventDefault();
+  }, { passive: false });
+  addEventListener('resize', () => { R.resize(); resizeHUD(); });
+}
+function readInput(dt){
+  const k = IN.k;
+  const fw = k['w'] ? 1 : 0, bk = k['s'] ? 1 : 0;
+  const spd = T.speed();
+  // S：先制动，停稳后挂倒挡
+  if(bk && spd > 0.6){ IN.brake = 1; IN.thr = 0; IN.rev = false; }
+  else if(bk){ IN.rev = true; IN.brake = 0; IN.thr = lowpass(IN.thr, 1, 0.22, dt); }
+  else { IN.rev = false; IN.brake = 0; IN.thr = lowpass(IN.thr, fw, fw ? 0.18 : 0.10, dt); }
+  if(k[' ']) IN.brake = 1;
+  const st = (k['d'] ? 1 : 0) - (k['a'] ? 1 : 0);
+  IN.steer = lowpass(IN.steer, st, 0.14, dt);
+  if(Math.abs(IN.steer) < 0.01) IN.steer = 0;
+}
+
+/* ────────────────────── 11. 场景绘制 ────────────────────── */
+const TMP = { u: 0, v: 0, tu: 0, tv: 0 };
+function beltFor(side){
+  const out = [{ u: G.idlZ, v: G.idlY, r: G.idlR, fix: 1 }];
+  for(const w of T.wheels){
+    if(w.side !== side) continue;
+    const c = T.wheelCenterMesh(w, w.trav);
+    out.push({ u: c.z, v: c.y, r: G.wheelR });
+  }
+  out.push({ u: G.sprkZ, v: G.sprkY, r: G.sprkR, fix: 1 });
+  for(let i = G.rolZ.length - 1; i >= 0; i--) out.push({ u: G.rolZ[i], v: G.rolY, r: G.rolR });
+  return beltSolve(out);
+}
+let SPRK_SPIN = 0;
+function drawTank(shadow){
+  const Mb = M4.fromQuatPos(T.q, T.pos);
+  const Mm = M4.mul(Mb, M4.trans(0, -G.cogY, -G.cogZ));
+  R.draw(MESH.hull, Mm);
+  // 轮系
+  for(const w of T.wheels){
+    const c = T.wheelCenterMesh(w, w.trav);
+    R.draw(MESH.wheel, M4.mul(M4.mul(Mm, M4.trans(c.x, c.y, c.z)), M4.rotX(w.spin)));
+    // 平衡肘
+    const dy = c.y - w.pivY, dz = c.z - w.pivZ;
+    const aArm = Math.atan2(dy, -dz);
+    R.draw(MESH.arm, M4.mul(M4.mul(Mm, M4.trans(w.x, w.pivY, w.pivZ)), M4.rotX(aArm)), { noShadow: 1 });
+    // 液压减振器（按行程拉伸）
+    if(w.shock){
+      const mx = w.x, my = 0.62, mz = w.pivZ - 0.16;
+      const ax = w.x, ay = lerp(w.pivY, c.y, 0.72), az = lerp(w.pivZ, c.z, 0.72);
+      const d = v3(0, ay - my, az - mz);
+      const len = Math.max(0.12, d.len());
+      const ang = Math.atan2(d.z, d.y);
+      R.draw(MESH.damper, M4.mul(M4.mul(M4.mul(Mm, M4.trans(mx, my, mz)), M4.rotX(-ang)), M4.scale(1, len, 1)), { noShadow: 1 });
+    }
+  }
+  for(const side of [-1, 1]){
+    const tk = T.trk[side > 0 ? 'L' : 'R'];
+    const x = side * G.gauge / 2;
+    R.draw(MESH.sprocket, M4.mul(M4.mul(Mm, M4.trans(x, G.sprkY, G.sprkZ)), M4.rotX(tk.off / G.sprkR)));
+    R.draw(MESH.idler, M4.mul(M4.mul(Mm, M4.trans(x, G.idlY, G.idlZ)), M4.rotX(tk.off / G.idlR)));
+    for(const rz of G.rolZ)
+      R.draw(MESH.roller, M4.mul(M4.mul(Mm, M4.trans(x, G.rolY, rz)), M4.rotX(tk.off / G.rolR)), { noShadow: 1 });
+    // 履带链节
+    const belt = tk.belt;
+    if(belt){
+      const n = G.links, sp = belt.total / n;
+      let off = tk.off % belt.total;
+      for(let i = 0; i < n; i++){
+        beltPoint(belt, i * sp + off, tk.sag, TMP);
+        const m = M4.mul(M4.mul(Mm, M4.trans(x, TMP.v, TMP.u)), M4.rotX(Math.atan2(-TMP.tv, TMP.tu)));
+        R.draw(MESH.link, m, { noShadow: shadow ? 1 : 0, spec: 0.42, shin: 40 });
+      }
+    }
+  }
+  // 炮塔 + 火炮
+  const Mt = M4.mul(Mm, M4.mul(M4.trans(0, G.turretY, G.turretZ), M4.rotY(T.tur.az)));
+  R.draw(MESH.turret, Mt);
+  const Mg = M4.mul(M4.mul(M4.mul(Mt, M4.trans(0, G.trunY, G.trunZ)), M4.rotX(-T.tur.el)), M4.trans(0, 0, -T.gun.rec));
+  R.draw(MESH.gun, Mg, { spec: 0.42, shin: 46 });
+  R.draw(MESH.breech, M4.mul(Mg, M4.trans(0, -0.10 - T.gun.breech * 0.30, -0.58)), { spec: 0.5, shin: 50, noShadow: 1 });
+  // 输弹机推杆（可见于炮尾后方）
+  if(T.ld.rammer > 0.01)
+    R.draw(MESH.shell, M4.mul(Mg, M4.trans(0, -0.02, -1.35 + T.ld.rammer * 1.05)), { noShadow: 1 });
+  // 天线（随车体加速度摆动）
+  if(!shadow) for(let i = 0; i < 2; i++){
+    const a = T.ant[i];
+    let m = M4.mul(Mt, M4.trans(i ? 0.92 : -0.92, 0.62, -1.42));
+    for(let s = 0; s < 3; s++){
+      m = M4.mul(m, M4.mul(M4.rotX(a.a * (0.5 + s * 0.35)), M4.rotZ(a.b * (0.5 + s * 0.35))));
+      R.draw(MESH.antenna, M4.mul(m, M4.scale(1 - s * 0.2, 0.72, 1 - s * 0.2)), { noShadow: 1 });
+      m = M4.mul(m, M4.trans(0, 0.72, 0));
+    }
+  }
+}
+function renderScene(shadow){
+  TER.draw(shadow);
+  for(const g of TGT){
+    const m = M4.mul(M4.trans(g.pos.x, g.pos.y, g.pos.z), M4.rotY(g.yaw));
+    R.draw(MESH.target, m, { color: g.dead ? new Float32Array([0.14, 0.12, 0.11]) : ONE3, spec: 0.2 });
+  }
+  drawTank(shadow);
+}
+function render(){
+  const aspect = R.W / R.H;
+  CAM.update(SIM.dtFrame || 0.016, aspect);
+  // 阴影焦点前置于车辆前方
+  const focus = T.pos.addS(T.fwd(), 6);
+  R.beginShadow(focus, 26);
+  renderScene(true);
+  R.beginMain(CAM);
+  renderScene(false);
+  // 弹丸（曳光）
+  const tr = [];
+  for(const s of SHOT){
+    const back = s.vel.unit();
+    const len = s.mg ? 9 : 26;
+    tr.push({ pos: s.pos.clone(), size: (s.mg ? 0.16 : 0.34) * s.type.tracer, col: s.type.col, a: 0.95, rot: 0 });
+    for(let i = 1; i <= 4; i++)
+      tr.push({ pos: s.pos.addS(back, -len * i / 4), size: (s.mg ? 0.10 : 0.24) * s.type.tracer * (1 - i / 5), col: s.type.col, a: 0.5 * (1 - i / 5), rot: 0 });
+  }
+  R.drawParticles(FX.D, CAM);
+  R.drawParticles(FX.P, CAM);
+  R.drawAdditive(FX.A.concat(tr), CAM);
+  if(SIM.vec) drawDebugVectors();
+}
+function drawDebugVectors(){
+  const L = [];
+  const push = (a, b, c) => L.push([a.x, a.y, a.z, c[0], c[1], c[2]], [b.x, b.y, b.z, c[0], c[1], c[2]]);
+  for(const ct of T.dbg.ct){
+    push(ct.p, ct.p.addS(ct.n, ct.N / 26000), [0.2, 1, 0.35]);
+    push(ct.p, ct.p.add(v3(0, 0.02, 0)), [1, 1, 1]);
+  }
+  for(const key of ['L', 'R']){
+    const tk = T.trk[key];
+    const w = T.wheels.filter(w => w.side === (key === 'L' ? 1 : -1) && w.contact);
+    if(!w.length) continue;
+    let p = v3(0, 0, 0);
+    for(const q of w) p = p.add(q.cp);
+    p = p.mul(1 / w.length);
+    push(p, p.addS(T.fwd(), tk.F / 24000), [1, 0.5, 0.1]);
+  }
+  const c = T.pos;
+  push(c, c.addS(T.vel, 0.35), [0.3, 0.6, 1]);
+  push(c, c.addS(gunDirWorld(), 9), [1, 0.2, 0.2]);
+  for(const pr of T.probes) if(pr.hit) push(T.toWorld(pr.p), T.toWorld(pr.p).add(v3(0, pr.N / 40000, 0)), [1, 0.1, 0.4]);
+  R.drawLines(L, CAM);
+}
+
+/* ────────────────────── 12. HUD 仪表 ────────────────────── */
+const HC = document.getElementById('hud');
+const hx = HC.getContext('2d');
+let HW = 100, HH = 100;
+function resizeHUD(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  HW = innerWidth; HH = innerHeight;
+  HC.width = Math.round(HW * dpr); HC.height = Math.round(HH * dpr);
+  HC.style.width = HW + 'px'; HC.style.height = HH + 'px';
+  hx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+const CL = { ink: '#a9c79f', ink2: '#7e9a76', hi: '#d9ecb4', amb: '#e0b455', red: '#e4675a',
+             cyan: '#7fd8d0', bg: 'rgba(6,12,9,0.66)', bd: 'rgba(130,190,130,0.26)', grid: 'rgba(140,200,140,0.10)' };
+function pnl(x, y, w, h, title){
+  hx.fillStyle = CL.bg; hx.strokeStyle = CL.bd; hx.lineWidth = 1;
+  hx.beginPath(); hx.rect(x + 0.5, y + 0.5, w, h); hx.fill(); hx.stroke();
+  if(title){
+    hx.fillStyle = CL.ink2; hx.font = '9px Consolas,monospace';
+    hx.textAlign = 'left'; hx.textBaseline = 'top';
+    hx.fillText(title, x + 7, y + 5);
+    hx.strokeStyle = CL.grid; hx.beginPath();
+    hx.moveTo(x + 6, y + 17.5); hx.lineTo(x + w - 6, y + 17.5); hx.stroke();
+  }
+}
+function txt(s, x, y, col, size, align, baseline){
+  hx.fillStyle = col || CL.ink;
+  hx.font = (size || 10) + 'px Consolas,monospace';
+  hx.textAlign = align || 'left'; hx.textBaseline = baseline || 'top';
+  hx.fillText(s, x, y);
+}
+function hbar(x, y, w, h, f, col, bg){
+  hx.fillStyle = bg || 'rgba(255,255,255,0.07)';
+  hx.fillRect(x, y, w, h);
+  hx.fillStyle = col;
+  hx.fillRect(x, y, w * clamp01(f), h);
+  hx.strokeStyle = CL.grid; hx.lineWidth = 1; hx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+function gauge(cx, cy, r, val, max, red, label, unit, digits){
+  const a0 = PI * 0.78, a1 = PI * 2.22;
+  hx.lineWidth = 6;
+  hx.strokeStyle = 'rgba(255,255,255,0.08)';
+  hx.beginPath(); hx.arc(cx, cy, r, a0, a1); hx.stroke();
+  // 红线区
+  if(red < max){
+    hx.strokeStyle = 'rgba(228,90,80,0.55)';
+    hx.beginPath(); hx.arc(cx, cy, r, a0 + (a1 - a0) * red / max, a1); hx.stroke();
+  }
+  const f = clamp01(val / max);
+  hx.strokeStyle = f > red / max ? CL.red : CL.cyan;
+  hx.lineWidth = 4;
+  hx.beginPath(); hx.arc(cx, cy, r, a0, a0 + (a1 - a0) * f); hx.stroke();
+  // 刻度
+  hx.strokeStyle = 'rgba(200,230,200,0.35)'; hx.lineWidth = 1;
+  for(let i = 0; i <= 8; i++){
+    const a = a0 + (a1 - a0) * i / 8;
+    hx.beginPath();
+    hx.moveTo(cx + Math.cos(a) * (r - 9), cy + Math.sin(a) * (r - 9));
+    hx.lineTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3));
+    hx.stroke();
+  }
+  // 指针
+  const a = a0 + (a1 - a0) * f;
+  hx.strokeStyle = CL.amb; hx.lineWidth = 2;
+  hx.beginPath(); hx.moveTo(cx, cy); hx.lineTo(cx + Math.cos(a) * (r - 6), cy + Math.sin(a) * (r - 6)); hx.stroke();
+  hx.fillStyle = CL.amb; hx.beginPath(); hx.arc(cx, cy, 2.6, 0, TAU); hx.fill();
+  txt(val.toFixed(digits === undefined ? 0 : digits), cx, cy + r * 0.42, CL.hi, 15, 'center', 'top');
+  txt(unit || '', cx, cy + r * 0.42 + 16, CL.ink2, 9, 'center', 'top');
+  txt(label, cx, cy - r - 12, CL.ink2, 9, 'center', 'top');
+}
+let BALTAB = {};
+// 世界点 → 屏幕像素（相机后方返回 null）
+function projPt(p){
+  const v = M4.xf(CAM.view, p);
+  if(v.z > -0.25) return null;
+  const c = M4.xf(CAM.proj, v);
+  if(!isFinite(c.x) || !isFinite(c.y)) return null;
+  return { x: (c.x * 0.5 + 0.5) * HW, y: (1 - (c.y * 0.5 + 0.5)) * HH };
+}
+function drawHUD(){
+  hx.clearRect(0, 0, HW, HH);
+  const e = T.eng, tr = T.tr, tu = T.tur, g = T.gun, ld = T.ld;
+  const kmh = Math.abs(T.kmh());
+
+  /* ── 顶部状态条 ── */
+  txt(`MBT-9A «铁砧»　${SIM.paused ? '‖ 暂停' : '▶'} ×${SIM.ts.toFixed(2)}　${SIM.fps.toFixed(0)} FPS　` +
+      `三角面 ${(R.tris / 1000).toFixed(0)}k　绘制 ${R.calls}　物理 ${SIM.steps}×${(PH.dt * 1000).toFixed(1)}ms`,
+      12, 10, CL.ink2, 10);
+  txt(`地面：${TER.mat.name}　μ=${TER.mat.mu.toFixed(2)}　行程 ${(T.odo / 1000).toFixed(2)} km　视角：${CAM.names[CAM.mode]}`,
+      12, 24, CL.ink2, 10);
+
+  /* ── 驾驶仪表（左下） ── */
+  const px = 12, py = HH - 158, pw = 328, ph = 146;
+  pnl(px, py, pw, ph, '驾 驶 舱 / DRIVER');
+  gauge(px + 56, py + 78, 40, e.rpm, 2800, PH.redline, '转速 r/min', 'RPM');
+  gauge(px + 150, py + 78, 40, kmh, 80, 999, '车速 km/h', 'KM/H', 1);
+  const gx = px + 202, gy = py + 26;
+  txt('挡位', gx, gy, CL.ink2, 9);
+  txt((tr.dir > 0 ? (tr.shift > 0 ? '—' : 'D' + tr.gear) : 'R' + tr.gear) + (tr.mode === 'M' ? ' [手动]' : ''),
+      gx, gy + 11, tr.shift > 0 ? CL.amb : CL.hi, 20);
+  txt(`扭矩 ${e.tq.toFixed(0)} N·m`, gx, gy + 38, CL.ink, 10);
+  txt(`功率 ${e.kW.toFixed(0)} kW / ${(e.kW * 1.341).toFixed(0)} hp`, gx, gy + 51, CL.ink, 10);
+  txt(`变矩比 ${tr.tcMult.toFixed(2)}　滑差 ${tr.tcSlip.toFixed(0)}`, gx, gy + 64, CL.ink2, 9.5);
+  txt(`水温 ${e.temp.toFixed(0)}℃`, gx, gy + 78, e.temp > 108 ? CL.red : CL.ink, 10);
+  txt(`燃油 ${e.fuel.toFixed(0)} L`, gx, gy + 91, e.fuel < 150 ? CL.red : CL.ink, 10);
+  // 油门/制动/转向
+  txt('油门', px + 10, py + 118, CL.ink2, 9);
+  hbar(px + 38, py + 118, 74, 7, e.thr, '#8fce5f');
+  txt('制动', px + 10, py + 130, CL.ink2, 9);
+  hbar(px + 38, py + 130, 74, 7, Math.max(IN.brake, IN.park ? 1 : 0), '#e4675a');
+  txt('转向', px + 122, py + 118, CL.ink2, 9);
+  hx.fillStyle = 'rgba(255,255,255,0.07)'; hx.fillRect(px + 150, py + 118, 74, 7);
+  hx.fillStyle = CL.cyan;
+  hx.fillRect(px + 187, py + 118, IN.steer * 37, 7);
+  txt(`横滚 ${(Math.asin(clamp(T.right().y, -1, 1)) * -R2D).toFixed(1)}°　俯仰 ${(Math.asin(clamp(T.fwd().y, -1, 1)) * R2D).toFixed(1)}°`,
+      px + 122, py + 130, CL.ink2, 9.5);
+
+  /* ── 行走系统（底部中央） ── */
+  const sx = px + pw + 10, sy = HH - 158, sw = 330, sh = 146;
+  pnl(sx, sy, sw, sh, '行 走 部 分 / RUNNING GEAR — 悬挂行程·履带滑转');
+  // 12 个负重轮行程条
+  for(let s = 0; s < 2; s++){
+    const side = s === 0 ? 1 : -1;   // 显示上排=左侧
+    txt(side < 0 ? '左' : '右', sx + 8, sy + 30 + s * 46, CL.ink2, 9);
+    for(let i = 0; i < 6; i++){
+      const w = T.wheels.find(w => w.side === side && w.idx === i);
+      const bx = sx + 24 + i * 42, by = sy + 26 + s * 46, bw = 34, bh = 30;
+      hx.fillStyle = 'rgba(255,255,255,0.05)'; hx.fillRect(bx, by, bw, bh);
+      const f = clamp01(w.trav / G.susMax);
+      hx.fillStyle = w.pen > 0 ? CL.red : (w.contact ? '#7fd8d0' : '#4a5a4a');
+      hx.fillRect(bx, by + bh - bh * f, bw, bh * f);
+      // 静平衡参考线
+      hx.strokeStyle = 'rgba(224,180,85,0.7)'; hx.lineWidth = 1;
+      const yr = by + bh - bh * (G.susStatic / G.susMax);
+      hx.beginPath(); hx.moveTo(bx, yr + 0.5); hx.lineTo(bx + bw, yr + 0.5); hx.stroke();
+      hx.strokeStyle = CL.grid; hx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+      txt((w.trav * 1000).toFixed(0), bx + bw / 2, by + bh + 2, w.shock ? CL.amb : CL.ink2, 8.5, 'center');
+    }
+  }
+  // 履带状态
+  const L = T.trk.L, Rr = T.trk.R;
+  for(let s = 0; s < 2; s++){
+    const tk = s === 0 ? L : Rr, by = sy + 122 - s * 0;
+    const bx = sx + 8 + s * 164;
+    txt((s ? '右' : '左') + '履带 ' + (tk.v * 3.6).toFixed(1) + ' km/h', bx, by, CL.ink2, 9);
+    const slipF = clamp01(Math.abs(tk.slip) / 5);
+    hbar(bx + 92, by, 60, 7, slipF, slipF > 0.45 ? CL.red : '#8fce5f');
+    txt('滑转 ' + tk.slip.toFixed(2), bx + 92, by + 10, CL.ink2, 8.5);
+    txt('张力 ' + (tk.tens * 100).toFixed(0) + '%　牵引 ' + (tk.F / 1000).toFixed(0) + ' kN', bx, by + 10, CL.ink2, 8.5);
+  }
+  txt(`接地轮 ${T.grounded}/12　${T.airTime > 0.08 ? '★ 腾空 ' + T.airTime.toFixed(2) + 's' : ''}`,
+      sx + 8, sy + 108, T.airTime > 0.08 ? CL.amb : CL.ink2, 9.5);
+
+  /* ── 武器系统（右上） ── */
+  const wx = HW - 258, wy = 44, ww = 246, wh = 214;
+  pnl(wx, wy, ww, wh, '火 控 / FIRE CONTROL');
+  const type = AMMO[ld.sel];
+  txt('选定弹种', wx + 8, wy + 24, CL.ink2, 9);
+  txt(type.short, wx + 8, wy + 35, CL.hi, 15);
+  txt(type.name, wx + 8, wy + 54, CL.ink, 9.5);
+  txt(`v₀ ${type.v0} m/s　弹重 ${type.m} kg　基准穿深 ${type.pen0} mm`, wx + 8, wy + 67, CL.ink2, 9);
+  // 弹药清单
+  let ay = wy + 84;
+  txt('转盘 / 车体弹舱', wx + 8, ay, CL.ink2, 9); ay += 12;
+  for(const k of AMMO_KEYS){
+    const on = ld.sel === k;
+    txt((on ? '▶ ' : '  ') + AMMO[k].short, wx + 10, ay, on ? CL.hi : CL.ink, 10);
+    txt(String(T.ammo.car[k]).padStart(2), wx + 132, ay, T.ammo.car[k] ? CL.hi : CL.red, 10, 'right');
+    txt('/ ' + String(T.ammo.hull[k]).padStart(2), wx + 142, ay, CL.ink2, 10);
+    if(ld.loaded === k) txt('已入膛', wx + 186, ay, CL.amb, 9);
+    ay += 13;
+  }
+  // 装填状态
+  ay += 4;
+  const prog = ld.state === 'READY' ? 1 : clamp01(ld.t / Math.max(0.01, ld.tt));
+  txt('装填：' + LD_NAME[ld.state] + (ld.auto ? '（自动装弹机）' : '（人工）'),
+      wx + 8, ay, ld.state === 'READY' ? '#8fce5f' : CL.amb, 10);
+  hbar(wx + 8, ay + 14, ww - 16, 8, prog, ld.state === 'READY' ? '#8fce5f' : CL.amb);
+  ay += 28;
+  txt(`稳定器 ${tu.stab ? '接通' : '断开'}　残差 ${tu.drift.toFixed(2)}°`, wx + 8, ay, tu.stab ? CL.ink : CL.red, 9.5);
+  txt(`测距 ${g.lrf ? g.lrf.toFixed(0) + ' m' : '— — —'}　高低修正 ${(g.solEl * 1000).toFixed(1)} mil`, wx + 8, ay + 12, g.lrf ? CL.cyan : CL.ink2, 9.5);
+  txt(`炮管磨损 ${(g.wear * 100).toFixed(1)}%　膛温 ${(g.heat * 100).toFixed(0)}%　发射 ${g.fired} 发`, wx + 8, ay + 24, CL.ink2, 9.5);
+  txt(`并列机枪 ${g.mgBelt} 发　枪管热 ${(g.mgHeat * 100).toFixed(0)}%`, wx + 8, ay + 36, g.mgHeat > 1 ? CL.red : CL.ink2, 9.5);
+
+  /* ── 炮塔方位盘（右） ── */
+  const dx = HW - 88, dy = wy + wh + 74, dr = 56;
+  hx.fillStyle = CL.bg; hx.beginPath(); hx.arc(dx, dy, dr + 8, 0, TAU); hx.fill();
+  hx.strokeStyle = CL.bd; hx.stroke();
+  // 车体轮廓（始终朝上）
+  hx.save(); hx.translate(dx, dy);
+  hx.strokeStyle = CL.ink2; hx.lineWidth = 1.4;
+  hx.beginPath(); hx.rect(-15, -30, 30, 60); hx.stroke();
+  hx.beginPath(); hx.moveTo(-15, -30); hx.lineTo(0, -40); hx.lineTo(15, -30); hx.stroke();
+  // 炮塔与炮管（盘面右 = 车右；az 正向指向车左 ⇒ 画布反向旋转）
+  hx.rotate(-tu.az);
+  hx.strokeStyle = CL.amb; hx.lineWidth = 2;
+  hx.beginPath(); hx.arc(0, 0, 12, 0, TAU); hx.stroke();
+  hx.beginPath(); hx.moveTo(0, 0); hx.lineTo(0, -dr); hx.stroke();
+  hx.restore();
+  for(let i = 0; i < 12; i++){
+    const a = i / 12 * TAU - PI / 2;
+    hx.strokeStyle = 'rgba(200,230,200,0.30)';
+    hx.beginPath();
+    hx.moveTo(dx + Math.cos(a) * (dr + 2), dy + Math.sin(a) * (dr + 2));
+    hx.lineTo(dx + Math.cos(a) * (dr + 7), dy + Math.sin(a) * (dr + 7));
+    hx.stroke();
+  }
+  txt(`方位 ${((-tu.az * R2D + 360) % 360).toFixed(1)}°`, dx, dy + dr + 14, CL.ink, 10, 'center');
+  txt(`高低 ${(tu.el * R2D).toFixed(1)}°`, dx, dy + dr + 26, CL.ink, 10, 'center');
+
+  /* ── 警告灯 ── */
+  const warn = [];
+  if(!e.on) warn.push(['发动机停车 [E 起动]', CL.red]);
+  if(e.temp > 108) warn.push(['冷却液超温', CL.red]);
+  if(e.fuel < 150) warn.push(['燃油不足', CL.amb]);
+  if(IN.park) warn.push(['驻车制动', CL.amb]);
+  if(!tu.stab) warn.push(['稳定器断开', CL.amb]);
+  if(Math.abs(L.slip) > 3 || Math.abs(Rr.slip) > 3) warn.push(['履带滑转', CL.amb]);
+  if(T.grounded < 4) warn.push(['车体腾空/托底', CL.amb]);
+  if(g.mgHeat > 1) warn.push(['机枪过热', CL.red]);
+  let wyy = HH - 176;
+  for(const w of warn){
+    hx.fillStyle = 'rgba(40,10,10,0.55)'; hx.fillRect(12, wyy - 12, 148, 13);
+    txt('▲ ' + w[0], 16, wyy - 11, w[1], 9.5);
+    wyy -= 15;
+  }
+
+  /* ── 瞄准分划 ── */
+  const cx = HW / 2, cy = HH / 2;
+  if(CAM.mode === CM.SIGHT){
+    // 光学镜筒遮罩
+    const r = Math.min(HW, HH) * 0.42;
+    hx.save();
+    hx.beginPath(); hx.rect(0, 0, HW, HH);
+    hx.arc(cx, cy, r, 0, TAU, true);
+    hx.fillStyle = 'rgba(0,0,0,0.92)'; hx.fill();
+    hx.restore();
+    hx.strokeStyle = 'rgba(20,26,20,0.9)'; hx.lineWidth = 8;
+    hx.beginPath(); hx.arc(cx, cy, r + 4, 0, TAU); hx.stroke();
+    const pxMil = HH / (CAM.fovCur * 1000);
+    hx.strokeStyle = 'rgba(30,40,30,0.95)'; hx.lineWidth = 2.4;
+    // 主十字（中央留空）
+    hx.beginPath();
+    hx.moveTo(cx - r * 0.92, cy); hx.lineTo(cx - 12, cy);
+    hx.moveTo(cx + 12, cy); hx.lineTo(cx + r * 0.92, cy);
+    hx.moveTo(cx, cy - r * 0.92); hx.lineTo(cx, cy - 12);
+    hx.moveTo(cx, cy + 12); hx.lineTo(cx, cy + r * 0.55);
+    hx.stroke();
+    // 密位刻度
+    hx.lineWidth = 1.8;
+    for(let i = 1; i <= 12; i++){
+      const d = i * 2 * pxMil, len = i % 5 === 0 ? 11 : 6;
+      hx.beginPath();
+      hx.moveTo(cx - d, cy - len); hx.lineTo(cx - d, cy + (i % 5 === 0 ? len : 0));
+      hx.moveTo(cx + d, cy - len); hx.lineTo(cx + d, cy + (i % 5 === 0 ? len : 0));
+      hx.stroke();
+    }
+    for(let i = 1; i <= 8; i++){
+      const d = i * 2 * pxMil, len = i % 5 === 0 ? 11 : 6;
+      hx.beginPath();
+      hx.moveTo(cx - len, cy + d); hx.lineTo(cx + len, cy + d);
+      hx.stroke();
+    }
+    // 镜内数据带（深底提升可读性）
+    hx.fillStyle = 'rgba(6,14,8,0.55)';
+    hx.fillRect(cx - r * 0.90, cy - r * 0.86, r * 0.62, 34);
+    hx.fillRect(cx + r * 0.28, cy - r * 0.86, r * 0.62, 34);
+    hx.fillRect(cx + r * 0.28, cy + r * 0.66, r * 0.62, 24);
+    txt('×' + CAM.zoom, cx + r * 0.66, cy - r * 0.80, '#bfe89f', 13);
+    txt(type.short, cx - r * 0.86, cy - r * 0.80, '#bfe89f', 13);
+    txt(ld.state === 'READY' ? '● 待发' : '○ ' + LD_NAME[ld.state],
+        cx - r * 0.86, cy - r * 0.80 + 16, ld.state === 'READY' ? '#8fe07f' : '#f0c060', 12);
+    txt(g.lrf ? g.lrf.toFixed(0) + ' m' : '- - - - m', cx + r * 0.32, cy + r * 0.70, '#bfe89f', 15);
+    hx.strokeStyle = 'rgba(120,180,120,0.5)';
+    hx.beginPath(); hx.arc(cx, cy, pxMil * 2.5, 0, TAU); hx.stroke();
+  } else {
+    /* 车外战斗分划：中心 = 瞄准线（鼠标指向），另标出炮轴实际指向 */
+    const busy = ld.state !== 'READY';
+    const col = busy ? 'rgba(232,140,90,0.92)' : 'rgba(150,235,130,0.92)';
+    hx.strokeStyle = col; hx.lineWidth = 1.6;
+    hx.beginPath();
+    hx.moveTo(cx - 26, cy); hx.lineTo(cx - 8, cy);
+    hx.moveTo(cx + 8, cy); hx.lineTo(cx + 26, cy);
+    hx.moveTo(cx, cy - 26); hx.lineTo(cx, cy - 8);
+    hx.moveTo(cx, cy + 8); hx.lineTo(cx, cy + 26);
+    hx.stroke();
+    hx.lineWidth = 1;
+    hx.beginPath(); hx.arc(cx, cy, 2.2, 0, TAU); hx.stroke();
+    // 装填进度环（围绕分划）
+    if(busy){
+      hx.strokeStyle = 'rgba(232,140,90,0.55)'; hx.lineWidth = 2.4;
+      hx.beginPath(); hx.arc(cx, cy, 34, -PI / 2, -PI / 2 + TAU * prog); hx.stroke();
+    }
+    // 炮轴指示（伺服滞后 / 弹道修正可视化）
+    const gp = projPt(muzzleWorld().addS(gunDirWorld(), 600));
+    if(gp && Math.hypot(gp.x - cx, gp.y - cy) > 4){
+      hx.strokeStyle = 'rgba(224,180,85,0.85)'; hx.lineWidth = 1.3;
+      hx.beginPath(); hx.arc(gp.x, gp.y, 7, 0, TAU); hx.stroke();
+      hx.beginPath();
+      hx.moveTo(gp.x - 11, gp.y); hx.lineTo(gp.x - 7, gp.y);
+      hx.moveTo(gp.x + 7, gp.y); hx.lineTo(gp.x + 11, gp.y);
+      hx.stroke();
+      hx.strokeStyle = 'rgba(224,180,85,0.28)';
+      hx.setLineDash([3, 3]);
+      hx.beginPath(); hx.moveTo(cx, cy); hx.lineTo(gp.x, gp.y); hx.stroke();
+      hx.setLineDash([]);
+    }
+    // 已测距目标框
+    if(g.lrf && g.lrfT > 0){
+      txt(g.lrf.toFixed(0) + ' m', cx + 34, cy + 20, CL.cyan, 11);
+    }
+  }
+  /* 灵敏度 / 精瞄提示 */
+  txt(`灵敏度 ${IN.sens.toFixed(2)}× [, .]${IN.fine ? '　◆ 精瞄 ×0.24 (Shift)' : ''}` +
+      `${IN.lock ? '' : '　鼠标未锁定：点击画面'}`,
+      HW / 2, HH - 22, IN.fine ? CL.amb : CL.ink2, 10.5, 'center');
+
+  /* ── 调试面板 ── */
+  if(SIM.dbg){
+    const d = document.getElementById('dbg');
+    const L2 = T.trk.L, R2 = T.trk.R;
+    d.innerHTML =
+      `<b>刚体</b> 位置 ${T.pos.x.toFixed(1)},${T.pos.y.toFixed(2)},${T.pos.z.toFixed(1)}<br>` +
+      `速度 ${T.vel.len().toFixed(2)} m/s　角速度 ${T.omega.len().toFixed(3)} rad/s<br>` +
+      `合力 ${(T.F.len() / 1000).toFixed(1)} kN　合力矩 ${(T.Tq.len() / 1000).toFixed(1)} kN·m<br>` +
+      `惯量 Ixx ${(T.I.x / 1000).toFixed(0)}k Iyy ${(T.I.y / 1000).toFixed(0)}k Izz ${(T.I.z / 1000).toFixed(0)}k<br>` +
+      `<b>传动</b> 曲轴 ${T.eng.w.toFixed(1)} rad/s　输入轴 ${T.tr.wIn.toFixed(1)}<br>` +
+      `总传动比 ${(T.tr.ratio * PH.final).toFixed(2)}　离合 ${T.tr.clutch}<br>` +
+      `<b>履带 L</b> ω ${L2.w.toFixed(2)} 力矩 ${(L2.tq / 1000).toFixed(1)} kN·m 法向 ${(L2.N / 1000).toFixed(0)} kN<br>` +
+      `<b>履带 R</b> ω ${R2.w.toFixed(2)} 力矩 ${(R2.tq / 1000).toFixed(1)} kN·m 法向 ${(R2.N / 1000).toFixed(0)} kN<br>` +
+      `链节 ${G.links}×2　包络长 ${(L2.belt ? L2.belt.total.toFixed(3) : '—')} m　节距 ${(L2.belt ? (L2.belt.total / G.links * 1000).toFixed(1) : '—')} mm<br>` +
+      `下垂 ${(L2.sag * 1000).toFixed(0)} mm　弹丸 ${SHOT.length}　粒子 ${FX.P.length + FX.A.length + FX.D.length}<br>` +
+      `<b>后座</b> ${(T.gun.rec * 1000).toFixed(0)} mm　速度 ${T.gun.recV.toFixed(2)} m/s`;
+  }
+}
+
+/* ────────────────────── 13. 每帧更新 ────────────────────── */
+function emitFX(dt){
+  const mat = TER.mat, dust = mat.dust;
+  // 排气烟
+  const ex = T.meshPt(1.20, 1.20, -3.32);
+  const back = T.fwd().mul(-1);
+  T.fx.exh -= dt;
+  if(T.eng.on && T.fx.exh <= 0){
+    T.fx.exh = 0.045;
+    const load = T.eng.smoke;
+    FX.puff(ex, back.mul(2.6 + load * 9).add(v3(rndN() * 0.5, 0.9 + load * 2, rndN() * 0.5)).add(T.vel),
+      0.22 + load * 0.30, [0.18 + 0.10 * (1 - load), 0.18, 0.17], 0.9 + load * 1.4,
+      { a: 0.10 + load * 0.34, s1: 1.4 + load * 3.4, grav: -0.55, drag: 1.5 });
+  }
+  // 履带扬尘 / 泥浆 / 车辙
+  for(const key of ['L', 'R']){
+    const tk = T.trk[key], side = key === 'L' ? 1 : -1;   // 车左 = +X 侧
+    const wheels = T.wheels.filter(w => w.side === side && w.contact);
+    if(!wheels.length) continue;
+    const rear = wheels[wheels.length - 1], front = wheels[0];
+    const spd = Math.abs(tk.v), slip = Math.abs(tk.slip);
+    const rate = clamp01(spd / 12) * 0.55 + clamp01(slip / 3.2) * 1.1;
+    T.fx['d' + key] = (T.fx['d' + key] || 0) - dt;
+    if(rate > 0.03 && T.fx['d' + key] <= 0){
+      T.fx['d' + key] = 0.035 / Math.max(0.25, rate);
+      const w = slip > 1.2 ? rear : (rnd() > 0.5 ? rear : front);
+      const p = w.cp.add(v3(rndN() * 0.2, 0.08, rndN() * 0.2));
+      FX.puff(p, back.mul(rnd(0.5, 3) * clamp01(spd / 8)).add(v3(rndN() * 1.4, rnd(0.4, 2.2) * (0.4 + rate), rndN() * 1.4)),
+        rnd(0.25, 0.6) * (0.6 + rate), dust, rnd(0.7, 2.0),
+        { a: 0.16 + 0.34 * clamp01(rate), s1: rnd(1.2, 3.4), grav: -0.1, drag: 1.3 });
+      if(slip > 2.2 && mat.soft > 0.3)
+        for(let i = 0; i < 2; i++)
+          FX.glow(p, back.mul(rnd(2, 9)).add(v3(rndN() * 3, rnd(2, 7), rndN() * 3)), rnd(0.06, 0.14),
+            [dust[0] * 0.5, dust[1] * 0.45, dust[2] * 0.4], rnd(0.4, 0.9), 0.9);
+    }
+    // 车辙印
+    const kk = 'm' + key;
+    T.fx[kk] = (T.fx[kk] || 0) + Math.abs(T.speed()) * dt;
+    if(T.fx[kk] > 0.62){
+      T.fx[kk] = 0;
+      const yaw = Math.atan2(T.fwd().x, T.fwd().z);
+      const c = rear.cp;
+      FX.mark(v3(c.x, TER.h(c.x, c.z) + 0.035, c.z), -yaw, G.trackW * 1.1, 0.34 + 0.3 * mat.soft);
+    }
+  }
+  // 落地冲击
+  if(T.airTime === 0 && T.fx.wasAir > 0.30){
+    const p = T.toWorld(v3(0, -0.9, 0));
+    for(let i = 0; i < 26; i++)
+      FX.puff(p.add(v3(rndN() * 1.6, 0.1, rndN() * 2.2)), v3(rndN() * 5, rnd(1, 5), rndN() * 5),
+        rnd(0.4, 1.1), dust, rnd(0.8, 2.0), { a: 0.5, s1: rnd(2, 5), grav: -0.1, drag: 1.1 });
+    AUD.clank(1.0); AUD.impact(0);
+    LOG.push(`着地冲击　腾空 ${T.fx.wasAir.toFixed(2)} s　垂向 ${Math.abs(T.vel.y).toFixed(1)} m/s`, 'warn');
+  }
+  T.fx.wasAir = T.airTime;
+  // 目标燃烧
+  for(const gt of TGT){
+    if(!gt.dead) continue;
+    gt.smokeT -= dt;
+    if(gt.smokeT <= 0){
+      gt.smokeT = 0.05;
+      const p = gt.pos.add(v3(rndN() * 0.8, 1.6 + rnd(0, 0.8), rndN() * 1.0));
+      FX.puff(p, v3(rndN() * 1.2, rnd(2.5, 6.5), rndN() * 1.2), rnd(0.6, 1.4), [0.10, 0.09, 0.09], rnd(2.6, 5),
+        { a: 0.5, s1: rnd(5, 11), grav: -1.1, drag: 0.5 });
+      if(rnd() > 0.45)
+        FX.glow(gt.pos.add(v3(rndN() * 0.7, 1.5, rndN() * 0.9)), v3(rndN(), rnd(2, 6), rndN()), rnd(0.3, 0.9),
+          [1, 0.48, 0.14], rnd(0.2, 0.6), 0.9);
+    }
+  }
+  // 天线摆动（受车体加速度激励）
+  const accB = T.q.inv(T.acc || v3(0, 0, 0));
+  for(let i = 0; i < 2; i++){
+    const a = T.ant[i];
+    const tgtA = clamp(accB.z * 0.020, -0.5, 0.5), tgtB = clamp(-accB.x * 0.020, -0.5, 0.5);
+    a.va += ((tgtA - a.a) * 62 - a.va * 3.4) * dt; a.a += a.va * dt;
+    a.vb += ((tgtB - a.b) * 62 - a.vb * 3.4) * dt; a.b += a.vb * dt;
+  }
+  // 炮口闪光衰减
+  if(T.fx.flash > 0){
+    T.fx.flash -= dt;
+    const k = clamp01(T.fx.flash / 0.075);
+    R.flashCol = [26 * k, 18 * k, 8 * k];
+    if(T.fx.flash <= 0){ R.flashCol = [0, 0, 0]; R.flashPos = [0, -999, 0]; }
+  }
+}
+function physStep(dt){
+  T.F.set(0, -PH.mass * PH.g, 0);
+  T.Tq.set(0, 0, 0);
+  const v0 = T.vel.clone();
+  stepDrivetrain(dt, IN);
+  stepTurret(dt, IN);
+  stepChassis(dt);
+  stepLoader(dt);
+  stepShots(dt);
+  T.acc = T.vel.sub(v0).mul(1 / dt);
+  SIM.t += dt;
+}
+function updateFrame(dt){
+  T.trk.L.belt = beltFor(1);
+  T.trk.R.belt = beltFor(-1);
+  emitFX(dt);
+  FX.update(dt);
+  AUD.update(dt);
+  if(R.gl) TER.update(R.gl, T.pos.x, T.pos.z);
+}
+let lastT = 0;
+function loop(now){
+  const dtR = Math.min(0.05, lastT ? (now - lastT) / 1000 : 0.016);
+  lastT = now;
+  SIM.dtFrame = dtR;
+  SIM.frames++; SIM.fpsT += dtR;
+  if(SIM.fpsT > 0.4){ SIM.fps = SIM.frames / SIM.fpsT; SIM.frames = 0; SIM.fpsT = 0; }
+  try{
+    readInput(dtR);
+    if(!SIM.paused){
+      SIM.acc = (SIM.acc || 0) + dtR * SIM.ts;
+      let n = 0;
+      while(SIM.acc >= PH.dt && n < 20){ physStep(PH.dt); SIM.acc -= PH.dt; n++; }
+      SIM.steps = n;
+      updateFrame(dtR * SIM.ts);
+    }
+    render();
+    drawHUD();
+  } catch(err){ fatal('主循环', err); if(errCount > 4) return; }
+  if(SIM.maxFrames && ++SIM.frameNo >= SIM.maxFrames) return;   // 离线截图：渲染定帧后停机
+  requestAnimationFrame(loop);
+}
+
+/* ────────────────────── 14. 启动 / 自检 ────────────────────── */
+function initSim(){
+  TER.h0 = 0;
+  TER.h0 = (fbm(0, 0, 5) - 0.5) * 33.0 + (fbm(11.3, 7.7, 3) - 0.5) * 5.4
+         + (vnoise(0, 0) - 0.5) * 0.46 + (vnoise(5.1, 3.3) - 0.5) * 0.11;
+  TER.mi = 0; TER.mat = GROUNDS[0];
+  T.init();
+  T.ant = [{ a: 0, b: 0, va: 0, vb: 0 }, { a: 0, b: 0, va: 0, vb: 0 }];
+  T.acc = v3(0, 0, 0);
+  initTargets();
+  for(const k of AMMO_KEYS){
+    BALTAB[k] = [];
+    for(let d = 500; d <= 3000; d += 500) BALTAB[k].push([d, solveSuper(d, AMMO[k])]);
+  }
+}
+function selfTest(){
+  const rep = [];
+  const t0 = performance.now();
+  IN.thr = 1; IN.k['w'] = 1;
+  T.eng.on = true; T.eng.w = 90;
+  for(let i = 0; i < 240 * 8; i++) physStep(PH.dt);
+  rep.push(`8 s 全油门直线：速度 ${T.kmh().toFixed(1)} km/h　转速 ${T.eng.rpm.toFixed(0)}　挡位 D${T.tr.gear}　` +
+           `滑转 L/R ${T.trk.L.slip.toFixed(2)}/${T.trk.R.slip.toFixed(2)}`);
+  rep.push(`姿态：俯仰 ${(Math.asin(clamp(T.fwd().y, -1, 1)) * R2D).toFixed(2)}°　` +
+           `横滚 ${(Math.asin(clamp(T.right().y, -1, 1)) * -R2D).toFixed(2)}°　接地轮 ${T.grounded}/12　` +
+           `离地间隙 ${(T.pos.y - G.cogY + G.susFree - G.wheelR - TER.h(T.pos.x, T.pos.z) + G.susStatic).toFixed(3)} m`);
+  const belt = beltFor(1);
+  rep.push(`履带包络：长度 ${belt.total.toFixed(3)} m　节距 ${(belt.total / G.links * 1000).toFixed(1)} mm　段数 ${belt.segs.length}`);
+  IN.thr = 0; IN.k['w'] = 0; IN.brake = 1;
+  for(let i = 0; i < 240 * 3; i++) physStep(PH.dt);
+  rep.push(`制动 3 s：速度 ${T.kmh().toFixed(2)} km/h`);
+  T.tur.stab = false; T.tur.cmdAz = 0; T.tur.cmdEl = 0;
+  T.ld.state = 'READY'; T.ld.loaded = 'AP';
+  const d0 = 1000, sup = solveSuper(d0, AMMO.AP);
+  rep.push(`弹道解算 1000 m（APFSDS）：高低修正 ${(sup * 1000).toFixed(2)} mil = ${(sup * R2D * 60).toFixed(1)}′`);
+  T.tur.el = sup; fireShell();
+  let flight = 0;
+  while(SHOT.length && flight < 4){ stepShots(PH.dt); flight += PH.dt; }
+  rep.push(`实弹检验：飞行 ${flight.toFixed(3)} s　后座 ${(T.gun.rec * 1000).toFixed(0)} mm　装填机状态 ${T.ld.state}`);
+  let cyc = 0;
+  while(T.ld.state !== 'READY' && cyc < 40){ stepLoader(PH.dt); cyc += PH.dt; }
+  rep.push(`自动装弹机整循环：${cyc.toFixed(2)} s　转盘余弹 AP=${T.ammo.car.AP}`);
+  rep.push(`自检耗时 ${(performance.now() - t0).toFixed(0)} ms（${(240 * 11)} 步物理）`);
+  ERRBOX.style.display = 'block';
+  ERRBOX.style.background = 'rgba(8,26,16,.95)';
+  ERRBOX.style.color = '#bfe8c0';
+  ERRBOX.textContent = '【物理自检 — 无 WebGL2 环境下的无头验证】\n' + rep.join('\n');
+}
+function boot(){
+  try{ initSim(); } catch(e){ fatal('模型初始化', e); }
+  let ok = false;
+  try{ ok = R.init(document.getElementById('gl')); }
+  catch(e){ fatal('WebGL2 初始化', e); }
+  if(!ok){
+    document.getElementById('boot').innerHTML =
+      '<h1>需 要 W E B G L 2</h1><h2>当前环境不支持 WebGL2 硬件渲染</h2>' +
+      '<div class="spec">物理内核已在无渲染模式下完成自检，结果见顶部绿框。<br>' +
+      '请在支持 WebGL2 的桌面浏览器（Chrome / Edge / Firefox）中打开本文件。</div>';
+    try{ selfTest(); } catch(e){ fatal('自检', e); }
+    return;
+  }
+  try{
+    TER.update(R.gl, 0, 0, true);
+    TER.buildProps(R.gl);
+    buildMeshes(R.gl);
+  } catch(e){ fatal('几何构建', e); }
+  resizeHUD();
+  bindInput();
+  // 静置沉降（悬挂到静平衡）
+  try{ for(let i = 0; i < 240; i++) physStep(PH.dt); } catch(e){ fatal('初始沉降', e); }
+  T.odo = 0;
+  // 自动启动预设（离线截图 / 回归验证用）
+  const AP = window.__PRESET__;
+  if(AP){
+    try{
+      document.getElementById('boot').classList.add('hide');
+      T.eng.on = true; T.eng.w = PH.idleRpm * TAU / 60;
+      if(AP.cam !== undefined) CAM.mode = AP.cam;
+      if(AP.dist) CAM.dist = AP.dist;
+      if(AP.yaw !== undefined) CAM.yaw = AP.yaw;
+      if(AP.pitch !== undefined) CAM.pitch = AP.pitch;
+      if(AP.zoom) CAM.zoom = AP.zoom;
+      if(AP.mat) TER.setMat(R.gl, AP.mat);
+      if(AP.pos){ T.reset(AP.pos[0], AP.pos[1]); for(let i = 0; i < 240; i++) physStep(PH.dt); }
+      if(AP.az !== undefined){ T.tur.cmdYaw = AP.az; T.tur.az = AP.az; }
+      if(AP.el !== undefined){ T.tur.cmdEl = AP.el; T.tur.el = AP.el; }
+      if(AP.keys) for(const k of AP.keys) IN.k[k] = 1;
+      if(AP.dbg){ SIM.dbg = true; document.getElementById('dbg').style.display = 'block'; }
+      if(AP.vec) SIM.vec = true;
+      if(AP.once) SIM.maxFrames = AP.once;
+      const N = Math.round((AP.warm || 1.2) / PH.dt);
+      for(let i = 0; i < N; i++){
+        readInput(PH.dt);
+        physStep(PH.dt);
+        if(i % 4 === 0) updateFrame(PH.dt * 4);
+      }
+      if(AP.fire){ T.ld.state = 'READY'; T.ld.loaded = T.ld.sel; fireShell();
+        const M = Math.round((AP.fire) / PH.dt);
+        for(let i = 0; i < M; i++){ physStep(PH.dt); if(i % 4 === 0) updateFrame(PH.dt * 4); } }
+    } catch(e){ fatal('预设', e); }
+  }
+  const bt = document.getElementById('boot');
+  bt.addEventListener('click', () => {
+    AUD.init();
+    bt.style.opacity = '0';
+    setTimeout(() => bt.classList.add('hide'), 460);
+    T.eng.starter = 1.6;
+    LOG.push('车组就位　按 H 展开操纵规程　C 切换视角　左键开火', 'good');
+    const cv = document.getElementById('gl');
+    if(cv.requestPointerLock) cv.requestPointerLock();
+  }, { once: true });
+  requestAnimationFrame(loop);
+}
+boot();
+</script>
+</body>
+</html>

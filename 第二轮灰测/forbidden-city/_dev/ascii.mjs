@@ -1,0 +1,14 @@
+import { chromium } from '/home/asus_pyqx/.nvm/versions/node/v24.19.0/lib/node_modules/playwright/index.mjs';
+const url = process.argv[2];
+const cols = +(process.argv[3]||118), rows = +(process.argv[4]||46);
+const W = +(process.argv[5]||1280), H = +(process.argv[6]||760);
+const b = await chromium.launch({args:['--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--no-sandbox','--js-flags=--max-old-space-size=4096']});
+const p = await b.newPage({viewport:{width:W,height:H}, deviceScaleFactor:1});
+const msgs=[]; p.on('console',m=>msgs.push('['+m.type()+'] '+m.text())); p.on('pageerror',e=>msgs.push('[pageerror] '+e.message));
+await p.goto(url,{waitUntil:'load',timeout:180000});
+await p.waitForTimeout(+(process.env.WAIT||1200));
+console.log(await p.evaluate(()=> (window.__log||[]).join('\n')));
+console.log(await p.evaluate(()=> window.__stats? window.__stats():'no stats'));
+console.log(await p.evaluate(([c,r])=> window.__ascii? window.__ascii(c,r):'no ascii',[cols,rows]));
+if(msgs.length) console.log('--- console ---\n'+msgs.slice(0,20).join('\n'));
+await b.close();

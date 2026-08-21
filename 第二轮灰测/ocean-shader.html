@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OCEAN ▸ 手写着色器 · 光影 / 材质 / 水体</title>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  「海」——单文件纯手写 GLSL 着色器作品（零依赖，raw WebGL2）
+  ─────────────────────────────────────────────────────────────────────────────
+  · 大气：Rayleigh + Mie 单次散射数值积分，烘进 equirect LUT（含 mip → IBL）
+  · 水体：多层海浪高度场 + 割线法求交；真实反射光线 / Snell 折射 /
+          Beer-Lambert 逐通道吸收 / 浪尖次表面透光 / 太阳角径加宽的 GGX 闪光
+          / 曲率驱动的白沫 / 水下焦散 / 空气透视
+  · 云：3D 噪声体积步进，HG 相位 + powder + 多次散射近似，并在水面上参与反射
+  · 材质：GGX + Smith + Schlick，解析环境 BRDF（split-sum）；铬 / 金 / 陶瓷清漆 /
+          色散玻璃（三通道 IOR）/ 粗糙混凝土，低粗糙度走真实光线追踪
+  · 成像：亚像素抖动 + 时间累积超采样（静止即收敛）、薄透镜景深、
+          能量守恒 bloom、AgX 色调映射、颗粒 / 暗角 / 色差 / 抖动
+  操作：拖拽环视 · 滚轮变焦 · 1234 切换预设 · 空格暂停 · S 存图 · H 隐藏界面
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05070b;
+    font:400 12px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#cfe3ec;
+    -webkit-font-smoothing:antialiased;user-select:none}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  #c.drag{cursor:grabbing}
+  .ui{position:fixed;z-index:4;pointer-events:none;transition:opacity .5s}
+  body.hideui .ui{opacity:0}
+  #brand{left:26px;top:22px}
+  #brand h1{font:200 30px/1 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:.42em;
+    color:#eaf7fb;text-shadow:0 2px 24px rgba(0,0,0,.6)}
+  #brand p{margin-top:9px;font-size:10px;letter-spacing:.34em;color:#7fa6b6}
+  #stat{right:26px;top:22px;text-align:right;font-size:10.5px;letter-spacing:.1em;color:#8fb3c2}
+  #stat b{color:#eaf7fb;font-weight:500}
+  #keys{right:26px;bottom:20px;text-align:right;font-size:10px;letter-spacing:.08em;color:#6d8f9e}
+  #keys i{color:#9fdcf0;font-style:normal}
+  #panel{left:26px;top:96px;bottom:20px;pointer-events:auto;width:274px;display:flex;flex-direction:column;
+    background:rgba(8,18,24,.44);border:1px solid rgba(150,220,240,.14);border-radius:3px;
+    backdrop-filter:blur(15px) saturate(140%);-webkit-backdrop-filter:blur(15px) saturate(140%)}
+  #panel .hd{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;cursor:pointer;
+    font-size:9.5px;letter-spacing:.28em;color:#7fa6b6;padding:11px 13px 9px;
+    border-bottom:1px solid rgba(150,220,240,.10)}
+  #panel .hd em{font-style:normal;color:#8fe0f5;font-size:11px}
+  #panel.min .pwrap{display:none}
+  .pwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  #presets{flex:0 0 auto;display:flex;gap:4px;flex-wrap:wrap;padding:10px 12px 8px}
+  #presets button{flex:1 1 46%;pointer-events:auto;cursor:pointer;font:inherit;font-size:9px;
+    letter-spacing:.1em;padding:6px 0;color:#9fbccb;background:rgba(140,210,235,.07);
+    border:1px solid rgba(150,220,240,.16);border-radius:2px;transition:.18s}
+  #presets button:hover{color:#eaf7fb;background:rgba(140,210,235,.18)}
+  #presets button.on{color:#06222c;background:#8fe0f5;border-color:#8fe0f5}
+  #pbody{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 12px 4px}
+  #pbody::-webkit-scrollbar{width:5px}
+  #pbody::-webkit-scrollbar-track{background:transparent}
+  #pbody::-webkit-scrollbar-thumb{background:rgba(150,220,240,.22);border-radius:3px}
+  .psec{border-top:1px solid rgba(150,220,240,.09)}
+  .psec:first-child{border-top:0}
+  .psec > .st{display:flex;justify-content:space-between;align-items:center;cursor:pointer;
+    font-size:8.5px;letter-spacing:.22em;color:#6f97a4;padding:8px 1px 6px;user-select:none}
+  .psec > .st:hover{color:#9fdcf0}
+  .psec > .st b{font-weight:400;font-size:9px;opacity:.5}
+  .psec.off > .sb{display:none}
+  .sb{padding-bottom:5px}
+  .row{display:flex;align-items:center;gap:7px;margin:5px 0}
+  .row label{flex:0 0 92px;font-size:9px;letter-spacing:.04em;color:#9fbccb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row input[type=range]{flex:1 1 auto;min-width:0;-webkit-appearance:none;appearance:none;height:2px;
+    background:rgba(160,220,240,.22);border-radius:2px;outline:none;cursor:pointer}
+  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height:9px;
+    border-radius:50%;background:#8fe0f5;box-shadow:0 0 7px rgba(143,224,245,.65);cursor:pointer}
+  .row input[type=range]::-moz-range-thumb{width:9px;height:9px;border:0;border-radius:50%;background:#8fe0f5;cursor:pointer}
+  .row input[type=color]{-webkit-appearance:none;appearance:none;flex:0 0 30px;height:15px;padding:0;
+    border:1px solid rgba(150,220,240,.24);border-radius:2px;background:none;cursor:pointer}
+  .row input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  .row input[type=color]::-webkit-color-swatch{border:none;border-radius:1px}
+  .row span.v{flex:0 0 40px;text-align:right;font-size:9px;color:#cfe3ec;font-variant-numeric:tabular-nums}
+  .seg{display:flex;gap:3px;flex:1 1 auto;min-width:0}
+  .seg button{flex:1;font:inherit;font-size:8.5px;letter-spacing:.06em;padding:4px 0;cursor:pointer;
+    color:#9fbccb;background:rgba(140,210,235,.07);border:1px solid rgba(150,220,240,.16);border-radius:2px}
+  .seg button:hover{color:#eaf7fb}
+  .seg button.on{color:#06222c;background:#8fe0f5;border-color:#8fe0f5}
+  .pfoot{flex:0 0 auto;display:flex;gap:4px;padding:8px 12px 11px;border-top:1px solid rgba(150,220,240,.10)}
+  .pfoot button{flex:1;font:inherit;font-size:8.5px;letter-spacing:.08em;padding:6px 0;cursor:pointer;
+    color:#9fbccb;background:rgba(140,210,235,.07);border:1px solid rgba(150,220,240,.16);border-radius:2px}
+  .pfoot button:hover{color:#eaf7fb;background:rgba(140,210,235,.18)}
+  @media (max-height:640px){ #panel{width:256px} .row label{flex-basis:82px} }
+  #veil{position:fixed;inset:0;z-index:9;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;background:#05070b;transition:opacity 1s;gap:20px}
+  #veil.out{opacity:0;pointer-events:none}
+  #veil h2{font:200 22px/1 "Helvetica Neue",Helvetica,sans-serif;letter-spacing:.5em;color:#dff0f7}
+  #veil p{font-size:10px;letter-spacing:.28em;color:#5f8797}
+  #err{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+    padding:40px;text-align:center;color:#e0a3a3;background:#08090c;font-size:12px;line-height:2;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="ui" id="brand">
+  <h1>OCEAN</h1>
+  <p>HAND-WRITTEN GLSL · ATMOSPHERE / WATER / PBR</p>
+</div>
+<div class="ui" id="stat"></div>
+<div class="ui" id="keys">
+  <i>DRAG</i> 环视 &nbsp; <i>WHEEL</i> 变焦 &nbsp; <i>1-4</i> 预设 &nbsp; <i>SPACE</i> 冻结精修<br>
+  <i>T</i> 色调映射 &nbsp; <i>L</i> 画幅 &nbsp; <i>A</i> 巡航 &nbsp; <i>S</i> 存图 &nbsp; <i>F</i> 全屏 &nbsp; <i>H</i> 界面 &nbsp; <i>R</i> 复位
+</div>
+<div class="ui" id="panel">
+  <div class="hd" id="phd"><span>SCENE CONTROL</span><em id="pmin">−</em></div>
+  <div class="pwrap">
+    <div id="presets">
+      <button data-p="0" class="on">黄金时刻</button><button data-p="1">正午热带</button>
+      <button data-p="2">风暴前夕</button><button data-p="3">蓝调时刻</button>
+    </div>
+    <div id="pbody"></div>
+    <div class="pfoot">
+      <button id="b_rnd">随机</button><button id="b_def">还原</button>
+      <button id="b_cpy">复制参数</button><button id="b_shot">存图</button>
+    </div>
+  </div>
+</div>
+<div id="veil"><h2>OCEAN</h2><p id="veiltxt">BAKING NOISE …</p></div>
+<div id="err"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const canvas = $('c');
+const gl = canvas.getContext('webgl2', { antialias: false, depth: false, stencil: false,
+  alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: false });
+
+function fail(msg) {
+  $('err').style.display = 'flex';
+  $('err').textContent = msg;
+  $('veil').classList.add('out');
+  throw new Error(msg);
+}
+if (!gl) fail('此浏览器不支持 WebGL2。\n请使用 Chrome / Edge / Firefox / Safari 16+ 打开。');
+const extCBF = gl.getExtension('EXT_color_buffer_float');
+if (!extCBF) fail('缺少 EXT_color_buffer_float（浮点渲染目标）。\n请更新显卡驱动或换用现代浏览器。');
+gl.getExtension('OES_texture_float_linear');
+
+/* ══════════════════════════════════════════════════════════════════════════
+   1. 着色器源码
+   ══════════════════════════════════════════════════════════════════════════ */
+const VS = `#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+/* ---------- 公共数学 / 常量 ---------- */
+const CH_COMMON = `
+#define PI  3.141592653589793
+#define TAU 6.283185307179586
+float sat(float x){ return clamp(x, 0.0, 1.0); }
+vec3  sat3(vec3 x){ return clamp(x, 0.0, 1.0); }
+float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+vec2  hash22(vec2 p){
+  vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.xx + q.yz) * q.zy);
+}
+float hg(float c, float g){ float g2 = g*g; return (1.0-g2) / (4.0*PI*pow(max(1.0+g2-2.0*g*c, 1e-4), 1.5)); }
+// 射线-球（球心在原点），返回近远交点
+vec2 raySph(vec3 ro, vec3 rd, float r){
+  float b = dot(ro, rd), c = dot(ro, ro) - r*r;
+  float d = b*b - c;
+  if (d < 0.0) return vec2(1e30, -1e30);
+  d = sqrt(d);
+  return vec2(-b - d, -b + d);
+}`;
+
+/* ---------- 大气散射（LUT 烘焙用） ---------- */
+const CH_ATMO = `
+const float Rg = 6360e3, Ra = 6420e3, Hr = 8e3, Hm = 1.2e3;
+const vec3  BR = vec3(5.8e-6, 13.5e-6, 33.1e-6);
+const float BM = 21e-6;
+// 单次散射数值积分：视线 24 步 × 太阳方向 8 步
+vec3 atmosphere(vec3 rd, vec3 sun, float turb, float sunI){
+  vec3 ro = vec3(0.0, Rg + 300.0, 0.0);
+  vec2 ta = raySph(ro, rd, Ra);
+  if (ta.y <= 0.0) return vec3(0.0);
+  vec2 tg = raySph(ro, rd, Rg);
+  float tEnd = (tg.x > 0.0) ? tg.x : ta.y;
+  const int NV = 24, NL = 8;
+  float dt = tEnd / float(NV);
+  vec3 sumR = vec3(0.0), sumM = vec3(0.0);
+  float odR = 0.0, odM = 0.0;
+  float bm = BM * turb;
+  for (int i = 0; i < NV; i++){
+    vec3 p = ro + rd * (dt * (float(i) + 0.5));
+    float h = length(p) - Rg;
+    float dR = exp(-h/Hr) * dt, dM = exp(-h/Hm) * dt;
+    odR += dR; odM += dM;
+    vec2 tl = raySph(p, sun, Ra);
+    bool blocked = raySph(p, sun, Rg).x > 0.0;
+    if (!blocked && tl.y > 0.0){
+      float dtl = tl.y / float(NL);
+      float lR = 0.0, lM = 0.0;
+      for (int j = 0; j < NL; j++){
+        float hl = length(p + sun * (dtl * (float(j) + 0.5))) - Rg;
+        lR += exp(-hl/Hr) * dtl; lM += exp(-hl/Hm) * dtl;
+      }
+      vec3 att = exp(-(BR*(odR + lR) + bm*1.1*(odM + lM)));
+      sumR += dR * att; sumM += dM * att;
+    }
+  }
+  float mu = dot(rd, sun);
+  float pR = 3.0/(16.0*PI) * (1.0 + mu*mu);
+  float g  = 0.76;
+  float pM = 3.0/(8.0*PI) * ((1.0-g*g)*(1.0+mu*mu)) / ((2.0+g*g)*pow(max(1.0+g*g-2.0*g*mu, 1e-4), 1.5));
+  vec3 col = (sumR * BR * pR + sumM * bm * pM) * sunI;
+  // 地平线以下：给一个暗海反照，避免 IBL 采到纯黑
+  if (tg.x > 0.0) col = mix(col, col * 0.35 + vec3(0.006, 0.013, 0.020) * sunI * 0.02, 0.65);
+  return col;
+}`;
+
+const SKY_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform vec2 uRes;
+uniform vec3 uSunDir;
+uniform float uTurb, uSunI;
+${CH_COMMON}
+${CH_ATMO}
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float az = (uv.x - 0.5) * TAU;
+  float el = (uv.y - 0.5) * PI;
+  vec3 d = vec3(cos(el) * cos(az), sin(el), cos(el) * sin(az));
+  o = vec4(atmosphere(normalize(d), uSunDir, uTurb, uSunI), 1.0);
+}`;
+
+/* ---------- 主场景 ---------- */
+const MAIN_FS = `#version 300 es
+precision highp float;
+precision highp sampler3D;
+out vec4 o;
+
+uniform vec2  uRes;
+uniform vec2  uJitter;
+uniform float uTime, uSeed;
+uniform vec3  uCamPos, uCamR, uCamU, uCamF;
+uniform float uTanHalf, uFocus, uAperture;
+uniform vec3  uSunDir, uSunCol;
+uniform float uSunSize;
+uniform sampler2D uSky, uWeather;
+uniform sampler3D uNoise;
+uniform vec4  uWave;          // 振幅 / 尖锐 / 速度 / 频率
+uniform vec4  uCloud;         // 覆盖 / 密度 / 底高 / 顶高
+uniform vec3  uDeep, uSSS, uAbsorb;
+uniform float uHaze, uQual;
+/* 可调水体 / 光效系数 */
+uniform float uReflStr;       // 反射强度
+uniform float uSpecBoost;     // 阳光镜面（波光）增益
+uniform float uFoam;          // 白沫量
+uniform float uSSSAmt;        // 浪尖次表面透光
+uniform float uCausticAmt;    // 水下焦散
+uniform float uRipple;        // 细节涟漪
+uniform float uIOR;           // 水的折射率
+uniform float uAmbient;       // 天光环境光增益
+uniform float uCloudLight;    // 云的受光增益
+uniform vec4  uSph[6];
+uniform float uSphMat[6];
+uniform int   uNSph;
+${CH_COMMON}
+
+/* ─────────── 天空 LUT ─────────── */
+vec3 skyLod(vec3 d, float lod){
+  float az = atan(d.z, d.x), el = asin(clamp(d.y, -1.0, 1.0));
+  return textureLod(uSky, vec2(az/TAU + 0.5, el/PI + 0.5), lod).rgb;
+}
+vec3 skyRad(vec3 d){ return skyLod(d, 0.0); }
+vec3 skyIrr(vec3 n){ return skyLod(normalize(n + vec3(0.0, 0.35, 0.0)), 5.5) * 2.2 * uAmbient; }
+
+/* ─────────── 海浪高度场（严格高度场，可用割线法求交） ─────────── */
+float seaOct(vec2 uv, float ch){
+  uv += sin(uv.yx * 1.31 + vec2(1.7, 0.9)) * 0.35;      // 域扭曲
+  vec2 w = 1.0 - abs(sin(uv));
+  vec2 c = abs(cos(uv));
+  w = mix(w, c, w);                                      // 尖峰化
+  return pow(1.0 - pow(max(w.x * w.y, 1e-4), 0.65), ch);
+}
+float seaH(vec2 p, int oct){
+  float t = uTime * uWave.z;
+  float amp = 1.0, wsum = 0.0, sum = 0.0, fr = uWave.w, ch = uWave.y;
+  vec2 uv = p * vec2(0.92, 1.0);
+  for (int i = 0; i < 8; i++){
+    if (i >= oct) break;
+    sum  += (seaOct((uv + t) * fr, ch) + seaOct((uv - t) * fr, ch)) * 0.5 * amp;
+    wsum += amp;
+    amp *= 0.40; fr *= 1.94; ch = mix(ch, 1.0, 0.22);
+    uv = mat2(1.62, 1.2, -1.2, 1.62) * uv;
+    t *= 1.16;
+  }
+  return (sum / wsum - 0.46) * uWave.x * 2.0;
+}
+// 割线法求交（iq/TDM 式）：对近水平射线稳定
+float seaTrace(vec3 ro, vec3 rd, int oct, float tmax, out vec3 hp){
+  float hm = ro.y - seaH(ro.xz, oct);
+  if (hm < 0.0){ hp = ro; return 0.002; }                // 起点已在水面下
+  vec3 p = ro + rd * tmax;
+  float hx = p.y - seaH(p.xz, oct);
+  if (hx > 0.0) return -1.0;                             // 远端仍在水上 → 未命中
+  float tm = 0.0, tx = tmax, tmid = 0.0;
+  for (int i = 0; i < 10; i++){
+    tmid = mix(tm, tx, hm / (hm - hx));
+    p = ro + rd * tmid;
+    float h = p.y - seaH(p.xz, oct);
+    if (h < 0.0){ tx = tmid; hx = h; } else { tm = tmid; hm = h; }
+  }
+  hp = ro + rd * tmid;
+  return tmid;
+}
+float ripple(vec2 p){ return texture(uNoise, vec3(p * 0.075, uTime * 0.035)).r; }
+
+/* ─────────── 体积云 ─────────── */
+float cloudDen(vec3 p, bool detail){
+  float hr = (p.y - uCloud.z) / max(uCloud.w - uCloud.z, 1.0);
+  if (hr < 0.0 || hr > 1.0) return 0.0;
+  vec2 wuv = p.xz * 0.000035 + vec2(uTime * 0.0009, uTime * 0.0004);
+  float cov = sat(texture(uWeather, wuv).r * (0.35 + 1.45 * uCloud.x) - (1.0 - uCloud.x) * 0.45);
+  float vert = smoothstep(0.0, 0.16, hr) * smoothstep(1.0, 0.48, hr);
+  float base = texture(uNoise, p * 0.00035 + vec3(0.0, -uTime * 0.0035, uTime * 0.005)).r;
+  float d = (base + cov - 0.98) * vert * 2.4;
+  if (d <= 0.0) return 0.0;
+  if (detail){
+    vec3 hi = texture(uNoise, p * 0.0030 + vec3(uTime * 0.012, 0.0, 0.0)).gba;
+    d -= (1.0 - d) * (hi.x * 0.55 + hi.y * 0.3 + hi.z * 0.15) * 0.55 * (0.3 + 0.7 * hr);
+  }
+  return sat(d) * uCloud.y;
+}
+vec4 marchCloud(vec3 ro, vec3 rd, int steps, float dith){
+  if (steps <= 0 || rd.y <= 0.015) return vec4(0.0, 0.0, 0.0, 1.0);
+  float t0 = max((uCloud.z - ro.y) / rd.y, 0.0);
+  float t1 = (uCloud.w - ro.y) / rd.y;
+  if (t1 <= t0) return vec4(0.0, 0.0, 0.0, 1.0);
+  t1 = min(t1, t0 + 26000.0);
+  float dt = (t1 - t0) / float(steps);
+  float t = t0 + dt * dith;
+  vec3 sum = vec3(0.0);
+  float tr = 1.0;
+  vec3 amb = skyLod(vec3(0.0, 1.0, 0.0), 4.0) * 1.6;
+  float ph = hg(dot(rd, uSunDir), 0.66) * 0.72 + hg(dot(rd, uSunDir), -0.22) * 0.28;
+  for (int i = 0; i < 40; i++){
+    if (i >= steps || tr < 0.02) break;
+    vec3 p = ro + rd * t;
+    float d = cloudDen(p, true);
+    if (d > 0.002){
+      float ld = 0.0;
+      for (int j = 1; j <= 4; j++){
+        float s = float(j) * float(j) * 34.0;
+        ld += cloudDen(p + uSunDir * s, false) * s * 0.055;
+      }
+      // 多次散射近似：三组消光叠加，得到银边与厚部的通透感
+      float lt = exp(-ld * 1.25) * 0.62 + exp(-ld * 0.32) * 0.28 + exp(-ld * 0.09) * 0.16;
+      float powder = 1.0 - exp(-d * 10.0);
+      vec3 lum = uSunCol * lt * ph * mix(0.45, 1.0, powder) * 5.0 * uCloudLight + amb * (0.30 + 0.55 * d);
+      float a = 1.0 - exp(-d * 0.085 * dt);
+      sum += tr * lum * a;
+      tr *= 1.0 - a;
+    }
+    t += dt;
+  }
+  return vec4(sum, tr);
+}
+
+/* ─────────── 天空 + 太阳 + 云 ─────────── */
+vec3 shadeSky(vec3 ro, vec3 rd, int cSteps, float dith){
+  vec3 col = skyRad(rd);
+  float cd = dot(rd, uSunDir);
+  float sr = 0.0047 * max(uSunSize, 0.15) * 2.6;
+  float ang = acos(clamp(cd, -1.0, 1.0));
+  if (ang < sr){
+    float r = ang / sr;
+    col += uSunCol * 26.0 * sqrt(max(1.0 - r * r * 0.94, 0.0));   // 含边缘减光的日面
+  }
+  col += uSunCol * pow(sat(cd), 1400.0) * 6.0;                     // 日周光晕
+  vec4 cl = marchCloud(ro, rd, cSteps, dith);
+  return col * cl.a + cl.rgb;
+}
+/* 云投影阴影：把着色点沿太阳方向投到云底采一次天气图 */
+float cloudShadow(vec3 p){
+  if (uSunDir.y < 0.03 || uCloud.x < 0.02) return 1.0;
+  vec3 q = p + uSunDir * ((uCloud.z - p.y) / uSunDir.y);
+  vec2 wuv = q.xz * 0.000035 + vec2(uTime * 0.0009, uTime * 0.0004);
+  float cov = sat(texture(uWeather, wuv).r * (0.35 + 1.45 * uCloud.x) - (1.0 - uCloud.x) * 0.45);
+  return mix(1.0, 0.22, sat(cov * 1.7));
+}
+
+/* ─────────── 球体求交 / 软阴影 ─────────── */
+float iSph(vec3 ro, vec3 rd, vec4 s){
+  vec3 oc = ro - s.xyz;
+  float b = dot(oc, rd), c = dot(oc, oc) - s.w * s.w, h = b*b - c;
+  if (h < 0.0) return -1.0;
+  h = sqrt(h);
+  float t = -b - h;
+  if (t < 0.02) t = -b + h;
+  return t < 0.02 ? -1.0 : t;
+}
+float traceSph(vec3 ro, vec3 rd, out int idx, out vec3 nor, out vec3 pos){
+  float best = 1e9; idx = -1;
+  for (int i = 0; i < 6; i++){
+    if (i >= uNSph) break;
+    float t = iSph(ro, rd, uSph[i]);
+    if (t > 0.0 && t < best){ best = t; idx = i; }
+  }
+  if (idx < 0) return -1.0;
+  pos = ro + rd * best;
+  nor = normalize(pos - uSph[idx].xyz);
+  return best;
+}
+float sphShadow(vec3 p, vec3 ld){
+  float sh = 1.0;
+  float ar = 0.0047 * max(uSunSize, 0.2);
+  for (int i = 0; i < 6; i++){
+    if (i >= uNSph) break;
+    vec3 oc = uSph[i].xyz - p;
+    float b = dot(oc, ld);
+    if (b <= 0.0) continue;
+    float d = sqrt(max(dot(oc, oc) - b*b, 0.0)) - uSph[i].w;
+    float pen = max(b * ar, 0.015);
+    sh *= smoothstep(-pen, pen, d);
+  }
+  return sat(sh);
+}
+/* 浪峰对阳光的自遮挡：沿太阳方向抬高采样几次 */
+float waveShadow(vec3 p){
+  if (uSunDir.y < 0.02) return 1.0;
+  float sh = 1.0;
+  for (int i = 1; i <= 3; i++){
+    float s = float(i) * float(i) * 0.9;
+    vec3 q = p + uSunDir * s;
+    sh *= smoothstep(-0.12, 0.28, q.y - seaH(q.xz, 3));
+  }
+  return mix(1.0, sat(sh), 0.85);
+}
+
+/* ─────────── PBR ─────────── */
+float D_GGX(float NdH, float a){ float a2=a*a, d=NdH*NdH*(a2-1.0)+1.0; return a2/max(PI*d*d, 1e-8); }
+float V_Smith(float NdV, float NdL, float a){
+  float a2 = a*a;
+  float gv = NdL * sqrt(NdV*NdV*(1.0-a2)+a2);
+  float gl = NdV * sqrt(NdL*NdL*(1.0-a2)+a2);
+  return 0.5 / max(gv + gl, 1e-6);
+}
+vec3 F_Schlick(vec3 f0, float u){ return f0 + (1.0-f0) * pow(1.0-u, 5.0); }
+vec3 ggx(vec3 N, vec3 V, vec3 L, float a, vec3 f0){
+  vec3 H = normalize(V + L);
+  float NdL = sat(dot(N,L)), NdV = sat(dot(N,V)) + 1e-5;
+  return D_GGX(sat(dot(N,H)), a) * V_Smith(NdV, NdL, a) * F_Schlick(f0, sat(dot(V,H))) * NdL;
+}
+vec2 envDFG(float NdV, float a){    // Karis 解析拟合（split-sum 的 DFG 项）
+  vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+  vec4 c1 = vec4( 1.0,  0.0425,  1.040, -0.040);
+  vec4 r = a * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * NdV)) * r.x + r.y;
+  return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+/* 材质表：0 铬 · 1 金 · 2 陶瓷清漆 · 3 色散玻璃 · 4 粗混凝土 */
+void getMat(int id, out vec3 alb, out float rough, out float metal, out float cc){
+  alb = vec3(0.8); rough = 0.5; metal = 0.0; cc = 0.0;
+  if (id == 0){ alb = vec3(0.94, 0.96, 0.98); rough = 0.045; metal = 1.0; }
+  else if (id == 1){ alb = vec3(1.00, 0.76, 0.34); rough = 0.30; metal = 1.0; }
+  else if (id == 2){ alb = vec3(0.86, 0.30, 0.26); rough = 0.34; metal = 0.0; cc = 1.0; }
+  else if (id == 3){ alb = vec3(0.92, 0.98, 1.00); rough = 0.02; metal = 0.0; }
+  else { alb = vec3(0.42, 0.44, 0.45); rough = 0.86; metal = 0.0; }
+}
+
+/* ─────────── 简版着色（供二级光线用，避免递归） ─────────── */
+vec3 aerial(vec3 col, vec3 rd, float dist){
+  float d = min(dist, 6000.0);
+  vec3 ext = vec3(0.00016, 0.00022, 0.00032) * uHaze;
+  vec3 tr = exp(-ext * d);
+  vec3 ins = skyRad(normalize(vec3(rd.x, max(rd.y, -0.03) + 0.05, rd.z)));
+  return col * tr + ins * (1.0 - tr);
+}
+vec3 seaSimple(vec3 p, vec3 rd, float dist){
+  float eps = max(0.05, dist * 0.004);
+  float h0 = seaH(p.xz, 3);
+  vec3 N = normalize(vec3(h0 - seaH(p.xz + vec2(eps, 0.0), 3), eps, h0 - seaH(p.xz + vec2(0.0, eps), 3)));
+  N = normalize(mix(N, vec3(0.0, 1.0, 0.0), sat(dist / 700.0) * 0.8));
+  float f0 = pow((uIOR - 1.0) / (uIOR + 1.0), 2.0);
+  float F = f0 + (1.0 - f0) * pow(1.0 - sat(dot(N, -rd)), 5.0);
+  vec3 R = reflect(rd, N);
+  R.y = abs(R.y) + 0.002;
+  vec3 refl = skyLod(R, 1.5);
+  vec3 body = uDeep * (0.35 + 0.75 * sat(uSunDir.y));
+  vec3 col = mix(body, refl, clamp(F * uReflStr, 0.0, 1.0));
+  col += ggx(N, -rd, uSunDir, 0.06, vec3(f0)) * uSunCol * uSpecBoost;
+  return aerial(col, rd, dist);
+}
+vec3 sphSimple(vec3 p, vec3 n, vec3 rd, int id){
+  vec3 alb; float rough, metal, cc;
+  getMat(id, alb, rough, metal, cc);
+  vec3 f0 = mix(vec3(0.04), alb, metal);
+  float NdV = sat(dot(n, -rd)) + 1e-4;
+  float sh = sphShadow(p + n * 0.02, uSunDir) * cloudShadow(p);
+  vec3 env = skyLod(reflect(rd, n), 1.0 + rough * 6.0);
+  vec2 dfg = envDFG(NdV, rough);
+  vec3 col = ggx(n, -rd, uSunDir, max(rough*rough, 0.002), f0) * uSunCol * sh
+           + alb * (1.0 - metal) * uSunCol * sat(dot(n, uSunDir)) * sh / PI
+           + env * (f0 * dfg.x + dfg.y)
+           + skyIrr(n) * alb * (1.0 - metal) * 0.16;
+  return col;
+}
+
+/* ─────────── 水下：焦散 + 吸收 + 体散射 ─────────── */
+float caustic(vec3 q){
+  vec2 pp = q.xz + uSunDir.xz * (-q.y) * 0.35;      // 沿阳光折向投影
+  float e = 0.30;
+  float h  = seaH(pp, 3);
+  float hx = seaH(pp + vec2(e, 0.0), 3), hX = seaH(pp - vec2(e, 0.0), 3);
+  float hz = seaH(pp + vec2(0.0, e), 3), hZ = seaH(pp - vec2(0.0, e), 3);
+  float lap = (hx + hX + hz + hZ - 4.0 * h) / (e * e);
+  return pow(sat(-lap * 0.10 + 0.30), 2.2) * 2.2;
+}
+vec3 waterInside(vec3 p, vec3 T, float dith){
+  int si; vec3 sn, sp;
+  float st = traceSph(p + T * 0.05, T, si, sn, sp);
+  vec3 col; float depth;
+  if (st > 0.0 && sp.y < 0.02){
+    vec3 alb; float rough, metal, cc;
+    getMat(si, alb, rough, metal, cc);
+    float dSun = max(-sp.y, 0.0);
+    vec3 lit = uSunCol * sat(dot(sn, uSunDir)) * exp(-uAbsorb * dSun * 1.5) * (0.55 + 1.7 * caustic(sp) * uCausticAmt);
+    col = alb * (lit / PI + skyIrr(sn) * 0.09) + ggx(sn, -T, uSunDir, 0.25, vec3(0.02)) * uSunCol * 0.5;
+    depth = st;
+  } else {
+    // 无底深水：体散射的青绿 + 少量阳光穿透
+    float sunPen = sat(uSunDir.y) * (0.35 + 0.65 * sat(dot(T, uSunDir) * 0.5 + 0.5));
+    col = uDeep * (0.22 + 1.15 * sunPen);
+    depth = 9.0;
+  }
+  return col * exp(-uAbsorb * depth);
+}
+
+/* ─────────── 水面：主角 ─────────── */
+vec3 shadeSea(vec3 ro, vec3 rd, vec3 p, float dist, float dith){
+  int oct = int(mix(5.0, 7.0, uQual));
+  float eps = max(0.018, dist * 0.0016);
+  float h0 = seaH(p.xz, oct);
+  vec3 N = normalize(vec3(h0 - seaH(p.xz + vec2(eps, 0.0), oct), eps, h0 - seaH(p.xz + vec2(0.0, eps), oct)));
+  float lod = sat(dist / 800.0);
+  N = normalize(mix(N, vec3(0.0, 1.0, 0.0), lod * 0.88));        // 远处自动抹平 → 抗锯齿
+  // 近处细节涟漪（按距离淡出，天然做了法线滤波）
+  float rw = exp(-dist / 55.0) * 0.55 * uWave.y * uRipple;
+  if (rw > 0.01){
+    float e2 = 0.30, r0 = ripple(p.xz);
+    vec3 dn = vec3(r0 - ripple(p.xz + vec2(e2, 0.0)), e2 * 0.25, r0 - ripple(p.xz + vec2(0.0, e2)));
+    N = normalize(N + vec3(dn.x, 0.0, dn.z) * rw * 2.2);
+  }
+  vec3 V = -rd;
+  float NdV = sat(dot(N, V));
+  float f0 = pow((uIOR - 1.0) / (uIOR + 1.0), 2.0);        // 由折射率推导的垂直入射反射率
+  float F = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
+  float shSun = waveShadow(p) * sphShadow(p + N * 0.02, uSunDir) * cloudShadow(p);
+
+  // ── 反射：真实光线（球体 → 云 / 天空）
+  vec3 R = reflect(rd, N);
+  if (R.y < 0.003) R = normalize(vec3(R.x, 0.003 - R.y * 0.5, R.z));
+  vec3 refl;
+  int si; vec3 sn, sp;
+  if (traceSph(p + N * 0.03, R, si, sn, sp) > 0.0) refl = sphSimple(sp, sn, R, si);
+  else refl = shadeSky(p, R, int(mix(8.0, 18.0, uQual)), dith);
+
+  // ── 太阳镜面：粗糙度按「太阳角径 + 法线滤波」加宽 → 无萤火虫的粼粼波光
+  float rough = mix(0.006, 0.13, lod) + rw * 0.05;
+  float aw = sqrt(rough * rough + pow(0.0047 * max(uSunSize, 0.25) * 2.2, 2.0));
+  vec3 spec = ggx(N, V, uSunDir, aw, vec3(f0)) * uSunCol * shSun * 3.2 * uSpecBoost;
+
+  // ── 折射 + 吸收
+  vec3 T = refract(rd, N, 1.0 / uIOR);
+  if (dot(T, T) < 1e-6) T = normalize(vec3(rd.x, -abs(rd.y), rd.z));
+  vec3 trans = waterInside(p, T, dith);
+
+  // ── 浪尖次表面透光（逆光时的翡翠色）
+  float crest = sat(h0 / max(uWave.x, 0.02) * 0.55 + 0.45);
+  float back  = pow(sat(dot(-V, uSunDir) * 0.5 + 0.5), 3.5);
+  vec3 sss = uSSS * uSunCol * back * crest * crest * 0.55 * uSSSAmt * mix(0.35, 1.0, shSun);
+
+  // ── 白沫：曲率 + 浪高 + 球体周围浮沫环
+  float steep = sat((1.0 - N.y) * 5.5);
+  float fn = texture(uNoise, vec3(p.xz * 0.05, uTime * 0.02)).r;
+  float foam = sat(sat(h0 / max(uWave.x, 0.02) * 1.3 - 0.35) * steep * 3.0) * sat(fn * 1.8 - 0.35);
+  for (int i = 0; i < 6; i++){
+    if (i >= uNSph) break;
+    float d = abs(length(p.xz - uSph[i].xz) - uSph[i].w * 0.95);
+    foam += sat(1.0 - d / (0.5 + uSph[i].w * 0.3)) * 0.9 * sat(fn * 2.2 - 0.4);
+  }
+  foam = sat(foam * uFoam) * (1.0 - lod * 0.7);
+
+  vec3 col = mix(trans + sss, refl, clamp(F * uReflStr, 0.0, 1.0)) + spec;
+  vec3 foamCol = (uSunCol * sat(dot(N, uSunDir)) * shSun * 0.55 / PI + skyIrr(N) * 0.55) * vec3(0.94, 0.97, 1.0);
+  col = mix(col, foamCol, foam);
+  return aerial(col, rd, dist);
+}
+
+/* ─────────── 球体：完整着色（含清漆 / 色散玻璃） ─────────── */
+vec3 shadeGlass(vec3 ro, vec3 rd, vec3 p, vec3 N, vec4 S, float dith){
+  float F = 0.04 + 0.96 * pow(1.0 - sat(dot(N, -rd)), 5.0);
+  vec3 refl = shadeSky(p, reflect(rd, N), int(mix(6.0, 12.0, uQual)), dith);
+  int si; vec3 sn, sp;
+  if (traceSph(p + N * 0.03, reflect(rd, N), si, sn, sp) > 0.0) refl = sphSimple(sp, sn, reflect(rd, N), si);
+  vec3 col = vec3(0.0);
+  for (int c = 0; c < 3; c++){
+    float ior = 1.50 + (float(c) - 1.0) * 0.018;          // 三通道色散
+    vec3 T = refract(rd, N, 1.0 / ior);
+    vec3 oc = p - S.xyz;
+    float b = dot(oc, T);
+    float t2 = -b + sqrt(max(b*b - dot(oc, oc) + S.w * S.w, 0.0));
+    vec3 p2 = p + T * t2, n2 = normalize(p2 - S.xyz);
+    vec3 T2 = refract(T, -n2, ior);
+    vec3 e;
+    if (dot(T2, T2) < 1e-6) e = shadeSky(p2, reflect(T, -n2), 4, dith);   // 全内反射
+    else {
+      vec3 hp; float th = seaTrace(p2 + T2 * 0.05, T2, 4, 1200.0, hp);
+      e = (th > 0.0) ? seaSimple(hp, T2, th) : shadeSky(p2, T2, int(mix(4.0, 10.0, uQual)), dith);
+    }
+    vec3 tint = exp(-vec3(0.30, 0.09, 0.14) * t2 * 0.55);
+    col[c] = (e * tint)[c];
+  }
+  return mix(col, refl, F);
+}
+vec3 shadeSphere(vec3 ro, vec3 rd, vec3 p, vec3 N, int id, float dith){
+  vec3 alb; float rough, metal, cc;
+  getMat(id, alb, rough, metal, cc);
+  vec3 V = -rd;
+  float NdV = sat(dot(N, V)) + 1e-4;
+  float sh = sphShadow(p + N * 0.02, uSunDir) * cloudShadow(p);
+  vec3 f0 = mix(vec3(0.04), alb, metal);
+  float a = max(rough * rough, 0.0015);
+  vec3 col = ggx(N, V, uSunDir, a, f0) * uSunCol * sh
+           + alb * (1.0 - metal) * uSunCol * sat(dot(N, uSunDir)) * sh / PI;
+  // 环境镜面：低粗糙度追真实光线，高粗糙度取 LUT 的预滤波 mip
+  vec3 R = reflect(rd, N);
+  vec3 env;
+  if (rough < 0.16){
+    int si; vec3 sn, sp;
+    if (traceSph(p + N * 0.03, R, si, sn, sp) > 0.0) env = sphSimple(sp, sn, R, si);
+    else {
+      vec3 hp; float th = seaTrace(p + N * 0.03, R, 4, 1800.0, hp);
+      env = (th > 0.0) ? seaSimple(hp, R, th) : shadeSky(p, R, int(mix(8.0, 16.0, uQual)), dith);
+    }
+  } else env = skyLod(R, 1.0 + rough * 6.0);
+  vec2 dfg = envDFG(NdV, rough);
+  col += env * (f0 * dfg.x + dfg.y);
+  col += skyIrr(N) * alb * (1.0 - metal) * 0.20;
+  // 清漆层：第二个更锐利的镜面瓣
+  if (cc > 0.0){
+    float ac = 0.0016;
+    vec3 ccS = ggx(N, V, uSunDir, ac, vec3(0.04)) * uSunCol * sh * 1.6;
+    float Fc = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);
+    col = col * (1.0 - Fc * 0.55) + ccS + skyLod(R, 0.6) * Fc * 0.55;
+  }
+  return aerial(col, rd, length(p - ro));
+}
+
+void main(){
+  vec2 fc = gl_FragCoord.xy + uJitter;
+  vec2 uv = (2.0 * fc - uRes) / uRes.y;
+  /* 空间蓝噪声近似 + 按黄金比推进的时间偏移：
+     这种「时空低差异」抖动能被 TAA 近乎完美地滤掉，噪点远小于纯随机哈希 */
+  float bn = ign(gl_FragCoord.xy);
+  float dith = fract(bn + 0.61803398875 * uSeed);
+  vec3 ro = uCamPos;
+  vec3 rd = normalize(uCamF + (uv.x * uCamR + uv.y * uCamU) * uTanHalf);
+  if (uAperture > 1e-4){                                  // 薄透镜景深（R2 序列 + 每像素旋转）
+    vec2 r2 = fract(vec2(0.75487766624669276, 0.56984029099805327) * uSeed
+                    + vec2(bn, ign(gl_FragCoord.yx + 19.73)));
+    float an = r2.x * TAU, rad = sqrt(r2.y) * uAperture;
+    vec3 tgt = ro + rd * uFocus;
+    ro += (uCamR * cos(an) + uCamU * sin(an)) * rad;
+    rd = normalize(tgt - ro);
+  }
+  int si; vec3 sn, sp;
+  float ts = traceSph(ro, rd, si, sn, sp);
+  vec3 hp;
+  float tw = seaTrace(ro, rd, int(mix(4.0, 6.0, uQual)), 3400.0, hp);
+  vec3 col;
+  if (ts > 0.0 && (tw < 0.0 || ts < tw)){
+    col = (uSphMat[si] > 2.5 && uSphMat[si] < 3.5)
+        ? shadeGlass(ro, rd, sp, sn, uSph[si], dith)
+        : shadeSphere(ro, rd, sp, sn, int(uSphMat[si]), dith);
+  } else if (tw > 0.0){
+    col = shadeSea(ro, rd, hp, tw, dith);
+  } else {
+    col = shadeSky(ro, rd, int(mix(14.0, 30.0, uQual)), dith);
+  }
+  col = max(col, 0.0);
+  if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);
+  o = vec4(col, 1.0);
+}`;
+
+/* ---------- 时间累积：带邻域方差裁剪的 TAA（低 alpha 也不糊） ---------- */
+const ACC_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform sampler2D uCur, uPrev;
+uniform vec2 uRes, uTexel;
+uniform float uAlpha, uClip;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec3 c = texture(uCur, uv).rgb;
+  vec3 p = texture(uPrev, uv).rgb;
+  if (uClip > 0.5){
+    // 3x3 邻域一阶/二阶矩 → 把历史夹进 mean ± k·sigma（Karis variance clipping）
+    vec3 m1 = vec3(0.0), m2 = vec3(0.0);
+    for (int y = -1; y <= 1; y++)
+      for (int x = -1; x <= 1; x++){
+        vec3 s = texture(uCur, uv + vec2(float(x), float(y)) * uTexel).rgb;
+        m1 += s; m2 += s * s;
+      }
+    m1 /= 9.0; m2 /= 9.0;
+    vec3 sig = sqrt(max(m2 - m1 * m1, 0.0));
+    p = clamp(p, m1 - sig * 1.35, m1 + sig * 1.35);
+  }
+  o = vec4(mix(p, c, uAlpha), 1.0);
+}`;
+
+/* ---------- Bloom：13-tap 降采样 / 3x3 tent 升采样 ---------- */
+const DOWN_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uThresh, uFirst;
+void main(){
+  vec2 uv = gl_FragCoord.xy * uTexel * 2.0;   // 目标是源的一半
+  vec2 t = uTexel;
+  vec3 a = texture(uTex, uv + t * vec2(-2,  2)).rgb, b = texture(uTex, uv + t * vec2( 0,  2)).rgb, c = texture(uTex, uv + t * vec2( 2,  2)).rgb;
+  vec3 d = texture(uTex, uv + t * vec2(-2,  0)).rgb, e = texture(uTex, uv).rgb,                     f = texture(uTex, uv + t * vec2( 2,  0)).rgb;
+  vec3 g = texture(uTex, uv + t * vec2(-2, -2)).rgb, h = texture(uTex, uv + t * vec2( 0, -2)).rgb, i = texture(uTex, uv + t * vec2( 2, -2)).rgb;
+  vec3 j = texture(uTex, uv + t * vec2(-1,  1)).rgb, k = texture(uTex, uv + t * vec2( 1,  1)).rgb;
+  vec3 l = texture(uTex, uv + t * vec2(-1, -1)).rgb, m = texture(uTex, uv + t * vec2( 1, -1)).rgb;
+  vec3 col = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
+  if (uFirst > 0.5){                          // 首级做软阈值提亮
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col *= max(lum - uThresh, 0.0) / max(lum, 1e-4);
+  }
+  o = vec4(col, 1.0);
+}`;
+const UP_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform sampler2D uTex;
+uniform vec2 uTexel, uRes;
+uniform float uRadius;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec2 t = uTexel * uRadius;
+  vec3 c = texture(uTex, uv + t * vec2(-1,  1)).rgb + texture(uTex, uv + t * vec2( 0,  1)).rgb * 2.0 + texture(uTex, uv + t * vec2( 1,  1)).rgb
+         + texture(uTex, uv + t * vec2(-1,  0)).rgb * 2.0 + texture(uTex, uv).rgb * 4.0 + texture(uTex, uv + t * vec2( 1,  0)).rgb * 2.0
+         + texture(uTex, uv + t * vec2(-1, -1)).rgb + texture(uTex, uv + t * vec2( 0, -1)).rgb * 2.0 + texture(uTex, uv + t * vec2( 1, -1)).rgb;
+  o = vec4(c / 16.0, 1.0);
+}`;
+
+/* ---------- 合成：AgX + 颗粒 / 暗角 / 色差 / 抖动 ---------- */
+const POST_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform sampler2D uHdr, uBloom;
+uniform vec2 uRes;
+uniform float uExposure, uBloomAmt, uTime, uCA, uVig, uGrain, uTM, uBars;
+uniform float uSat, uContrast, uTemp, uTint, uSharp;
+${CH_COMMON}
+const mat3 AGX_IN = mat3(0.842479062253094, 0.0784335999999992, 0.0792237451477643,
+                         0.0423282422610123, 0.878468636469772, 0.0791661274605434,
+                         0.0423756549057051, 0.0784336000000000, 0.879142973793104);
+const mat3 AGX_OUT = mat3( 1.19687900512017, -0.0980208811401368, -0.0990297440797205,
+                          -0.0528968517574562, 1.15190312990417,  -0.0989611768448433,
+                          -0.0529716355144438,-0.0980434501171241, 1.15107367264116);
+vec3 agxContrast(vec3 x){
+  vec3 x2 = x * x, x4 = x2 * x2;
+  return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+vec3 agx(vec3 c){
+  c = AGX_IN * max(c, 0.0);
+  const float mn = -12.47393, mx = 4.026069;
+  c = clamp((log2(max(c, 1e-10)) - mn) / (mx - mn), 0.0, 1.0);
+  c = agxContrast(c);
+  c = AGX_OUT * c;
+  return clamp(c, 0.0, 1.0);
+}
+vec3 aces(vec3 x){
+  const mat3 i = mat3(0.59719,0.07600,0.02840, 0.35458,0.90834,0.13383, 0.04823,0.01566,0.83777);
+  const mat3 t = mat3( 1.60475,-0.10208,-0.00327, -0.53108,1.10813,-0.07276, -0.07367,-0.00605,1.07602);
+  vec3 v = i * x;
+  vec3 a = v * (v + 0.0245786) - 0.000090537;
+  vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+  v = t * (a / b);
+  return pow(clamp(v, 0.0, 1.0), vec3(1.0 / 2.2));
+}
+vec3 reinhardJodie(vec3 v){
+  float l = dot(v, vec3(0.2126, 0.7152, 0.0722));
+  vec3 tv = v / (1.0 + v);
+  return pow(clamp(mix(v / (1.0 + l), tv, tv), 0.0, 1.0), vec3(1.0 / 2.2));
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec2 d = uv - 0.5;
+  float r2 = dot(d, d);
+  // 色差：仅在画面外围轻微分离通道
+  vec2 ca = d * r2 * uCA;
+  vec3 hdr;
+  hdr.r = texture(uHdr, uv - ca).r;
+  hdr.g = texture(uHdr, uv).g;
+  hdr.b = texture(uHdr, uv + ca).b;
+  if (uSharp > 0.001){                                // 锐化：补偿降分辨率渲染后的放大
+    vec2 t = 1.0 / uRes;
+    vec3 s4 = texture(uHdr, uv + vec2(t.x, 0.0)).rgb + texture(uHdr, uv - vec2(t.x, 0.0)).rgb
+            + texture(uHdr, uv + vec2(0.0, t.y)).rgb + texture(uHdr, uv - vec2(0.0, t.y)).rgb;
+    hdr += (hdr - s4 * 0.25) * uSharp;
+  }
+  vec3 bl = texture(uBloom, uv).rgb;
+  vec3 col = (max(hdr, 0.0) + bl * uBloomAmt) * uExposure;
+  // 白平衡（线性空间、色调映射之前）
+  col *= vec3(1.0 + uTemp * 0.30 - uTint * 0.08, 1.0 + uTint * 0.16, 1.0 - uTemp * 0.30 - uTint * 0.08);
+  col = (uTM < 0.5) ? aces(col) : ((uTM < 1.5) ? agx(col) : reinhardJodie(col));
+  float sl = dot(col, vec3(0.2126, 0.7152, 0.0722));  // 饱和度 / 对比度（display-referred）
+  col = clamp(sl + (col - sl) * uSat, 0.0, 1.0);
+  col = clamp((col - 0.5) * uContrast + 0.5, 0.0, 1.0);
+  col *= mix(1.0, smoothstep(1.05, 0.28, length(d * vec2(uRes.x / uRes.y, 1.0)) * 1.05), uVig);
+  float n = ign(gl_FragCoord.xy + fract(uTime) * 137.0);
+  // 颗粒只压在中暗部：亮部（天空 / 波光）保持干净，不与采样噪声叠加
+  float glum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col += (n - 0.5) * uGrain * (0.30 + 0.70 * (1.0 - glum));
+  if (uBars > 0.5){                                   // 2.39:1 电影黑边
+    float bar = (1.0 - (uRes.x / uRes.y) / 2.39) * 0.5;
+    if (uv.y < bar || uv.y > 1.0 - bar) col = vec3(0.0);
+  }
+  col += (ign(gl_FragCoord.yx * 1.37) - 0.5) / 255.0;  // 8bit 抖动
+  o = vec4(max(col, 0.0), 1.0);
+}`;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   2. GL 工具层
+   ══════════════════════════════════════════════════════════════════════════ */
+function sh(type, src, name) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s) || '';
+    const lines = src.split('\n');
+    const m = log.match(/:(\d+):/);
+    let ctx = '';
+    if (m) { const n = +m[1]; for (let i = Math.max(0, n - 4); i < Math.min(lines.length, n + 3); i++) ctx += (i + 1) + ' | ' + lines[i] + '\n'; }
+    fail('着色器编译失败 [' + name + ']\n' + log + '\n' + ctx);
+  }
+  return s;
+}
+function prog(fs, name) {
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, VS, name + '.vs'));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs, name + '.fs'));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) fail('链接失败 [' + name + ']\n' + gl.getProgramInfoLog(p));
+  p._u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    const nm = info.name.replace(/\[0\]$/, '');
+    p._u[nm] = gl.getUniformLocation(p, nm);
+  }
+  return p;
+}
+const U = (p, n) => p._u[n];
+function tex2D(w, h, internal, filter, wrapS, wrapT) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, internal, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter === gl.LINEAR_MIPMAP_LINEAR ? gl.LINEAR : filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS || gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapT || gl.CLAMP_TO_EDGE);
+  t._w = w; t._h = h;
+  return t;
+}
+function fbo(t) {
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  f._t = t;
+  return f;
+}
+function draw(target, w, h) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target);
+  gl.viewport(0, 0, w, h);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function bindTex(p, name, unit, t, is3D) {
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(is3D ? gl.TEXTURE_3D : gl.TEXTURE_2D, t);
+  gl.uniform1i(U(p, name), unit);
+}
+
+const P_SKY = prog(SKY_FS, 'sky');
+const P_MAIN = prog(MAIN_FS, 'main');
+const P_ACC = prog(ACC_FS, 'acc');
+const P_DOWN = prog(DOWN_FS, 'down');
+const P_UP = prog(UP_FS, 'up');
+const P_POST = prog(POST_FS, 'post');
+gl.bindVertexArray(gl.createVertexArray());
+gl.disable(gl.DEPTH_TEST);
+gl.disable(gl.CULL_FACE);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   3. 程序化噪声资源（3D 云噪声 + 2D 天气图）
+   ══════════════════════════════════════════════════════════════════════════ */
+$('veiltxt').textContent = 'BAKING NOISE …';
+
+const NS = 64;
+function buildNoise3D() {
+  const data = new Uint8Array(NS * NS * NS * 4);
+  /* --- R：可平铺 value-noise FBM --- */
+  const hash3 = (x, y, z, p) => {
+    x = ((x % p) + p) % p; y = ((y % p) + p) % p; z = ((z % p) + p) % p;
+    let n = (x * 374761393 + y * 668265263 + z * 1274126177) | 0;
+    n = (n ^ (n >>> 13)) * 1274126177 | 0;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+  };
+  const sm = t => t * t * (3 - 2 * t);
+  const vnoise = (x, y, z, p) => {
+    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+    const fx = sm(x - ix), fy = sm(y - iy), fz = sm(z - iz);
+    let s = 0;
+    for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+      const w = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy) * (dz ? fz : 1 - fz);
+      s += w * hash3(ix + dx, iy + dy, iz + dz, p);
+    }
+    return s;
+  };
+  /* --- G/B/A：可平铺 worley（预生成特征点，避免逐体素哈希） --- */
+  const makeCells = (n) => {
+    const pts = new Float32Array(n * n * n * 3);
+    for (let i = 0; i < n * n * n; i++) {
+      pts[i * 3] = hash3(i, 11, 3, 99991);
+      pts[i * 3 + 1] = hash3(i, 27, 7, 99991);
+      pts[i * 3 + 2] = hash3(i, 41, 13, 99991);
+    }
+    return pts;
+  };
+  const cellSets = [4, 8, 16].map(n => ({ n, pts: makeCells(n) }));
+  const worley = (u, v, w, set) => {
+    const n = set.n, pts = set.pts;
+    const fx = u * n, fy = v * n, fz = w * n;
+    const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    let md = 1e9;
+    for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const cx = ix + dx, cy = iy + dy, cz = iz + dz;
+      const wx = ((cx % n) + n) % n, wy = ((cy % n) + n) % n, wz = ((cz % n) + n) % n;
+      const k = ((wz * n + wy) * n + wx) * 3;
+      const px = cx + pts[k], py = cy + pts[k + 1], pz = cz + pts[k + 2];
+      const ex = px - fx, ey = py - fy, ez = pz - fz;
+      const d = ex * ex + ey * ey + ez * ez;
+      if (d < md) md = d;
+    }
+    return Math.min(1, Math.sqrt(md));
+  };
+  for (let z = 0; z < NS; z++) for (let y = 0; y < NS; y++) for (let x = 0; x < NS; x++) {
+    const u = x / NS, v = y / NS, w = z / NS;
+    let f = 0, amp = 0.5, per = 4;
+    for (let o = 0; o < 4; o++) { f += vnoise(u * per, v * per, w * per, per) * amp; amp *= 0.5; per *= 2; }
+    const i = ((z * NS + y) * NS + x) * 4;
+    data[i]     = Math.max(0, Math.min(255, f * 255 * 1.15)) | 0;
+    data[i + 1] = (1 - worley(u, v, w, cellSets[0])) * 255 | 0;
+    data[i + 2] = (1 - worley(u, v, w, cellSets[1])) * 255 | 0;
+    data[i + 3] = (1 - worley(u, v, w, cellSets[2])) * 255 | 0;
+  }
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, t);
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, NS, NS, NS, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.REPEAT);
+  return t;
+}
+function buildWeather() {
+  const S = 256, data = new Uint8Array(S * S * 4);
+  const h2 = (x, y, p) => {
+    x = ((x % p) + p) % p; y = ((y % p) + p) % p;
+    let n = (x * 1597334677 + y * 3812015801) | 0;
+    n = (n ^ (n >>> 15)) * 2246822519 | 0;
+    return ((n ^ (n >>> 13)) >>> 0) / 4294967295;
+  };
+  const sm = t => t * t * (3 - 2 * t);
+  const vn = (x, y, p) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = sm(x - ix), fy = sm(y - iy);
+    return (h2(ix, iy, p) * (1 - fx) + h2(ix + 1, iy, p) * fx) * (1 - fy)
+         + (h2(ix, iy + 1, p) * (1 - fx) + h2(ix + 1, iy + 1, p) * fx) * fy;
+  };
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S;
+    let f = 0, amp = 0.55, per = 3;
+    for (let o = 0; o < 5; o++) { f += vn(u * per, v * per, per) * amp; amp *= 0.5; per *= 2; }
+    f = Math.pow(Math.max(0, Math.min(1, f * 1.25)), 1.35);
+    const i = (y * S + x) * 4;
+    data[i] = f * 255 | 0; data[i + 1] = vn(u * 6, v * 6, 6) * 255 | 0;
+    data[i + 2] = 0; data[i + 3] = 255;
+  }
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  return t;
+}
+const TEX_NOISE = buildNoise3D();
+const TEX_WEATHER = buildWeather();
+
+/* 天空 LUT（equirect + mip 供 IBL 采样） */
+const SKY_W = 256, SKY_H = 128;
+const TEX_SKY = (() => {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, SKY_W, SKY_H, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+})();
+const FBO_SKY = fbo(TEX_SKY);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   4. 场景参数与预设
+   ══════════════════════════════════════════════════════════════════════════ */
+const P = {                       // 当前（可被插值）参数
+  sunEl: 4.2, sunAz: 118, turb: 1.0, sunI: 22,
+  amp: 0.62, chop: 3.0, speed: 0.9, freq: 0.16,
+  cloudCov: 0.52, cloudDen: 0.95, cloudLo: 1500, cloudHi: 4200,
+  deep: [0.020, 0.115, 0.135], sss: [0.10, 0.52, 0.42], absorb: [0.42, 0.075, 0.045],
+  haze: 1.0, expo: 1.15, bloom: 0.055, vig: 0.55, grain: 0.008, ca: 0.14, bars: 0
+};
+const PRESETS = [
+  { name: '黄金时刻', sunEl: 3.4, sunAz: 116, turb: 1.35, sunI: 26, amp: 0.66, chop: 3.1, speed: 0.9, freq: 0.16,
+    cloudCov: 0.52, cloudDen: 0.95, deep: [0.020, 0.105, 0.130], sss: [0.13, 0.55, 0.42],
+    absorb: [0.42, 0.075, 0.045], haze: 1.25, expo: 1.10, bloom: 0.075, vig: 0.55, grain: 0.008,
+    sunSize: 1.0, ambient: 1.00, cloudLight: 1.15, foam: 0.90, sssAmt: 1.15, specBoost: 1.05,
+    sat: 1.14, contrast: 1.02, temp: 0.06 },
+  { name: '正午热带', sunEl: 66, sunAz: 60, turb: 0.85, sunI: 21, amp: 0.34, chop: 2.4, speed: 1.05, freq: 0.22,
+    cloudCov: 0.34, cloudDen: 1.0, deep: [0.030, 0.190, 0.200], sss: [0.16, 0.68, 0.58],
+    absorb: [0.30, 0.048, 0.030], haze: 0.75, expo: 0.85, bloom: 0.045, vig: 0.42, grain: 0.006,
+    sunSize: 0.8, ambient: 1.25, cloudLight: 1.30, foam: 1.15, sssAmt: 1.35, specBoost: 0.95,
+    sat: 1.10, contrast: 1.00, temp: -0.05 },
+  { name: '风暴前夕', sunEl: 13, sunAz: 150, turb: 2.0, sunI: 17, amp: 1.30, chop: 4.3, speed: 1.35, freq: 0.13,
+    cloudCov: 0.88, cloudDen: 1.35, deep: [0.030, 0.075, 0.080], sss: [0.10, 0.34, 0.30],
+    absorb: [0.50, 0.115, 0.085], haze: 2.1, expo: 1.35, bloom: 0.055, vig: 0.72, grain: 0.013,
+    sunSize: 1.4, ambient: 0.85, cloudLight: 0.80, foam: 1.70, sssAmt: 0.70, specBoost: 0.85,
+    sat: 0.92, contrast: 1.08, temp: -0.07 },
+  { name: '蓝调时刻', sunEl: -2.4, sunAz: 128, turb: 1.1, sunI: 30, amp: 0.30, chop: 2.2, speed: 0.6, freq: 0.19,
+    cloudCov: 0.44, cloudDen: 0.85, deep: [0.012, 0.055, 0.090], sss: [0.06, 0.24, 0.30],
+    absorb: [0.40, 0.085, 0.045], haze: 1.5, expo: 2.30, bloom: 0.11, vig: 0.70, grain: 0.011,
+    sunSize: 2.2, ambient: 1.15, cloudLight: 0.90, foam: 0.70, sssAmt: 0.50, specBoost: 1.30,
+    sat: 1.05, contrast: 1.04, temp: -0.10 }
+];
+let target = Object.assign({}, PRESETS[0]), lerpT = 1, curPreset = 0;
+Object.assign(P, PRESETS[0]);
+
+/* ---- 太阳直射色：与 LUT 同一套系数，在 CPU 上做一次透过率积分 ---- */
+function sunColor(elDeg, turb, sunI) {
+  const Rg = 6360e3, Ra = 6420e3, Hr = 8e3, Hm = 1.2e3;
+  const BR = [5.8e-6, 13.5e-6, 33.1e-6], BM = 21e-6 * turb;
+  const el = elDeg * Math.PI / 180;
+  const ro = [0, Rg + 300, 0], sd = [Math.cos(el), Math.sin(el), 0];
+  const b = ro[0] * sd[0] + ro[1] * sd[1], c = ro[0] * ro[0] + ro[1] * ro[1] - Ra * Ra;
+  const disc = b * b - c;
+  if (disc < 0) return [0, 0, 0];
+  const tEnd = -b + Math.sqrt(disc);
+  const N = 16, dt = tEnd / N;
+  let odR = 0, odM = 0, blocked = false;
+  for (let i = 0; i < N; i++) {
+    const s = dt * (i + 0.5);
+    const px = ro[0] + sd[0] * s, py = ro[1] + sd[1] * s;
+    const h = Math.hypot(px, py) - Rg;
+    if (h < 0) { blocked = true; break; }
+    odR += Math.exp(-h / Hr) * dt; odM += Math.exp(-h / Hm) * dt;
+  }
+  if (blocked) return [0, 0, 0];
+  const k = elDeg < 0 ? Math.exp(elDeg * 0.85) : 1;      // 日落后残余（蓝调时刻）
+  return [0, 1, 2].map(i => Math.exp(-(BR[i] * odR + BM * 1.1 * odM)) * sunI * k);
+}
+
+/* ---- 海浪高度（JS 镜像 GLSL seaH，用于球体浮动与相机贴水） ---- */
+function seaOctJS(ux, uz, ch) {
+  const sx = ux + Math.sin(uz * 1.31 + 1.7) * 0.35;
+  const sz = uz + Math.sin(ux * 1.31 + 0.9) * 0.35;
+  let wx = 1 - Math.abs(Math.sin(sx)), wz = 1 - Math.abs(Math.sin(sz));
+  const cx = Math.abs(Math.cos(sx)), cz = Math.abs(Math.cos(sz));
+  wx = wx + (cx - wx) * wx; wz = wz + (cz - wz) * wz;
+  return Math.pow(1 - Math.pow(Math.max(wx * wz, 1e-4), 0.65), ch);
+}
+function seaHJS(x, z, t, oct) {
+  let tt = t * P.speed, amp = 1, wsum = 0, sum = 0, fr = P.freq, ch = P.chop;
+  let ux = x * 0.92, uz = z;
+  for (let i = 0; i < oct; i++) {
+    sum += (seaOctJS((ux + tt) * fr, (uz + tt) * fr, ch) + seaOctJS((ux - tt) * fr, (uz - tt) * fr, ch)) * 0.5 * amp;
+    wsum += amp;
+    amp *= 0.40; fr *= 1.94; ch = ch + (1 - ch) * 0.22;
+    const nx = 1.62 * ux - 1.2 * uz, nz = 1.2 * ux + 1.62 * uz;
+    ux = nx; uz = nz; tt *= 1.16;
+  }
+  return (sum / wsum - 0.46) * P.amp * 2.0;
+}
+
+/* ---- 漂浮的材质球（按浪高起伏） ---- */
+const SPHERES = [
+  { x: -3.6, z: 1.2, r: 1.45, mat: 0, sink: 0.42 },
+  { x: 2.9, z: -2.4, r: 1.15, mat: 1, sink: 0.34 },
+  { x: 5.4, z: 3.4, r: 1.75, mat: 2, sink: 0.50 },
+  { x: -1.1, z: -6.2, r: 1.05, mat: 3, sink: 0.30 },
+  { x: -7.8, z: -3.1, r: 1.95, mat: 4, sink: 0.58 }
+];
+const sphData = new Float32Array(SPHERES.length * 4);
+const sphMat = new Float32Array(SPHERES.length);
+SPHERES.forEach((s, i) => { sphMat[i] = s.mat; });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   5. 渲染目标 / 尺寸
+   ══════════════════════════════════════════════════════════════════════════ */
+let W = 1, H = 1, RW = 1, RH = 1, scale = 0.85, scaleLocked = false;
+let texHDR, fboHDR, texAcc = [], fboAcc = [], accIdx = 0;
+const BLOOM_MIPS = 5;
+let bloomTex = [], bloomFbo = [];
+function allocTargets() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = Math.max(2, Math.round(innerWidth * dpr));
+  H = Math.max(2, Math.round(innerHeight * dpr));
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+  RW = Math.max(2, Math.round(W * scale));
+  RH = Math.max(2, Math.round(H * scale));
+  [texHDR, ...texAcc, ...bloomTex].forEach(t => t && gl.deleteTexture(t));
+  [fboHDR, ...fboAcc, ...bloomFbo].forEach(f => f && gl.deleteFramebuffer(f));
+  texHDR = tex2D(RW, RH, gl.RGBA16F, gl.LINEAR);
+  fboHDR = fbo(texHDR);
+  texAcc = [tex2D(RW, RH, gl.RGBA16F, gl.LINEAR), tex2D(RW, RH, gl.RGBA16F, gl.LINEAR)];
+  fboAcc = texAcc.map(fbo);
+  bloomTex = []; bloomFbo = [];
+  let bw = RW, bh = RH;
+  for (let i = 0; i < BLOOM_MIPS; i++) {
+    bw = Math.max(2, bw >> 1); bh = Math.max(2, bh >> 1);
+    const t = tex2D(bw, bh, gl.RGBA16F, gl.LINEAR);
+    bloomTex.push(t); bloomFbo.push(fbo(t));
+  }
+  reset();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   6. 相机
+   ══════════════════════════════════════════════════════════════════════════ */
+const cam = { yaw: 2.42, pitch: 0.055, dist: 15.5, fov: 40, tx: 0, ty: 1.15, tz: 0, auto: true };
+let dragging = false, lastX = 0, lastY = 0, idleT = 0;
+canvas.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.classList.add('drag'); canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', e => { dragging = false; canvas.classList.remove('drag'); idleT = 0; });
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  cam.yaw -= (e.clientX - lastX) * 0.0042;
+  // 抬升 pitch 会让地平线上移，故向下拖动应减小 pitch —— 与水平方向同为「拖动世界」手感
+  cam.pitch = Math.max(-0.02, Math.min(1.15, cam.pitch - (e.clientY - lastY) * 0.0032));
+  lastX = e.clientX; lastY = e.clientY;
+  cam.auto = false;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.dist = Math.max(3.4, Math.min(90, cam.dist * Math.exp(e.deltaY * 0.0012)));
+  cam.auto = false; idleT = 0;
+}, { passive: false });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   7. 交互 / UI
+   ══════════════════════════════════════════════════════════════════════════ */
+let paused = false, timeT = 0, tmIdx = 1, showBars = false, saveShot = false;
+const TM_NAMES = ['ACES', 'AgX', 'Reinhard'];
+
+/* ---- 扩展参数默认值（全部真实接到着色器 uniform 上，无占位项） ---- */
+Object.assign(P, {
+  sunSize: 1.0, ambient: 1.0, cloudLight: 1.0,
+  reflStr: 1.0, specBoost: 1.0, foam: 1.0, sssAmt: 1.0, causticAmt: 1.0, ripple: 1.0,
+  ior: 1.333, absorbS: 1.0,
+  sat: 1.12, contrast: 1.0, temp: 0.0, tint: 0.0, sharp: 0.28,
+  bloomTh: 1.05, bloomR: 1.0,
+  aperture: 0.030, qual: 0.6, focusOff: 0,
+  fov: 40, camY: 1.15, orbit: 0.0135, taa: 0.14, nSph: 5
+});
+const DEFAULTS = JSON.parse(JSON.stringify(P));
+
+/* ---- 颜色 ↔ 线性向量（拾色器只改色相，浓度由单独滑杆控制） ---- */
+const vmax = a => Math.max(a[0], a[1], a[2], 1e-6);
+const arrToHex = a => '#' + [0, 1, 2].map(i =>
+  Math.round(Math.pow(Math.min(1, a[i] / vmax(a)), 1 / 2.2) * 255).toString(16).padStart(2, '0')).join('');
+const hexToArr = (hex, gain) => {
+  const lin = [1, 3, 5].map(i => Math.pow(parseInt(hex.substr(i, 2), 16) / 255, 2.2));
+  const m = Math.max(lin[0], lin[1], lin[2], 1e-6);
+  return lin.map(v => v / m * gain);
+};
+const scaleTo = (a, g) => { const m = vmax(a); return a.map(v => v / m * g); };
+
+/* ---- 控件声明表 ---- */
+const N = (k, label, min, max, step, fmt, opt) => Object.assign(
+  { type: 'n', k, label, min, max, step, fmt: fmt || (v => v.toFixed(2)) }, opt || {});
+const G = (label, get, set, min, max, step, fmt) => ({ type: 'n', label, get, set, min, max, step, fmt: fmt || (v => v.toFixed(3)) });
+const C = (label, get, set) => ({ type: 'c', label, get, set });
+const S = (label, opts, get, set) => ({ type: 's', label, opts, get, set });
+const pct = v => (v * 100).toFixed(0) + '%';
+
+const CTRL = [
+  { t: '光照 · 大气  LIGHT', c: [
+    N('sunEl', '太阳高度', -8, 85, 0.1, v => v.toFixed(1) + '°', { sky: 1 }),
+    N('sunAz', '太阳方位', 0, 360, 1, v => v.toFixed(0) + '°', { sky: 1 }),
+    N('sunI', '太阳强度', 4, 60, 0.5, v => v.toFixed(1), { sky: 1 }),
+    N('sunSize', '日面角径', 0.2, 6, 0.05),
+    N('turb', '大气浑浊 Mie', 0.4, 3, 0.05, null, { sky: 1 }),
+    N('haze', '空气透视', 0, 4, 0.05),
+    N('ambient', '天光环境', 0, 3, 0.05),
+    N('cloudLight', '云受光', 0, 3, 0.05)
+  ] },
+  { t: '水体  WATER', c: [
+    N('amp', '浪高', 0.02, 1.8, 0.01),
+    N('chop', '浪尖尖锐', 1, 5, 0.05),
+    N('speed', '流动速度', 0, 3, 0.02),
+    N('freq', '波长密度', 0.06, 0.5, 0.005, v => v.toFixed(3)),
+    N('reflStr', '反射强度', 0, 1.4, 0.02),
+    N('specBoost', '波光增益', 0, 4, 0.05),
+    N('ior', '折射率 IOR', 1.0, 2.0, 0.005, v => v.toFixed(3)),
+    N('absorbS', '吸收强度', 0.2, 3, 0.05),
+    N('sssAmt', '浪尖透光', 0, 3, 0.05),
+    N('causticAmt', '水下焦散', 0, 3, 0.05),
+    N('foam', '白沫', 0, 3, 0.05),
+    N('ripple', '细节涟漪', 0, 3, 0.05),
+    C('深水色相', () => arrToHex(P.deep), h => { P.deep = hexToArr(h, vmax(P.deep)); }),
+    G('深水浓度', () => vmax(P.deep), v => { P.deep = scaleTo(P.deep, v); }, 0.005, 0.6, 0.005),
+    C('次表面色相', () => arrToHex(P.sss), h => { P.sss = hexToArr(h, vmax(P.sss)); }),
+    G('次表面浓度', () => vmax(P.sss), v => { P.sss = scaleTo(P.sss, v); }, 0.02, 1.5, 0.01, v => v.toFixed(2))
+  ] },
+  { t: '云  CLOUDS', c: [
+    N('cloudCov', '覆盖率', 0, 1, 0.01, pct),
+    N('cloudDen', '密度', 0, 2, 0.02),
+    G('云底高度', () => P.cloudLo, v => { P.cloudLo = v; P.cloudHi = Math.max(P.cloudHi, v + 400); },
+      300, 3500, 25, v => v.toFixed(0) + 'm'),
+    G('云层厚度', () => P.cloudHi - P.cloudLo, v => { P.cloudHi = P.cloudLo + v; },
+      400, 6000, 50, v => v.toFixed(0) + 'm')
+  ] },
+  { t: '相机  CAMERA', c: [
+    N('fov', '视场角 FOV', 18, 80, 0.5, v => v.toFixed(0) + '°'),
+    N('camY', '视线高度', 0.3, 9, 0.05),
+    N('orbit', '巡航速度', 0, 0.09, 0.001, v => v.toFixed(3)),
+    N('aperture', '光圈 DOF', 0, 0.35, 0.005, v => v.toFixed(3)),
+    N('focusOff', '对焦偏移', -10, 45, 0.5, v => v.toFixed(1) + 'm'),
+    S('自动巡航', ['ON', 'OFF'], () => cam.auto ? 0 : 1, i => { cam.auto = (i === 0); idleT = 0; })
+  ] },
+  { t: '成像 · 调色  GRADE', c: [
+    N('expo', '曝光', 0.1, 5, 0.02),
+    S('色调映射', TM_NAMES, () => tmIdx, i => { tmIdx = i; }),
+    N('sat', '饱和度', 0, 2, 0.02),
+    N('contrast', '对比度', 0.6, 1.6, 0.01),
+    N('temp', '色温 冷/暖', -1, 1, 0.02),
+    N('tint', '色调 绿/品', -1, 1, 0.02),
+    N('bloom', '泛光强度', 0, 0.4, 0.005, v => v.toFixed(3)),
+    N('bloomTh', '泛光阈值', 0, 3, 0.02),
+    N('bloomR', '泛光半径', 0.5, 3, 0.05),
+    N('sharp', '锐化', 0, 1.5, 0.02),
+    N('vig', '暗角', 0, 1.5, 0.02),
+    N('grain', '颗粒', 0, 0.06, 0.001, v => v.toFixed(3)),
+    N('ca', '色差', 0, 1, 0.02),
+    S('画幅', ['16:9', '2.39:1'], () => showBars ? 1 : 0, i => { showBars = (i === 1); })
+  ] },
+  { t: '渲染  RENDER', c: [
+    N('qual', '步进画质', 0, 1, 0.05, pct),
+    N('taa', '时间降噪', 0.04, 1, 0.01, v => v.toFixed(2)),
+    N('nSph', '材质球数量', 0, 5, 1, v => v.toFixed(0)),
+    G('分辨率', () => scale, v => { scale = v; scaleLocked = true; allocTargets(); }, 0.3, 1, 0.05, pct),
+    S('分辨率模式', ['自适应', '锁定'], () => scaleLocked ? 1 : 0, i => { scaleLocked = (i === 1); })
+  ], open: false }
+];
+
+/* ---- 面板构建（由声明表生成，避免手写几十段 DOM） ---- */
+const ROWS = [];
+function makeRow(it) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const lb = document.createElement('label');
+  lb.textContent = it.label;
+  row.appendChild(lb);
+  const get = it.get || (() => P[it.k]);
+  const set = it.set || (v => { P[it.k] = v; if (it.k in target) target[it.k] = v; });
+  if (it.type === 'n') {
+    const inp = document.createElement('input');
+    inp.type = 'range'; inp.min = it.min; inp.max = it.max; inp.step = it.step;
+    const val = document.createElement('span'); val.className = 'v';
+    inp.addEventListener('input', e => {
+      set(+e.target.value);
+      val.textContent = it.fmt(+e.target.value);
+      if (it.sky) skyDirty = true;
+    });
+    row.appendChild(inp); row.appendChild(val);
+    ROWS.push(() => { const v = +get(); inp.value = v; val.textContent = it.fmt(v); });
+  } else if (it.type === 'c') {
+    const inp = document.createElement('input');
+    inp.type = 'color';
+    const val = document.createElement('span'); val.className = 'v';
+    inp.addEventListener('input', e => { set(e.target.value); val.textContent = e.target.value.slice(1).toUpperCase(); });
+    row.appendChild(document.createElement('span')).style.flex = '1';
+    row.appendChild(inp); row.appendChild(val);
+    ROWS.push(() => { const h = get(); inp.value = h; val.textContent = h.slice(1).toUpperCase(); });
+  } else {
+    const seg = document.createElement('div'); seg.className = 'seg';
+    const btns = it.opts.map((o, i) => {
+      const b = document.createElement('button');
+      b.textContent = o;
+      b.addEventListener('click', () => { set(i); btns.forEach((x, j) => x.classList.toggle('on', j === i)); });
+      seg.appendChild(b); return b;
+    });
+    row.appendChild(seg);
+    ROWS.push(() => { const i = get(); btns.forEach((x, j) => x.classList.toggle('on', j === i)); });
+  }
+  return row;
+}
+function buildPanel() {
+  const body = $('pbody');
+  body.innerHTML = '';
+  for (const sec of CTRL) {
+    const d = document.createElement('div'); d.className = 'psec' + (sec.open === false ? ' off' : '');
+    const st = document.createElement('div'); st.className = 'st';
+    st.innerHTML = '<span>' + sec.t + '</span><b>' + (sec.open === false ? '+' : '–') + '</b>';
+    const sb = document.createElement('div'); sb.className = 'sb';
+    st.addEventListener('click', () => {
+      d.classList.toggle('off');
+      st.querySelector('b').textContent = d.classList.contains('off') ? '+' : '–';
+    });
+    d.appendChild(st); d.appendChild(sb);
+    for (const it of sec.c) sb.appendChild(makeRow(it));
+    body.appendChild(d);
+  }
+}
+function syncPanel() { for (const f of ROWS) f(); }
+
+/* ---- 预设 / 按钮 / 键盘 ---- */
+function applyPreset(i) {
+  curPreset = i;
+  target = Object.assign({}, PRESETS[i]);
+  lerpT = 0;
+  document.querySelectorAll('#presets button').forEach((b, k) => b.classList.toggle('on', k === i));
+}
+document.querySelectorAll('#presets button').forEach(b => b.addEventListener('click', () => applyPreset(+b.dataset.p)));
+$('phd').addEventListener('click', () => {
+  const p = $('panel'); p.classList.toggle('min');
+  $('pmin').textContent = p.classList.contains('min') ? '+' : '−';
+});
+$('b_rnd').addEventListener('click', () => {
+  const R = (a, b) => a + Math.random() * (b - a);
+  P.sunEl = R(-3, 40); P.sunAz = R(0, 360); P.turb = R(0.6, 2.4); P.sunSize = R(0.4, 3);
+  P.amp = R(0.15, 1.5); P.chop = R(1.6, 4.6); P.freq = R(0.09, 0.35); P.speed = R(0.4, 1.8);
+  P.cloudCov = R(0.1, 0.95); P.cloudDen = R(0.5, 1.6);
+  P.deep = hexToArr(arrToHex([R(0.02, 0.3), R(0.3, 1), R(0.4, 1)]), R(0.04, 0.28));
+  P.sss = hexToArr(arrToHex([R(0.05, 0.5), R(0.4, 1), R(0.3, 1)]), R(0.2, 0.9));
+  P.foam = R(0.4, 2); P.specBoost = R(0.6, 2.2); P.sssAmt = R(0.4, 2);
+  P.temp = R(-0.35, 0.35); P.sat = R(0.9, 1.35); P.haze = R(0.5, 2.4);
+  target = Object.assign({}, P); lerpT = 1;
+  skyDirty = true; syncPanel();
+});
+$('b_def').addEventListener('click', () => {
+  Object.assign(P, JSON.parse(JSON.stringify(DEFAULTS)));
+  target = Object.assign({}, PRESETS[curPreset]); lerpT = 0;
+  scaleLocked = false; cam.auto = true;
+  skyDirty = true; syncPanel();
+});
+$('b_cpy').addEventListener('click', async () => {
+  const dump = JSON.stringify({ params: P, cam: { yaw: +cam.yaw.toFixed(4), pitch: +cam.pitch.toFixed(4), dist: +cam.dist.toFixed(3) }, tonemap: TM_NAMES[tmIdx] }, null, 1);
+  try { await navigator.clipboard.writeText(dump); $('b_cpy').textContent = '已复制'; }
+  catch (e) { console.log(dump); $('b_cpy').textContent = '见控制台'; }
+  setTimeout(() => { $('b_cpy').textContent = '复制参数'; }, 1400);
+});
+$('b_shot').addEventListener('click', () => { saveShot = true; });
+addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= '4') applyPreset(+k - 1);
+  else if (k === ' ') { paused = !paused; e.preventDefault(); }
+  else if (k === 'h') document.body.classList.toggle('hideui');
+  else if (k === 'r') { cam.yaw = 2.42; cam.pitch = 0.055; cam.dist = 15.5; cam.auto = true; reset(); }
+  else if (k === 'a') { cam.auto = !cam.auto; syncPanel(); }
+  else if (k === 't') { tmIdx = (tmIdx + 1) % 3; syncPanel(); }
+  else if (k === 'l') { showBars = !showBars; syncPanel(); }
+  else if (k === 's') saveShot = true;
+  else if (k === 'f') { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }
+});
+addEventListener('resize', () => allocTargets());
+
+/* ══════════════════════════════════════════════════════════════════════════
+   8. 主循环
+   ══════════════════════════════════════════════════════════════════════════ */
+let samples = 0, skyDirty = true, frame = 0, fpsT = 0, fpsN = 0, fps = 0, lastMs = performance.now();
+let wasMoving = true;
+function reset() { samples = 0; }
+
+function renderSky() {
+  const el = P.sunEl * Math.PI / 180, az = P.sunAz * Math.PI / 180;
+  const sd = [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
+  gl.useProgram(P_SKY);
+  gl.uniform2f(U(P_SKY, 'uRes'), SKY_W, SKY_H);
+  gl.uniform3f(U(P_SKY, 'uSunDir'), sd[0], sd[1], sd[2]);
+  gl.uniform1f(U(P_SKY, 'uTurb'), P.turb);
+  gl.uniform1f(U(P_SKY, 'uSunI'), P.sunI);
+  draw(FBO_SKY, SKY_W, SKY_H);
+  gl.bindTexture(gl.TEXTURE_2D, TEX_SKY);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  return sd;
+}
+
+function loop(ms) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (ms - lastMs) / 1000); lastMs = ms;
+  if (!paused) timeT += dt;
+  frame++;
+
+  /* --- 预设插值 --- */
+  if (lerpT < 1) {
+    lerpT = Math.min(1, lerpT + dt / 1.7);
+    const t = lerpT * lerpT * (3 - 2 * lerpT);
+    for (const k in target) {
+      if (k === 'name') continue;
+      if (Array.isArray(target[k])) P[k] = P[k].map((v, i) => lerpT >= 1 ? target[k][i] : v + (target[k][i] - v) * t * 0.32);
+      else if (typeof target[k] === 'number') P[k] = lerpT >= 1 ? target[k] : P[k] + (target[k] - P[k]) * t * 0.32;
+    }
+    skyDirty = true; syncPanel();
+  }
+
+  /* --- 自动电影机位（暂停时冻结，让画面逐帧收敛）
+         注意：连续平滑运动 *不* 清空历史，交给带方差裁剪的 TAA 处理，
+         否则每帧都退化成 1spp，景深与云步进的随机性会直接变成噪点 --- */
+  idleT += dt;
+  if (!dragging && idleT > 6) cam.auto = true;
+  cam.ty = P.camY;
+  if (cam.auto && !paused) {
+    cam.yaw += dt * P.orbit;
+    cam.pitch = 0.055 + Math.sin(timeT * 0.055) * 0.045;
+    cam.dist = 15.5 + Math.sin(timeT * 0.037) * 4.2;
+  }
+  /* 球体随浪起伏（JS 镜像高度场） */
+  for (let i = 0; i < SPHERES.length; i++) {
+    const s = SPHERES[i];
+    const h = seaHJS(s.x, s.z, timeT, 4);
+    sphData[i * 4] = s.x;
+    sphData[i * 4 + 1] = h + s.r * (1 - s.sink * 2) + s.r * s.sink * 0.15;
+    sphData[i * 4 + 2] = s.z;
+    sphData[i * 4 + 3] = s.r;
+  }
+  /* 相机：贴着水面又不穿水 */
+  const cp = Math.cos(cam.pitch);
+  let ex = cam.tx + cam.dist * cp * Math.cos(cam.yaw);
+  let ez = cam.tz + cam.dist * cp * Math.sin(cam.yaw);
+  let ey = cam.ty + cam.dist * Math.sin(cam.pitch);
+  const wh = seaHJS(ex, ez, timeT, 4);
+  if (ey < wh + 0.55) ey = wh + 0.55;
+  const fx = cam.tx - ex, fy = cam.ty + 0.15 - ey, fz = cam.tz - ez;
+  const fl = Math.hypot(fx, fy, fz) || 1;
+  const F = [fx / fl, fy / fl, fz / fl];
+  // 右向量 = normalize(cross(F, worldUp))；再 U = cross(R, F) 才得到「+U 朝上」的右手基
+  let Rx = -F[2], Ry = 0, Rz = F[0];
+  const rl = Math.hypot(Rx, Ry, Rz) || 1; Rx /= rl; Rz /= rl;
+  const Ux = Ry * F[2] - Rz * F[1], Uy = Rz * F[0] - Rx * F[2], Uz = Rx * F[1] - Ry * F[0];
+  const focus = fl;
+
+  const sd = skyDirty ? renderSky() : lastSun;
+  lastSun = sd; skyDirty = false;
+  const sc = sunColor(P.sunEl, P.turb, P.sunI);
+
+  /* --- 主 pass（亚像素抖动） --- */
+  const jx = (hash1(samples * 2.13) - 0.5), jy = (hash1(samples * 3.71 + 11.3) - 0.5);
+  gl.useProgram(P_MAIN);
+  const M = P_MAIN;
+  gl.uniform2f(U(M, 'uRes'), RW, RH);
+  gl.uniform2f(U(M, 'uJitter'), jx, jy);
+  gl.uniform1f(U(M, 'uTime'), timeT);
+  gl.uniform1f(U(M, 'uSeed'), frame % 4096);
+  gl.uniform3f(U(M, 'uCamPos'), ex, ey, ez);
+  gl.uniform3f(U(M, 'uCamR'), Rx, Ry, Rz);
+  gl.uniform3f(U(M, 'uCamU'), Ux, Uy, Uz);
+  gl.uniform3f(U(M, 'uCamF'), F[0], F[1], F[2]);
+  gl.uniform1f(U(M, 'uTanHalf'), Math.tan(P.fov * Math.PI / 360));
+  gl.uniform1f(U(M, 'uFocus'), Math.max(0.6, focus + P.focusOff));
+  gl.uniform1f(U(M, 'uAperture'), P.aperture * (paused ? 1.0 : 0.35));
+  gl.uniform3f(U(M, 'uSunDir'), sd[0], sd[1], sd[2]);
+  gl.uniform3f(U(M, 'uSunCol'), sc[0], sc[1], sc[2]);
+  gl.uniform1f(U(M, 'uSunSize'), P.sunSize);
+  gl.uniform4f(U(M, 'uWave'), P.amp, P.chop, P.speed, P.freq);
+  gl.uniform4f(U(M, 'uCloud'), P.cloudCov, P.cloudDen, P.cloudLo, P.cloudHi);
+  gl.uniform3f(U(M, 'uDeep'), P.deep[0], P.deep[1], P.deep[2]);
+  gl.uniform3f(U(M, 'uSSS'), P.sss[0], P.sss[1], P.sss[2]);
+  gl.uniform3f(U(M, 'uAbsorb'), P.absorb[0] * P.absorbS, P.absorb[1] * P.absorbS, P.absorb[2] * P.absorbS);
+  gl.uniform1f(U(M, 'uReflStr'), P.reflStr);
+  gl.uniform1f(U(M, 'uSpecBoost'), P.specBoost);
+  gl.uniform1f(U(M, 'uFoam'), P.foam);
+  gl.uniform1f(U(M, 'uSSSAmt'), P.sssAmt);
+  gl.uniform1f(U(M, 'uCausticAmt'), P.causticAmt);
+  gl.uniform1f(U(M, 'uRipple'), P.ripple);
+  gl.uniform1f(U(M, 'uIOR'), P.ior);
+  gl.uniform1f(U(M, 'uAmbient'), P.ambient);
+  gl.uniform1f(U(M, 'uCloudLight'), P.cloudLight);
+  gl.uniform1f(U(M, 'uHaze'), P.haze);
+  gl.uniform1f(U(M, 'uQual'), P.qual);
+  gl.uniform4fv(U(M, 'uSph'), sphData);
+  gl.uniform1fv(U(M, 'uSphMat'), sphMat);
+  gl.uniform1i(U(M, 'uNSph'), Math.max(0, Math.min(SPHERES.length, Math.round(P.nSph))));
+  bindTex(M, 'uSky', 0, TEX_SKY);
+  bindTex(M, 'uWeather', 1, TEX_WEATHER);
+  bindTex(M, 'uNoise', 2, TEX_NOISE, true);
+  draw(fboHDR, RW, RH);
+
+  /* --- 时间累积：运动时用带方差裁剪的低 alpha TAA；空格冻结后转为逐帧收敛 --- */
+  const moving = dragging || lerpT < 1 || (!paused && (cam.auto || P.speed > 0));
+  if (wasMoving && !moving) reset();            // 进入「冻结精修」时重开累积
+  wasMoving = moving;
+  const alpha = moving ? P.taa : 1 / Math.min(samples + 1, 160);
+  const src = accIdx, dst = 1 - accIdx;
+  gl.useProgram(P_ACC);
+  gl.uniform2f(U(P_ACC, 'uRes'), RW, RH);
+  gl.uniform2f(U(P_ACC, 'uTexel'), 1 / RW, 1 / RH);
+  gl.uniform1f(U(P_ACC, 'uAlpha'), samples === 0 ? 1.0 : alpha);
+  gl.uniform1f(U(P_ACC, 'uClip'), moving ? 1.0 : 0.0);
+  bindTex(P_ACC, 'uCur', 0, texHDR);
+  bindTex(P_ACC, 'uPrev', 1, texAcc[src]);
+  draw(fboAcc[dst], RW, RH);
+  accIdx = dst;
+  samples++;
+
+  /* --- Bloom：降采样链 → tent 升采样加回 --- */
+  gl.useProgram(P_DOWN);
+  let srcTex = texAcc[accIdx], sw = RW, sh2 = RH;
+  for (let i = 0; i < BLOOM_MIPS; i++) {
+    gl.uniform2f(U(P_DOWN, 'uTexel'), 1 / sw, 1 / sh2);
+    gl.uniform1f(U(P_DOWN, 'uThresh'), P.bloomTh);
+    gl.uniform1f(U(P_DOWN, 'uFirst'), i === 0 ? 1 : 0);
+    bindTex(P_DOWN, 'uTex', 0, srcTex);
+    draw(bloomFbo[i], bloomTex[i]._w, bloomTex[i]._h);
+    srcTex = bloomTex[i]; sw = bloomTex[i]._w; sh2 = bloomTex[i]._h;
+  }
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  gl.useProgram(P_UP);
+  for (let i = BLOOM_MIPS - 1; i > 0; i--) {
+    const dstT = bloomTex[i - 1];
+    gl.uniform2f(U(P_UP, 'uTexel'), 1 / bloomTex[i]._w, 1 / bloomTex[i]._h);
+    gl.uniform2f(U(P_UP, 'uRes'), dstT._w, dstT._h);
+    gl.uniform1f(U(P_UP, 'uRadius'), P.bloomR);
+    bindTex(P_UP, 'uTex', 0, bloomTex[i]);
+    draw(bloomFbo[i - 1], dstT._w, dstT._h);
+  }
+  gl.disable(gl.BLEND);
+
+  /* --- 合成到屏幕 --- */
+  gl.useProgram(P_POST);
+  gl.uniform2f(U(P_POST, 'uRes'), W, H);
+  gl.uniform1f(U(P_POST, 'uExposure'), P.expo);
+  gl.uniform1f(U(P_POST, 'uBloomAmt'), P.bloom);
+  gl.uniform1f(U(P_POST, 'uTime'), timeT);
+  gl.uniform1f(U(P_POST, 'uCA'), P.ca);
+  gl.uniform1f(U(P_POST, 'uVig'), P.vig);
+  gl.uniform1f(U(P_POST, 'uGrain'), P.grain);
+  gl.uniform1f(U(P_POST, 'uTM'), tmIdx);
+  gl.uniform1f(U(P_POST, 'uSat'), P.sat);
+  gl.uniform1f(U(P_POST, 'uContrast'), P.contrast);
+  gl.uniform1f(U(P_POST, 'uTemp'), P.temp);
+  gl.uniform1f(U(P_POST, 'uTint'), P.tint);
+  gl.uniform1f(U(P_POST, 'uSharp'), P.sharp);
+  gl.uniform1f(U(P_POST, 'uBars'), showBars ? 1 : 0);
+  bindTex(P_POST, 'uHdr', 0, texAcc[accIdx]);
+  bindTex(P_POST, 'uBloom', 1, bloomTex[0]);
+  draw(null, W, H);
+
+  if (saveShot) {
+    saveShot = false;
+    canvas.toBlob(b => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = 'ocean_' + Date.now() + '.png';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    });
+  }
+
+  /* --- 自适应分辨率 + HUD --- */
+  fpsT += dt; fpsN++;
+  if (fpsT >= 0.5) {
+    fps = fpsN / fpsT; fpsT = 0; fpsN = 0;
+    let ns = scale;
+    if (fps < 40 && scale > 0.42) ns = Math.max(0.42, scale - 0.09);
+    else if (fps > 75 && scale < 1.0) ns = Math.min(1.0, scale + 0.06);
+    if (!scaleLocked && Math.abs(ns - scale) > 0.001) { scale = ns; allocTargets(); }
+    $('stat').innerHTML =
+      '<b>' + fps.toFixed(0) + '</b> FPS &nbsp;·&nbsp; ' + RW + '×' + RH + ' (' + (scale * 100).toFixed(0) + '%)<br>' +
+      (moving ? 'TAA <b>' + Math.round(1 / P.taa) + '</b> taps' : 'REFINING <b>' + Math.min(samples, 160) + '</b>/160')
+      + ' &nbsp;·&nbsp; ' + TM_NAMES[tmIdx] + '<br>' +
+      PRESETS[curPreset].name + ' &nbsp;·&nbsp; SUN ' + P.sunEl.toFixed(1) + '°' + (paused ? ' · FROZEN' : '');
+  }
+  if (frame === 3) { $('veil').classList.add('out'); }
+}
+let lastSun = [0, 1, 0];
+function hash1(x) { const s = Math.sin(x * 127.1) * 43758.5453; return s - Math.floor(s); }
+
+$('veiltxt').textContent = 'COMPILING SHADERS …';
+allocTargets();
+buildPanel();
+syncPanel();
+requestAnimationFrame(loop);
+window.__OCEAN = { P, cam, gl, get samples() { return samples; },
+  setScale(s, lock) { scale = s; scaleLocked = !!lock; allocTargets(); },
+  readHDR() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboAcc[accIdx]);
+    let buf = new Float32Array(RW * RH * 4);
+    while (gl.getError() !== gl.NO_ERROR) {}
+    gl.readPixels(0, 0, RW, RH, gl.RGBA, gl.FLOAT, buf);
+    if (gl.getError() !== gl.NO_ERROR) {                 // 回退：半浮点读取后手工解码
+      const h = new Uint16Array(RW * RH * 4);
+      gl.readPixels(0, 0, RW, RH, gl.RGBA, gl.HALF_FLOAT, h);
+      buf = new Float32Array(h.length);
+      for (let i = 0; i < h.length; i++) {
+        const v = h[i], s = (v & 0x8000) ? -1 : 1, e = (v >> 10) & 0x1f, f = v & 0x3ff;
+        buf[i] = e === 0 ? s * f * 5.9604644775390625e-8
+               : e === 31 ? (f ? NaN : s * Infinity)
+               : s * Math.pow(2, e - 15) * (1 + f / 1024);
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return buf;
+  } };
+</script>
+</body>
+</html>

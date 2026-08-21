@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三维「鞭毛结构与运动」交互模拟器 · Bacterial Flagellar Motor 3D</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg0:#070b16; --bg1:#0d1426; --pane:rgba(15,23,42,.72); --line:rgba(148,163,184,.20);
+    --txt:#e2e8f4; --dim:#93a3bb; --acc:#38bdf8; --warn:#fb923c;
+  }
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 800px at 18% 8%, #16233d 0%, rgba(0,0,0,0) 60%),
+      radial-gradient(900px 700px at 88% 92%, #10233a 0%, rgba(0,0,0,0) 55%),
+      linear-gradient(160deg,var(--bg1),var(--bg0));
+    color:var(--txt);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    padding:14px 14px 26px; min-height:100%;
+  }
+  .app{max-width:1560px;margin:0 auto}
+  header{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;padding:2px 4px 12px}
+  h1{font-size:21px;letter-spacing:.6px;font-weight:650}
+  h1 .em{font-size:22px}
+  .sub{font-size:12px;color:var(--dim);line-height:1.5;flex:1;min-width:260px}
+  .tagrow{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:rgba(148,163,184,.07)}
+
+  .wrap{display:flex;gap:14px;align-items:stretch}
+  .stage{flex:1;min-width:0;position:relative;border-radius:16px;overflow:hidden;
+    border:1px solid var(--line);background:#04070f;
+    box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.02)}
+  canvas{display:block;width:100%;height:min(76vh,780px);touch-action:none;cursor:grab}
+  canvas.drag{cursor:grabbing}
+  .overlay{position:absolute;left:12px;bottom:10px;font-size:11px;color:#8b9db8;
+    background:rgba(4,8,16,.55);border:1px solid var(--line);border-radius:9px;padding:5px 9px;pointer-events:none}
+  .badge{position:absolute;right:12px;top:11px;display:flex;gap:6px;flex-direction:column;align-items:flex-end;pointer-events:none}
+  .badge span{font-size:11px;padding:3px 9px;border-radius:8px;background:rgba(4,8,16,.6);
+    border:1px solid var(--line);color:#a9bcd6;font-variant-numeric:tabular-nums}
+
+  .side{width:322px;flex:0 0 322px;display:flex;flex-direction:column;gap:10px;max-height:min(76vh,780px);overflow-y:auto;padding-right:3px}
+  .side::-webkit-scrollbar{width:8px}
+  .side::-webkit-scrollbar-thumb{background:rgba(148,163,184,.25);border-radius:8px}
+  .card{background:var(--pane);border:1px solid var(--line);border-radius:13px;padding:10px 11px;
+    backdrop-filter:blur(8px)}
+  .ttl{font-size:11.5px;letter-spacing:1.2px;color:#8fa3bf;text-transform:uppercase;
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .row{display:flex;gap:6px;flex-wrap:wrap}
+  .btn{flex:1;min-width:84px;border:1px solid var(--line);background:rgba(148,163,184,.08);color:var(--txt);
+    padding:7px 8px;border-radius:9px;font-size:12px;font-family:inherit;cursor:pointer;transition:.14s}
+  .btn:hover{background:rgba(56,189,248,.16);border-color:rgba(56,189,248,.5);transform:translateY(-1px)}
+  .btn.primary{background:rgba(56,189,248,.2);border-color:rgba(56,189,248,.55);color:#e0f2fe}
+  .btn.warn{background:rgba(251,146,60,.16);border-color:rgba(251,146,60,.45)}
+  .btn.sm{font-size:11px;padding:6px 6px;min-width:0}
+  .mini{border:1px solid var(--line);background:rgba(148,163,184,.08);color:#cbd5e1;border-radius:7px;
+    font-size:10.5px;padding:2px 7px;cursor:pointer;font-family:inherit}
+  .mini:hover{background:rgba(56,189,248,.18)}
+  .sld{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#b7c6da;margin:6px 0}
+  .sld span{flex:0 0 84px}
+  .sld input[type=range]{flex:1;accent-color:var(--acc);min-width:0}
+  .sld b{flex:0 0 54px;text-align:right;color:#e0f2fe;font-variant-numeric:tabular-nums;font-weight:600}
+  select{background:#0f1a2e;color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:4px 6px;font-family:inherit;font-size:11.5px}
+  .chks{display:grid;grid-template-columns:1fr 1fr;gap:5px 8px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#b7c6da;cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--acc);width:13px;height:13px}
+  .ro{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .ro div{background:rgba(2,6,14,.5);border:1px solid var(--line);border-radius:9px;padding:6px 7px}
+  .ro em{display:block;font-style:normal;font-size:10px;color:#8194ae;letter-spacing:.4px}
+  .ro b{font-size:13.5px;color:#e6f3ff;font-variant-numeric:tabular-nums;font-weight:650}
+  .ro b.s{font-size:11.5px}
+  .note{font-size:10.5px;color:#7f92ad;margin-top:6px;line-height:1.5}
+
+  #infoCard{min-height:150px}
+  .ic-h{display:flex;align-items:center;gap:8px}
+  .dot{width:11px;height:11px;border-radius:50%;flex:0 0 11px;box-shadow:0 0 9px currentColor}
+  .ic-zh{font-size:14px;font-weight:650;color:#f1f7ff}
+  .ic-en{font-size:10.5px;color:#8ba0bd;margin:2px 0 6px}
+  .ic-tx{font-size:12px;line-height:1.68;color:#c3d2e6}
+  .ic-tip{font-size:10.5px;color:#7d90ab;margin-top:7px;border-top:1px dashed var(--line);padding-top:6px}
+
+  .foot{margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+  .legend{flex:1;min-width:300px;background:var(--pane);border:1px solid var(--line);border-radius:13px;padding:9px 11px}
+  .lg{display:flex;flex-wrap:wrap;gap:5px 12px}
+  .lg i{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#b0c0d6;font-style:normal}
+  .lg i s{width:9px;height:9px;border-radius:3px;text-decoration:none;display:inline-block}
+  .cap{flex:1;min-width:300px;background:var(--pane);border:1px solid var(--line);border-radius:13px;
+    padding:9px 12px;font-size:11.5px;color:#9db0c9;line-height:1.7}
+  .cap b{color:#cfe0f5;font-weight:600}
+  kbd{font-family:inherit;font-size:10.5px;background:rgba(148,163,184,.14);border:1px solid var(--line);
+    border-radius:5px;padding:0 5px;color:#cbd5e1}
+  @media (max-width:1120px){
+    .wrap{flex-direction:column}
+    .side{width:auto;flex:none;max-height:none;overflow:visible}
+    canvas{height:62vh}
+    .ro{grid-template-columns:1fr 1fr 1fr}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1><span class="em">🧬</span> 三维鞭毛结构与运动模拟器</h1>
+    <div class="sub">
+      革兰阴性菌鞭毛马达全构件三维剖切模型：外膜/LPS → 肽聚糖层 → 细胞质膜分层背景，
+      各环珠链式亚基同步旋转（真实前后景遮挡），MotA/MotB 定子锚定细胞壁不动，H⁺ 沿定子通道下行并在 MotA–FliG 界面闪出力矩火花，
+      flagellin 亚基沿中空杆芯上行到帽端装配。
+    </div>
+    <div class="tagrow">
+      <span class="tag">自研深度排序 3D 渲染</span>
+      <span class="tag">零依赖 · 离线可用</span>
+      <span class="tag">爆炸图</span>
+      <span class="tag">速度 / PMF 调节</span>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="stage" id="stage">
+      <canvas id="cv"></canvas>
+      <div class="badge">
+        <span id="bgView">全景视角</span>
+        <span id="bgSpin">CCW · run</span>
+      </div>
+      <div class="overlay">拖拽旋转 · 滚轮缩放 · Shift+拖拽上下平移 · 悬停/点击任一构件查看详情</div>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <div class="ttl">运行控制</div>
+        <div class="row">
+          <button class="btn primary" id="btnPlay">⏸ 暂停</button>
+          <button class="btn" id="btnDir">🔄 转向 CW</button>
+          <button class="btn warn" id="btnReset">♻️ 重置</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl">动力与速度</div>
+        <label class="sld"><span>时间倍速</span><input type="range" id="rgSpeed" min="5" max="300" value="100"><b id="vSpeed">1.00×</b></label>
+        <label class="sld"><span>质子动力势</span><input type="range" id="rgPmf" min="20" max="160" value="100"><b id="vPmf">1.00</b></label>
+        <div class="note">PMF（Δψ + ΔpH）同时决定转速、扭矩与 H⁺ 通量；调到最低时马达接近停转。</div>
+      </section>
+
+      <section class="card">
+        <div class="ttl">爆炸图 <button class="mini" id="btnExp">展开 / 合拢</button></div>
+        <label class="sld"><span>分离度</span><input type="range" id="rgExp" min="0" max="100" value="0"><b id="vExp">0%</b></label>
+        <div class="note">按"胞内 → 胞外"轴向次序把 14 个层级拉开：FliI₆ → 输出装置 → C 环 → 细胞质膜 → MS 环 → 杆 → 肽聚糖 → P 环 → 外膜/LPS → L 环 → 钩 → 接头 → 丝 → 帽；定子额外径向外移。</div>
+      </section>
+
+      <section class="card">
+        <div class="ttl">显示</div>
+        <div class="chks">
+          <label class="chk"><input type="checkbox" id="ckCut" checked>剖切视图</label>
+          <label class="chk"><input type="checkbox" id="ckLab" checked>结构标注</label>
+          <label class="chk"><input type="checkbox" id="ckH" checked>H⁺ 质子流</label>
+          <label class="chk"><input type="checkbox" id="ckExp" checked>亚基输出</label>
+          <label class="chk"><input type="checkbox" id="ckSpin">相机自转</label>
+          <label class="chk"><input type="checkbox" id="ckStrict">LP 环轴套模式</label>
+        </div>
+        <label class="sld" style="margin-top:8px"><span>亚基密度</span>
+          <select id="selDens">
+            <option value="0.78">精细</option>
+            <option value="1" selected>标准</option>
+            <option value="1.45">流畅</option>
+          </select>
+          <b id="vFps">– fps</b>
+        </label>
+      </section>
+
+      <section class="card">
+        <div class="ttl">视角预设</div>
+        <div class="row">
+          <button class="btn sm" data-view="all">1 全景</button>
+          <button class="btn sm" data-view="motor">2 马达特写</button>
+          <button class="btn sm" data-view="top">3 基部俯视</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn sm" data-view="chan">4 输出通道</button>
+          <button class="btn sm" data-view="stator">5 定子界面</button>
+          <button class="btn sm" data-view="under">6 仰视 C 环</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl">实时读数</div>
+        <div class="ro">
+          <div><em>状态</em><b class="s" id="rdState">CCW · run</b></div>
+          <div><em>转速</em><b id="rdHz">300 Hz</b></div>
+          <div><em>扭矩</em><b class="s" id="rdTq">1200 pN·nm</b></div>
+          <div><em>H⁺ / 圈</em><b id="rdH">1100</b></div>
+          <div><em>已装配亚基</em><b id="rdAsm">0</b></div>
+          <div><em>丝螺旋</em><b id="rdTurn">1.8 圈</b></div>
+        </div>
+        <div class="note" id="rdSlow">动画相对真实转速放慢 ≈545×（否则每帧转过数圈，无法观察）。</div>
+      </section>
+
+      <section class="card" id="infoCard">
+        <div class="ttl">构件详情 <span style="letter-spacing:0;text-transform:none;color:#7d90ab">悬停 / 点击</span></div>
+        <div id="infoBody"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="foot">
+    <div class="legend">
+      <div class="ttl">图例 · 19 个可交互构件</div>
+      <div class="lg" id="legend"></div>
+    </div>
+    <div class="cap">
+      <b>科学性说明：</b>几何按真实量级但作了教学压缩——鞭毛丝实长 5–10 µm（含 2–3 万个 flagellin），图中只画约 2 圈螺旋；
+      转速真实为 100–300 Hz、近失速扭矩 ~10³ pN·nm、每圈约 1000–1200 H⁺，动画已放慢数百倍。
+      <b>转子</b>=C 环+MS 环+杆+钩+丝，<b>定子</b>=MotA₅MotB₂（8–11 个，锚定肽聚糖故不动），<b>轴套</b>=LP 环。
+      快捷键：<kbd>空格</kbd>暂停 <kbd>D</kbd>转向 <kbd>E</kbd>爆炸 <kbd>C</kbd>剖切 <kbd>L</kbd>标注 <kbd>R</kbd>重置 <kbd>1–6</kbd>视角 <kbd>←→↑↓</kbd>转动。
+      可用地址栏参数直接进入某个状态，例如 <kbd>…flagellum-3d.html#view=stator&explode=1&pmf=1.4</kbd>。
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ==================================================================
+   0. 基础工具
+   ================================================================== */
+const TAU = Math.PI * 2;
+const clamp = (v,a,b)=> v<a?a:(v>b?b:v);
+const lerp  = (a,b,t)=> a+(b-a)*t;
+const smoo  = t => { t = clamp(t,0,1); return t*t*(3-2*t); };
+const rnd   = (a,b)=> a+Math.random()*(b-a);
+function angDiff(a,b){ let d=(a-b)%TAU; if(d>Math.PI)d-=TAU; if(d<-Math.PI)d+=TAU; return d; }
+
+function hx(h){
+  h = h.replace('#','');
+  if(h.length===3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n = parseInt(h,16);
+  return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+const mul = (c,f)=>({ r:clamp(c.r*f,0,255), g:clamp(c.g*f,0,255), b:clamp(c.b*f,0,255) });
+const mix = (a,b,t)=>({ r:lerp(a.r,b.r,t), g:lerp(a.g,b.g,t), b:lerp(a.b,b.b,t) });
+const css = (c,a)=> 'rgba('+(c.r|0)+','+(c.g|0)+','+(c.b|0)+','+(a===undefined?1:a)+')';
+
+/* ==================================================================
+   1. 调色板
+   ================================================================== */
+const C = {
+  fil:'#6366f1', fil2:'#818cf8', filSeam:'#c7d2fe',
+  cap:'#fb7185', hook:'#a855f7', hook2:'#9333ea', junc:'#c084fc',
+  lring:'#e11d48', pring:'#f43f5e',
+  rodP:'#8fa0b6', rodD:'#cbd5e1',
+  ms:'#38bdf8', ms2:'#0ea5e9',
+  fliG:'#14b8a6', fliM:'#2dd4bf', fliN:'#0d9488', cwall:'#0f766e',
+  motA:'#f97316', motA2:'#ea580c', motB:'#fdba74', motBpg:'#c2410c',
+  expo:'#eab308', expo2:'#ca8a04', flii:'#f59e0b', flij:'#fef3c7',
+  proton:'#22d3ee', spark:'#fde68a', cargo:'#4ade80',
+  omO:'#fbbf24', omI:'#d97706', lps:'#bef264', lpsCore:'#d9f99d', porin:'#b45309',
+  pg:'#84cc16', pgLink:'#a3e635',
+  cmO:'#60a5fa', cmI:'#3b82f6', memP:'#1d4ed8',
+  ribo:'#64748b', ext:'#94a3b8', chan:'#67e8f9'
+};
+
+/* ==================================================================
+   2. 几何常量（单位 ≈ nm，教学压缩）
+   ================================================================== */
+const GEO = {
+  cmY:0, mH:3.3,            // 细胞质膜中心 / 单层偏移
+  pgY:22,                   // 肽聚糖层
+  omY:41,                   // 外膜中心
+  sheetR:126,               // 膜片外缘
+  cmHole:17.5, pgHole:20, omHole:20,
+  rodBot:4, rodTop:43,      // 杆
+  hookBot:45,               // 钩起点
+  filBase:98,               // 鞭毛丝基部（钩尖）→ 钩长约 53 nm，符合真实值 ~55 nm
+  helixR:11.5, pitch:104,   // 螺旋半径 / 螺距
+  statorR:27.5, statorN:11, // 定子环半径 / 单元数
+  lringY:41, pringY:22,
+  msY:2.5,
+  hand:-1                   // 鞭毛丝手性（normal form 为左手螺旋）
+};
+const STATOR_A0 = 0.16;
+const CUT = 0.95;           // 剖切楔形半角（膜/肽聚糖/C 环）
+const CUT_ST = 0.40;        // 定子剖切半角（只藏最前面 1–2 个）
+
+/* 爆炸图轴向次序（-1 = 最深处细胞质，+1 = 最外胞外）
+   注：LPS 与外膜同组位移（它本就长在外膜上）；丝/帽位移收敛，避免高处构件被推出画面 */
+const RANK = {
+  flii:{y:-1.00}, expo:{y:-0.72,rad:0.34}, cring:{y:-0.50}, cyto:{y:-0.62},
+  cm:{y:-0.26}, ms:{y:-0.13}, stator:{y:-0.20,rad:0.92},
+  rod:{y:0.14}, pg:{y:0.32}, pring:{y:0.42,rad:0.46},
+  om:{y:0.58}, lps:{y:0.58}, lring:{y:0.78,rad:0.46},
+  hook:{y:0.86}, junc:{y:0.90}, fil:{y:0.94}, cap:{y:0.99}, ext:{y:0.9}
+};
+function exY(g){ const r=RANK[g]; return r ? r.y*178*state.explode : 0; }
+function exR(g){ const r=RANK[g]; return (r&&r.rad) ? r.rad*96*state.explode : 0; }
+
+/* ==================================================================
+   3. 运行状态
+   ================================================================== */
+const state = {
+  playing:true, speed:1, pmf:1, dir:1,
+  explode:0, explodeTo:0,
+  cutaway:true, labels:true, showH:true, showExport:true, autoSpin:false, strict:false,
+  theta:0, time:0, revs:0,
+  filTurns:1.78, assembled:0,
+  fR:1, fP:1,
+  protons:[], sparks:[], cargo:[], capFlash:0, atpFlash:0, atpIdx:0,
+  pAcc:0, cAcc:0, fps:60
+};
+
+/* ==================================================================
+   4. 相机
+   ================================================================== */
+const cam = { yaw:0.62, pitch:0.17, dist:650, tx:0, ty:132, tz:0, f:840,
+              _cy:1,_sy:0,_cp:1,_sp:0, _ty:132, _dist:650, _eye:{x:0,y:0,z:0} };
+let camAzim = 0;
+const VIEWS = {
+  all:   { yaw:0.62, pitch:0.17, dist:650, ty:132, name:'全景视角' },
+  motor: { yaw:0.72, pitch:0.10, dist:238, ty:10,  name:'马达特写' },
+  top:   { yaw:0.50, pitch:1.16, dist:300, ty:2,   name:'基部俯视' },
+  chan:  { yaw:1.30, pitch:0.06, dist:350, ty:52,  name:'输出通道' },
+  stator:{ yaw:0.30, pitch:0.30, dist:170, ty:2,   name:'定子界面' },
+  under: { yaw:0.85, pitch:-0.55, dist:250, ty:-14,name:'仰视 C 环' }
+};
+let camAnim = null, viewName = '全景视角';
+
+function setView(k){
+  const v = VIEWS[k]; if(!v) return;
+  camAnim = { t:0, from:{yaw:cam.yaw,pitch:cam.pitch,dist:cam.dist,ty:cam.ty}, to:v };
+  viewName = v.name; el.bgView.textContent = v.name;
+}
+function updateCam(dt){
+  if(camAnim){
+    camAnim.t = Math.min(1, camAnim.t + dt*2.2);
+    const k = smoo(camAnim.t), a = camAnim.from, b = camAnim.to;
+    cam.yaw   = lerp(a.yaw,b.yaw,k);
+    cam.pitch = lerp(a.pitch,b.pitch,k);
+    cam.dist  = lerp(a.dist,b.dist,k);
+    cam.ty    = lerp(a.ty,b.ty,k);
+    if(camAnim.t>=1) camAnim = null;
+  }
+  if(state.autoSpin && !camAnim) cam.yaw += dt*0.17;
+  /* 爆炸图会把模型拉高：自动抬高视点并后退，避免帽/丝被推出画面 */
+  cam._ty   = cam.ty + state.explode*54;
+  cam._dist = cam.dist*(1 + state.explode*0.34);
+  cam._cy=Math.cos(cam.yaw); cam._sy=Math.sin(cam.yaw);
+  cam._cp=Math.cos(cam.pitch); cam._sp=Math.sin(cam.pitch);
+  const e = cam._eye;
+  e.x = cam.tx - cam._dist*cam._cp*cam._sy;
+  e.y = cam._ty + cam._dist*cam._sp;
+  e.z = cam.tz + cam._dist*cam._cp*cam._cy;
+  camAzim = Math.atan2(e.z-cam.tz, e.x-cam.tx);
+}
+
+/* ==================================================================
+   5. 精灵缓存（球体 / 辉光 / 描边色）
+   ================================================================== */
+const SH = 7, SHMIN = 0.34;
+const ballCache = new Map(), glowCache = new Map(), strokeCache = new Map();
+
+function ball(color, lvl){
+  const key = color + lvl;
+  let cv = ballCache.get(key);
+  if(cv) return cv;
+  const S = 72;
+  cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+  const g = cv.getContext('2d');
+  const base = mul(hx(color), SHMIN + (1-SHMIN)*lvl/(SH-1));
+  const white = {r:255,g:255,b:255};
+  const grd = g.createRadialGradient(S*0.355,S*0.325,S*0.03, S*0.5,S*0.5,S*0.5);
+  grd.addColorStop(0,    css(mix(base,white,0.66)));
+  grd.addColorStop(0.26, css(mix(base,white,0.20)));
+  grd.addColorStop(0.60, css(base));
+  grd.addColorStop(0.88, css(mul(base,0.52)));
+  grd.addColorStop(0.985,css(mul(base,0.32)));
+  grd.addColorStop(1,    css(mul(base,0.32),0));
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(S/2,S/2,S/2,0,TAU); g.fill();
+  ballCache.set(key,cv);
+  return cv;
+}
+function glowImg(color){
+  let cv = glowCache.get(color);
+  if(cv) return cv;
+  const S = 96;
+  cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+  const g = cv.getContext('2d');
+  const c = hx(color);
+  const grd = g.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
+  grd.addColorStop(0,    css(mix(c,{r:255,g:255,b:255},0.8),1));
+  grd.addColorStop(0.18, css(c,0.85));
+  grd.addColorStop(0.5,  css(mul(c,0.75),0.26));
+  grd.addColorStop(1,    css(mul(c,0.5),0));
+  g.fillStyle = grd; g.fillRect(0,0,S,S);
+  glowCache.set(color,cv);
+  return cv;
+}
+function strokeCol(color,lvl){
+  const key = color + lvl;
+  let s = strokeCache.get(key);
+  if(s) return s;
+  s = css(mul(hx(color), SHMIN + (1-SHMIN)*lvl/(SH-1)));
+  strokeCache.set(key,s);
+  return s;
+}
+
+/* ==================================================================
+   6. 投影 + 图元池（深度排序软渲染）
+   ================================================================== */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W=900,H=600,W2=450,H2=300,DPR=1;
+
+const P = { ok:false, sx:0, sy:0, s:1, vz:0, zc:0 };
+function project(x,y,z){
+  const dx=x-cam.tx, dy=y-cam._ty, dz=z-cam.tz;
+  const x1 =  dx*cam._cy + dz*cam._sy;
+  const z1 = -dx*cam._sy + dz*cam._cy;
+  const y2 =  dy*cam._cp - z1*cam._sp;
+  const z2 =  dy*cam._sp + z1*cam._cp;
+  const vz = cam._dist - z2;
+  if(vz < 22){ P.ok=false; return P; }
+  const s = cam.f/vz;
+  P.ok=true; P.s=s; P.vz=vz; P.zc=z2;
+  P.sx = W2 + x1*s;
+  P.sy = H2 - y2*s;
+  return P;
+}
+function shadeLvl(zc,hl){
+  const f = 0.52 + zc/330 + (hl||0);
+  return clamp(Math.round(f*(SH-1)),0,SH-1);
+}
+
+const pool=[]; let pn=0; const act=[];
+function take(){
+  let o = pool[pn];
+  if(!o){ o={t:0,img:null,x:0,y:0,x2:0,y2:0,r:0,w:1,a:1,vz:0,col:''}; pool[pn]=o; }
+  pn++; act.push(o); return o;
+}
+function pushBall(x,y,z,rad,color,alpha,hl){
+  const p = project(x,y,z);
+  if(!p.ok) return;
+  const rs = rad*p.s;
+  if(rs < 0.4) return;
+  if(p.sx < -rs-4 || p.sx > W+rs+4 || p.sy < -rs-4 || p.sy > H+rs+4) return;
+  const o = take();
+  o.t=0; o.img=ball(color, shadeLvl(p.zc,hl));
+  o.x=p.sx; o.y=p.sy; o.r=rs; o.vz=p.vz;
+  o.a = alpha===undefined?1:alpha;
+}
+function pushSeg(x1,y1,z1,x2,y2,z2,w,color,alpha,hl){
+  let p = project(x1,y1,z1);
+  if(!p.ok) return;
+  const ax=p.sx, ay=p.sy, av=p.vz, az=p.zc, as=p.s;
+  p = project(x2,y2,z2);
+  if(!p.ok) return;
+  if(Math.max(ax,p.sx) < -8 || Math.min(ax,p.sx) > W+8) return;
+  const o = take();
+  o.t=1; o.x=ax; o.y=ay; o.x2=p.sx; o.y2=p.sy;
+  o.vz=(av+p.vz)*0.5;
+  o.w=Math.max(0.55, w*(as+p.s)*0.5);
+  o.a=alpha===undefined?1:alpha;
+  o.col=strokeCol(color, shadeLvl((az+p.zc)*0.5,hl));
+}
+function pushGlow(x,y,z,rad,color,alpha){
+  const p = project(x,y,z);
+  if(!p.ok) return;
+  const rs = rad*p.s;
+  if(rs<0.6) return;
+  if(p.sx < -rs || p.sx > W+rs || p.sy < -rs || p.sy > H+rs) return;
+  const o = take();
+  o.t=2; o.img=glowImg(color); o.x=p.sx; o.y=p.sy; o.r=rs; o.vz=p.vz;
+  o.a=alpha===undefined?1:alpha;
+}
+
+/* ==================================================================
+   7. 静态背景层：外膜/LPS · 肽聚糖 · 细胞质膜 · 胞内外颗粒
+   ================================================================== */
+let DENS = 1;
+const S = { om:[], lps:[], lpsSeg:[], cm:[], pg:[], pgSeg:[], cyto:[], ext:[], porin:[] };
+
+function annulus(r0,r1,sp,cb){
+  let k = 0;
+  for(let r=r0; r<=r1; r+=sp){
+    const n = Math.max(7, Math.round(TAU*r/sp));
+    for(let i=0;i<n;i++){
+      const a  = i*TAU/n + r*0.41;
+      const rr = r + rnd(-sp*0.17, sp*0.17);
+      cb(Math.cos(a)*rr, Math.sin(a)*rr, a, rr, k++);
+    }
+  }
+}
+function edgeFade(rr){ return clamp((GEO.sheetR-rr)/26,0,1)*0.97; }
+
+function buildStatic(){
+  for(const k in S) S[k].length = 0;
+  const sp = 9.2*DENS;
+
+  /* --- 外膜（不对称双层）+ LPS 糖链 + 孔蛋白 --- */
+  annulus(GEO.omHole, GEO.sheetR, sp, (x,z,a,rr,k)=>{
+    const al = edgeFade(rr);
+    S.om.push({x:x,y:GEO.omY+GEO.mH,z:z,a:a,r:3.0,c:C.omO,al:al});
+    S.om.push({x:x,y:GEO.omY-GEO.mH,z:z,a:a,r:2.7,c:C.omI,al:al});
+    if(k%5===0 && rr>GEO.omHole+4){               // 脂多糖 LPS
+      const ux=x/rr, uz=z/rr;
+      let py=GEO.omY+GEO.mH+2.0, px=x, pz=z;
+      for(let s=0;s<3;s++){
+        const nx=px+ux*rnd(-0.8,1.6)+rnd(-1,1), nz=pz+uz*rnd(-0.8,1.6)+rnd(-1,1), ny=py+3.9;
+        S.lpsSeg.push({x1:px,y1:py,z1:pz,x2:nx,y2:ny,z2:nz,a:a,al:al*0.85});
+        S.lps.push({x:nx,y:ny,z:nz,a:a,r:s===2?2.0:1.7,c:s===2?C.lps:C.lpsCore,al:al*0.95});
+        px=nx; py=ny; pz=nz;
+      }
+    }
+  });
+  for(let i=0;i<9;i++){                            // 孔蛋白三聚体
+    const a=rnd(0,TAU), rr=rnd(GEO.omHole+16,GEO.sheetR-18);
+    for(let j=0;j<3;j++){
+      const b=a+j*TAU/3*0.12;
+      S.porin.push({x:Math.cos(a)*rr+Math.cos(b)*3.2, y:GEO.omY+rnd(-1,1),
+                    z:Math.sin(a)*rr+Math.sin(b)*3.2, a:a, r:3.3, c:C.porin, al:edgeFade(rr)});
+    }
+  }
+
+  /* --- 细胞质膜双层 + 膜蛋白 --- */
+  annulus(GEO.cmHole, GEO.sheetR, sp, (x,z,a,rr,k)=>{
+    const al = edgeFade(rr);
+    S.cm.push({x:x,y:GEO.cmY+GEO.mH,z:z,a:a,r:2.9,c:C.cmO,al:al});
+    S.cm.push({x:x,y:GEO.cmY-GEO.mH,z:z,a:a,r:2.7,c:C.cmI,al:al});
+    if(k%37===11){
+      S.cm.push({x:x,y:GEO.cmY+rnd(-1,1),z:z,a:a,r:3.6,c:C.memP,al:al});
+    }
+  });
+
+  /* --- 肽聚糖网袋：糖链环 + 肽桥交联 --- */
+  const rStep = 15*DENS, bStep = 9.5*DENS;
+  const rings = [];
+  for(let r=GEO.pgHole; r<=GEO.sheetR; r+=rStep) rings.push(r);
+  rings.forEach((r,ri)=>{
+    const n = Math.max(9, Math.round(TAU*r/bStep));
+    for(let i=0;i<n;i++){
+      const a = i*TAU/n + ri*0.3;
+      const y = GEO.pgY + Math.sin(a*3+ri)*1.1;
+      S.pg.push({x:Math.cos(a)*r, y:y, z:Math.sin(a)*r, a:a, r:2.4,
+                 c:(i%2?C.pg:C.pgLink), al:edgeFade(r)});
+    }
+    if(ri < rings.length-1){
+      const r2 = rings[ri+1], m = Math.max(6, Math.round(TAU*r/(bStep*2.6)));
+      for(let i=0;i<m;i++){
+        const a = i*TAU/m + ri*0.5;
+        S.pgSeg.push({ x1:Math.cos(a)*r,  y1:GEO.pgY+Math.sin(a*3+ri)*1.1,  z1:Math.sin(a)*r,
+                       x2:Math.cos(a)*r2, y2:GEO.pgY+Math.sin(a*3+ri+1)*1.1, z2:Math.sin(a)*r2,
+                       a:a, al:edgeFade(r2)*0.8 });
+      }
+    }
+  });
+
+  /* --- 细胞质核糖体 / 胞外颗粒 --- */
+  for(let i=0;i<Math.round(46/DENS);i++){
+    const a=rnd(0,TAU), rr=rnd(30,GEO.sheetR-8), y=rnd(-104,-13);
+    const x=Math.cos(a)*rr, z=Math.sin(a)*rr, R=rnd(4.6,7.4);
+    S.cyto.push({x:x,y:y,z:z,a:a,r:R,c:C.ribo,al:0.9});
+    S.cyto.push({x:x+rnd(-6,6),y:y+rnd(-5,5),z:z+rnd(-6,6),a:a,r:R*0.7,c:C.ribo,al:0.85});
+  }
+  for(let i=0;i<Math.round(80/DENS);i++){
+    const a=rnd(0,TAU), rr=rnd(12,GEO.sheetR);
+    S.ext.push({x:Math.cos(a)*rr, y:rnd(GEO.omY+9,GEO.omY+120), z:Math.sin(a)*rr,
+                a:a, r:rnd(1.0,1.8), c:C.ext, al:0.45});
+  }
+}
+
+/* 剖切楔形：把面向相机的一个扇区挖掉，露出内部 */
+function inCut(a, half){
+  if(!state.cutaway) return false;
+  return Math.abs(angDiff(a,camAzim)) < (half===undefined?CUT:half);
+}
+function hb(id){ return (id===hoverId || id===pinId) ? 0.40 : 0; }
+
+/* ==================================================================
+   8. 轴向路径（杆芯 / 钩 / 鞭毛丝）
+   ================================================================== */
+function filBaseP(){                       // 钩尖 = 丝基部（随转子回旋）
+  const amp = GEO.helixR*state.fR*0.68, a = state.theta;
+  return { x:Math.cos(a)*amp, y:GEO.filBase, z:Math.sin(a)*amp };
+}
+function filPath(u, ex){                   // u∈[0,1] 沿鞭毛丝中心线
+  const t   = u*state.filTurns;
+  const amp = GEO.helixR*state.fR*(0.68+0.32*smoo(t/0.45));
+  const a   = state.theta + GEO.hand*t*TAU;
+  return { x:Math.cos(a)*amp,
+           y:GEO.filBase + t*GEO.pitch*state.fP + (ex?exY('fil'):0),
+           z:Math.sin(a)*amp };
+}
+/* 钩 = 三次贝塞尔：起点切线沿轴（与杆无折角），终点切线指向丝基部 → 真万向节 */
+function hookPath(t, ex){
+  const b = filBaseP();
+  const y0 = GEO.hookBot, dy = b.y - y0;
+  const mt = 1-t;
+  const w0 = mt*mt*mt, w1 = 3*mt*mt*t, w2 = 3*mt*t*t, w3 = t*t*t;
+  const lat = w2*1.12 + w3;
+  return { x: lat*b.x,
+           y: w0*y0 + w1*(y0+dy*0.42) + w2*(y0+dy*0.80) + w3*b.y + (ex?exY('hook'):0),
+           z: lat*b.z };
+}
+function rodPath(u, ex){
+  return { x:0, y:lerp(GEO.rodBot,GEO.rodTop,u) + (ex?exY('rod'):0), z:0 };
+}
+function chanPos(u){                        // 输出通道：输出装置 → 杆芯 → 钩 → 丝 → 帽
+  if(u < 0.150){ return { x:0, y:lerp(-4,GEO.hookBot,u/0.150), z:0 }; }
+  if(u < 0.315){ return hookPath((u-0.150)/0.165, false); }
+  return filPath((u-0.315)/0.685, false);
+}
+function capPoint(){
+  const a = filPath(1,true), b = filPath(0.982,true);
+  let tx=a.x-b.x, ty=a.y-b.y, tz=a.z-b.z;
+  const l = Math.sqrt(tx*tx+ty*ty+tz*tz)||1;
+  const d = exY('cap')-exY('fil');
+  return { x:a.x+tx/l*5.5, y:a.y+ty/l*5.5+d, z:a.z+tz/l*5.5,
+           tx:tx/l, ty:ty/l, tz:tz/l };
+}
+
+/* ==================================================================
+   9. 管状构件（原纤维珠链 + 背面剔除）
+   ================================================================== */
+function tube(o){
+  const n = o.n, k = o.k, eye = cam._eye;
+  const u0 = o.u0===undefined?0:o.u0, u1 = o.u1===undefined?1:o.u1;
+  const cull = o.cullDot===undefined?-0.12:o.cullDot;
+  for(let i=0;i<=n;i++){
+    const u = lerp(u0,u1,n?i/n:0);
+    const c  = o.path(u,true);
+    const ca = o.path(clamp(u-0.005,0,1),true);
+    const cb = o.path(clamp(u+0.005,0,1),true);
+    let tx=cb.x-ca.x, ty=cb.y-ca.y, tz=cb.z-ca.z;
+    const tl = Math.sqrt(tx*tx+ty*ty+tz*tz)||1; tx/=tl; ty/=tl; tz/=tl;
+    let ax,ay,az;
+    if(Math.abs(ty)<0.9){ ax=0; ay=1; az=0; } else { ax=1; ay=0; az=0; }
+    let e1x=ty*az-tz*ay, e1y=tz*ax-tx*az, e1z=tx*ay-ty*ax;
+    const e1l=Math.sqrt(e1x*e1x+e1y*e1y+e1z*e1z)||1; e1x/=e1l; e1y/=e1l; e1z/=e1l;
+    const e2x=ty*e1z-tz*e1y, e2y=tz*e1x-tx*e1z, e2z=tx*e1y-ty*e1x;
+    const rad = (typeof o.rad==='function') ? o.rad(u) : o.rad;
+    for(let j=0;j<k;j++){
+      const a  = j*TAU/k + (o.twist||0)*u*TAU + (o.spin?state.theta:0);
+      const cs = Math.cos(a), sn = Math.sin(a);
+      const nx = cs*e1x+sn*e2x, ny = cs*e1y+sn*e2y, nz = cs*e1z+sn*e2z;
+      const px = c.x+nx*rad, py = c.y+ny*rad, pz = c.z+nz*rad;
+      const vx = eye.x-px, vy = eye.y-py, vz = eye.z-pz;
+      const vl = Math.sqrt(vx*vx+vy*vy+vz*vz)||1;
+      if((nx*vx+ny*vy+nz*vz)/vl < cull) continue;
+      pushBall(px,py,pz, o.bead, o.colorFn?o.colorFn(j,u):o.color, o.alpha, o.hl);
+    }
+  }
+}
+/* 沿曲线放一圈珠子（接头蛋白等） */
+function ringOnPath(pathFn,u,rad,k,bead,color,alpha,hl){
+  tube({ path:pathFn, n:0, u0:u, u1:u, k:k, rad:rad, bead:bead, color:color,
+         alpha:alpha, hl:hl, cullDot:-0.2 });
+}
+
+/* ==================================================================
+   10. 场景绘制
+   ================================================================== */
+function drawSheet(list, ey, hl, cutHalf){
+  for(let i=0;i<list.length;i++){
+    const b=list[i];
+    if(inCut(b.a,cutHalf)) continue;
+    pushBall(b.x, b.y+ey, b.z, b.r, b.c, b.al, hl);
+  }
+}
+function drawBg(){
+  drawSheet(S.ext, exY('ext'), 0);
+  drawSheet(S.cyto, exY('cyto'), 0);
+
+  const eOm = exY('om'), hlOm = hb('om');
+  drawSheet(S.om, eOm, hlOm);
+  drawSheet(S.porin, eOm, hb('om'));
+
+  const eL = exY('lps'), hlL = hb('lps');
+  for(let i=0;i<S.lpsSeg.length;i++){
+    const s=S.lpsSeg[i]; if(inCut(s.a)) continue;
+    pushSeg(s.x1,s.y1+eL,s.z1, s.x2,s.y2+eL,s.z2, 1.05, C.lps, s.al*0.8, hlL);
+  }
+  drawSheet(S.lps, eL, hlL);
+
+  const eP = exY('pg'), hlP = hb('pg');
+  for(let i=0;i<S.pgSeg.length;i++){
+    const s=S.pgSeg[i]; if(inCut(s.a)) continue;
+    pushSeg(s.x1,s.y1+eP,s.z1, s.x2,s.y2+eP,s.z2, 1.5, C.pgLink, s.al*0.85, hlP);
+  }
+  drawSheet(S.pg, eP, hlP);
+
+  drawSheet(S.cm, exY('cm'), hb('cm'));
+}
+
+/* ---- MS 环（FliF）：M 环 + S 环 ---- */
+function drawMS(){
+  const ey = exY('ms'), hl = hb('ms'), th = state.theta;
+  const rows = [ {n:32,r:13.4,y:GEO.msY-2.6,b:3.2,c:C.ms},
+                 {n:26,r:11.6,y:GEO.msY+3.4,b:3.0,c:C.ms2} ];
+  for(const R of rows){
+    for(let i=0;i<R.n;i++){
+      const a = th + i*TAU/R.n;
+      pushBall(Math.cos(a)*R.r, R.y+ey, Math.sin(a)*R.r, R.b, R.c, 1, hl);
+    }
+  }
+}
+/* ---- C 环 / 开关复合体：剖开钟形 FliG–FliM–FliN ---- */
+function drawCring(){
+  const ey = exY('cring'), th = state.theta, n = 34;
+  const hlC = hb('cring'), hlG = hb('fliG');
+  const rows = [ {r:19.5,y:-7.0, b:3.4,c:C.fliG,g:1},
+                 {r:21.6,y:-14.5,b:3.2,c:C.fliM,g:0},
+                 {r:24.0,y:-21.0,b:3.0,c:C.fliN,g:0},
+                 {r:25.6,y:-26.6,b:2.7,c:C.fliN,g:0} ];
+  for(let i=0;i<n;i++){
+    const a = th + i*TAU/n;
+    if(inCut(a)) continue;
+    const cs=Math.cos(a), sn=Math.sin(a);
+    for(let r=0;r<rows.length-1;r++){
+      const A=rows[r], B=rows[r+1];
+      pushSeg(cs*A.r, A.y+ey, sn*A.r, cs*B.r, B.y+ey, sn*B.r, 2.0, C.cwall, 0.55, hlC);
+    }
+    let boost = 0;
+    for(let s=0;s<state.sparks.length;s++){
+      const sp = state.sparks[s];
+      if(Math.abs(angDiff(a,sp.a)) < 0.32) boost = Math.max(boost, (1-sp.t/0.42)*0.5);
+    }
+    for(let r=0;r<rows.length;r++){
+      const R = rows[r];
+      const hl = (R.g ? Math.max(hlG,hlC)+boost : hlC);
+      pushBall(cs*R.r, R.y+ey, sn*R.r, R.b, R.c, 1, hl);
+      if(R.g && boost>0.05) pushGlow(cs*R.r, R.y+ey, sn*R.r, 7, C.spark, boost*0.8);
+    }
+  }
+}
+/* ---- 定子 MotA₅MotB₂（固定不动 + 锚定肽聚糖）---- */
+function drawStators(){
+  const R = GEO.statorR + exR('stator'), ey = exY('stator'), hl = hb('stator');
+  const pgY = GEO.pgY + exY('pg');
+  for(let i=0;i<GEO.statorN;i++){
+    const a = STATOR_A0 + i*TAU/GEO.statorN;
+    if(inCut(a,CUT_ST)) continue;
+    const ux=Math.cos(a), uz=Math.sin(a), tx=-Math.sin(a), tz=Math.cos(a);
+    const cx=ux*R, cz=uz*R;
+    /* MotA₅：跨膜五聚体（俯视为环） */
+    for(let j=0;j<5;j++){
+      const b=j*TAU/5+0.3, ox=Math.cos(b)*3.7, oz=Math.sin(b)*3.7;
+      const px=cx+ux*ox+tx*oz, pz=cz+uz*ox+tz*oz;
+      pushBall(px, 2.6+ey, pz, 3.0, C.motA,  1, hl);
+      pushBall(px,-3.4+ey, pz, 2.7, C.motA2, 1, hl);
+    }
+    /* MotB₂ 二聚体：跨膜段 + 周质柄 + 肽聚糖结合域 */
+    pushBall(cx+tx*1.3, 1.6+ey, cz+tz*1.3, 2.4, C.motB, 1, hl);
+    pushBall(cx-tx*1.3,-1.6+ey, cz-tz*1.3, 2.4, C.motB, 1, hl);
+    const sx=cx-ux*1.6, sz=cz-uz*1.6;
+    pushSeg(cx,6.2+ey,cz, sx,pgY-2.2,sz, 1.7, C.motB, 0.92, hl);
+    pushBall(sx, pgY-0.3, sz, 3.3, C.motBpg, 1, hl);
+    /* 锚定：连到相邻肽聚糖链 */
+    pushSeg(sx,pgY-0.3,sz, ux*(R-6.5),pgY+0.6,uz*(R-6.5), 1.2, C.pgLink, 0.75, hl);
+    pushSeg(sx,pgY-0.3,sz, ux*(R+6.5),pgY+0.6,uz*(R+6.5), 1.2, C.pgLink, 0.75, hl);
+    /* 质子通道（半透明导引） */
+    if(state.showH){
+      const pts = protonPts(a,R,ey);
+      for(let s=0;s<pts.length-2;s++)
+        pushSeg(pts[s].x,pts[s].y,pts[s].z, pts[s+1].x,pts[s+1].y,pts[s+1].z, 1.1, C.proton, 0.16);
+    }
+  }
+}
+function protonPts(a,R,ey){
+  const ux=Math.cos(a), uz=Math.sin(a);
+  const rr=[R+3.0, R+0.7, R-1.2, R-5.2, R-10.5];
+  const yy=[GEO.pgY-4, 7, -2, -6.6, -13.5];
+  const out=[];
+  for(let i=0;i<5;i++) out.push({x:ux*rr[i], y:yy[i]+ey, z:uz*rr[i]});
+  return out;
+}
+const PT_T = [0,0.42,0.66,0.82,1];
+function protonAt(p){
+  const R = GEO.statorR + exR('stator');
+  const pts = protonPts(p.a,R,exY('stator'));
+  let i=0; while(i<3 && p.t>PT_T[i+1]) i++;
+  const k = clamp((p.t-PT_T[i])/(PT_T[i+1]-PT_T[i]),0,1);
+  const A=pts[i], B=pts[i+1];
+  return { x:lerp(A.x,B.x,k), y:lerp(A.y,B.y,k), z:lerp(A.z,B.z,k) };
+}
+function drawProtons(){
+  if(!state.showH) return;
+  const fade = 1 - 0.45*state.explode;
+  for(let i=0;i<state.protons.length;i++){
+    const p = state.protons[i];
+    if(inCut(p.a,CUT_ST)) continue;
+    const q = protonAt(p);
+    const al = (p.t<0.05? p.t/0.05 : (p.t>0.9? (1-p.t)/0.1 : 1)) * fade;
+    pushGlow(q.x,q.y,q.z, 5.0, C.proton, 0.55*al);
+    pushBall(q.x,q.y,q.z, 1.7, C.proton, al, 0.3);
+  }
+  /* MotA–FliG 界面力矩火花 */
+  for(let i=0;i<state.sparks.length;i++){
+    const s = state.sparks[i];
+    if(inCut(s.a,CUT_ST)) continue;
+    const k = clamp(s.t/0.42,0,1), al=(1-k)*fade;
+    const R = GEO.statorR + exR('stator'), ey = exY('stator');
+    const ux=Math.cos(s.a), uz=Math.sin(s.a);
+    const rr = R-4.6, y = -6.6+ey;
+    pushGlow(ux*rr, y, uz*rr, 5+11*k, C.spark, al*0.85);
+    for(let j=0;j<3;j++){
+      const b = s.a + (j-1)*0.16;
+      pushSeg(ux*rr, y, uz*rr,
+              Math.cos(b)*(rr-5.5-6*k), y+(j-1)*1.6, Math.sin(b)*(rr-5.5-6*k),
+              1.3, C.spark, al*0.9);
+    }
+  }
+}
+/* ---- 输出装置 + FliI₆ ATPase ---- */
+function drawExport(){
+  const ey=exY('expo'), er=exR('expo'), hl=hb('expo');
+  /* FliP₅FliQ₄FliR₁ 输出门（MS 环内的锥体） */
+  const pulse = 1 + 0.06*Math.sin(state.time*5);
+  for(let j=0;j<9;j++){
+    const a = -state.theta*0.12 + j*TAU/9;
+    const r = (5.6+er)*pulse;
+    pushBall(Math.cos(a)*r, 1.4+ey, Math.sin(a)*r, 2.7, C.expo, 1, hl);
+  }
+  /* FlhA₉ / FlhB 胞质环 */
+  for(let j=0;j<9;j++){
+    const a = -state.theta*0.12 + j*TAU/9 + 0.35;
+    const r = 9.8+er;
+    pushBall(Math.cos(a)*r, -7.2+ey, Math.sin(a)*r, 3.1, C.expo2, 1, hl);
+  }
+  /* FliI₆ ATPase + FliH 连接 + FliJ 中央茎 */
+  const fy = -31 + exY('flii'), hlI = hb('flii'), fa = -state.theta*0.32;
+  for(let j=0;j<6;j++){
+    const a = fa + j*TAU/6;
+    const x=Math.cos(a)*10.5, z=Math.sin(a)*10.5;
+    pushBall(x, fy, z, 4.4, C.flii, 1, hlI);
+    pushSeg(x, fy+3.8, z, Math.cos(a)*(9.8+er)*0.98, -7.2+ey, Math.sin(a)*(9.8+er)*0.98,
+            1.3, C.flij, 0.45, hlI);
+    if(state.atpIdx===j && state.atpFlash>0)
+      pushGlow(x, fy, z, 9, C.flij, state.atpFlash*0.7);
+  }
+  pushBall(0, fy+2.5, 0, 3.0, C.flij, 1, hlI);
+  pushSeg(0, fy+2.5, 0, 0, -8+ey, 0, 1.6, C.flij, 0.5, hlI);
+}
+/* ---- 杆 / L 环 / P 环 ---- */
+function drawRod(){
+  const hl = hb('rod');
+  tube({ path:rodPath, n:9, k:7, rad:4.5, bead:3.0, alpha:0.62, spin:true, hl:hl,
+         colorFn:(j,u)=> (u>0.68 ? C.rodD : C.rodP) });
+}
+function drawBushings(){
+  const th = state.strict ? 0 : state.theta;
+  const rows = [
+    { id:'pring', n:26, r:15.2+exR('pring'), y:GEO.pringY+exY('pring'), b:3.3, c:C.pring },
+    { id:'lring', n:26, r:15.2+exR('lring'), y:GEO.lringY+exY('lring'), b:3.3, c:C.lring }
+  ];
+  for(const R of rows){
+    const hl = hb(R.id);
+    for(let i=0;i<R.n;i++){
+      const a = th + i*TAU/R.n;
+      const cs=Math.cos(a), sn=Math.sin(a);
+      pushBall(cs*R.r, R.y, sn*R.r, R.b, R.c, 1, hl);
+      pushBall(cs*(R.r-4.4), R.y+(R.id==='lring'?-1.2:1.2), sn*(R.r-4.4), 2.2, R.c, 0.8, hl);
+    }
+  }
+}
+/* ---- 钩 / 接头 / 鞭毛丝 / 帽 ---- */
+function drawHook(){
+  tube({ path:hookPath, n:18, k:7, rad:5.6, bead:3.9, alpha:0.74, hl:hb('hook'),
+         twist:0.22, colorFn:(j)=> (j%2? C.hook : C.hook2) });
+}
+function drawJunction(){
+  const hl = hb('junc'), ey = exY('junc')-exY('fil');
+  const pf = (u,ex)=>{ const p=filPath(u,ex); return {x:p.x,y:p.y+ey,z:p.z}; };
+  ringOnPath(pf, 0.010, 6.1, 9, 3.5, C.junc, 0.95, hl);
+  ringOnPath(pf, 0.032, 5.9, 9, 3.4, C.junc, 0.95, hl);
+}
+function drawFilament(){
+  const hl = hb('fil');
+  const n = Math.max(24, Math.round(20*state.filTurns));
+  tube({ path:filPath, n:n, k:8, rad:5.2, bead:3.6, alpha:0.9, hl:hl, twist:0.38,
+         colorFn:(j,u)=> (j===0 ? C.filSeam : (j%2 ? C.fil : C.fil2)) });
+}
+function drawCap(){
+  const c = capPoint(), hl = hb('cap');
+  let ax,ay,az;
+  if(Math.abs(c.ty)<0.9){ ax=0; ay=1; az=0; } else { ax=1; ay=0; az=0; }
+  let e1x=c.ty*az-c.tz*ay, e1y=c.tz*ax-c.tx*az, e1z=c.tx*ay-c.ty*ax;
+  const l=Math.sqrt(e1x*e1x+e1y*e1y+e1z*e1z)||1; e1x/=l; e1y/=l; e1z/=l;
+  const e2x=c.ty*e1z-c.tz*e1y, e2y=c.tz*e1x-c.tx*e1z, e2z=c.tx*e1y-c.ty*e1x;
+  for(let j=0;j<5;j++){
+    const a = state.theta*1.0 + j*TAU/5;
+    const cs=Math.cos(a)*4.6, sn=Math.sin(a)*4.6;
+    pushBall(c.x+cs*e1x+sn*e2x, c.y+cs*e1y+sn*e2y, c.z+cs*e1z+sn*e2z, 3.6, C.cap, 1, hl);
+  }
+  pushBall(c.x, c.y, c.z, 3.2, C.cap, 0.9, hl);
+  if(state.capFlash>0) pushGlow(c.x,c.y,c.z, 16, C.cargo, state.capFlash*0.75);
+}
+/* ---- 中空通道 + 上行的 flagellin ---- */
+function drawCargo(){
+  if(!state.showExport) return;
+  const fade = Math.pow(1-state.explode, 1.5);
+  if(fade < 0.03) return;
+  let prev = chanPos(0);
+  for(let i=1;i<=44;i++){
+    const q = chanPos(i/44);
+    pushSeg(prev.x,prev.y,prev.z, q.x,q.y,q.z, 1.5, C.chan, 0.20*fade);
+    prev = q;
+  }
+  for(let i=0;i<state.cargo.length;i++){
+    const c = state.cargo[i], q = chanPos(c.u);
+    const w = 0.6+0.4*Math.sin(state.time*9+i);
+    pushGlow(q.x,q.y,q.z, 5.5, C.cargo, 0.5*fade*w);
+    pushBall(q.x,q.y,q.z, 2.3, C.cargo, fade, 0.3);
+  }
+}
+
+function buildScene(){
+  drawBg();
+  drawStators();
+  drawCring();
+  drawMS();
+  drawExport();
+  drawRod();
+  drawBushings();
+  drawHook();
+  drawJunction();
+  drawFilament();
+  drawCap();
+  drawCargo();
+  drawProtons();
+}
+
+/* ==================================================================
+   11. 构件注册表（标注 + 详情）
+   ================================================================== */
+function ringAnchor(r,y,side){
+  const a = camAzim + side*1.45;
+  return { x:Math.cos(a)*r, y:y, z:Math.sin(a)*r };
+}
+const PARTS = [
+  { id:'cap', zh:'帽蛋白 FliD', en:'Filament cap · FliD₅ (HAP2)', c:C.cap, pri:1,
+    anchor:()=> capPoint(),
+    tx:'戴在鞭毛丝远端的五聚体"装配帽"。它作为装配伴侣，让经通道运来的 flagellin 在帽下折叠并逐个插入正确的原纤维位点，同时封住管口防止亚基漏失到胞外。鞭毛丝的生长发生在<b>远端</b>，不是基部。',
+    tip:'缺少 FliD → flagellin 大量漏到胞外，无法成丝。' },
+  { id:'fil', zh:'鞭毛丝 Filament', en:'FliC / flagellin, ~11 protofilaments', c:C.fil, pri:1,
+    anchor:()=> filPath(0.6,true),
+    tx:'约 11 根原纤维（protofilament）螺旋堆积成的<b>中空管</b>，外径约 20 nm，长 5–10 µm，含 2–3 万个 flagellin 亚基。它是被动螺旋桨，自身不消耗能量；<b>刚体旋转在视觉上等价于沿轴向传播的螺旋波</b>——这正是它推水前进的方式。',
+    tip:'L/R 两类亚基构象比例改变会切换 normal / curly / semi-coiled 等多态形态。' },
+  { id:'junc', zh:'钩–丝接头 HAP1/HAP3', en:'FlgK / FlgL (~11 each)', c:C.junc, pri:2,
+    anchor:()=>{ const p=filPath(0.02,false); return {x:p.x,y:p.y+exY('junc'),z:p.z}; },
+    tx:'两圈适配器蛋白，把柔性弯曲的钩与刚性的鞭毛丝无缝连接。装配顺序上它们先于 flagellin 输出，是"钩已完成、可以开始造丝"的分子开关之一。',
+    tip:'FlgK=HAP1，FlgL=HAP3；HAP = hook-associated protein。' },
+  { id:'hook', zh:'鞭毛钩 Hook', en:'FlgE, ~120 subunits, ~55 nm', c:C.hook, pri:1,
+    anchor:()=> hookPath(0.55,true),
+    tx:'长约 55 nm 的<b>柔性万向节（universal joint）</b>。杆沿轴向旋转，而鞭毛丝的螺旋轴与之成一定角度，钩靠 11 根原纤维彼此滑动实现"弯而不折"，把扭矩连续传给丝。注意它的尖端在画面中绕轴回旋——这就是万向节在工作。',
+    tip:'钩长由 FliK 分子标尺测量，到长度即切换输出底物。' },
+  { id:'lring', zh:'L 环 FlgH', en:'L-ring, ~26 subunits (outer membrane)', c:C.lring, pri:1,
+    anchor:()=> ringAnchor(15.2+exR('lring'), GEO.lringY+exY('lring'), -1),
+    tx:'嵌在<b>外膜</b>的脂蛋白轴套（bushing），像轴承外圈一样抱住旋转的杆，并封住外膜上的孔。与 P 环合称 <b>LP 环</b>。严格意义上 LP 环<b>不旋转</b>——勾选右侧"LP 环轴套模式"即可看到正确表现。',
+    tip:'革兰阳性菌（如枯草杆菌）没有外膜，也就没有 LP 环。' },
+  { id:'pring', zh:'P 环 FlgI', en:'P-ring, ~26 subunits (peptidoglycan)', c:C.pring, pri:1,
+    anchor:()=> ringAnchor(15.2+exR('pring'), GEO.pringY+exY('pring'), 1),
+    tx:'位于<b>肽聚糖层</b>的轴套，为杆提供中段支撑，降低旋转摩擦。P 环、L 环都由周质分子伴侣协助在膜外自组装。',
+    tip:'LP 环 = 生物界的滑动轴承，无需润滑即可长期高速运转。' },
+  { id:'rod', zh:'杆 Rod', en:'FlgB/FlgC/FlgF (proximal) + FlgG (distal)', c:C.rodD, pri:1,
+    anchor:()=> ringAnchor(6, 26+exY('rod'), -1),
+    tx:'直径约 13 nm 的<b>驱动轴</b>：近端 FlgB/FlgC/FlgF 连接 MS 环，远端 FlgG 穿过 LP 环。中央有一条约 <b>2 nm</b> 的中空通道——所有轴、钩、丝亚基都必须以未折叠状态从这里"坐电梯"上去。',
+    tip:'图中杆被画成半透明，好让你看到内部上行的绿色 flagellin。' },
+  { id:'ms', zh:'MS 环 FliF', en:'MS-ring, ~34 subunits', c:C.ms, pri:1,
+    anchor:()=> ringAnchor(13.8, GEO.msY+exY('ms'), 1),
+    tx:'跨细胞质膜的<b>转子基座</b>：M 环埋在膜内、S 环贴在膜表面。它上接杆、下接 C 环，同时充当输出装置的外壳，是整台马达最早装配的部件。',
+    tip:'FliF 与 FliG 直接结合，把 C 环产生的扭矩传给杆。' },
+  { id:'cring', zh:'C 环 / 开关复合体', en:'C-ring: FliG·FliM·FliN', c:C.fliN, pri:1,
+    anchor:()=> ringAnchor(24.6, -20+exY('cring'), -1),
+    tx:'胞质侧的<b>钟形</b>转子结构（图中剖开以露出内部）：FliG(~34) + FliM(~34) + FliN(~4×34)。它既是扭矩输出的支架，又是<b>方向开关</b>——结合磷酸化的 CheY-P 会使构象翻转，让马达由 CCW 切到 CW，行为随之从 run 变成 tumble。',
+    tip:'这就是化学趋向性信号最终作用的"方向盘"。' },
+  { id:'fliG', zh:'FliG 扭矩发生残基', en:'FliG C-terminal charged residues', c:C.fliG, pri:2,
+    anchor:()=> ringAnchor(19.5, -7+exY('cring'), 1),
+    tx:'C 环最上一圈。其 C 端带电残基（大肠杆菌的 R281、D288、D289）与 MotA 的 R90、E98 形成<b>静电互作</b>，把定子的质子驱动构象循环转换成转子扭矩。画面中每有一个 H⁺ 通过，对应位置的 FliG 就闪一次。',
+    tip:'突变这些电荷 → 马达仍装配但不转（Mot 表型）。' },
+  { id:'stator', zh:'定子 MotA₅MotB₂', en:'Stator unit, 8–11 per motor', c:C.motA, pri:1,
+    anchor:()=> ringAnchor(GEO.statorR+3+exR('stator'), 3+exY('stator'), -1),
+    tx:'<b>力的产生者，也是唯一不转的部分</b>：MotA 五聚体 + MotB 二聚体构成两条 H⁺ 通道。MotB 的周质结构域含<b>肽聚糖结合域</b>，牢牢锚在细胞壁上（图中可见两根锚定连线），因此定子相对细胞固定；质子流引起 MotA 构象循环，与 FliG 齿合驱动转子。单元数越多扭矩越大，且会动态装卸以适应负载。',
+    tip:'近年 cryo-EM 提出 MotA₅ 会绕 MotB₂ 自转的"齿轮"模型；本图为清晰起见让定子完全静止。' },
+  { id:'expo', zh:'输出装置（T3SS 核心）', en:'FliP₅FliQ₄FliR₁ + FlhA₉/FlhB', c:C.expo, pri:1,
+    anchor:()=> ringAnchor(10.5+exR('expo'), -7+exY('expo'), 1),
+    tx:'位于 MS 环内的<b>III 型分泌系统</b>输出门。它识别待输出的轴/钩/丝蛋白，把它们解折叠后送进杆的中央通道。鞭毛与病原菌的注射器（injectisome）同源——同一套机器，一个用来游泳，一个用来投毒。',
+    tip:'输出顺序严格：杆→钩（FliK 量长）→接头→flagellin→帽。' },
+  { id:'flii', zh:'FliI₆ ATPase', en:'FliI₆ + FliH₁₂ + FliJ', c:C.flii, pri:1,
+    anchor:()=> ringAnchor(11, -31+exY('flii'), -1),
+    tx:'类似 F₁-ATPase β 亚基的<b>六聚体 ATP 酶</b>，位于输出门下方。ATP 水解帮助伴侣–底物复合体解离、把底物递交给输出门；<b>但真正推动蛋白穿膜的主要能源仍是 PMF</b>。FliJ 是中央茎，FliH 把它连到 FlhA。',
+    tip:'删掉 fliI 后输出效率大降但并未完全消失，正说明 PMF 才是主力。' },
+  { id:'proton', zh:'H⁺ 质子流 / PMF', en:'Proton motive force', c:C.proton, pri:1,
+    anchor:()=> ringAnchor(GEO.statorR+5+exR('stator'), 13+exY('stator'), 1),
+    tx:'质子沿定子通道由<b>周质流入细胞质</b>，顺电化学梯度（PMF = Δψ + ΔpH）释放的自由能被转成机械功：每转约 <b>1000–1200 个 H⁺</b>，近失速扭矩约 10³ pN·nm，转速可达 100–300 Hz。海洋弧菌等用 Na⁺ 驱动（PomA/PomB）。',
+    tip:'调低左侧 PMF 滑块：转速、扭矩、质子闪光频率同步下降。' },
+  { id:'cargo', zh:'上行的 flagellin', en:'Unfolded subunit in the 2 nm channel', c:C.cargo, pri:2,
+    anchor:()=> ringAnchor(4, 34, 1),
+    tx:'新合成的 flagellin 以<b>未折叠</b>状态进入约 2 nm 的中央通道，被后续亚基推着一路上行——最长要走过 10 µm 以上——到帽下才折叠并装配。生长速率约每秒数十个亚基。',
+    tip:'画面中绿色小球即为正在"上电梯"的亚基，到顶端会闪光并使丝变长。' },
+  { id:'om', zh:'外膜 Outer membrane', en:'Asymmetric bilayer + porins', c:C.omO, pri:1,
+    anchor:()=> ringAnchor(GEO.sheetR*0.66, GEO.omY+exY('om'), -1),
+    tx:'革兰阴性菌特有的第二层膜：内侧为磷脂、外侧为 LPS 的<b>不对称双层</b>，嵌有孔蛋白三聚体（棕色）。L 环即嵌在此层，鞭毛必须在这里开一个受控的孔。',
+    tip:'外膜是渗透屏障，也是许多抗生素难以进入的原因。' },
+  { id:'lps', zh:'脂多糖 LPS', en:'Lipid A + core + O-antigen', c:C.lps, pri:2,
+    anchor:()=> ringAnchor(GEO.sheetR*0.5, GEO.omY+15+exY('lps'), 1),
+    tx:'外膜最外侧的糖脂刷：类脂 A 锚在膜中，向外接核心多糖与可变的 O 抗原糖链。它是内毒素、血清分型依据，也构成鞭毛必须穿越的最后一层"丛林"。',
+    tip:'LPS 层厚度可达数十 nm，图中作了简化。' },
+  { id:'pg', zh:'肽聚糖层 Peptidoglycan', en:'Murein sacculus (periplasm)', c:C.pg, pri:1,
+    anchor:()=> ringAnchor(GEO.sheetR*0.55, GEO.pgY+exY('pg'), 1),
+    tx:'NAG–NAM 糖链经短肽桥交联成的<b>网袋</b>，位于周质空间，负责抗渗透压与定形。对马达而言它至关重要：<b>MotB 锚定于此</b>，才使定子成为"定子"；P 环也在这一层充当轴套。',
+    tip:'青霉素抑制肽桥交联 → 细胞壁破裂；也会连带毁掉定子的锚。' },
+  { id:'cm', zh:'细胞质膜 Cytoplasmic membrane', en:'Inner membrane, PMF generator', c:C.cmO, pri:1,
+    anchor:()=> ringAnchor(GEO.sheetR*0.66, GEO.cmY+exY('cm'), -1),
+    tx:'磷脂双层，呼吸链在此泵出质子、建立跨膜电化学势 PMF——鞭毛马达的<b>唯一动力来源</b>。MS 环、定子、输出装置都嵌在这层膜里。',
+    tip:'鞭毛马达是已知能量转换效率最高的分子机器之一。' }
+];
+const PARTMAP = {};
+PARTS.forEach(p=>{ PARTMAP[p.id]=p; });
+
+/* ==================================================================
+   12. 标注 / 分层带 / 命中测试
+   ================================================================== */
+let hits = [];
+let hoverId = null, pinId = null;
+
+function computeHits(){
+  hits.length = 0;
+  for(let i=0;i<PARTS.length;i++){
+    const p = PARTS[i];
+    const a = p.anchor();
+    const pr = project(a.x,a.y,a.z);
+    if(!pr.ok) continue;
+    hits.push({ id:p.id, part:p, x:pr.sx, y:pr.sy, vz:pr.vz });
+  }
+}
+const LAYERS = [
+  { y:()=> GEO.omY+16+exY('lps'), t:'胞外 / LPS 糖链', c:'#d9f99d' },
+  { y:()=> GEO.omY+exY('om'),     t:'外膜 Outer membrane', c:'#fcd34d' },
+  { y:()=> GEO.pgY+exY('pg'),     t:'周质空间 · 肽聚糖层', c:'#a3e635' },
+  { y:()=> GEO.cmY+exY('cm'),     t:'细胞质膜（PMF）', c:'#93c5fd' },
+  { y:()=> -46+exY('cyto'),       t:'细胞质 Cytoplasm', c:'#94a3b8' }
+];
+function drawLayerBands(){
+  if(!state.labels) return;
+  ctx.save();
+  ctx.setLineDash([5,5]); ctx.lineWidth = 1;
+  ctx.font = '11px "Segoe UI","Microsoft YaHei",sans-serif';
+  for(const L of LAYERS){
+    const y = L.y();
+    const a1 = camAzim + Math.PI/2, a2 = camAzim - Math.PI/2;
+    const r = GEO.sheetR*0.99;
+    let p = project(Math.cos(a1)*r, y, Math.sin(a1)*r);
+    if(!p.ok) continue;
+    const x1=p.sx, y1=p.sy;
+    p = project(Math.cos(a2)*r, y, Math.sin(a2)*r);
+    if(!p.ok) continue;
+    const x2=p.sx, y2=p.sy;
+    ctx.strokeStyle = L.c+'44';
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const left = (x1<x2) ? {x:x1,y:y1} : {x:x2,y:y2};
+    ctx.setLineDash([]);
+    ctx.fillStyle = L.c+'dd';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(L.t, clamp(left.x+7, 6, W-140), clamp(left.y-8, 12, H-12));
+    ctx.setLineDash([5,5]);
+  }
+  ctx.restore();
+}
+function drawLabels(){
+  const showAll = state.labels;
+  const items = [];
+  for(let i=0;i<hits.length;i++){
+    const h = hits[i], p = h.part;
+    const on = showAll && (p.pri===1 || state.explode>0.12);
+    if(!on && p.id!==hoverId && p.id!==pinId) continue;
+    if(h.x<-40||h.x>W+40||h.y<-30||h.y>H+30) continue;
+    items.push(h);
+  }
+  if(!items.length) return;
+  const usedL = [], usedR = [];
+  items.sort((a,b)=> a.y-b.y);
+  ctx.save();
+  ctx.font = '11.5px "Segoe UI","Microsoft YaHei",sans-serif';
+  ctx.textBaseline = 'middle';
+  for(const h of items){
+    const p = h.part;
+    const right = h.x >= W*0.5;
+    const used = right ? usedR : usedL;
+    let ly = h.y;
+    for(let g=0; g<60; g++){
+      let ok = true;
+      for(const u of used) if(Math.abs(u-ly) < 15){ ok=false; break; }
+      if(ok) break;
+      ly += 15;
+      if(ly > H-14){ ly = h.y - 15*(g+1); }
+    }
+    used.push(ly);
+    const dir = right ? 1 : -1;
+    const ex = h.x + dir*26, tx0 = ex + dir*13;
+    const strong = (p.id===hoverId || p.id===pinId);
+    const txt = p.zh;
+    const w = ctx.measureText(txt).width;
+    ctx.strokeStyle = p.c + (strong?'ff':'99');
+    ctx.lineWidth = strong?1.6:1;
+    ctx.beginPath();
+    ctx.moveTo(h.x,h.y); ctx.lineTo(ex,ly); ctx.lineTo(tx0,ly); ctx.stroke();
+    ctx.fillStyle = p.c;
+    ctx.beginPath(); ctx.arc(h.x,h.y,strong?3.4:2.3,0,TAU); ctx.fill();
+    const bx = right ? tx0+3 : tx0-w-9;
+    ctx.fillStyle = strong ? 'rgba(8,15,30,.92)' : 'rgba(8,15,30,.66)';
+    roundRect(bx-3, ly-8.5, w+9, 17, 5); ctx.fill();
+    if(strong){ ctx.strokeStyle=p.c+'cc'; ctx.lineWidth=1; ctx.stroke(); }
+    ctx.fillStyle = strong ? '#ffffff' : p.c;
+    ctx.textAlign='left';
+    ctx.fillText(txt, bx+2, ly+0.5);
+  }
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+/* ==================================================================
+   13. 物理/动画更新
+   ================================================================== */
+function seedCargo(){                    // 预置几个在途亚基，开局即可看到"上电梯"
+  state.cargo.length = 0;
+  for(let i=0;i<6;i++) state.cargo.push({ u:0.10+i*0.148 });
+}
+function update(dt){
+  updateCam(dt);
+  state.explode += (state.explodeTo - state.explode) * Math.min(1, dt*4.5);
+  if(Math.abs(state.explodeTo-state.explode)<0.002) state.explode = state.explodeTo;
+
+  const sdt = state.playing ? dt*state.speed : 0;
+  state.time += sdt;
+
+  /* 形态：CCW = normal form；CW = 螺距/半径变小（curly 化） */
+  const tR = state.dir>0 ? 1 : 0.74, tP = state.dir>0 ? 1 : 0.6;
+  state.fR += (tR-state.fR)*Math.min(1,dt*2.6);
+  state.fP += (tP-state.fP)*Math.min(1,dt*2.6);
+
+  const rps = 0.55*state.pmf;                    // 动画转速（圈/秒）
+  state.theta += state.dir * TAU * rps * sdt;
+  if(state.theta > 1e6 || state.theta < -1e6) state.theta = state.theta % TAU;
+  state.revs += rps*sdt;
+
+  /* --- 质子 --- */
+  if(state.showH){
+    state.pAcc += sdt * 13 * state.pmf;
+    while(state.pAcc > 1){
+      state.pAcc -= 1;
+      if(state.protons.length < 90){
+        const i = (Math.random()*GEO.statorN)|0;
+        state.protons.push({ a: STATOR_A0 + i*TAU/GEO.statorN, t:0, sp:false });
+      }
+    }
+    for(let i=state.protons.length-1;i>=0;i--){
+      const p = state.protons[i];
+      p.t += sdt*0.62;
+      if(!p.sp && p.t>0.80){ p.sp = true; state.sparks.push({a:p.a, t:0}); }
+      if(p.t>=1) state.protons.splice(i,1);
+    }
+  } else { state.protons.length = 0; }
+  for(let i=state.sparks.length-1;i>=0;i--){
+    state.sparks[i].t += dt;
+    if(state.sparks[i].t > 0.42) state.sparks.splice(i,1);
+  }
+
+  /* --- flagellin 输出与末端装配 --- */
+  if(state.showExport){
+    state.cAcc += sdt;
+    if(state.cAcc > 1.5){ state.cAcc = 0; if(state.cargo.length<10) state.cargo.push({u:0}); }
+    for(let i=state.cargo.length-1;i>=0;i--){
+      const c = state.cargo[i];
+      c.u += sdt*0.105;
+      if(c.u >= 1){
+        state.cargo.splice(i,1);
+        state.assembled++;
+        state.capFlash = 1;
+        state.filTurns = Math.min(2.62, state.filTurns + 0.022);
+      }
+    }
+  } else { state.cargo.length = 0; }
+  state.capFlash = Math.max(0, state.capFlash - dt*2.4);
+
+  /* --- FliI₆ ATP 循环闪光 --- */
+  state.atpFlash = Math.max(0, state.atpFlash - dt*3);
+  if(state.atpFlash<=0 && state.playing && Math.random() < dt*6*state.pmf){
+    state.atpFlash = 1; state.atpIdx = (state.atpIdx+1)%6;
+  }
+}
+
+/* ==================================================================
+   14. 渲染
+   ================================================================== */
+let bgCache = null;
+function bgGrad(){
+  if(bgCache && bgCache.w===W && bgCache.h===H) return bgCache.g;
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,   '#0a1120');
+  g.addColorStop(0.42,'#070d1a');
+  g.addColorStop(1,   '#04070f');
+  bgCache = {w:W,h:H,g:g};
+  return g;
+}
+function render(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = bgGrad(); ctx.fillRect(0,0,W,H);
+  /* 柔和光晕背景 */
+  ctx.save();
+  const rg = ctx.createRadialGradient(W*0.5,H*0.62,10, W*0.5,H*0.62, Math.max(W,H)*0.62);
+  rg.addColorStop(0,'rgba(56,189,248,.075)');
+  rg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = rg; ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  pn = 0; act.length = 0;
+  buildScene();
+  act.sort((a,b)=> b.vz-a.vz);
+
+  ctx.lineCap = 'round';
+  let ca = 1, cc = 'source-over';
+  for(let i=0;i<act.length;i++){
+    const p = act[i];
+    if(p.t===2){ if(cc!=='lighter'){ ctx.globalCompositeOperation='lighter'; cc='lighter'; } }
+    else if(cc!=='source-over'){ ctx.globalCompositeOperation='source-over'; cc='source-over'; }
+    if(p.a!==ca){ ctx.globalAlpha=p.a; ca=p.a; }
+    if(p.t===1){
+      ctx.strokeStyle=p.col; ctx.lineWidth=p.w;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x2,p.y2); ctx.stroke();
+    } else {
+      ctx.drawImage(p.img, p.x-p.r, p.y-p.r, p.r*2, p.r*2);
+    }
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+
+  computeHits();
+  drawLayerBands();
+  drawLabels();
+}
+
+/* ==================================================================
+   15. UI
+   ================================================================== */
+const el = {};
+['btnPlay','btnDir','btnReset','rgSpeed','vSpeed','rgPmf','vPmf','rgExp','vExp','btnExp',
+ 'ckCut','ckLab','ckH','ckExp','ckSpin','ckStrict','selDens','vFps',
+ 'rdState','rdHz','rdTq','rdH','rdAsm','rdTurn','rdSlow','infoBody','legend','bgView','bgSpin'
+].forEach(id=>{ el[id] = document.getElementById(id); });
+
+function fmtInfo(p){
+  if(!p){
+    el.infoBody.innerHTML =
+      '<div class="ic-tx" style="color:#9db0c9">把鼠标移到任一构件（或它的标注）上查看中英文名称、化学计量与功能；'+
+      '<b>单击</b>可钉住详情，再单击空白处取消。<br><br>'+
+      '建议顺序：① 拉动"爆炸图"看清 14 个层级 → ② 回到 0% 观察各环<b>同步旋转</b>与前后景遮挡 → '+
+      '③ 切到"定子界面"视角看 H⁺ 下行与 MotA–FliG 火花 → ④ 切到"输出通道"看 flagellin 上行装配。</div>';
+    return;
+  }
+  el.infoBody.innerHTML =
+    '<div class="ic-h"><i class="dot" style="background:'+p.c+';color:'+p.c+'"></i>'+
+    '<span class="ic-zh">'+p.zh+'</span></div>'+
+    '<div class="ic-en">'+p.en+'</div>'+
+    '<div class="ic-tx">'+p.tx+'</div>'+
+    '<div class="ic-tip">💡 '+p.tip+'</div>';
+}
+function buildLegend(){
+  el.legend.innerHTML = PARTS.map(p=>
+    '<i data-id="'+p.id+'"><s style="background:'+p.c+'"></s>'+p.zh+'</i>').join('');
+  el.legend.querySelectorAll('i').forEach(node=>{
+    node.style.cursor='pointer';
+    node.addEventListener('mouseenter',()=>{ hoverId = node.getAttribute('data-id'); fmtInfo(PARTMAP[hoverId]); });
+    node.addEventListener('mouseleave',()=>{ hoverId = null; fmtInfo(PARTMAP[pinId]); });
+    node.addEventListener('click',()=>{ pinId = node.getAttribute('data-id'); fmtInfo(PARTMAP[pinId]); });
+  });
+}
+function syncReadouts(){
+  const ccw = state.dir>0;
+  el.rdState.textContent = ccw ? 'CCW · run' : 'CW · tumble';
+  el.bgSpin.textContent  = ccw ? 'CCW 逆时针 · 成束直游 (run)' : 'CW 顺时针 · 散开翻滚 (tumble)';
+  const hz = 300*state.pmf;
+  el.rdHz.textContent  = hz.toFixed(0)+' Hz';
+  el.rdTq.textContent  = (1200*state.pmf).toFixed(0)+' pN·nm';
+  el.rdH.textContent   = (1100).toFixed(0);
+  el.rdAsm.textContent = state.assembled;
+  el.rdTurn.textContent= state.filTurns.toFixed(2)+' 圈';
+  const anim = Math.max(0.001, 0.55*state.pmf*state.speed);
+  el.rdSlow.textContent = '动画相对真实转速放慢 ≈'+Math.round(hz/anim)+'×（真实每秒上百圈，否则无法观察）；'+
+    '已累计 '+state.revs.toFixed(1)+' 圈。';
+}
+function setPlay(v){
+  state.playing = v;
+  el.btnPlay.textContent = v ? '⏸ 暂停' : '▶ 播放';
+  el.btnPlay.classList.toggle('primary', v);
+}
+function setDir(d){
+  state.dir = d;
+  el.btnDir.textContent = d>0 ? '🔄 转向 CW' : '🔄 转向 CCW';
+  syncReadouts();
+}
+function setExplode(v){
+  state.explodeTo = clamp(v,0,1);
+  el.rgExp.value = Math.round(state.explodeTo*100);
+  el.vExp.textContent = Math.round(state.explodeTo*100)+'%';
+}
+function reset(){
+  state.theta=0; state.revs=0; state.assembled=0; state.filTurns=1.78;
+  state.protons.length=0; state.sparks.length=0; state.cargo.length=0;
+  state.capFlash=0; state.pAcc=0; state.cAcc=0;
+  seedCargo();
+  state.speed=1; state.pmf=1; setDir(1); setPlay(true); setExplode(0);
+  el.rgSpeed.value=100; el.vSpeed.textContent='1.00×';
+  el.rgPmf.value=100;  el.vPmf.textContent='1.00';
+  pinId=null; hoverId=null; fmtInfo(null);
+  setView('all');
+  syncReadouts();
+}
+
+el.btnPlay.addEventListener('click',()=> setPlay(!state.playing));
+el.btnDir .addEventListener('click',()=> setDir(-state.dir));
+el.btnReset.addEventListener('click', reset);
+el.btnExp .addEventListener('click',()=> setExplode(state.explodeTo>0.05?0:1));
+el.rgSpeed.addEventListener('input',e=>{ state.speed = (+e.target.value)/100; el.vSpeed.textContent = state.speed.toFixed(2)+'×'; syncReadouts(); });
+el.rgPmf  .addEventListener('input',e=>{ state.pmf = (+e.target.value)/100; el.vPmf.textContent = state.pmf.toFixed(2); syncReadouts(); });
+el.rgExp  .addEventListener('input',e=>{ setExplode((+e.target.value)/100); });
+el.ckCut  .addEventListener('change',e=>{ state.cutaway = e.target.checked; });
+el.ckLab  .addEventListener('change',e=>{ state.labels  = e.target.checked; });
+el.ckH    .addEventListener('change',e=>{ state.showH   = e.target.checked; });
+el.ckExp  .addEventListener('change',e=>{ state.showExport = e.target.checked; if(state.showExport) seedCargo(); });
+el.ckSpin .addEventListener('change',e=>{ state.autoSpin = e.target.checked; });
+el.ckStrict.addEventListener('change',e=>{ state.strict = e.target.checked; });
+el.selDens.addEventListener('change',e=>{ DENS = +e.target.value; buildStatic(); });
+document.querySelectorAll('[data-view]').forEach(b=>{
+  b.addEventListener('click',()=> setView(b.getAttribute('data-view')));
+});
+
+/* ---- 鼠标 / 触摸 ---- */
+let drag=null;
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId);
+  drag = { x:e.clientX, y:e.clientY, pan:(e.shiftKey||e.button===1||e.button===2), moved:0 };
+  cv.classList.add('drag');
+  camAnim = null;
+});
+cv.addEventListener('pointermove',e=>{
+  const r = cv.getBoundingClientRect();
+  const mx = e.clientX-r.left, my = e.clientY-r.top;
+  if(drag){
+    const dx = e.clientX-drag.x, dy = e.clientY-drag.y;
+    drag.moved += Math.abs(dx)+Math.abs(dy);
+    if(drag.pan){
+      cam.ty -= dy * cam.dist/900;
+    } else {
+      cam.yaw   -= dx*0.0062;
+      cam.pitch  = clamp(cam.pitch + dy*0.0050, -1.45, 1.45);
+    }
+    drag.x=e.clientX; drag.y=e.clientY;
+    return;
+  }
+  /* 命中测试 */
+  let best=null, bd=30;
+  for(let i=0;i<hits.length;i++){
+    const h=hits[i], d=Math.hypot(h.x-mx,h.y-my);
+    if(d<bd){ bd=d; best=h; }
+  }
+  const id = best?best.id:null;
+  if(id!==hoverId){ hoverId=id; fmtInfo(PARTMAP[hoverId] || PARTMAP[pinId]); }
+});
+cv.addEventListener('pointerup',e=>{
+  cv.classList.remove('drag');
+  if(drag && drag.moved<5){ pinId = hoverId; fmtInfo(PARTMAP[pinId]); }
+  drag=null;
+});
+cv.addEventListener('pointercancel',()=>{ drag=null; cv.classList.remove('drag'); });
+cv.addEventListener('contextmenu',e=> e.preventDefault());
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  camAnim=null;
+  cam.dist = clamp(cam.dist*Math.exp(e.deltaY*0.0011), 110, 1500);
+},{passive:false});
+window.addEventListener('keydown',e=>{
+  const t=e.target;
+  if(t && (t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA')) return;
+  const k=e.key.toLowerCase();
+  if(k===' '){ e.preventDefault(); setPlay(!state.playing); }
+  else if(k==='d'){ setDir(-state.dir); }
+  else if(k==='e'){ setExplode(state.explodeTo>0.05?0:1); }
+  else if(k==='c'){ state.cutaway=!state.cutaway; el.ckCut.checked=state.cutaway; }
+  else if(k==='l'){ state.labels=!state.labels; el.ckLab.checked=state.labels; }
+  else if(k==='r'){ reset(); }
+  else if(k>='1'&&k<='6'){ setView(['all','motor','top','chan','stator','under'][+k-1]); }
+  else if(k==='arrowleft'){ cam.yaw -= 0.08; camAnim=null; }
+  else if(k==='arrowright'){ cam.yaw += 0.08; camAnim=null; }
+  else if(k==='arrowup'){ cam.pitch = clamp(cam.pitch+0.06,-1.45,1.45); camAnim=null; }
+  else if(k==='arrowdown'){ cam.pitch = clamp(cam.pitch-0.06,-1.45,1.45); camAnim=null; }
+});
+
+/* ---- 尺寸 ---- */
+function resize(){
+  const r = cv.getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  if(DENS>1.2) DPR = Math.min(DPR,1.35);
+  W = Math.max(320, Math.round(r.width));
+  H = Math.max(280, Math.round(r.height));
+  W2 = W/2; H2 = H/2;
+  cv.width  = Math.round(W*DPR);
+  cv.height = Math.round(H*DPR);
+  bgCache = null;
+}
+window.addEventListener('resize', resize);
+if(window.ResizeObserver){
+  try{ new ResizeObserver(resize).observe(document.getElementById('stage')); }catch(err){}
+}
+
+/* ==================================================================
+   16. 主循环
+   ================================================================== */
+let last = 0, fpsAcc = 0, fpsN = 0, roAcc = 0;
+function frame(now){
+  const t = now*0.001;
+  let dt = last ? t-last : 0.016;
+  last = t;
+  if(dt > 0.1) dt = 0.1;
+  update(dt);
+  render();
+  fpsAcc += dt; fpsN++;
+  if(fpsAcc > 0.5){
+    state.fps = fpsN/fpsAcc;
+    el.vFps.textContent = state.fps.toFixed(0)+' fps';
+    fpsAcc = 0; fpsN = 0;
+  }
+  roAcc += dt;
+  if(roAcc > 0.25){ roAcc = 0; syncReadouts(); }
+  requestAnimationFrame(frame);
+}
+
+/* ---- URL hash 预设：#view=stator&explode=1&pmf=1.4&speed=0.5&dir=cw&cut=0&lab=0 ---- */
+function applyHash(){
+  const raw = (typeof location!=='undefined' && location.hash) ? String(location.hash).replace(/^#/,'') : '';
+  if(!raw) return;
+  const q = {};
+  raw.split('&').forEach(kv=>{ const i=kv.indexOf('='); if(i<0){ if(kv) q[kv]='1'; } else { q[kv.slice(0,i)]=kv.slice(i+1); } });
+  if(q.view && VIEWS[q.view]){ setView(q.view); if(camAnim){ camAnim.t=1; } }
+  if(q.explode!==undefined){ setExplode(parseFloat(q.explode)||0); state.explode = state.explodeTo; }
+  if(q.speed!==undefined){
+    state.speed = clamp(parseFloat(q.speed)||1, 0.05, 3);
+    el.rgSpeed.value = Math.round(state.speed*100); el.vSpeed.textContent = state.speed.toFixed(2)+'×';
+  }
+  if(q.pmf!==undefined){
+    state.pmf = clamp(parseFloat(q.pmf)||1, 0.2, 1.6);
+    el.rgPmf.value = Math.round(state.pmf*100); el.vPmf.textContent = state.pmf.toFixed(2);
+  }
+  if(q.dir!==undefined) setDir(/^(cw|-1)$/i.test(q.dir) ? -1 : 1);
+  if(q.cut!==undefined){ state.cutaway = !/^(0|false|off)$/i.test(q.cut); el.ckCut.checked = state.cutaway; }
+  if(q.lab!==undefined){ state.labels = !/^(0|false|off)$/i.test(q.lab); el.ckLab.checked = state.labels; }
+  if(q.spin!==undefined){ state.autoSpin = !/^(0|false|off)$/i.test(q.spin); el.ckSpin.checked = state.autoSpin; }
+  if(q.strict!==undefined){ state.strict = !/^(0|false|off)$/i.test(q.strict); el.ckStrict.checked = state.strict; }
+}
+
+buildStatic();
+buildLegend();
+seedCargo();
+fmtInfo(null);
+resize();
+setDir(1);
+setPlay(true);
+applyHash();
+syncReadouts();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

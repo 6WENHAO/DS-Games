@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>EUV 母版输出 · Master Delivery Tool</title>
+<link rel="stylesheet" href="../css/app.css">
+</head>
+<body class="tool-page">
+<h1>EUV 演示动画 · 母版输出与交付工具</h1>
+<p>
+  本工具在同源 iframe 中驱动播放器，按 <b>帧号</b> 逐帧渲染并经 <code>POST /__save</code> 直接落盘到
+  <code>EUV/out/</code>。因为渲染是时间的纯函数，捕获可中断、可续跑、可重复，结果逐字节一致。
+</p>
+
+<h2>1 · 母版帧序列（4K UHD / 30 fps / PNG）</h2>
+<div class="row">
+  <label>宽</label><input id="w" type="number" value="3840">
+  <label>高</label><input id="h" type="number" value="2160">
+  <label>起始帧</label><input id="f0" type="number" value="0">
+  <label>结束帧（留空=全片）</label><input id="f1" type="number" placeholder="5399">
+  <label>质量档</label>
+  <select id="q"><option value="master">master</option><option value="review">review</option><option value="preview">preview</option></select>
+  <label>字幕烧录</label>
+  <select id="lang"><option value="bi">双语</option><option value="zh">中文</option><option value="en">English</option><option value="none">不烧录（外挂字幕）</option></select>
+</div>
+<div class="row">
+  <button class="btn primary" id="btn-seq">开始捕获帧序列</button>
+  <button class="btn" id="btn-smoke">冒烟测试（每 60 帧抽 1 帧）</button>
+  <button class="btn" id="btn-stop">停止</button>
+</div>
+<progress id="prog" value="0" max="1"></progress>
+
+<h2>2 · 字幕（SRT + ASS · 中文 / 英文 / 双语）</h2>
+<div class="row"><button class="btn" id="btn-subs">导出全部 6 个字幕文件</button></div>
+
+<h2>3 · 音频分轨（音乐 / 音效 / 混音母带 · 48 kHz 24-bit WAV）</h2>
+<div class="row"><button class="btn" id="btn-audio">离线渲染并导出分轨 + 响度报告</button></div>
+
+<h2>4 · 静态资产（关键帧 / 封面 / 缩略图）</h2>
+<div class="row">
+  <label>宽</label><input id="sw" type="number" value="3840">
+  <label>高</label><input id="sh" type="number" value="2160">
+  <label>子目录标签</label><input id="stag" type="text" value="" placeholder="如 review1080">
+  <button class="btn" id="btn-stills">导出全部静态资产</button>
+  <button class="btn" id="btn-stills-1080">快速档 1920×1080</button>
+</div>
+<p style="font-size:12px;color:#6B8299">
+  母版 4K + master 档为单帧内 8 次抖动超采样，单帧成本极高：在有 GPU 加速的机器上通常 2–10 s/帧，
+  在纯软件渲染（SwiftShader）环境下可达十分钟以上/帧。请在具备独立显卡的机器上出母版。
+</p>
+
+<h2>5 · 交付清单与逐帧质量报告</h2>
+<div class="row"><button class="btn" id="btn-manifest">生成 manifest.json + 质量报告</button></div>
+
+<h2>日志</h2>
+<div id="log">等待操作…</div>
+
+<h2>后续封装（需本机 ffmpeg）</h2>
+<p>帧序列与音频落盘后，运行 <code>EUV/delivery/scripts/</code> 下的脚本完成母版、正片与社媒版封装：</p>
+<pre>cd EUV/delivery/scripts
+./encode_all.sh            # Linux / macOS / Git Bash
+encode_all.bat             # Windows</pre>
+
+<iframe id="app" src="../index.html?q=master&amp;autoplay=0&amp;cap=1&amp;muted=1"
+        style="width:960px;height:540px;border:1px solid #1B2836;border-radius:3px;background:#05070b"></iframe>
+
+<script type="module">
+import {
+  captureSequence, captureStills, buildSrt, buildAss, saveText, saveBinary,
+  analyseFrameStats, canvasToPng,
+} from '../src/capture.js';
+
+const logEl = document.getElementById('log');
+const prog = document.getElementById('prog');
+const lines = [];
+function log(msg, cls = '') {
+  lines.push(cls ? `<span class="${cls}">${msg}</span>` : msg);
+  if (lines.length > 400) lines.shift();
+  logEl.innerHTML = lines.join('\n');
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+const iframe = document.getElementById('app');
+const stopFlag = { stop: false };
+let lastStats = null;
+
+function appWin() {
+  const w = iframe.contentWindow;
+  if (!w || !w.__EUV__ || !w.__EUV__.ready) throw new Error('播放器尚未就绪，请稍候再试');
+  return w.__EUV__;
+}
+async function waitReady(timeout = 90000) {
+  const t0 = Date.now();
+  for (;;) {
+    try { return appWin(); } catch { /* retry */ }
+    if (Date.now() - t0 > timeout) throw new Error('播放器加载超时');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/**
+ * 重载 iframe 内的播放器。
+ * ★ 必须等待 load 事件 + 校验 nonce，否则会拿到导航前的旧 __EUV__，
+ *   随后 WebGL 上下文丢失，toBlob 永不 resolve —— 这是本项目实测到的真实缺陷。
+ */
+function reloadApp() {
+  const q = document.getElementById('q').value;
+  const lang = document.getElementById('lang').value;
+  const l = lang === 'none' ? 'bi' : lang;
+  const nonce = 'n' + Date.now().toString(36);
+  return new Promise((resolve, reject) => {
+    const onLoad = async () => {
+      iframe.removeEventListener('load', onLoad);
+      try {
+        const app = await waitReady();
+        const got = new URLSearchParams(iframe.contentWindow.location.search).get('nonce');
+        if (got !== nonce) return reject(new Error(`播放器实例握手失败（nonce ${got} ≠ ${nonce}）`));
+        log(`播放器已重载：质量档 ${q}，字幕 ${l}`);
+        resolve(app);
+      } catch (e) { reject(e); }
+    };
+    iframe.addEventListener('load', onLoad);
+    iframe.src = `../index.html?q=${q}&autoplay=0&cap=1&muted=1&lang=${l}&nonce=${nonce}`;
+    setTimeout(() => reject(new Error('播放器重载超时')), 120000);
+  });
+}
+
+document.getElementById('btn-stop').addEventListener('click', () => {
+  stopFlag.stop = true; log('已请求停止…', 'warn');
+});
+
+async function runSequence(step = 1) {
+  stopFlag.stop = false;
+  const app = await reloadApp();
+  const w = parseInt(document.getElementById('w').value, 10);
+  const h = parseInt(document.getElementById('h').value, 10);
+  const f0 = parseInt(document.getElementById('f0').value, 10) || 0;
+  const f1raw = document.getElementById('f1').value;
+  const f1 = f1raw === '' ? app.TIMELINE.frames - 1 : parseInt(f1raw, 10);
+  const dir = step === 1 ? 'frames/master' : 'frames/smoke';
+  log(`开始捕获：${w}×${h}，帧 ${f0}–${f1}${step > 1 ? `（步长 ${step}）` : ''} → out/${dir}/`);
+
+  if (step === 1) {
+    lastStats = await captureSequence(app, {
+      width: w, height: h, fps: app.TIMELINE.fps, from: f0, to: f1,
+      dir, prefix: 'EUV_master', stopFlag,
+      onProgress: (p) => {
+        prog.value = p.pct;
+        log(`帧 ${p.frame} · ${p.done}/${p.all} (${(p.pct * 100).toFixed(1)}%) · ${p.fps.toFixed(2)} fps · 剩余 ${(p.etaSec / 60).toFixed(1)} min · mean=${p.mean.toFixed(3)}`);
+      },
+    });
+  } else {
+    // 抽帧冒烟测试：验证管线与画面，不产出交付母版
+    const stats = [];
+    app.P.captureMode = true; app.pause(); app.setRenderSize(w, h);
+    for (let f = f0; f <= f1; f += step) {
+      if (stopFlag.stop) break;
+      app.setTime(f / app.TIMELINE.fps);
+      app.renderFrame();
+      const png = await canvasToPng(app.canvas);
+      const r = await saveBinary(`${dir}/EUV_smoke_${String(f).padStart(6, '0')}.png`, png);
+      stats.push({ frame: f, bytes: r.bytes, mean: 0, max: 0, delta: 0 });
+      prog.value = (f - f0) / Math.max(1, f1 - f0);
+      log(`抽帧 ${f} → ${r.path} (${(r.bytes / 1024).toFixed(0)} KB)`);
+    }
+    app.P.captureMode = false; app.restoreRenderSize();
+    lastStats = stats;
+  }
+  log(`捕获结束，共 ${lastStats.length} 帧`, 'ok');
+}
+
+document.getElementById('btn-seq').addEventListener('click', () => runSequence(1).catch((e) => log(e.message, 'bad')));
+document.getElementById('btn-smoke').addEventListener('click', () => runSequence(60).catch((e) => log(e.message, 'bad')));
+
+document.getElementById('btn-subs').addEventListener('click', async () => {
+  try {
+    const app = await waitReady();
+    const mod = await import('../src/script.js');
+    const caps = mod.allCaptions();
+    const names = { zh: '中文', en: 'English', bi: '双语' };
+    for (const lang of ['zh', 'en', 'bi']) {
+      await saveText(`subtitles/EUV_${lang}.srt`, buildSrt(caps, lang));
+      await saveText(`subtitles/EUV_${lang}.ass`, buildAss(caps, lang, { width: 3840, height: 2160 }));
+      log(`字幕 ${names[lang]}：SRT + ASS 已导出（${caps.length} 条）`, 'ok');
+    }
+    // 字幕核对表（供术语一致性人工审校）
+    const tsv = ['start\tend\tshot\tstep\tzh\ten',
+      ...caps.map((c) => `${c.start.toFixed(2)}\t${c.end.toFixed(2)}\t${c.shot}\t${c.step || ''}\t${c.zh}\t${c.en}`)].join('\n');
+    await saveText('subtitles/EUV_captions_review.tsv', tsv);
+    log('字幕核对表 EUV_captions_review.tsv 已导出', 'ok');
+  } catch (e) { log(e.message, 'bad'); }
+});
+
+document.getElementById('btn-audio').addEventListener('click', async () => {
+  try {
+    log('开始离线渲染音频分轨（180 s × 3 轨，需数十秒）…');
+    const mod = await import('../src/audio.js');
+    const out = await mod.exportAudioDeliverables((m) => log('  ' + m));
+    const report = ['# 音频分轨与响度报告', '',
+      '> 两趟归一化：先测量积分响度与真峰值，再施加增益并叠加前视软限制器，',
+      '> 使响度达标的同时真峰值不超过 −1 dBTP（见 src/audio.js 的 normalizeBuffer）。',
+      '> 分轨目标 −18 LUFS（留混音余量），混音母带目标 −14 LUFS（流媒体标准）。', '',
+      '| 轨道 | 文件 | 时长 (s) | 归一化前 (LUFS) | 施加增益 (dB) | 归一化后 (LUFS) | 真峰值 (dBTP) | 目标 | 限峰 | 判定 |',
+      '|---|---|---|---|---|---|---|---|---|---|'];
+    for (const o of out) {
+      const file = `audio/EUV_${o.kind}_48k24b.wav`;
+      await saveBinary(file, o.blob);
+      log(`${o.name} → out/${file} (${(o.blob.size / 1048576).toFixed(1)} MB)`, 'ok');
+      report.push(`| ${o.name} | ${file} | ${o.seconds.toFixed(2)} | ${o.norm.before.integratedLUFS.toFixed(2)} `
+        + `| ${o.norm.gainDb >= 0 ? '+' : ''}${o.norm.gainDb} | ${o.loudness.integratedLUFS.toFixed(2)} `
+        + `| ${o.loudness.truePeakDbTP.toFixed(2)} | ${o.target} LUFS / ≤ ${o.loudness.targetPeak} dBTP `
+        + `| ${o.norm.limited ? '是' : '否'} | ${o.loudness.pass ? '达标' : '需复核'} |`);
+    }
+    report.push('', '> 近似测量采用 ITU-R BS.1770 K 加权 + 门限算法（见 src/audio.js measureLoudness）。',
+      '> 权威复核请运行 delivery/scripts/measure_loudness.sh（ffmpeg loudnorm）。');
+    await saveText('audio/EUV_loudness_report.md', report.join('\n'));
+    log('响度报告 audio/EUV_loudness_report.md 已导出', 'ok');
+  } catch (e) { log(e.message, 'bad'); }
+});
+
+async function runStills(w, h, tag) {
+  stopFlag.stop = false;
+  const app = await reloadApp();
+  log(`导出静态资产 ${w}×${h}${tag ? ' → stills/' + tag + '/' : ''}（每镜头关键帧 + 缩略图 + 横竖封面）…`);
+  const out = await captureStills(app, {
+    width: w, height: h, tag, stopFlag,
+    onProgress: (p) => {
+      prog.value = p.done / p.all;
+      log(`  ${p.id} (${p.done}/${p.all}) · ${p.secPerFrame.toFixed(1)} s/帧`);
+    },
+  });
+  log(`静态资产完成：${out.length} 张关键帧 + 缩略图 + 2 张封面`, 'ok');
+  return out;
+}
+document.getElementById('btn-stills').addEventListener('click', () => {
+  const w = parseInt(document.getElementById('sw').value, 10);
+  const h = parseInt(document.getElementById('sh').value, 10);
+  const tag = document.getElementById('stag').value.trim();
+  runStills(w, h, tag).catch((e) => log(e.message, 'bad'));
+});
+document.getElementById('btn-stills-1080').addEventListener('click', () => {
+  document.getElementById('q').value = 'review';
+  runStills(1920, 1080, 'review1080').catch((e) => log(e.message, 'bad'));
+});
+
+document.getElementById('btn-manifest').addEventListener('click', async () => {
+  try {
+    const app = await waitReady();
+    const script = await import('../src/script.js');
+    const params = await import('../src/params.js');
+    const layout = await import('../src/layout.js');
+    const cfg = await import('../src/config.js');
+
+    const manifest = {
+      project: 'EUV 光刻原理 3D 演示动画',
+      spec: 'EUV 光刻原理 3D 演示动画制作规格书 v2.0',
+      generatedAt: new Date().toISOString(),
+      film: {
+        fps: script.TIMELINE.fps, duration: script.TIMELINE.duration, frames: script.TIMELINE.frames,
+        master: cfg.FILM.master, derivatives: cfg.FILM.derivatives, loudness: cfg.FILM.loudness,
+      },
+      shots: script.TIMELINE.shots.map((s) => ({
+        id: s.id, name: s.name, act: s.act, step: s.step,
+        start: s.start, end: s.end, dur: s.dur, desc: s.desc,
+        captions: (s.captions || []).length,
+      })),
+      processSteps: params.PROCESS_STEPS.map((s) => ({ order: s.order, key: s.key, zh: s.zh, en: s.en })),
+      stepSpans: script.stepSpans(),
+      cuts: Object.fromEntries(Object.entries(script.CUTS).map(([k, v]) => [k, {
+        label: v.label, seconds: +script.cutDuration(v).toFixed(2), segments: v.segments,
+      }])),
+      captions: script.allCaptions().length,
+      audioCues: script.allAudioCues().length,
+      optics: {
+        maskIncidenceDeg: layout.MASK_INCIDENCE_DEG,
+        chainNodes: layout.CHAIN.nodes.map((n) => n.key),
+        chainTotalUnits: +layout.CHAIN.total.toFixed(3),
+        mmPerUnit: layout.MM_PER_UNIT,
+        incidence: layout.incidenceReport().map((m) => ({ key: m.key, thetaDeg: +m.incidenceDeg.toFixed(3), deviationDeg: +m.deviationDeg.toFixed(3) })),
+      },
+      parameters: Object.fromEntries(Object.entries(params.PARAMS).map(([k, p]) => [k, {
+        value: p.value, unit: p.unit, provenance: p.provenance, zh: p.zh, en: p.en,
+      }])),
+    };
+    await saveText('manifest.json', JSON.stringify(manifest, null, 2));
+    log('manifest.json 已导出', 'ok');
+
+    if (lastStats && lastStats.length) {
+      const r = analyseFrameStats(lastStats, { fps: script.TIMELINE.fps });
+      const md = ['# 逐帧质量报告', '',
+        `- 帧数：${r.summary.frames}`,
+        `- 平均亮度：${r.summary.meanLum}（最小 ${r.summary.minLum} / 最大 ${r.summary.maxLum}）`,
+        `- PNG 中位大小：${r.summary.medBytes} B`,
+        `- 帧间差分中位数：${r.summary.deltaMedian}，P95：${r.summary.deltaP95}`,
+        `- 差分突变（闪烁疑点）：${r.summary.spikeCount} 处，阈值 ${r.summary.spikeLimit}`,
+        '', `## 判定：${r.ok ? '通过' : '存在待复核项'}`, ''];
+      if (r.issues.length) { md.push('### 待复核项'); for (const i of r.issues.slice(0, 200)) md.push(`- ${i}`); }
+      await saveText('reports/frame_quality_report.md', md.join('\n'));
+      await saveText('reports/frame_stats.json', JSON.stringify(lastStats));
+      log(`逐帧质量报告已导出：${r.ok ? '通过' : r.issues.length + ' 项待复核'}`, r.ok ? 'ok' : 'warn');
+    } else {
+      log('尚未捕获帧序列，跳过逐帧质量报告', 'warn');
+    }
+  } catch (e) { log(e.message, 'bad'); }
+});
+
+waitReady().then((a) => log(`播放器就绪：${a.TIMELINE.shots.length} 镜头 / ${a.TIMELINE.duration}s / ${a.TIMELINE.frames} 帧`, 'ok'))
+  .catch((e) => log(e.message, 'bad'));
+</script>
+</body>
+</html>

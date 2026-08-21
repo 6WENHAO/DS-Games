@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多核进程调度器时间轴 · 操作系统内核可视化教具</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1115'/%3E%3Crect x='5' y='7' width='13' height='4' rx='1' fill='%2354d1a0'/%3E%3Crect x='5' y='14' width='20' height='4' rx='1' fill='%23e8b64c'/%3E%3Crect x='5' y='21' width='8' height='4' rx='1' fill='%236aa9ff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0f1115; --bg2:#151922; --bg3:#1b2130; --line:#252d3d; --line2:#323c50;
+  --fg:#e6ebf4; --fg2:#a7b3c7; --fg3:#6f7d94;
+  --accent:#ffcf4a;           /* 主链路：唯一强调色 */
+  --run:#54d1a0; --ready:#e8b64c; --sleep:#6aa9ff; --bad:#ef5f6b;
+  --fast:#54d1a0; --slow:#e8b64c; --maint:#7f93b5; --cross:#b98bff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+.app{max-width:1560px;margin:0 auto;padding:14px 16px 40px}
+h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.3px}
+h1 small{font-weight:400;color:var(--fg3);font-size:12px;margin-left:8px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:11px 13px}
+.card>.ch{font-size:12px;color:var(--fg3);letter-spacing:.6px;margin:0 0 9px;
+  text-transform:none;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── 目标状态栏 ───────────────────────────── */
+.hdr{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:11px}
+.goal{background:linear-gradient(180deg,#1a2030,#151a26);border:1px solid var(--line2);
+  border-left:3px solid var(--accent);border-radius:9px;padding:10px 14px;margin-bottom:11px}
+.goal .gl{font-size:12px;color:var(--fg3);margin-bottom:6px}
+.goal .gv{display:flex;flex-wrap:wrap;gap:8px}
+.cpuchip{background:var(--bg3);border:1px solid var(--line2);border-radius:6px;
+  padding:4px 10px;font-family:var(--mono);font-size:13px;display:flex;align-items:center;gap:7px}
+.cpuchip i{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--fg3)}
+.cpuchip.idle{color:var(--fg3);border-style:dashed}
+.count{display:flex;flex-wrap:wrap;gap:20px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.count div{font-size:12px;color:var(--fg3)}
+.count b{display:block;font-family:var(--mono);font-size:19px;color:var(--fg);font-weight:600;letter-spacing:-.3px}
+.count .hi b{color:var(--accent)}
+.count .ratio b{color:var(--fg2);font-size:15px}
+
+/* ── 控制条 ───────────────────────────────── */
+.ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:11px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+button,select{background:var(--bg3);color:var(--fg);border:1px solid var(--line2);
+  border-radius:6px;padding:5px 11px;font:inherit;font-size:13px;cursor:pointer}
+button:hover,select:hover{border-color:#4a5876}
+button:active{transform:translateY(1px)}
+button.pri{background:var(--accent);color:#1a1400;border-color:var(--accent);font-weight:600}
+button.sm{padding:3px 8px;font-size:12px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sep{width:1px;height:22px;background:var(--line2)}
+label.sw{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg2);cursor:pointer;
+  user-select:none;white-space:nowrap}
+label.sw input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+label.sw .tag{font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--line2);color:var(--fg3)}
+label.sw .tag.perf{border-color:#2f5a48;color:#6fc79f}
+label.sw .tag.corr{border-color:#5e3038;color:#e08590}
+.ctl .grp{display:flex;align-items:center;gap:7px}
+.ctl .lbl{font-size:12px;color:var(--fg3)}
+
+/* ── 时间轴 ───────────────────────────────── */
+.tlwrap{position:relative}
+canvas{display:block;width:100%;border-radius:7px;background:#11151d}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:11.5px;color:var(--fg3)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:11px;height:11px;border-radius:2px;display:inline-block}
+
+/* ── 布局 ─────────────────────────────────── */
+.g2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:11px;margin-top:11px}
+.g3{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:11px;margin-top:11px}
+@media(max-width:1150px){.g2,.g3{grid-template-columns:1fr}}
+
+/* ── 就绪队列 ─────────────────────────────── */
+.rqgrid{display:grid;gap:9px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.rq{background:var(--bg3);border:1px solid var(--line);border-radius:7px;padding:8px 9px}
+.rq .rqh{display:flex;justify-content:space-between;align-items:baseline;gap:6px;
+  font-size:12px;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.rq .rqh b{font-family:var(--mono);font-size:12.5px}
+.rq .cur{color:var(--run)}
+.rq .cur.none{color:var(--fg3)}
+.rq table{width:100%;border-collapse:collapse;font-size:11.5px}
+.rq th{color:var(--fg3);font-weight:400;text-align:right;padding:1px 3px;font-size:10.5px}
+.rq th:first-child{text-align:left}
+.rq td{padding:2px 3px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.rq td:first-child{text-align:left;font-family:inherit}
+.rq tr.lead td{color:var(--accent)}
+.rq .empty{color:var(--fg3);font-size:11.5px;padding:5px 2px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+
+/* ── 线程表 ───────────────────────────────── */
+table.tt{width:100%;border-collapse:collapse;font-size:11.5px}
+table.tt th{color:var(--fg3);font-weight:400;text-align:right;padding:3px 4px;
+  border-bottom:1px solid var(--line);font-size:10.5px;white-space:nowrap}
+table.tt th:first-child,table.tt th:nth-child(2){text-align:left}
+table.tt td{padding:2.5px 4px;text-align:right;font-family:var(--mono);
+  font-variant-numeric:tabular-nums;border-bottom:1px solid #1c2130}
+table.tt td:first-child,table.tt td:nth-child(2){text-align:left;font-family:inherit}
+table.tt td.st{font-family:inherit;text-align:left;font-size:11px}
+table.tt tr.gone{opacity:.35}
+
+/* ── 主链路 / 支线 图 ─────────────────────── */
+svg#flow{width:100%;height:auto;display:block}
+.fl-box{fill:var(--bg3);stroke:var(--line2);stroke-width:1}
+.fl-box.main{fill:#1e2433;stroke:#465370}
+.fl-box.acc{fill:#3a2f0d;stroke:var(--accent);stroke-width:1.6}
+.fl-t{fill:var(--fg2);font-size:11px}
+.fl-t.main{fill:var(--fg)}
+.fl-t.acc{fill:var(--accent);font-weight:650;font-size:12px}
+.fl-n{fill:var(--fg3);font-size:10.5px;font-family:var(--mono)}
+.fl-n.acc{fill:var(--accent);font-size:11.5px}
+.fl-e{fill:none;stroke:#4a5876;stroke-width:1.7}
+.fl-e.acc{stroke:var(--accent);stroke-width:2.4}
+.fl-e.br{stroke-width:1.1;stroke-dasharray:3.5 3.5}
+.fl-lg{fill:var(--fg3);font-size:10px}
+.fl-flash .fl-box{stroke:#8fa4c8}
+.fl-flash .fl-box.acc{stroke:#fff0b8;filter:drop-shadow(0 0 7px rgba(255,207,74,.55))}
+
+/* ── 讲解三句话 ───────────────────────────── */
+.exp{display:flex;flex-direction:column;gap:8px}
+.exp .ev{font-family:var(--mono);font-size:12px;color:var(--accent)}
+.exp .q{border-left:2px solid var(--line2);padding-left:9px}
+.exp .q .k{font-size:10.5px;color:var(--fg3);display:block;margin-bottom:1px}
+.exp .q .v{font-size:12.5px;color:var(--fg2)}
+
+/* ── 指标 ─────────────────────────────────── */
+.mt{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:12px;align-items:baseline}
+.mt .k{color:var(--fg3)}
+.mt .v{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mt .v.warn{color:var(--slow)}
+.mt .v.bad{color:var(--bad)}
+.mt hr{grid-column:1/-1;border:0;border-top:1px solid var(--line);margin:5px 0}
+.fair{margin-top:7px}
+.fair .fr{display:grid;grid-template-columns:62px 1fr 1fr;gap:5px;align-items:center;
+  font-size:11px;margin-bottom:3px}
+.fair .bar{height:9px;border-radius:2px;background:#20273a;position:relative;overflow:hidden}
+.fair .bar i{position:absolute;left:0;top:0;bottom:0;display:block}
+.fair .bar.w i{background:#4a5876}
+.fair .bar.g i{background:var(--run)}
+.fair .hd{color:var(--fg3);font-size:10px;margin-bottom:4px}
+
+/* ── 日志 ─────────────────────────────────── */
+.log{height:100%}
+.log ul{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:11px;
+  max-height:238px;overflow:auto}
+.log li{padding:1.5px 0;border-bottom:1px solid #1a1f2c;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;color:var(--fg2)}
+.log li.sw{color:var(--accent)}
+.log li.bad{color:var(--bad)}
+.log li .t{color:var(--fg3)}
+
+/* ── 对比 ─────────────────────────────────── */
+table.cmp{width:100%;border-collapse:collapse;font-size:12px}
+table.cmp th,table.cmp td{padding:4px 6px;border-bottom:1px solid #1c2130;text-align:right}
+table.cmp th:first-child,table.cmp td:first-child{text-align:left;color:var(--fg3);font-size:11.5px}
+table.cmp th{color:var(--fg3);font-weight:400;font-size:11px}
+table.cmp td{font-family:var(--mono);font-variant-numeric:tabular-nums}
+table.cmp td.b{color:var(--run)}table.cmp td.w{color:var(--bad)}
+.hint{font-size:11.5px;color:var(--fg3);margin-top:8px;line-height:1.6}
+.notes ol,.notes ul{margin:0;padding-left:17px;font-size:11.5px;color:var(--fg2);line-height:1.65}
+.notes li{margin-bottom:3px}
+.notes b{color:var(--fg)}
+.gl-t{display:grid;grid-template-columns:auto auto 1fr;gap:2px 9px;font-size:11.5px;align-items:baseline}
+.gl-t .c{font-family:var(--mono);color:var(--fg)}
+.gl-t .e{color:var(--fg3);font-size:10.5px;font-family:var(--mono)}
+.gl-t .d{color:var(--fg2)}
+.badge{font-size:10px;border:1px solid var(--line2);border-radius:4px;padding:1px 5px;color:var(--fg3)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="hdr">
+  <h1>多核进程调度器时间轴<small>CFS 完全公平调度 · 教学示意缩比模型</small></h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="badge" id="clock">t = 0.000 ms</span>
+    <span class="badge" id="warn" style="display:none;border-color:#5e3038;color:#e08590"></span>
+  </div>
+</div>
+
+<!-- ══ 目标状态 ══ -->
+<div class="goal">
+  <div class="gl">目标状态 —— 这个子系统存在的唯一理由：<b style="color:var(--fg)">每个 CPU 上此刻在执行哪个线程</b></div>
+  <div class="gv" id="goalv"></div>
+  <div class="count">
+    <div>调度器动作<b id="cN">0</b>次 / 秒</div>
+    <div class="hi">其中真正改变「谁在跑」<b id="cM">0</b>次 / 秒</div>
+    <div class="ratio">占比<b id="cR">—</b></div>
+    <div class="ratio">开机累计 动作 / 切换<b id="cT">0 / 0</b></div>
+  </div>
+</div>
+
+<!-- ══ 控制条 ══ -->
+<div class="ctl">
+  <button class="pri" id="play">▶ 播放</button>
+  <button id="step">单步 ›</button>
+  <button id="reset">重置</button>
+  <div class="grp"><span class="lbl">速度</span>
+    <select id="speed">
+      <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option><option value="2">2×</option>
+      <option value="4">4×</option><option value="8">8×</option>
+    </select></div>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">场景</span><select id="preset"></select></div>
+  <div class="grp"><span class="lbl">CPU 数</span>
+    <select id="ncpu"><option>1</option><option>2</option><option>3</option><option value="4" selected>4</option></select></div>
+  <div class="sep"></div>
+  <label class="sw"><input type="checkbox" id="t-preempt" checked>抢占<span class="tag corr">影响正确性</span>
+    <button class="sm" data-cmp="preempt">对比</button></label>
+  <label class="sw"><input type="checkbox" id="t-balance" checked>负载均衡<span class="tag perf">只影响性能</span>
+    <button class="sm" data-cmp="balance">对比</button></label>
+  <label class="sw"><input type="checkbox" id="t-weight" checked>按 nice 加权<span class="tag corr">影响公平</span>
+    <button class="sm" data-cmp="weight">对比</button></label>
+  <div class="sep"></div>
+  <div class="grp"><span class="lbl">加线程</span>
+    <select id="ntype"><option value="cpu">CPU 密集</option><option value="io">I/O 密集</option><option value="inter">交互式</option></select>
+    <select id="nnice"><option>-10</option><option>-5</option><option selected>0</option><option>5</option><option>10</option></select>
+    <button id="add">＋</button></div>
+  <label class="sw"><input type="checkbox" id="t-static">静态模式</label>
+</div>
+
+<!-- ══ 时间轴 ══ -->
+<div class="card tlwrap">
+  <div class="ch"><span>CPU 时间轴 —— 横轴为模拟时间，色块是线程实际占用 CPU 的区间</span>
+    <span class="mono" id="tlrange"></span></div>
+  <canvas id="tl" height="260"></canvas>
+  <div class="legend">
+    <span><i style="background:#54d1a0"></i>运行中的线程（颜色按线程区分）</span>
+    <span><i style="background:#11151d;border:1px solid #2a3346"></i>空闲（CPU 空转）</span>
+    <span><i style="background:#e8e8e8;width:2px;border-radius:0"></i>上下文切换</span>
+    <span><i style="background:#6aa9ff;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>唤醒</span>
+    <span><i style="background:#ef8f6b;clip-path:polygon(0 0,100% 0,50% 100%)"></i>阻塞</span>
+    <span><i style="background:#b98bff"></i>跨核迁移（虚线连接两条泳道）</span>
+    <span><i style="background:#ffcf4a;width:2px;border-radius:0"></i>当前时刻</span>
+  </div>
+</div>
+
+<!-- ══ 就绪队列 + 线程表 ══ -->
+<div class="g2">
+  <div class="card">
+    <div class="ch"><span>各 CPU 就绪队列 —— 按 vruntime 升序，队首即下一个被选中的线程</span>
+      <span class="mono" style="color:var(--accent)">↑ 队首</span></div>
+    <div class="rqgrid" id="rqs"></div>
+    <div class="hint">Δvruntime = 该线程的虚拟运行时间 − 本队列的 min_vruntime。数值越小表示"欠跑得越多"，
+      因此越该被选中。加权规则：<span class="mono">Δvruntime += 实际运行时间 × 1024 ÷ 权重</span>，
+      所以权重大的线程虚拟时间走得慢，能分到更多真实 CPU。</div>
+  </div>
+  <div class="card">
+    <div class="ch"><span>线程总表</span><span class="mono" id="ttsum"></span></div>
+    <div style="max-height:262px;overflow:auto">
+      <table class="tt" id="tt"></table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 主链路与支线 ══ -->
+<div class="card" style="margin-top:11px">
+  <div class="ch"><span>调度器动作流 —— 中间是主流程；只有黄色那一步真正改变了目标状态，其余全是配套设施</span>
+    <span class="mono" style="color:var(--fg3)">括号内为累计次数</span></div>
+  <svg id="flow" viewBox="0 0 1020 356" role="img" aria-label="调度器主链路与支线示意图"></svg>
+</div>
+
+<!-- ══ 讲解 / 指标 / 日志 ══ -->
+<div class="g3">
+  <div class="card">
+    <div class="ch"><span>刚刚发生了什么</span></div>
+    <div class="exp" id="exp"></div>
+  </div>
+  <div class="card">
+    <div class="ch"><span>指标</span><span class="mono" id="mtwin">窗口 1 s</span></div>
+    <div class="mt" id="mt"></div>
+    <div class="fair" id="fair"></div>
+  </div>
+  <div class="card log">
+    <div class="ch"><span>事件日志</span><button class="sm" id="clr">清空</button></div>
+    <ul id="log"></ul>
+  </div>
+</div>
+
+<!-- ══ 对比 / 说明 ══ -->
+<div class="g2">
+  <div class="card">
+    <div class="ch"><span>拆掉它试试 —— 同一随机种子、同一线程集，各跑 2 秒模拟时间</span></div>
+    <div id="cmp"><div class="hint">点上方任意机制旁的「对比」按钮。<br>
+      预期：关掉<b style="color:#6fc79f">只影响性能</b>的机制，结果仍然正确，只是变慢或空转；
+      关掉<b style="color:#e08590">影响正确性</b>的机制，会出现具体的错误现象（线程饿死、交互卡顿、nice 失效）。</div></div>
+  </div>
+  <div class="card notes">
+    <div class="ch"><span>这个演示简化了什么</span></div>
+    <ol id="notes"></ol>
+    <div class="ch" style="margin:11px 0 7px">术语对照</div>
+    <div class="gl-t" id="glo"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════
+   第一部分：真实的 CFS 参数与权重表
+   来源：Linux kernel/sched/fair.c + kernel/sched/core.c（数值为主线默认值）
+   时间单位统一为微秒 (µs)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* sched_prio_to_weight[]：nice -20..+19 对应的调度权重，nice 0 = 1024。
+   相邻 nice 相差约 1.25 倍，即每降一级 nice 大约多拿 10% CPU。 */
+const PRIO_TO_WEIGHT = [
+  88761, 71755, 56483, 46273, 36291,   /* -20 .. -16 */
+  29154, 23254, 18705, 14949, 11916,   /* -15 .. -11 */
+   9548,  7620,  6100,  4904,  3906,   /* -10 ..  -6 */
+   3121,  2501,  1991,  1586,  1277,   /*  -5 ..  -1 */
+   1024,   820,   655,   526,   423,   /*   0 ..   4 */
+    335,   272,   215,   172,   137,   /*   5 ..   9 */
+    110,    87,    70,    56,    45,   /*  10 ..  14 */
+     36,    29,    23,    18,    15    /*  15 ..  19 */
+];
+const NICE0_LOAD      = 1024;
+const SCHED_LATENCY   = 6000;   /* sysctl_sched_latency        6 ms：一轮里每个线程至少跑一次 */
+const MIN_GRANULARITY  = 750;   /* sysctl_sched_min_granularity 0.75 ms：单次最短占用，防切换过频 */
+const SCHED_NR_LATENCY = 8;     /* 超过 8 个可运行线程后，周期按 nr × min_gran 拉长 */
+const WAKEUP_GRAN     = 1000;   /* sysctl_sched_wakeup_granularity 1 ms：唤醒抢占的门槛 */
+const TICK_PERIOD     = 1000;   /* HZ = 1000 */
+const BALANCE_PERIOD  = 16000;  /* 周期性负载均衡间隔（真实内核由调度域层级决定） */
+const SWITCH_COST     = 3;      /* 一次上下文切换的直接开销（寄存器/栈/地址空间+缓存扰动，示意值） */
+const IMBALANCE_TH    = 512;    /* 周期性均衡触发门槛（权重差） */
+
+function weightOfNice(n){ return PRIO_TO_WEIGHT[Math.max(0, Math.min(39, (n|0) + 20))]; }
+
+const TYPES = {
+  cpu:   { label:'CPU 密集', burst:[Infinity,Infinity], sleep:[0,0] },
+  io:    { label:'I/O 密集', burst:[600,2500],          sleep:[4000,14000] },
+  inter: { label:'交互式',   burst:[200,900],           sleep:[40000,150000] },
+};
+const PALETTE = ['#54d1a0','#6aa9ff','#e8b64c','#ef8f6b','#b98bff','#4fd0d8',
+                 '#f07ba8','#9ecf5a','#d6a06a','#7f93b5','#c0e070','#ff9f7a'];
+
+/* ── 场景预设 ─────────────────────────────────────────────────────── */
+const PRESETS = {
+  desktop: { name:'典型桌面负载（混合）', cpus:4, place:'spread', tasks:[
+    {n:'渲染',   ty:'cpu',   nice:0},  {n:'编译1', ty:'cpu', nice:0},
+    {n:'编译2',  ty:'cpu',   nice:0},  {n:'压缩',  ty:'cpu', nice:5},
+    {n:'备份',   ty:'cpu',   nice:10}, {n:'索引',  ty:'cpu', nice:0},
+    {n:'数据库', ty:'io',    nice:0},  {n:'日志',  ty:'io',  nice:0},
+    {n:'网络',   ty:'io',    nice:0},  {n:'键鼠',  ty:'inter', nice:-5},
+    {n:'音频',   ty:'inter', nice:-10},
+  ]},
+  fair: { name:'权重与公平（单核对照）', cpus:1, place:'spread', tasks:[
+    {n:'高优先', ty:'cpu', nice:-5}, {n:'普通', ty:'cpu', nice:0}, {n:'低优先', ty:'cpu', nice:5},
+  ]},
+  latency: { name:'交互延迟（重负载下的响应）', cpus:4, place:'spread', tasks:[
+    {n:'编译1',ty:'cpu',nice:0},{n:'编译2',ty:'cpu',nice:0},{n:'编译3',ty:'cpu',nice:0},
+    {n:'编译4',ty:'cpu',nice:0},{n:'编译5',ty:'cpu',nice:0},{n:'编译6',ty:'cpu',nice:0},
+    {n:'键鼠', ty:'inter',nice:0},
+  ]},
+  imbalance: { name:'负载失衡（全挤在 CPU0）', cpus:4, place:0, tasks:[
+    {n:'批处理1',ty:'cpu',nice:0},{n:'批处理2',ty:'cpu',nice:0},{n:'批处理3',ty:'cpu',nice:0},
+    {n:'批处理4',ty:'cpu',nice:0},{n:'批处理5',ty:'cpu',nice:0},{n:'批处理6',ty:'cpu',nice:0},
+    {n:'批处理7',ty:'cpu',nice:0},{n:'批处理8',ty:'cpu',nice:0},
+  ]},
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+   第二部分：工具 —— 可复现随机数、事件堆
+   ══════════════════════════════════════════════════════════════════════ */
+function mulberry32(a){
+  return function(){
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+class Heap {                      /* 按 (t, seq) 排序的最小堆 */
+  constructor(){ this.a = []; }
+  get size(){ return this.a.length; }
+  _lt(x,y){ return x.t < y.t || (x.t === y.t && x.seq < y.seq); }
+  push(x){
+    const a = this.a; a.push(x);
+    let i = a.length - 1;
+    while (i > 0){ const p = (i-1)>>1; if (!this._lt(a[i],a[p])) break;
+      const s = a[p]; a[p] = a[i]; a[i] = s; i = p; }
+  }
+  peek(){ return this.a[0] || null; }
+  pop(){
+    const a = this.a; if (!a.length) return null;
+    const top = a[0], last = a.pop();
+    if (a.length){ a[0] = last; let i = 0;
+      for(;;){ const l = 2*i+1, r = l+1; let m = i;
+        if (l < a.length && this._lt(a[l],a[m])) m = l;
+        if (r < a.length && this._lt(a[r],a[m])) m = r;
+        if (m === i) break; const s = a[m]; a[m] = a[i]; a[i] = s; i = m; } }
+    return top;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第三部分：调度器模拟核心
+   —— 纯逻辑，不碰 DOM，可以脱离界面在后台重跑（对比实验依赖这一点）
+   ══════════════════════════════════════════════════════════════════════ */
+const BUCKET_US = 40000, N_BUCKET = 25;   /* 25 × 40 ms = 1 s 统计窗口 */
+const WIN_US    = 150000;                  /* 时间轴视窗 150 ms */
+
+/* 每一类动作在"主链路 / 支线"里的归属 */
+const ACTS = ['event','tick','irq','lock','acct','preempt_chk','place','enq','deq',
+              'pick','switch','noswitch','bal','migr','ipi'];
+
+class Sim {
+  constructor(spec, seed){
+    this.spec = spec;
+    this.seed = seed >>> 0;
+    this.rng  = mulberry32(this.seed);
+    this.now  = 0;
+    this.heap = new Heap();
+    this.seq  = 0;
+    this.cfg  = { preempt: spec.preempt !== false,
+                  balance: spec.balance !== false,
+                  weight:  spec.weight  !== false };
+    this.nextTid = 1;
+    this.tasks = [];
+    this.cpus  = [];
+    this.segments = [];   /* 时间轴色块 */
+    this.marks    = [];   /* 时间轴标记 */
+    this.logs     = [];
+    this.buckets  = new Map();
+    this.total    = {};   for (const k of ACTS) this.total[k] = 0;
+    this.maxWait  = 0;
+    this.lastEvent = null;
+    this.overrun   = false;
+
+    for (let i = 0; i < spec.cpus; i++)
+      this.cpus.push({ id:i, cur:null, q:[], minv:0, needResched:false, reason:'',
+                       sliceStart:0, acctAt:0, segStart:0, busy:0, idle:0, overhead:0,
+                       switches:0 });
+
+    spec.tasks.forEach((t,i) => this.addTask(t, spec.place === 'spread' ? i % spec.cpus : spec.place));
+
+    for (const c of this.cpus){
+      this.push(TICK_PERIOD * (c.id + 1) / this.cpus.length, 'tick', { cpu:c.id });
+      this.push(BALANCE_PERIOD / 2 + c.id * BALANCE_PERIOD / this.cpus.length, 'bal', { cpu:c.id });
+      this.schedule(c, 0, '系统启动，CPU 需要选一个线程');
+    }
+  }
+
+  /* ── 记账小工具 ────────────────────────────────────────────────── */
+  push(t, k, d){ const e = Object.assign({ t, k, seq: this.seq++ }, d); this.heap.push(e); return e; }
+  rand(lo, hi){ return lo + (hi - lo) * this.rng(); }
+  act(k){
+    this.total[k]++;
+    const bi = Math.floor(this.now / BUCKET_US);
+    let b = this.buckets.get(bi);
+    if (!b){ b = {}; this.buckets.set(bi, b);
+      for (const key of this.buckets.keys()) if (key < bi - N_BUCKET) this.buckets.delete(key); }
+    b[k] = (b[k] || 0) + 1;
+  }
+  window1s(){
+    const out = {}; for (const k of ACTS) out[k] = 0;
+    const cur = Math.floor(this.now / BUCKET_US);
+    for (const [bi,b] of this.buckets)
+      if (bi > cur - N_BUCKET) for (const k in b) out[k] = (out[k] || 0) + b[k];
+    out.__all = 0; for (const k of ACTS) out.__all += out[k];
+    /* 统计窗口最长 1 s；模拟刚开始时窗口更短，折算成"次/秒"才不会误报 */
+    out.__span = Math.max(1, Math.min(1e6, this.now));
+    out.__scale = 1e6 / out.__span;
+    return out;
+  }
+  log(cpu, kind, text){
+    this.logs.push({ t:this.now, cpu, kind, text });
+    if (this.logs.length > 260) this.logs.splice(0, 80);
+  }
+  wOf(t){ return this.cfg.weight ? t.weight : NICE0_LOAD; }
+
+  /* ── 线程 ──────────────────────────────────────────────────────── */
+  addTask(sp, cpuIdx){
+    const id = this.nextTid++;
+    const t = { id, name: sp.n, type: sp.ty, nice: sp.nice,
+      weight: weightOfNice(sp.nice), color: PALETTE[(id - 1) % PALETTE.length],
+      state:'ready', cpu:null, vruntime:0, exec:0, gen:0,
+      burstLeft: sp.ty === 'cpu' ? Infinity : this.rand.apply(this, TYPES[sp.ty].burst),
+      readySince: this.now, wokeAt: -1, alive: true,
+      switches:0, migrations:0, blocks:0,
+      latN:0, latSum:0, latMax:0, latLast:-1, waitMax:0 };
+    this.tasks.push(t);
+    const c = this.cpus[Math.min(cpuIdx, this.cpus.length - 1)];
+    if (this.now > 0) this.placeEntity(t, c, true);
+    this.enqueue(c, t);
+    return t;
+  }
+  killTask(t){
+    if (!t.alive) return;
+    const c = t.cpu != null ? this.cpus[t.cpu] : null;
+    t.alive = false;
+    if (c){
+      this.updateCurr(c, this.now);
+      const i = c.q.indexOf(t);
+      if (i >= 0) c.q.splice(i, 1);
+      else if (c.cur === t){ t.state = 'dead'; t.gen++; this.schedule(c, this.now, '当前线程退出'); }
+    }
+    t.state = 'dead';
+  }
+
+  /* ── 运行队列基本操作 ──────────────────────────────────────────── */
+  rqLoad(c){ let w = 0; for (const t of c.q) w += this.wOf(t); if (c.cur) w += this.wOf(c.cur); return w; }
+  rqNr(c){ return c.q.length + (c.cur ? 1 : 0); }
+
+  /* 真实内核用红黑树 O(log n)；这里用有序数组，语义等价 */
+  enqueue(c, t){
+    this.act('enq');
+    t.state = 'ready'; t.cpu = c.id; t.readySince = this.now;
+    let i = 0; while (i < c.q.length && c.q[i].vruntime <= t.vruntime) i++;
+    c.q.splice(i, 0, t);
+    this.updateMinVruntime(c);
+  }
+  dequeueHead(c){ this.act('deq'); const t = c.q.shift(); this.updateMinVruntime(c); return t; }
+
+  updateMinVruntime(c){
+    let v = c.cur ? c.cur.vruntime : null;
+    const lm = c.q[0];
+    if (lm) v = (v === null) ? lm.vruntime : Math.min(v, lm.vruntime);
+    if (v !== null && v > c.minv) c.minv = v;   /* min_vruntime 单调不减 */
+  }
+
+  /* update_curr()：把已经过去的真实时间折算成虚拟时间记到当前线程头上 */
+  updateCurr(c, now){
+    const dt = now - c.acctAt;
+    if (dt > 0){
+      if (c.cur){
+        const t = c.cur;
+        t.exec += dt;
+        t.vruntime += dt * NICE0_LOAD / this.wOf(t);
+        if (isFinite(t.burstLeft)) t.burstLeft -= dt;
+        c.busy += dt;
+        this.act('acct');
+      } else c.idle += dt;
+      c.acctAt = now;
+    }
+    this.updateMinVruntime(c);
+  }
+
+  /* sched_slice()：本线程这一轮应得的真实时间份额 */
+  schedSlice(c, t){
+    const nr = Math.max(1, this.rqNr(c));
+    const period = nr > SCHED_NR_LATENCY ? nr * MIN_GRANULARITY : SCHED_LATENCY;
+    const total = this.rqLoad(c) || NICE0_LOAD;
+    return period * this.wOf(t) / total;
+  }
+  /* place_entity()：新线程记一笔债；睡醒的线程给有上限的补偿 */
+  placeEntity(t, c, initial){
+    this.act('place');
+    let v = c.minv;
+    if (initial) v += this.schedSlice(c, t) * NICE0_LOAD / this.wOf(t);  /* START_DEBIT */
+    else         v -= SCHED_LATENCY / 2;                                  /* GENTLE_FAIR_SLEEPERS */
+    if (v > t.vruntime) t.vruntime = v;
+  }
+
+  /* check_preempt_tick()：时钟中断里判断当前线程是否该让位 */
+  checkPreemptTick(c, now){
+    const cur = c.cur; if (!cur) return;
+    this.act('preempt_chk');
+    c.reason = '';
+    const ideal = this.schedSlice(c, cur);
+    const delta = now - c.sliceStart;
+    if (delta > ideal){
+      c.needResched = true;
+      c.reason = '时间片耗尽（已跑 ' + us(delta) + '，配额 ' + us(ideal) + '）';
+      return;
+    }
+    if (delta < MIN_GRANULARITY) return;   /* 最短占用保护：切太勤开销划不来 */
+    const lm = c.q[0]; if (!lm) return;
+    if (cur.vruntime - lm.vruntime > ideal){
+      c.needResched = true;
+      c.reason = '队首 ' + lm.name + ' 欠跑更多（Δ ' + us(cur.vruntime - lm.vruntime) + '）';
+    }
+  }
+  /* check_preempt_wakeup()：刚醒的线程是否值得立刻打断当前线程 */
+  checkPreemptWakeup(c, se){
+    this.act('preempt_chk');
+    const cur = c.cur; if (!cur) return true;
+    const vdiff = cur.vruntime - se.vruntime;
+    if (vdiff <= 0) return false;
+    const gran = WAKEUP_GRAN * NICE0_LOAD / this.wOf(se);  /* 权重越大门槛越低 */
+    return vdiff > gran;
+  }
+
+  /* select_task_rq()：给醒来的线程挑一个 CPU */
+  selectRq(t, home){
+    if (this.cpus[home] && this.rqNr(this.cpus[home]) === 0) return home;   /* 老家空着，最省事 */
+    if (this.cfg.balance){
+      for (const c of this.cpus) if (this.rqNr(c) === 0) return c.id;       /* 别让 CPU 空转 */
+      let best = home, bl = Infinity;
+      for (const c of this.cpus){ const l = this.rqLoad(c); if (l < bl){ bl = l; best = c.id; } }
+      return best;
+    }
+    return home;
+  }
+
+  migrate(t, from, to, wakeTarget){
+    this.updateCurr(from, this.now); this.updateCurr(to, this.now);
+    const i = from.q.indexOf(t); if (i < 0) return false;
+    this.act('deq'); from.q.splice(i, 1); this.updateMinVruntime(from);
+    /* vruntime 是相对所在队列的，跨队列必须换算，否则会凭空获得或失去优先权 */
+    t.vruntime = t.vruntime - from.minv + to.minv;
+    this.enqueue(to, t);
+    t.migrations++; this.act('migr');
+    this.marks.push({ t:this.now, cpu:from.id, cpu2:to.id, kind:'migr', task:t.id });
+    this.log(to.id, 'migr', t.name + '：CPU' + from.id + ' → CPU' + to.id);
+    if (wakeTarget && to.cur === null){ this.act('ipi'); this.schedule(to, this.now, '均衡后目标 CPU 空闲'); }
+    return true;
+  }
+  tryPull(me){                       /* newidle_balance()：即将空转，先看看别处有没有活 */
+    let best = null, bl = -1;
+    for (const c of this.cpus){
+      if (c === me || !c.q.length) continue;
+      const l = this.rqLoad(c); if (l > bl){ bl = l; best = c; }
+    }
+    if (!best) return false;
+    return this.migrate(best.q[best.q.length - 1], best, me, false);
+  }
+
+  /* ── __schedule()：唯一真正改变"谁在跑"的地方 ─────────────────── */
+  schedule(c, now, reason){
+    this.act('lock');
+    this.updateCurr(c, now);
+    const prev = c.cur;
+    c.needResched = false;
+
+    if (prev && prev.state === 'running') this.enqueue(c, prev);   /* put_prev_entity */
+
+    this.act('pick');
+    let next = c.q[0] || null;
+    if (!next && this.cfg.balance){ this.act('bal'); if (this.tryPull(c)) next = c.q[0] || null; }
+    if (next) this.dequeueHead(c);
+
+    if (next && next === prev){
+      /* 调度器完整跑了一遍，结论是"不用换人" —— 目标状态没有改变 */
+      this.act('noswitch');
+      next.state = 'running'; c.cur = next; c.sliceStart = now;
+      this.lastEvent = { kind:'noswitch', cpu:c.id, task:next, reason };
+      this.log(c.id, 'noswitch', next.name + ' 继续运行（' + reason + '）');
+      this.updateMinVruntime(c);
+      return;
+    }
+
+    /* ★ 主链路：上下文切换 */
+    this.act('switch');
+    c.switches++;
+    if (prev){ prev.gen++; prev.switches++; }
+    const startAt = now + SWITCH_COST;
+    if (now > c.segStart) this.segments.push({ cpu:c.id, task: prev ? prev.id : null,
+                                               start:c.segStart, end:now });
+    c.segStart  = startAt;
+    c.overhead += SWITCH_COST;
+    c.acctAt    = startAt;
+    c.sliceStart= startAt;
+    c.cur       = next;
+
+    if (next){
+      next.state = 'running';
+      /* 用 startAt 而不是 now：线程真正开始执行是在切换开销之后 */
+      const wait = startAt - next.readySince;
+      if (wait > next.waitMax) next.waitMax = wait;
+      if (wait > this.maxWait)  this.maxWait  = wait;
+      if (next.wokeAt >= 0){          /* 唤醒延迟：醒来 → 真正拿到 CPU */
+        const lat = startAt - next.wokeAt;
+        next.latLast = lat; next.latSum += lat; next.latN++;
+        if (lat > next.latMax) next.latMax = lat;
+        next.wokeAt = -1;
+      }
+      if (isFinite(next.burstLeft))
+        this.push(startAt + Math.max(1, next.burstLeft), 'block', { task:next.id, gen:next.gen });
+    }
+    this.marks.push({ t:now, cpu:c.id, kind:'switch' });
+    this.lastEvent = { kind:'switch', cpu:c.id, task:next, prev, reason };
+    this.log(c.id, 'switch', (prev ? prev.name : '空闲') + ' → ' +
+             (next ? next.name : '空闲') + '（' + reason + '）');
+    this.updateMinVruntime(c);
+  }
+
+  /* ── 事件分派 ──────────────────────────────────────────────────── */
+  dispatch(e){
+    this.act('event');
+    if (e.k === 'tick'){
+      const c = this.cpus[e.cpu]; if (!c) return;
+      this.act('tick'); this.act('lock');
+      this.updateCurr(c, this.now);
+      if (this.cfg.preempt) this.checkPreemptTick(c, this.now);
+      /* 先记成"时钟中断"；若随后真的切换了，schedule() 会覆盖成主链路事件 */
+      this.lastEvent = { kind:'tick', cpu:c.id, task:c.cur, reason:c.reason };
+      if (c.needResched) this.schedule(c, this.now, c.reason);
+      this.push(this.now + TICK_PERIOD, 'tick', { cpu:c.id });
+
+    } else if (e.k === 'block'){
+      const t = this.tasks.find(x => x.id === e.task);
+      if (!t || !t.alive || t.gen !== e.gen || t.state !== 'running') return;
+      const c = this.cpus[t.cpu];
+      this.updateCurr(c, this.now);
+      t.state = 'sleep'; t.gen++; t.blocks++; t.burstLeft = 0;
+      const sl = TYPES[t.type].sleep;
+      this.push(this.now + this.rand(sl[0], sl[1]), 'wake', { task:t.id });
+      this.marks.push({ t:this.now, cpu:c.id, kind:'block' });
+      this.lastEvent = { kind:'block', cpu:c.id, task:t };
+      this.log(c.id, 'block', t.name + ' 主动阻塞等 I/O');
+      this.schedule(c, this.now, t.name + ' 阻塞让出 CPU');
+
+    } else if (e.k === 'wake'){
+      const t = this.tasks.find(x => x.id === e.task);
+      if (!t || !t.alive || t.state !== 'sleep') return;
+      this.act('irq');                                   /* I/O 完成中断 */
+      const home = t.cpu != null ? t.cpu : 0;
+      const tgt  = this.selectRq(t, home);
+      const c    = this.cpus[tgt];
+      this.updateCurr(c, this.now);
+      if (tgt !== home){
+        const hc = this.cpus[home];
+        this.updateCurr(hc, this.now);
+        /* migrate_task_rq_fair()：vruntime 是相对所在队列基准的，换队列必须换算。
+           漏掉这一步，线程会带着旧队列的绝对值落到新队列 —— 而线程少的核
+           min_vruntime 推进得快、线程多的核推进得慢，两个基准会越差越远，
+           于是唤醒抢占判定失准，交互线程明明该立刻上却要等下一个滴答。 */
+        t.vruntime = t.vruntime - hc.minv + c.minv;
+        t.migrations++; this.act('migr');
+        this.marks.push({ t:this.now, cpu:home, cpu2:tgt, kind:'migr', task:t.id });
+      }
+      this.placeEntity(t, c, false);
+      t.burstLeft = this.rand.apply(this, TYPES[t.type].burst);
+      this.enqueue(c, t);
+      t.wokeAt = this.now;
+      this.marks.push({ t:this.now, cpu:tgt, kind:'wake' });
+      this.lastEvent = { kind:'wake', cpu:tgt, task:t };
+      this.log(tgt, 'wake', t.name + ' 被 I/O 完成唤醒 → 入 CPU' + tgt + ' 队列');
+      const needIpi = tgt !== home;
+      if (c.cur === null){
+        if (needIpi) this.act('ipi');
+        this.schedule(c, this.now, 'CPU' + tgt + ' 空闲，醒来的 ' + t.name + ' 直接上');
+      } else if (this.cfg.preempt && this.checkPreemptWakeup(c, t)){
+        if (needIpi) this.act('ipi');
+        this.schedule(c, this.now, t.name + ' 刚醒且欠跑更多（唤醒抢占）');
+      }
+
+    } else if (e.k === 'bal'){
+      const c = this.cpus[e.cpu];
+      this.push(this.now + BALANCE_PERIOD, 'bal', { cpu:e.cpu });
+      if (!c || !this.cfg.balance) return;
+      this.act('bal');
+      for (const x of this.cpus) this.updateCurr(x, this.now);
+      let busiest = null, bl = -1;
+      for (const x of this.cpus){ const l = this.rqLoad(x); if (l > bl){ bl = l; busiest = x; } }
+      if (!busiest || busiest === c) return;
+      if (bl - this.rqLoad(c) <= IMBALANCE_TH) return;
+      if (!busiest.q.length) return;
+      this.lastEvent = { kind:'bal', cpu:c.id };
+      this.migrate(busiest.q[busiest.q.length - 1], busiest, c, true);
+    }
+  }
+
+  /* ── 推进 ──────────────────────────────────────────────────────── */
+  advanceTo(T){
+    let guard = 0;
+    for(;;){
+      const e = this.heap.peek();
+      if (!e || e.t > T) break;
+      if (++guard > 400000){ this.overrun = true; break; }
+      this.heap.pop(); this.now = e.t; this.dispatch(e);
+    }
+    if (T > this.now){ this.now = T; for (const c of this.cpus) this.updateCurr(c, T); }
+    this.trim();
+  }
+  stepOne(){
+    const e = this.heap.pop(); if (!e) return null;
+    this.now = e.t; this.dispatch(e);
+    for (const c of this.cpus) this.updateCurr(c, this.now);
+    this.trim(); return e;
+  }
+  trim(){
+    const lo = this.now - WIN_US * 1.4;
+    if (this.segments.length > 40 && this.segments[0].end < lo){
+      let i = 0; while (i < this.segments.length && this.segments[i].end < lo) i++;
+      this.segments.splice(0, i);
+    }
+    if (this.marks.length > 40 && this.marks[0].t < lo){
+      let i = 0; while (i < this.marks.length && this.marks[i].t < lo) i++;
+      this.marks.splice(0, i);
+    }
+  }
+
+  /* ── 指标 ──────────────────────────────────────────────────────── */
+  summary(){
+    let busy = 0, idle = 0, ovh = 0, sw = 0;
+    for (const c of this.cpus){ busy += c.busy; idle += c.idle; ovh += c.overhead; sw += c.switches; }
+    const span = Math.max(1, this.now) * this.cpus.length;
+    let latN = 0, latSum = 0, latMax = 0, wait = this.maxWait;
+    for (const t of this.tasks){
+      if (t.type === 'inter' || t.type === 'io'){
+        latN += t.latN; latSum += t.latSum; latMax = Math.max(latMax, t.latMax);
+      }
+      if (t.state === 'ready') wait = Math.max(wait, this.now - t.readySince);
+    }
+    /* 权重公平性：只对始终可运行的 CPU 密集线程有意义 */
+    const cpuT = this.tasks.filter(t => t.type === 'cpu' && t.alive);
+    let wSum = 0, eSum = 0;
+    for (const t of cpuT){ wSum += t.weight; eSum += t.exec; }
+    let fairDev = 0; const fairRows = [];
+    for (const t of cpuT){
+      const want = wSum ? t.weight / wSum : 0, got = eSum ? t.exec / eSum : 0;
+      fairRows.push({ t, want, got });
+      if (want > 0.02) fairDev = Math.max(fairDev, Math.abs(got - want) / want);
+    }
+    return { busy, idle, ovh, sw, util: busy / span, idleRate: idle / span,
+             ovhRate: ovh / span, swPerSec: sw / Math.max(1e-9, this.now / 1e6),
+             maxWait: wait, latAvg: latN ? latSum / latN : null, latMax, latN,
+             fairDev, fairRows, actTotal: Object.values(this.total).reduce((a,b)=>a+b,0) };
+  }
+}
+
+/* 后台重跑：同种子、同线程集，只改一个开关 —— 对比实验的基础 */
+function runHeadless(spec, ms, seed){
+  const s = new Sim(spec, seed);
+  s.advanceTo(ms * 1000);
+  return s.summary();
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第四部分：格式化
+   ══════════════════════════════════════════════════════════════════════ */
+const $ = s => document.querySelector(s);
+function us(v){ return v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 1 : 2) + ' ms' : Math.round(v) + ' µs'; }
+function ms(v, d){ return (v/1000).toFixed(d === undefined ? 2 : d); }
+function pct(v){ return (v*100).toFixed(1) + '%'; }
+const STATE_TXT = { running:'运行中', ready:'就绪', sleep:'阻塞 I/O', dead:'已退出' };
+const STATE_COL = { running:'var(--run)', ready:'var(--ready)', sleep:'var(--sleep)', dead:'var(--fg3)' };
+
+/* ══════════════════════════════════════════════════════════════════════
+   第五部分：主链路 / 支线 图
+   ══════════════════════════════════════════════════════════════════════ */
+const FLOW_NODES = [
+  /* 主流程（y=196） */
+  { id:'n1', x:62,  y:196, w:104, cls:'main', t:['事件到来','时钟/唤醒/阻塞'], k:'event' },
+  { id:'n2', x:196, y:196, w:96,  cls:'main', t:['加队列锁'],                  k:'lock' },
+  { id:'n3', x:326, y:196, w:104, cls:'main', t:['vruntime 记账','update_curr'], k:'acct' },
+  { id:'n4', x:462, y:196, w:96,  cls:'main', t:['抢占判定'],                  k:'preempt_chk' },
+  { id:'n5', x:592, y:196, w:96,  cls:'main', t:['选队首','pick_next'],         k:'pick' },
+  { id:'n6', x:742, y:196, w:126, cls:'acc',  t:['★ 上下文切换','谁在跑 变了'],  k:'switch' },
+  { id:'n7', x:918, y:196, w:104, cls:'main', t:['新线程执行'],                k:'switch' },
+  /* 上方支线（y=74）：为了让主流程算得对 */
+  { id:'u1', x:236, y:74,  w:126, cls:'', t:['时钟中断','每 CPU 每 1 ms'], k:'tick' },
+  { id:'u2', x:470, y:74,  w:126, cls:'', t:['唤醒后 vruntime 归位','place_entity'], k:'place' },
+  { id:'u3', x:646, y:74,  w:118, cls:'', t:['按 vruntime 排序插入','红黑树'], k:'enq' },
+  /* 下方支线（y=310）：为了够快、为了不空转、为了没必要时别折腾 */
+  { id:'l1', x:430, y:310, w:140, cls:'', t:['判定后不换人','原线程继续'], k:'noswitch' },
+  { id:'l2', x:600, y:310, w:112, cls:'', t:['负载均衡尝试','多数时候空手而归'], k:'bal' },
+  { id:'l3', x:754, y:310, w:126, cls:'', t:['线程迁移 + 核间中断'], k:'migr', k2:'ipi' },
+  { id:'l4', x:918, y:310, w:104, cls:'', t:['切换开销','寄存器/栈/缓存'], k:'__ovh' },
+];
+const FLOW_EDGES = [
+  ['n1','n2','main'],['n2','n3','main'],['n3','n4','main'],['n4','n5','main'],
+  ['n5','n6','acc'],['n6','n7','acc'],
+  ['u1','n3','br'],['u2','n5','br'],['u3','n5','br'],
+  ['n4','l1','br'],['l1','n7','br'],['l2','l3','br'],['l3','n5','br'],['n6','l4','br'],
+];
+const NODE_H = 40;
+let flowEls = {};
+function buildFlow(){
+  const svg = $('#flow'); svg.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (n,a) => { const e = document.createElementNS(NS,n);
+    for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const byId = {}; FLOW_NODES.forEach(n => byId[n.id] = n);
+
+  /* 分层标题 */
+  const lab = [[16,52,'为了算得对：记账与判定'],[16,290,'为了够快 / 不空转 / 少折腾']];
+  for (const [x,y,t] of lab){ const e = mk('text',{x,y,class:'fl-lg'}); e.textContent = t; svg.appendChild(e); }
+  const spine = mk('text',{x:16,y:174,class:'fl-lg'}); spine.textContent = '主流程'; svg.appendChild(spine);
+
+  /* 连线 */
+  for (const [a,b,cls] of FLOW_EDGES){
+    const A = byId[a], B = byId[b];
+    const ax = A.x + (A.y === B.y ? A.w/2 : 0), ay = A.y + (A.y === B.y ? 0 : (B.y > A.y ? NODE_H/2 : -NODE_H/2));
+    const bx = B.x - (A.y === B.y ? B.w/2 : 0), by = B.y + (A.y === B.y ? 0 : (B.y > A.y ? -NODE_H/2 : NODE_H/2));
+    let d;
+    if (A.y === B.y) d = 'M' + ax + ' ' + ay + ' L' + bx + ' ' + by;
+    else d = 'M' + (A.x) + ' ' + ay + ' C' + A.x + ' ' + ((ay+by)/2) + ' ' + B.x + ' ' + ((ay+by)/2) + ' ' + B.x + ' ' + by;
+    svg.appendChild(mk('path',{ d, class:'fl-e ' + cls, 'marker-end':'' }));
+  }
+  /* 节点 */
+  for (const n of FLOW_NODES){
+    const g = mk('g',{}); g.dataset.id = n.id;
+    g.appendChild(mk('rect',{ x:n.x-n.w/2, y:n.y-NODE_H/2, width:n.w, height:NODE_H,
+      rx:6, class:'fl-box ' + n.cls }));
+    const t1 = mk('text',{ x:n.x, y:n.y - (n.t[1] ? 4 : 1), 'text-anchor':'middle',
+      class:'fl-t ' + (n.cls === 'acc' ? 'acc' : n.cls) }); t1.textContent = n.t[0];
+    g.appendChild(t1);
+    if (n.t[1]){ const t2 = mk('text',{ x:n.x, y:n.y + 8, 'text-anchor':'middle',
+      class:'fl-lg' }); t2.textContent = n.t[1]; g.appendChild(t2); }
+    const cnt = mk('text',{ x:n.x, y:n.y + NODE_H/2 + 13, 'text-anchor':'middle',
+      class:'fl-n ' + (n.cls === 'acc' ? 'acc' : '') }); cnt.textContent = '0';
+    g.appendChild(cnt);
+    svg.appendChild(g);
+    flowEls[n.id] = { g, cnt, prev:0 };
+  }
+}
+function updateFlow(){
+  for (const n of FLOW_NODES){
+    const el = flowEls[n.id]; let v, txt;
+    if (n.k === '__ovh'){ v = sim.cpus.reduce((a,c) => a + c.overhead, 0); txt = us(v); }
+    else if (n.k2){ v = sim.total[n.k] + sim.total[n.k2];
+      txt = '迁移 ' + sim.total[n.k] + ' · IPI ' + sim.total[n.k2]; }
+    else { v = sim.total[n.k]; txt = String(v); }
+    el.cnt.textContent = txt;
+    if (v > el.prev){ el.g.classList.add('fl-flash'); el.flashUntil = performance.now() + 260; }
+    else if (el.flashUntil && performance.now() > el.flashUntil){ el.g.classList.remove('fl-flash'); el.flashUntil = 0; }
+    el.prev = v;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第六部分：三句话讲解
+   ══════════════════════════════════════════════════════════════════════ */
+const EXPLAIN = {
+  switch: e => ['把 CPU' + e.cpu + ' 上的' + (e.prev ? '「' + e.prev.name + '」' : '空闲状态') +
+                '换成' + (e.task ? '「' + e.task.name + '」' : '空闲状态') + '，保存旧寄存器、装载新寄存器与页表基址。',
+    '这是整个调度器里唯一真正改变目标状态的动作。前面所有记账、排序、判定都只是为了决定这一步该不该做、该换成谁。',
+    '不切换，选出来的线程就永远只是"应该跑"而没有真的在跑 —— 目标状态不会变。'],
+  noswitch: e => ['调度器完整跑了一遍：加锁、记账、选队首，结论是队首仍然是正在跑的「' +
+                (e.task ? e.task.name : '—') + '」，于是不做切换。',
+    '因为切换本身有代价（约 ' + SWITCH_COST + ' µs 的寄存器/栈/缓存扰动）。既然没人比它更该跑，换掉再换回来纯属浪费。',
+    '每个时钟中断都无条件切一次，几千次/秒的开销会白白吃掉可观的 CPU，而目标状态其实一次都没变。'],
+  tick: e => ['时钟中断打在 CPU' + e.cpu + ' 上：先把过去 1 ms 折算成虚拟时间记到「' +
+                (e.task ? e.task.name : '空闲') + '」头上，再判断它是否该让位。' + (e.reason ? '判定结果：' + e.reason + '。' : '判定结果：继续跑。'),
+    '内核没法预知线程什么时候会主动让出 CPU。周期性中断是它唯一能夺回控制权的手段，也是记账的采样点。',
+    '一个不做 I/O 的死循环会独占 CPU 直到自己结束 —— 关掉上面的「抢占」开关就能看到这一幕。'],
+  wake: e => ['I/O 完成中断把「' + e.task.name + '」从阻塞变为就绪，先按睡眠补偿规则把它的 vruntime 拉回到 min_vruntime 附近，再插入 CPU' + e.cpu + ' 的队列。',
+    '睡眠期间它的 vruntime 停止增长，会远远落后。若不设补偿上限，它一醒来就能长时间霸占 CPU；若完全不补偿，交互线程又会毫无响应优势。',
+    '不做归位：睡得越久的线程醒来后越能独占 CPU，一个每秒醒一次的进程足以把整台机器卡住。'],
+  block: e => ['「' + e.task.name + '」发起 I/O 后主动阻塞，从运行队列彻底移出，CPU' + e.cpu + ' 立刻去挑下一个线程。',
+    '等 I/O 期间线程无事可做。把它挂起让别人用 CPU，是阻塞式 I/O 不浪费算力的前提。',
+    '线程会占着 CPU 空等磁盘或网卡，几毫秒的等待就能让这颗核完全闲置。'],
+  bal: e => ['CPU' + e.cpu + ' 触发周期性负载均衡：比较各队列的权重总和，若失衡超过门槛就从最忙的队列拉一个线程过来。',
+    'CFS 的公平只在单个运行队列内成立。跨核公平、以及不让某些核空转，全靠均衡器搬运。搬运时还要把 vruntime 从旧队列的基准换算到新队列。',
+    '线程会一直卡在最初被放置的那颗核上。选「负载失衡」场景并关掉均衡，可以看到 3 颗核彻底空转。'],
+};
+function renderExplain(){
+  const e = sim.lastEvent;
+  const box = $('#exp');
+  if (!e || !EXPLAIN[e.kind]){ box.innerHTML = '<div class="hint">点「单步」或「播放」开始。</div>'; return; }
+  const [a,b,c] = EXPLAIN[e.kind](e);
+  const head = { switch:'★ 上下文切换（主链路）', noswitch:'调度器跑完但没换人（支线）',
+    tick:'时钟中断（支线）', wake:'唤醒（支线）', block:'阻塞让出（支线）', bal:'负载均衡（支线）' }[e.kind];
+  box.innerHTML =
+    '<div class="ev">' + ms(sim.now,3) + ' ms · ' + head + '</div>' +
+    '<div class="q"><span class="k">这一步在做什么</span><span class="v">' + a + '</span></div>' +
+    '<div class="q"><span class="k">它为什么必须存在</span><span class="v">' + b + '</span></div>' +
+    '<div class="q"><span class="k">如果没有它会怎样</span><span class="v">' + c + '</span></div>';
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第七部分：时间轴绘制
+   ══════════════════════════════════════════════════════════════════════ */
+const cv = $('#tl'), ctx = cv.getContext('2d');
+const PAD_L = 74, PAD_R = 14, PAD_T = 12, LANE_H = 46, LANE_GAP = 6;
+function resizeCanvas(){
+  const n = sim.cpus.length;
+  const cssH = PAD_T + n * (LANE_H + LANE_GAP) + 30;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.style.height = cssH + 'px';
+  cv.width  = Math.max(320, Math.round(cv.clientWidth * dpr));
+  cv.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function taskById(id){ return sim.tasks.find(t => t.id === id); }
+function drawTimeline(){
+  const W = cv.clientWidth, n = sim.cpus.length;
+  const plotW = W - PAD_L - PAD_R;
+  const t1 = sim.now, t0 = t1 - WIN_US;
+  const X = t => PAD_L + (t - t0) / WIN_US * plotW;
+  ctx.clearRect(0, 0, W, cv.height);
+
+  /* 网格：每 10 ms 一条 */
+  ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+  const gStep = 10000;
+  for (let g = Math.ceil(t0 / gStep) * gStep; g <= t1; g += gStep){
+    const x = X(g);
+    ctx.strokeStyle = '#1d2431'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + n*(LANE_H+LANE_GAP)); ctx.stroke();
+    ctx.fillStyle = '#5b687f'; ctx.textAlign = 'center';
+    ctx.fillText((g/1000).toFixed(0) + ' ms', x, PAD_T + n*(LANE_H+LANE_GAP) + 15);
+  }
+
+  for (const c of sim.cpus){
+    const y = PAD_T + c.id * (LANE_H + LANE_GAP);
+    /* 空闲底色 */
+    ctx.fillStyle = '#12161f';
+    ctx.fillRect(PAD_L, y, plotW, LANE_H);
+    ctx.strokeStyle = '#232b3a'; ctx.lineWidth = 1;
+    ctx.strokeRect(PAD_L + .5, y + .5, plotW - 1, LANE_H - 1);
+    /* 空闲斜纹，让"空转"看得见 */
+    ctx.save(); ctx.beginPath(); ctx.rect(PAD_L, y, plotW, LANE_H); ctx.clip();
+    ctx.strokeStyle = '#1a212e'; ctx.lineWidth = 1;
+    for (let x = PAD_L - LANE_H; x < PAD_L + plotW; x += 9){
+      ctx.beginPath(); ctx.moveTo(x, y + LANE_H); ctx.lineTo(x + LANE_H, y); ctx.stroke();
+    }
+    ctx.restore();
+    /* 标签 */
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#93a1b8'; ctx.font = '600 12px ' + getComputedStyle(document.body).fontFamily;
+    ctx.fillText('CPU' + c.id, 8, y + 17);
+    ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = c.cur ? c.cur.color : '#59657c';
+    ctx.fillText(c.cur ? c.cur.name : '空闲', 8, y + 33);
+  }
+
+  /* 色块 */
+  const segs = sim.segments.slice();
+  for (const c of sim.cpus)
+    if (c.segStart < t1) segs.push({ cpu:c.id, task:c.cur ? c.cur.id : null, start:c.segStart, end:t1 });
+  ctx.save();
+  for (const s of segs){
+    if (s.end < t0 || s.start > t1 || s.task === null) continue;
+    const t = taskById(s.task); if (!t) continue;
+    const y = PAD_T + s.cpu * (LANE_H + LANE_GAP);
+    const xa = Math.max(PAD_L, X(s.start)), xb = Math.min(PAD_L + plotW, X(s.end));
+    const w = xb - xa; if (w <= 0.2) continue;
+    ctx.fillStyle = t.color; ctx.globalAlpha = .88;
+    ctx.fillRect(xa, y + 5, w, LANE_H - 10);
+    ctx.globalAlpha = 1;
+    if (w > 30){
+      ctx.beginPath(); ctx.rect(xa, y + 5, w, LANE_H - 10); ctx.save(); ctx.clip();
+      ctx.fillStyle = '#0d1016';
+      ctx.font = '600 11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'left'; ctx.fillText(t.name, xa + 5, y + LANE_H/2 + 4);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+
+  /* 标记 */
+  for (const m of sim.marks){
+    if (m.t < t0 || m.t > t1) continue;
+    const x = X(m.t), y = PAD_T + m.cpu * (LANE_H + LANE_GAP);
+    if (m.kind === 'switch'){
+      ctx.strokeStyle = '#e9edf5'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(x, y + 3); ctx.lineTo(x, y + LANE_H - 3); ctx.stroke();
+    } else if (m.kind === 'wake' || m.kind === 'block'){
+      ctx.fillStyle = m.kind === 'wake' ? '#6aa9ff' : '#ef8f6b';
+      const yy = m.kind === 'wake' ? y + LANE_H - 2 : y + 2;
+      ctx.beginPath();
+      if (m.kind === 'wake'){ ctx.moveTo(x, yy - 6); ctx.lineTo(x - 4, yy); ctx.lineTo(x + 4, yy); }
+      else { ctx.moveTo(x, yy + 6); ctx.lineTo(x - 4, yy); ctx.lineTo(x + 4, yy); }
+      ctx.closePath(); ctx.fill();
+    } else if (m.kind === 'migr' && m.cpu2 != null){
+      const y2 = PAD_T + m.cpu2 * (LANE_H + LANE_GAP);
+      ctx.strokeStyle = '#b98bff'; ctx.lineWidth = 1.3; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(x, y + LANE_H/2); ctx.lineTo(x, y2 + LANE_H/2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#b98bff';
+      ctx.beginPath(); ctx.arc(x, y2 + LANE_H/2, 2.8, 0, 6.284); ctx.fill();
+    }
+  }
+  /* 现在 */
+  const xn = X(t1);
+  ctx.strokeStyle = '#ffcf4a'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(xn, PAD_T - 3); ctx.lineTo(xn, PAD_T + n*(LANE_H+LANE_GAP) + 3); ctx.stroke();
+  $('#tlrange').textContent = (t0/1000).toFixed(1) + ' – ' + (t1/1000).toFixed(1) + ' ms（视窗 150 ms）';
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第八部分：面板渲染
+   ══════════════════════════════════════════════════════════════════════ */
+function renderGoal(){
+  /* 只有"谁在跑"真的变了才重建这一栏，否则每帧重建 DOM 会拖垮帧率 */
+  const sig = sim.cpus.map(c => c.cur ? c.cur.id : -1).join(',');
+  if (sig !== renderGoal.sig){
+    renderGoal.sig = sig;
+    const box = $('#goalv'); box.innerHTML = '';
+    for (const c of sim.cpus){
+      const d = document.createElement('div');
+      d.className = 'cpuchip' + (c.cur ? '' : ' idle');
+      d.innerHTML = '<i style="background:' + (c.cur ? c.cur.color : '#3a445a') + '"></i>CPU' + c.id +
+        ' → ' + (c.cur ? c.cur.name : '空闲');
+      box.appendChild(d);
+    }
+  }
+  const w = sim.window1s();
+  $('#cN').textContent = Math.round(w.__all * w.__scale).toLocaleString('en-US');
+  $('#cM').textContent = Math.round(w.switch * w.__scale).toLocaleString('en-US');
+  $('#cR').textContent = w.__all ? (w.switch / w.__all * 100).toFixed(1) + '%' : '—';
+  const s = sim.summary();
+  $('#cT').textContent = s.actTotal.toLocaleString('en-US') + ' / ' + s.sw.toLocaleString('en-US');
+  $('#clock').textContent = 't = ' + ms(sim.now, 3) + ' ms';
+  const warn = $('#warn');
+  if (sim.overrun){ warn.style.display = ''; warn.textContent = '事件过载，已限流'; }
+  else warn.style.display = 'none';
+}
+function renderRq(){
+  const box = $('#rqs'); box.innerHTML = '';
+  for (const c of sim.cpus){
+    const d = document.createElement('div'); d.className = 'rq';
+    let h = '<div class="rqh"><b>CPU' + c.id + '</b>' +
+      '<span class="cur' + (c.cur ? '' : ' none') + '">运行：' + (c.cur ? c.cur.name : '空闲') + '</span></div>' +
+      '<div style="font-size:10.5px;color:var(--fg3);margin-bottom:5px" class="mono">' +
+      'nr=' + sim.rqNr(c) + ' · load=' + Math.round(sim.rqLoad(c)) +
+      ' · min_vruntime=' + ms(c.minv,1) + ' ms</div>';
+    if (!c.q.length) h += '<div class="empty">队列为空' + (c.cur ? '' : '（CPU 空转中）') + '</div>';
+    else {
+      h += '<table><tr><th>线程</th><th>Δvruntime</th><th>nice</th><th>权重</th><th>已等</th></tr>';
+      c.q.forEach((t,i) => {
+        h += '<tr class="' + (i === 0 ? 'lead' : '') + '">' +
+          '<td>' + (i === 0 ? '↑ ' : '') + '<span class="dot" style="background:' + t.color + '"></span>' + t.name + '</td>' +
+          '<td>' + Math.round(t.vruntime - c.minv) + ' µs</td>' +
+          '<td>' + t.nice + '</td><td>' + t.weight + '</td>' +
+          '<td>' + us(sim.now - t.readySince) + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    d.innerHTML = h; box.appendChild(d);
+  }
+}
+function renderTasks(){
+  const el = $('#tt');
+  let h = '<tr><th>线程</th><th>类型</th><th>nice</th><th>权重</th><th>状态</th><th>CPU</th>' +
+          '<th>累计运行</th><th>切换</th><th>迁移</th><th>阻塞</th><th>唤醒延迟</th><th>最长等待</th><th></th></tr>';
+  for (const t of sim.tasks){
+    h += '<tr class="' + (t.alive ? '' : 'gone') + '">' +
+      '<td><span class="dot" style="background:' + t.color + '"></span>' + t.name + '</td>' +
+      '<td>' + TYPES[t.type].label + '</td><td>' + t.nice + '</td><td>' + t.weight + '</td>' +
+      '<td class="st" style="color:' + STATE_COL[t.state] + '">' + STATE_TXT[t.state] + '</td>' +
+      '<td>' + (t.state === 'dead' ? '—' : (t.cpu != null ? t.cpu : '—')) + '</td>' +
+      '<td>' + ms(t.exec,2) + ' ms</td><td>' + t.switches + '</td><td>' + t.migrations + '</td>' +
+      '<td>' + t.blocks + '</td>' +
+      '<td>' + (t.latN ? us(t.latSum/t.latN) + ' / ' + us(t.latMax) : '—') + '</td>' +
+      '<td>' + us(t.waitMax) + '</td>' +
+      '<td>' + (t.alive ? '<button class="sm" data-kill="' + t.id + '">×</button>' : '') + '</td></tr>';
+  }
+  el.innerHTML = h;
+  $('#ttsum').textContent = sim.tasks.filter(t=>t.alive).length + ' 个存活 · ' +
+    sim.cpus.length + ' 核';
+}
+function renderMetrics(){
+  const s = sim.summary(), w = sim.window1s();
+  const bad = v => v ? ' bad' : '', wn = v => v ? ' warn' : '';
+  let h = '';
+  const row = (k,v,c) => { h += '<div class="k">' + k + '</div><div class="v' + (c||'') + '">' + v + '</div>'; };
+  row('CPU 利用率', pct(s.util));
+  row('空转率', pct(s.idleRate), s.idleRate > 0.25 ? ' bad' : (s.idleRate > 0.08 ? ' warn' : ''));
+  row('切换开销占比', pct(s.ovhRate), s.ovhRate > 0.03 ? ' warn' : '');
+  h += '<hr>';
+  row('上下文切换', Math.round(s.swPerSec) + ' 次/秒');
+  row('时钟中断', Math.round(w.tick * w.__scale) + ' 次/秒');
+  row('跑了调度器但没换人', Math.round(w.noswitch * w.__scale) + ' 次/秒');
+  row('线程迁移 / 核间中断', sim.total.migr + ' / ' + sim.total.ipi);
+  h += '<hr>';
+  row('当前最长等待', us(s.maxWait), s.maxWait > 50000 ? ' bad' : (s.maxWait > 12000 ? ' warn' : ''));
+  row('唤醒延迟 平均 / 最大',
+      s.latAvg === null ? '无样本' : us(s.latAvg) + ' / ' + us(s.latMax),
+      s.latAvg !== null && s.latAvg > 8000 ? ' bad' : '');
+  row('权重公平最大偏差', s.fairRows.length < 2 ? '—' : pct(s.fairDev),
+      s.fairDev > 0.35 ? ' bad' : (s.fairDev > 0.15 ? ' warn' : ''));
+  $('#mt').innerHTML = h;
+
+  /* 公平性条：权重比 vs 实得比 */
+  const f = $('#fair');
+  if (s.fairRows.length < 2){ f.innerHTML = ''; return; }
+  let fh = '<div class="hd">CPU 密集线程：应得份额（按权重）对比 实得份额（按累计运行时间）</div>';
+  const mx = Math.max.apply(null, s.fairRows.map(r => Math.max(r.want, r.got))) || 1;
+  for (const r of s.fairRows){
+    fh += '<div class="fr"><span style="color:' + r.t.color + '">' + r.t.name + '</span>' +
+      '<span class="bar w"><i style="width:' + (r.want/mx*100).toFixed(1) + '%"></i></span>' +
+      '<span class="bar g"><i style="width:' + (r.got/mx*100).toFixed(1) + '%"></i></span></div>';
+  }
+  fh += '<div class="hd" style="margin-top:5px"><span style="color:#4a5876">■</span> 应得　' +
+        '<span style="color:var(--run)">■</span> 实得' +
+        (sim.cpus.length > 1 ? '　（跨核公平依赖负载均衡，单核场景对照最干净）' : '') + '</div>';
+  f.innerHTML = fh;
+}
+function renderLog(){
+  const ul = $('#log');
+  const items = sim.logs.slice(-70).reverse();
+  ul.innerHTML = items.map(l =>
+    '<li class="' + (l.kind === 'switch' ? 'sw' : '') + '">' +
+    '<span class="t">' + ms(l.t,3) + ' CPU' + l.cpu + '</span> ' + l.text + '</li>').join('');
+}
+/* 时间轴要 60 Hz 才顺滑；下面那些表格每秒重建十几次就够看，
+   否则每帧重建数百个 DOM 节点会把帧率拖到 30 fps 以下。 */
+const PANEL_MS = 80;
+let lastPanel = -1e9;
+function renderAll(force){
+  renderGoal(); drawTimeline();
+  const t = performance.now();
+  if (force || t - lastPanel >= PANEL_MS){
+    lastPanel = t;
+    renderRq(); renderTasks(); renderMetrics(); renderLog(); renderExplain(); updateFlow();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第九部分：对比实验
+   ══════════════════════════════════════════════════════════════════════ */
+const CMP_META = {
+  preempt: { name:'抢占（时钟中断驱动的强制让位）', kind:'corr',
+    claim:'抢占影响的是<b>正确性</b>：没有它，不做 I/O 的线程会一直霸占 CPU，别人饿死。' },
+  balance: { name:'负载均衡（跨核搬运线程）', kind:'perf',
+    claim:'均衡影响的是<b>性能</b>：没有它每个线程仍会被正确调度，只是有些核空转、有些核挤满。' },
+  weight:  { name:'按 nice 加权（vruntime 除以权重）', kind:'corr',
+    claim:'加权影响的是<b>公平语义</b>：没有它 nice 值形同虚设，所有线程平分 CPU。' },
+};
+function runCompare(key){
+  const spec = snapshotSpec();
+  const on  = Object.assign({}, spec); on[key]  = true;
+  const off = Object.assign({}, spec); off[key] = false;
+  const A = runHeadless(on,  2000, sim.seed);
+  const B = runHeadless(off, 2000, sim.seed);
+  const m = CMP_META[key];
+  const fmt = {
+    '上下文切换（次/秒）': x => Math.round(x.swPerSec),
+    'CPU 空转率':          x => pct(x.idleRate),
+    '切换开销占比':        x => pct(x.ovhRate),
+    '最长等待（饥饿）':    x => us(x.maxWait),
+    '唤醒延迟 平均':       x => x.latAvg === null ? '无样本' : us(x.latAvg),
+    '唤醒延迟 最大':       x => x.latN ? us(x.latMax) : '无样本',
+    '权重公平最大偏差':    x => x.fairRows.length < 2 ? '—' : pct(x.fairDev),
+  };
+  const worse = {
+    '上下文切换（次/秒）': (a,b) => null,
+    'CPU 空转率':          (a,b) => b.idleRate > a.idleRate + .02 ? 'B' : null,
+    '切换开销占比':        (a,b) => null,
+    '最长等待（饥饿）':    (a,b) => b.maxWait > a.maxWait * 2 ? 'B' : null,
+    '唤醒延迟 平均':       (a,b) => (b.latAvg||0) > (a.latAvg||0) * 2 ? 'B' : null,
+    '唤醒延迟 最大':       (a,b) => b.latMax > a.latMax * 2 ? 'B' : null,
+    '权重公平最大偏差':    (a,b) => b.fairDev > a.fairDev + .1 ? 'B' : null,
+  };
+  let h = '<div style="font-size:12.5px;margin-bottom:8px">机制：<b>' + m.name + '</b><br>' +
+    '<span style="color:var(--fg3)">' + m.claim + '</span></div>' +
+    '<table class="cmp"><tr><th>指标</th><th>开启</th><th>关闭</th></tr>';
+  for (const k in fmt){
+    const w = worse[k](A, B);
+    h += '<tr><td>' + k + '</td><td>' + fmt[k](A) + '</td>' +
+      '<td class="' + (w === 'B' ? 'w' : '') + '">' + fmt[k](B) + '</td></tr>';
+  }
+  h += '</table>';
+  /* 结论：正确性机制 vs 性能机制的判定 */
+  const starved = B.maxWait > 200000;
+  const idled   = B.idleRate > A.idleRate + 0.15;
+  const unfair  = B.fairDev > A.fairDev + 0.2;
+  let concl;
+  if (key === 'balance')
+    concl = idled ? '关掉后目标状态依然被<b>正确</b>维持：每个 CPU 始终有确定的线程在跑，每个线程的等待都<b>有界</b>、都还在推进。' +
+      '代价是空转率从 ' + pct(A.idleRate) + ' 涨到 ' + pct(B.idleRate) + '，可用算力被浪费掉一大截，' +
+      '排队变长因而等待时间变长 —— 这就是"只影响性能"的样子：变慢，不变错。'
+      : '本场景下线程本来就分散在各核，均衡器无事可做，所以关掉看不出差别。换到「负载失衡」场景再试。';
+  else if (key === 'preempt')
+    concl = starved ? '关掉后出现了具体的错误现象：有线程等待长达 ' + us(B.maxWait) +
+      ' 仍未获得 CPU，而且只要那些 CPU 密集线程不结束，它就<b>永远</b>等不到 —— 这是<b style="color:var(--bad)">无界</b>等待，' +
+      '即饥饿。目标状态虽然还"有值"，但它卡死不动了。注意区别：上面负载均衡关掉后是<b>有界</b>变慢，这里是错。'
+      : '本场景线程都会主动阻塞让出 CPU，所以关掉抢占也没饿死谁。换到「交互延迟」或「负载失衡」场景（含纯 CPU 密集线程）再试。';
+  else
+    concl = unfair ? '关掉后 nice 值彻底失效：权重公平偏差从 ' + pct(A.fairDev) + ' 恶化到 ' + pct(B.fairDev) +
+      '，nice -5 和 nice +5 的线程拿到了几乎一样的 CPU —— 用户设置的优先级被静默忽略。'
+      : '本场景各线程 nice 相同或竞争不足，加权与否看不出差别。换到「权重与公平（单核对照）」场景再试。';
+  h += '<div class="hint" style="border-left:2px solid var(--accent);padding-left:9px">' + concl + '</div>';
+  $('#cmp').innerHTML = h;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   第十部分：状态与交互
+   ══════════════════════════════════════════════════════════════════════ */
+let sim, playing = false, speed = 1, staticMode = false, raf = 0, lastReal = 0;
+const SIM_US_PER_REAL_MS = 1000 / 60;   /* 1× ≈ 60 倍慢放 */
+
+function snapshotSpec(){
+  return { cpus: sim.cpus.length, place: sim.spec.place,
+    tasks: sim.tasks.filter(t => t.alive).map(t => ({ n:t.name, ty:t.type, nice:t.nice })),
+    preempt: sim.cfg.preempt, balance: sim.cfg.balance, weight: sim.cfg.weight };
+}
+function buildSim(presetKey, ncpu){
+  const p = PRESETS[presetKey];
+  const spec = { cpus: ncpu || p.cpus, place: p.place,
+    tasks: p.tasks.map(t => Object.assign({}, t)),
+    preempt: $('#t-preempt').checked, balance: $('#t-balance').checked, weight: $('#t-weight').checked };
+  sim = new Sim(spec, 20240607);
+  window.__sched.sim = sim;
+  resizeCanvas(); renderAll(true);
+}
+function setPlaying(v){
+  playing = v && !staticMode;
+  $('#play').textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  $('#play').classList.toggle('pri', !playing);
+}
+function frame(now){
+  raf = requestAnimationFrame(frame);
+  const dt = Math.min(120, now - lastReal); lastReal = now;
+  if (playing){
+    sim.advanceTo(sim.now + dt * SIM_US_PER_REAL_MS * speed);
+    renderAll();
+  }
+}
+
+/* ── 绑定 ─────────────────────────────────────────────────────────── */
+window.__sched = {};   /* 供自动化验证使用 */
+
+(function init(){
+  /* 场景下拉 */
+  const ps = $('#preset');
+  for (const k in PRESETS){ const o = document.createElement('option'); o.value = k;
+    o.textContent = PRESETS[k].name; ps.appendChild(o); }
+
+  buildFlow();
+  buildSim('desktop', 4);
+
+  $('#play').onclick  = () => setPlaying(!playing);
+  $('#step').onclick  = () => { sim.stepOne(); renderAll(true); };
+  $('#reset').onclick = () => { buildSim(ps.value, +$('#ncpu').value); setPlaying(false);
+    $('#cmp').innerHTML = '<div class="hint">已重置。</div>'; };
+  $('#speed').onchange = e => speed = +e.target.value;
+  ps.onchange = () => { const p = PRESETS[ps.value]; $('#ncpu').value = String(p.cpus);
+    buildSim(ps.value, p.cpus); };
+  $('#ncpu').onchange = () => buildSim(ps.value, +$('#ncpu').value);
+
+  for (const k of ['preempt','balance','weight'])
+    $('#t-' + k).onchange = e => { sim.cfg[k] = e.target.checked; renderAll(true); };
+
+  document.querySelectorAll('[data-cmp]').forEach(b =>
+    b.onclick = ev => { ev.preventDefault(); runCompare(b.dataset.cmp); });
+
+  $('#add').onclick = () => {
+    const ty = $('#ntype').value, nice = +$('#nnice').value;
+    const n = { cpu:'计算', io:'服务', inter:'前台' }[ty] + (sim.nextTid);
+    let idle = 0, lo = Infinity;
+    for (const c of sim.cpus){ const l = sim.rqLoad(c); if (l < lo){ lo = l; idle = c.id; } }
+    const t = sim.addTask({ n, ty, nice }, idle);
+    const c = sim.cpus[idle];
+    if (c.cur === null) sim.schedule(c, sim.now, '新线程 ' + n + ' 加入空闲 CPU');
+    renderAll(true);
+  };
+  $('#tt').addEventListener('click', e => {
+    const id = e.target && e.target.dataset && e.target.dataset.kill;
+    if (!id) return;
+    const t = sim.tasks.find(x => x.id === +id); if (t) sim.killTask(t);
+    renderAll(true);
+  });
+  $('#clr').onclick = () => { sim.logs.length = 0; renderLog(); };
+  $('#t-static').onchange = e => { staticMode = e.target.checked; if (staticMode) setPlaying(false); };
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space'){ e.preventDefault(); setPlaying(!playing); }
+    else if (e.code === 'ArrowRight'){ e.preventDefault(); sim.stepOne(); renderAll(true); }
+    else if (e.key === 'r' || e.key === 'R'){ $('#reset').click(); }
+  });
+  window.addEventListener('resize', () => { resizeCanvas(); drawTimeline(); });
+
+  /* 简化说明 */
+  $('#notes').innerHTML = [
+    '时间片是<b>目标</b>而不是硬边界：抢占判定只在时钟中断里做，所以实际单次占用会被<b>量化到下一个滴答</b>。本演示 HZ=1000，因此 3 ms 的配额通常表现为约 4 ms 的连续占用——真实内核同理，这也是 HZ 取值会影响调度粒度的原因。',
+    '就绪队列用<b>有序数组</b>实现（语义等价，便于展示）；真实内核是<b>红黑树</b>，插入与取最左端均为 O(log n)。',
+    'Linux <b>6.6 起已用 EEVDF 取代 CFS</b> 的核心选取逻辑。本演示建模的是 CFS，因为它是教材与文献里最通行的模型；EEVDF 改的是"选谁"的判据（引入 lag 与虚拟截止期），而"记账、抢占检查、均衡、切换"的骨架不变。',
+    '未建模：实时调度类（SCHED_FIFO/RR）与 deadline 类、cgroup 组调度、调度域层级与 NUMA、SMT 兄弟核、CPU 频率调节、nohz 无滴答模式。',
+    '负载均衡挑线程时取队尾（vruntime 最大者）；真实内核会评估 <b>cache-hot</b>、亲和性掩码与迁移代价。',
+    '上下文切换开销固定为 ' + SWITCH_COST + ' µs；真实开销随 TLB/缓存工作集大小剧烈变化，可达数十微秒。',
+    '所有阻塞与睡眠时长由可复现的伪随机数生成（固定种子），因此同一场景每次重跑结果一致 —— 对比实验依赖这一点。',
+    '权重公平性只在<b>单个运行队列内</b>由 CFS 保证。跨核公平依赖负载均衡器，本演示的均衡器远比真实内核粗糙，所以多核场景下的公平偏差不代表真实内核水平。',
+  ].map(s => '<li>' + s + '</li>').join('');
+
+  $('#glo').innerHTML = [
+    ['vruntime','虚拟运行时间','实际运行时间 × 1024 ÷ 权重。权重大则涨得慢，于是能分到更多真实 CPU。'],
+    ['min_vruntime','队列最小虚拟时间','该队列的时间基准，单调不减。新线程和睡醒的线程都以它为参照归位。'],
+    ['sched_latency','目标延迟 6 ms','一轮里每个可运行线程都应至少被调度一次的时间跨度。'],
+    ['min_granularity','最短占用 0.75 ms','单次占用的下限，防止切换过于频繁把 CPU 都花在切换上。'],
+    ['sched_slice','时间片配额','目标周期 × 本线程权重 ÷ 队列总权重。'],
+    ['nice / weight','优先级 / 权重','nice 每降 1 级权重约 ×1.25，大致多拿 10% CPU。nice 0 对应权重 1024。'],
+    ['need_resched','待重新调度标志','抢占判定的结果不是立刻切换，而是打一个标记，到安全点才真正切。'],
+    ['put_prev / pick_next','放回 / 取出','把被换下的线程放回树，再取最左端作为下一个。'],
+    ['place_entity','唤醒归位','给睡醒的线程有上限的虚拟时间补偿，兼顾响应性与防霸占。'],
+    ['IPI','核间中断','一个 CPU 要求另一个 CPU 立刻重新调度时发出的中断。'],
+    ['load balance','负载均衡','跨运行队列搬运线程，使各核忙闲相当。'],
+  ].map(r => '<span class="c">' + r[0] + '</span><span class="e">' + r[1] + '</span><span class="d">' + r[2] + '</span>').join('');
+
+  /* 尊重系统的"减少动态效果"设置 */
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    staticMode = true; $('#t-static').checked = true;
+  } else setPlaying(true);
+
+  lastReal = performance.now();
+  raf = requestAnimationFrame(frame);
+
+  /* 自动化验证接口 */
+  Object.assign(window.__sched, {
+    sim, get s(){ return sim; },
+    PRESETS, Sim, runHeadless, weightOfNice, PRIO_TO_WEIGHT,
+    build: (p,n) => buildSim(p,n),
+    advance: msv => { sim.advanceTo(sim.now + msv*1000); renderAll(true); },
+    setPlaying, summary: () => sim.summary(),
+    render: renderAll, drawTimeline,
+    spec: snapshotSpec, ready: true,
+  });
+})();
+</script>
+</body>
+</html>

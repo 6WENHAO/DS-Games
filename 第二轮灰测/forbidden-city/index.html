@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>紫禁城 · 体素沙盘</title>
+<style>
+  :root{
+    --gold:#d8b45a; --gold-dim:#9c8244; --red:#8e2f26; --red-lit:#b5453a;
+    --ink:#0d0f14; --panel:rgba(14,16,22,.82); --panel2:rgba(20,23,31,.92);
+    --line:rgba(216,180,90,.28); --txt:#e8e2d4; --txt-dim:#a49c8b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#05070b;color:var(--txt);
+    font-family:-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+  .serif{font-family:"Noto Serif CJK SC","Source Han Serif SC","Songti SC",STSong,serif}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  #view.grabbing{cursor:grabbing}
+  #view.locked{cursor:none}
+  #hud{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);pointer-events:auto;
+    box-shadow:0 8px 30px rgba(0,0,0,.45)}
+
+  /* ---------- 顶栏 ---------- */
+  #brand{position:absolute;left:16px;top:14px;padding:9px 16px 8px}
+  #brand h1{margin:0;font-size:19px;letter-spacing:.34em;font-weight:600;color:var(--gold)}
+  #brand p{margin:3px 0 0;font-size:10.5px;letter-spacing:.22em;color:var(--txt-dim)}
+  #modebar{position:absolute;left:50%;transform:translateX(-50%);top:14px;display:flex;gap:0;overflow:hidden}
+  #modebar button{background:transparent;border:0;border-right:1px solid var(--line);color:var(--txt-dim);
+    padding:10px 20px;font-size:13px;letter-spacing:.16em;cursor:pointer;transition:.18s;font-family:inherit}
+  #modebar button:last-child{border-right:0}
+  #modebar button:hover{color:var(--txt);background:rgba(216,180,90,.09)}
+  #modebar button.on{color:var(--ink);background:linear-gradient(180deg,#e6c877,#c8a24e);font-weight:700}
+  #tools{position:absolute;right:16px;top:14px;padding:11px 14px;width:236px;display:flex;flex-direction:column;gap:9px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:9px;font-size:11.5px;color:var(--txt-dim)}
+  .row label{letter-spacing:.1em;white-space:nowrap}
+  .row output{color:var(--gold);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:3px;background:rgba(216,180,90,.28);
+    border-radius:2px;flex:1;outline:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+    background:var(--gold);cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--gold);cursor:pointer}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{border:1px solid var(--line);color:var(--txt-dim);background:transparent;border-radius:2px;
+    padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit;transition:.15s;letter-spacing:.06em}
+  .chip:hover{color:var(--txt);border-color:var(--gold-dim)}
+  .chip.on{color:var(--ink);background:var(--gold);border-color:var(--gold);font-weight:700}
+
+  /* ---------- 建筑索引 ---------- */
+  #index{position:absolute;left:16px;top:86px;width:242px;max-height:calc(100vh - 210px);
+    display:flex;flex-direction:column}
+  #index header{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+  #index header span{font-size:12px;letter-spacing:.2em;color:var(--gold)}
+  #index input{flex:1;background:rgba(0,0,0,.35);border:1px solid var(--line);color:var(--txt);
+    border-radius:2px;padding:4px 7px;font-size:11.5px;outline:0;font-family:inherit;min-width:0}
+  #list{overflow-y:auto;padding:4px 0 8px;scrollbar-width:thin}
+  #list::-webkit-scrollbar{width:5px}#list::-webkit-scrollbar-thumb{background:var(--gold-dim);border-radius:3px}
+  .cat{padding:7px 12px 3px;font-size:10px;letter-spacing:.24em;color:var(--gold-dim)}
+  .item{padding:5px 12px 5px 18px;font-size:12.5px;color:var(--txt);cursor:pointer;
+    display:flex;justify-content:space-between;gap:6px;transition:.12s;border-left:2px solid transparent}
+  .item:hover{background:rgba(216,180,90,.12);border-left-color:var(--gold)}
+  .item i{font-style:normal;color:var(--txt-dim);font-size:10px}
+
+  /* ---------- 信息卡 ---------- */
+  #card{position:absolute;right:16px;bottom:16px;width:330px;padding:0;display:none}
+  #card.show{display:block;animation:fade .22s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  #card .hd{padding:12px 14px 9px;border-bottom:1px solid var(--line);position:relative}
+  #card h2{margin:0;font-size:18px;letter-spacing:.14em;color:var(--gold)}
+  #card .tag{font-size:10px;letter-spacing:.2em;color:var(--txt-dim);margin-top:4px}
+  #card .bd{padding:11px 14px;font-size:12.5px;line-height:1.85;color:#d6cfbf;max-height:190px;overflow-y:auto}
+  #card .ft{display:flex;gap:0;border-top:1px solid var(--line)}
+  #card .ft button{flex:1;background:transparent;border:0;border-right:1px solid var(--line);
+    color:var(--gold);padding:9px;font-size:12px;cursor:pointer;font-family:inherit;letter-spacing:.1em;transition:.15s}
+  #card .ft button:last-child{border-right:0}
+  #card .ft button:hover{background:rgba(216,180,90,.14)}
+  #close{position:absolute;right:9px;top:9px;background:0;border:0;color:var(--txt-dim);font-size:17px;cursor:pointer;line-height:1}
+  #close:hover{color:var(--gold)}
+
+  /* ---------- 3D 标注 ---------- */
+  #labels{position:absolute;inset:0}
+  .lab{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:auto;cursor:pointer;
+    font-size:11.5px;letter-spacing:.12em;color:#fff;text-shadow:0 1px 4px #000,0 0 12px rgba(0,0,0,.9);
+    padding:1px 5px;border-radius:2px;transition:opacity .2s}
+  .lab::after{content:'';position:absolute;left:50%;top:100%;width:1px;height:9px;
+    background:linear-gradient(180deg,rgba(255,255,255,.75),transparent);transform:translateX(-50%)}
+  .lab.big{font-size:13.5px;color:#f4dfa4;font-weight:600}
+  .lab:hover{color:var(--gold);background:rgba(0,0,0,.4)}
+
+  /* ---------- 底部提示 / 小地图 / 状态 ---------- */
+  #hint{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;padding:7px 16px;
+    font-size:11.5px;letter-spacing:.1em;color:var(--txt-dim);white-space:nowrap;pointer-events:none}
+  #hint b{color:var(--gold);font-weight:600}
+  #mapwrap{position:absolute;left:16px;bottom:16px;padding:7px;width:190px}
+  #mapwrap.hide{display:none}
+  #minimap{display:block;width:176px;height:auto;image-rendering:pixelated;opacity:.92;cursor:crosshair;pointer-events:auto}
+  #maptip{font-size:9.5px;letter-spacing:.18em;color:var(--gold-dim);text-align:center;padding-top:5px}
+  #stats{position:absolute;right:16px;top:calc(50% - 20px);font-size:10px;color:var(--txt-dim);
+    text-align:right;line-height:1.7;font-variant-numeric:tabular-nums;letter-spacing:.05em}
+  #where{position:absolute;left:50%;transform:translateX(-50%);top:60px;font-size:12px;letter-spacing:.28em;
+    color:var(--gold);text-shadow:0 2px 8px #000;opacity:0;transition:opacity .4s}
+  #where.show{opacity:1}
+  #cross{position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;display:none}
+  #cross.show{display:block}
+  #cross::before,#cross::after{content:'';position:absolute;background:rgba(255,255,255,.7);
+    box-shadow:0 0 3px rgba(0,0,0,.9)}
+  #cross::before{left:50%;top:0;width:1px;height:100%;margin-left:-.5px}
+  #cross::after{top:50%;left:0;height:1px;width:100%;margin-top:-.5px}
+  #tip{position:absolute;padding:3px 8px;font-size:11.5px;letter-spacing:.1em;color:#fff;
+    background:rgba(10,12,18,.86);border:1px solid var(--line);border-radius:2px;display:none;
+    transform:translate(12px,-50%);white-space:nowrap}
+
+  /* ---------- 导览条 ---------- */
+  #tour{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;width:min(680px,92vw);display:none}
+  #tour.show{display:block}
+  #tour .hd{display:flex;align-items:baseline;gap:12px;padding:11px 15px 6px}
+  #tour .hd h3{margin:0;font-size:16px;letter-spacing:.2em;color:var(--gold)}
+  #tour .hd i{font-style:normal;font-size:10px;letter-spacing:.16em;color:var(--txt-dim)}
+  #tour p{margin:0;padding:0 15px 11px;font-size:12.5px;line-height:1.8;color:#d6cfbf}
+  #tour .ft{display:flex;border-top:1px solid var(--line)}
+  #tour .ft button{flex:1;background:0;border:0;border-right:1px solid var(--line);color:var(--gold);
+    padding:8px;font-size:12px;cursor:pointer;font-family:inherit;letter-spacing:.12em}
+  #tour .ft button:last-child{border-right:0}
+  #tour .ft button:hover{background:rgba(216,180,90,.14)}
+
+  /* ---------- 加载页 ---------- */
+  #loading{position:fixed;inset:0;background:radial-gradient(circle at 50% 42%,#161a24,#05070b 72%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;transition:opacity .7s}
+  #loading.done{opacity:0;pointer-events:none}
+  #loading h1{margin:0;font-size:min(9vw,52px);letter-spacing:.42em;color:var(--gold);font-weight:600;
+    text-indent:.42em;text-shadow:0 0 42px rgba(216,180,90,.28)}
+  #loading .sub{margin-top:12px;font-size:11.5px;letter-spacing:.4em;color:var(--txt-dim);text-indent:.4em}
+  #bar{margin-top:38px;width:min(430px,74vw);height:2px;background:rgba(216,180,90,.16);overflow:hidden}
+  #bar div{height:100%;width:0;background:linear-gradient(90deg,var(--gold-dim),#f0d792);transition:width .3s}
+  #ltxt{margin-top:11px;font-size:11px;letter-spacing:.2em;color:var(--txt-dim);height:14px}
+  #lerr{margin-top:16px;font-size:11px;color:#e08a7a;max-width:70vw;text-align:center;line-height:1.6}
+  @media (max-width:880px){
+    #index,#mapwrap,#stats{display:none}
+    #tools{width:170px}
+    #brand h1{font-size:15px}
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud">
+  <div id="brand" class="panel">
+    <h1 class="serif">紫禁城</h1>
+    <p>VOXEL · FORBIDDEN CITY</p>
+  </div>
+
+  <div id="modebar" class="panel">
+    <button id="btnGod" class="on">上帝视角</button>
+    <button id="btnFps">第一视角</button>
+    <button id="btnTour">中轴导览</button>
+  </div>
+
+  <div id="tools" class="panel">
+    <div class="row"><label>时辰</label><input id="sunSlider" type="range" min="0" max="1000" value="320"><output id="sunOut">09:20</output></div>
+    <div class="row"><label>视野</label><input id="fovSlider" type="range" min="30" max="95" value="46"><output id="fovOut">46°</output></div>
+    <div class="chips">
+      <button class="chip on" id="tgLabel">标注</button>
+      <button class="chip on" id="tgShadow">阴影</button>
+      <button class="chip on" id="tgGrid">体素格</button>
+      <button class="chip" id="tgWire">俯瞰</button>
+      <button class="chip on" id="tgMap">地图</button>
+    </div>
+    <div class="chips">
+      <button class="chip" data-goto="太和殿">太和殿</button>
+      <button class="chip" data-goto="乾清宫">乾清宫</button>
+      <button class="chip" data-goto="御花园">御花园</button>
+      <button class="chip" data-goto="角楼" data-alt="东南角楼">角楼</button>
+    </div>
+  </div>
+
+  <div id="index" class="panel">
+    <header><span>建筑索引</span><input id="search" placeholder="搜索殿宇…"></header>
+    <div id="list"></div>
+  </div>
+
+  <div id="card" class="panel">
+    <div class="hd">
+      <h2 class="serif" id="cardName">—</h2>
+      <div class="tag" id="cardTag"></div>
+      <button id="close">×</button>
+    </div>
+    <div class="bd" id="cardDesc"></div>
+    <div class="ft">
+      <button id="btnFlyTo">飞抵此处</button>
+      <button id="btnWalkTo">在此漫步</button>
+    </div>
+  </div>
+
+  <div id="labels"></div>
+  <div id="where" class="serif"></div>
+  <div id="cross"></div>
+  <div id="tip"></div>
+
+  <div id="mapwrap" class="panel">
+    <canvas id="minimap"></canvas>
+    <div id="maptip">紫禁城平面 · 点击定位</div>
+  </div>
+
+  <div id="hint" class="panel"></div>
+  <div id="stats"></div>
+
+  <div id="tour" class="panel">
+    <div class="hd"><h3 class="serif" id="tourCap">—</h3><i id="tourNo"></i></div>
+    <p id="tourTxt"></p>
+    <div class="ft">
+      <button id="tourPrev">← 上一站</button>
+      <button id="tourPlay">暂停</button>
+      <button id="tourNext">下一站 →</button>
+      <button id="tourExit">结束导览</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading">
+  <h1 class="serif">紫禁城</h1>
+  <div class="sub">体 素 沙 盘 · 上 帝 视 角 与 身 临 其 境</div>
+  <div id="bar"><div></div></div>
+  <div id="ltxt">正在营建…</div>
+  <div id="lerr"></div>
+</div>
+
+<script src="js/gl.js"></script>
+<script src="js/voxel.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/arch.js"></script>
+<script src="js/city.js"></script>
+<script src="js/city_axis.js"></script>
+<script src="js/city_wings.js"></script>
+<script src="js/city_north.js"></script>
+<script src="js/render.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

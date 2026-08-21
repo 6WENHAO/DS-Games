@@ -1,0 +1,13 @@
+﻿import { chromium } from "playwright-core";
+import { CHROMIUM_ARGS, EXE } from "./frames.mjs";
+const browser = await chromium.launch({ executablePath: EXE, args: CHROMIUM_ARGS });
+const page = await (await browser.newContext({ viewport: { width: 1200, height: 800 } })).newPage();
+page.on("response", async (r) => { if (r.status() >= 400) console.log("HTTP", r.status(), r.url()); });
+page.on("requestfailed", (r) => console.log("FAILED", r.url(), r.failure()?.errorText));
+page.on("console", (m) => { if (m.type() === "error") console.log("console.error:", m.text()); });
+page.on("pageerror", (e) => console.log("pageerror:", e.message));
+await page.goto(process.argv[2] ?? "http://127.0.0.1:5180/", { waitUntil: "networkidle" });
+await page.waitForFunction(() => Boolean(window.__sandbox));
+await new Promise(r => setTimeout(r, 1500));
+console.log("requests done");
+await browser.close();

@@ -1,0 +1,17 @@
+import { chromium } from '/home/asus_pyqx/.nvm/versions/node/v24.19.0/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({args:['--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--no-sandbox']});
+const p = await b.newPage({viewport:{width:900,height:600}});
+p.on('pageerror',e=>console.log('[pageerror] '+e.message));
+await p.goto('file:///home/asus_pyqx/B3/forbidden-city/index.html',{waitUntil:'load',timeout:300000});
+console.log('1 loaded');
+await p.waitForFunction(()=>document.getElementById('loading').classList.contains('done'),{timeout:240000});
+console.log('2 build done');
+await p.addScriptTag({path:'/home/asus_pyqx/B3/forbidden-city/_dev/inspect.js'});
+console.log('3 script injected, makeInspector=', await p.evaluate(()=>typeof makeInspector));
+console.log('4 APP=', await p.evaluate(()=>typeof APP), 'R=', await p.evaluate(()=>typeof APP.R));
+await p.evaluate(()=>{ window.__insp = makeInspector(APP.R); window.__onFrame = ()=>{ if(window.__grabNext){ window.__insp.grab(); window.__grabNext=false; window.__grabbed=true; } }; });
+console.log('5 hook set');
+await p.evaluate(()=>{ window.__grabbed=false; window.__grabNext=true; });
+await p.waitForFunction(()=>window.__grabbed===true,{timeout:20000}).then(()=>console.log('6 grabbed')).catch(e=>console.log('6 FAIL '+e.message));
+console.log(await p.evaluate(()=>window.__insp? window.__insp.stats():'no insp'));
+await b.close();

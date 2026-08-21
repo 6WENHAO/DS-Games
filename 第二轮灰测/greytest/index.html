@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>倒立摆仿真教学平台 · PID / LQR</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="logo">⊥</span>
+    <span class="title">倒立摆仿真教学平台</span>
+    <span class="subtitle">Cart-Pole · PID / LQR · 理论与实验并重</span>
+  </div>
+  <div class="modes" id="modeTabs"></div>
+  <div class="runctl">
+    <button id="btnPlay" class="primary">⏸ 暂停</button>
+    <button id="btnStep">单步</button>
+    <button id="btnReset">复位</button>
+    <button id="btnKick">给摆一击</button>
+    <label class="sel">速度
+      <select id="speed">
+        <option value="0.1">0.1×</option>
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </label>
+  </div>
+</header>
+
+<div id="modeDescBar"><span id="modeDesc"></span>
+  <span class="kbd-hint">快捷键：<b>空格</b> 运行/暂停 · <b>R</b> 复位 · <b>K</b> 冲击 · <b>← →</b> 用手推小车</span>
+</div>
+
+<main>
+  <section class="left">
+    <div class="stage-wrap"><canvas id="stage"></canvas></div>
+    <div id="readout" class="readout"></div>
+    <div class="plots">
+      <div class="plot"><canvas id="scTheta"></canvas></div>
+      <div class="plot"><canvas id="scX"></canvas></div>
+      <div class="plot"><canvas id="scU"></canvas></div>
+      <div class="plot">
+        <div class="plot-tabs" id="plot4Tabs"></div>
+        <canvas id="sc4p"></canvas>
+        <canvas id="sc4m"></canvas>
+        <canvas id="sc4e"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <aside class="right">
+    <nav class="tabs" id="panelTabs"></nav>
+    <div class="panel-host">
+      <div class="panel" id="panel-ctrl"></div>
+      <div class="panel" id="panel-model"></div>
+      <div class="panel" id="panel-dist"></div>
+      <div class="panel" id="panel-analysis"></div>
+      <div class="panel" id="panel-lab"></div>
+
+      <!-- ===================== 理论面板 ===================== -->
+      <div class="panel theory" id="panel-theory">
+        <div class="sect-hint">这里是"够用就好"的核心推导；完整版（含每一步代数细节、频域限制、Riccati 变分推导、摆起的 Lyapunov 证明）见
+          <code>docs/理论推导.md</code>，配套实验见 <code>docs/教学实验手册.md</code>。</div>
+
+        <div class="sect">
+          <div class="sect-h">1. 建模：拉格朗日方程</div>
+          <p>广义坐标 <i>q</i> = (<i>x</i>, <i>θ</i>)，<i>θ</i> 自<b>竖直向上</b>量起。摆杆按均匀细杆处理：
+            质心距转轴 <i>l</i> = <i>L</i>/2，绕质心转动惯量 <i>I</i> = <i>mL</i>²/12。摆杆质心位置为
+            (<i>x</i> + <i>l</i>sin<i>θ</i>, <i>l</i>cos<i>θ</i>)。</p>
+          <div class="eq">T = ½(M+m)ẋ² + m l cosθ · ẋθ̇ + ½(I + m l²)θ̇²</div>
+          <div class="eq">V = m g l cosθ</div>
+          <p>代入 <span class="eq-inline">d/dt(∂L/∂q̇) − ∂L/∂q = Q<sub>耗散/外力</sub></span>，得到两条耦合方程：</p>
+          <div class="eq">(M+m)ẍ + m l cosθ · θ̈ − m l sinθ · θ̇² = u − b ẋ</div>
+          <div class="eq">(I + m l²)θ̈ + m l cosθ · ẍ − m g l sinθ = − c θ̇</div>
+          <p>写成矩阵形式并求解加速度（<code>model.js</code> 里就是这么算的）：</p>
+          <div class="eq matrix">
+            ⎡ M+m &nbsp;&nbsp; m l cosθ ⎤ ⎡ ẍ ⎤ &nbsp;=&nbsp; ⎡ u − bẋ + m l sinθ·θ̇² ⎤<br>
+            ⎣ m l cosθ &nbsp;&nbsp; I+m l² ⎦ ⎣ θ̈ ⎦ &nbsp;&nbsp;&nbsp; ⎣ m g l sinθ − cθ̇ &nbsp;&nbsp;&nbsp;&nbsp; ⎦
+          </div>
+          <p class="note">行列式 Δ = (M+m)(I+ml²) − (ml cosθ)² ≥ (M+m)I + m²l²sin²θ &gt; 0，永不奇异 —— 这是"质量矩阵正定"的具体体现。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">2. 线性化与不稳定性的量化</div>
+          <p>在 <i>θ</i>=0、<i>θ̇</i>=0、<i>u</i>=0 处取一阶近似（sin<i>θ</i>≈<i>θ</i>, cos<i>θ</i>≈1, <i>θ̇</i>²≈0），
+            记 <span class="eq-inline">J = I + ml² = mL²/3</span>、<span class="eq-inline">D₀ = (M+m)J − (ml)²</span>：</p>
+          <div class="eq">ṡ = A s + B u,&nbsp;&nbsp; s = [x, ẋ, θ, θ̇]ᵀ</div>
+          <div class="eq matrix">
+            A = ⎡ 0 &nbsp; 1 &nbsp;&nbsp; 0 &nbsp;&nbsp;&nbsp;&nbsp; 0 ⎤ &nbsp;&nbsp;&nbsp;&nbsp; B = ⎡ 0 ⎤<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⎢ 0 −Jb/D₀ −m²l²g/D₀ &nbsp; mlc/D₀ ⎥ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⎢ J/D₀ ⎥<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⎢ 0 &nbsp; 0 &nbsp;&nbsp; 0 &nbsp;&nbsp;&nbsp;&nbsp; 1 ⎥ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⎢ 0 ⎥<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⎣ 0 &nbsp; mlb/D₀ (M+m)mgl/D₀ −(M+m)c/D₀ ⎦ &nbsp;&nbsp; ⎣ −ml/D₀ ⎦
+          </div>
+          <p>无摩擦时特征值可解析求出：<span class="eq-inline">λ = 0, 0, ±p</span>，其中</p>
+          <div class="eq">p = √( m g l (M+m) / D₀ )&nbsp;&nbsp;（默认参数 ⇒ p = 5.59 rad/s）</div>
+          <p>于是"给控制器多少反应时间"有了硬指标：误差倍增时间 <span class="eq-inline">ln2 / p ≈ 0.124 s</span>。
+            这直接决定了采样率下限——分析面板算出的临界采样周期 Ts_crit ≈ 37 ms 就来自这里
+            （经验关系 <span class="eq-inline">p·Ts_crit ≈ 0.2</span>）。</p>
+          <p class="note">B 的第四项 <b>−ml/D₀ &lt; 0</b>：向右推小车，摆杆向左转。整个倒立摆的"反直觉"都源自这个负号。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">3. 两个绕不开的结构性障碍</div>
+          <p><b>(a) 能控但只有一个执行器。</b>能控性矩阵 [B AB A²B A³B] 满秩（秩 4），所以四个状态<b>理论上</b>都能控制；
+            但只有一个输入 <i>u</i>，任何时刻你都在"用同一只手同时扶摆和拉车"。</p>
+          <p><b>(b) u→x 通道是非最小相位的。</b>忽略摩擦时可算出</p>
+          <div class="eq">Θ(s)/U(s) = −ml / (D₀s² − mgl(M+m))　（分子是常数：无有限零点）</div>
+          <div class="eq">X(s)/U(s) = (J s² − mgl) / [ s²(D₀s² − mgl(M+m)) ]</div>
+          <p>后者的零点位于 <span class="eq-inline">±√(mgl/J) = ±√(3g/2L)</span>，其中<b>一个在右半平面</b>。
+            计入转轴摩擦 <i>c</i> 后分子变为 <span class="eq-inline">J s² + c s − mgl</span>，零点略微不对称：</p>
+          <div class="eq">z = ( −c + √(c² + 4 J m g l) ) / (2J)　（默认参数：z = 4.849 rad/s，另一零点 −5.057）</div>
+          <p class="note">分子只含 <i>J</i>、<i>c</i>、<i>mgl</i>，与小车摩擦 <i>b</i> <b>无关</b>，也与 <i>M</i> 无关——把 b 从 0 改到 100、
+            把 M 改动 500 倍，零点变化都在 1e−12 以内（Python 参考实现已跨 3 个数量级数值验证）。
+            物理含义：这个零点是<b>摆杆自身</b>绕转轴的动力学特征，与小车受多少阻力、有多重都无关。</p>
+          <p><b>还有一个只在含摩擦模型里才看得见的零点。</b>保留 <i>b</i> 重做消元可得</p>
+          <div class="eq">Θ(s)/U(s) = m l s / { m²l²s³ − [(M+m)s + b](Js² + cs − mgl) }</div>
+          <p>分子 ∝ <i>s</i>，即 <b>b ≠ 0 时 u→θ 通道有一个原点零点</b>（DC 增益为 0：常值力产生不了稳态倾角）。
+            后果之一：<b>小车的漂移在角度信号里完全"看不见"</b>——这就是 §5 单环 PID 失败的频域解释；
+            后果之二更强，见 §5 的"纯 PD 恒不可稳"。</p>
+          <p>右半平面零点带来的是数学上的硬限制：</p>
+          <ul>
+            <li>位置阶跃响应必然<b>先反向</b>——想往右走，必须先往左推让摆杆向右倒（"欲进先退"）；</li>
+            <li>位置环带宽存在上限，经验判据 <span class="eq-inline">ω<sub>o</sub> ≲ z/2</span>；超过它，"先反向"的那段就会被高增益放大成正反馈。</li>
+          </ul>
+          <p><b>关键澄清：</b>不稳定极点 <i>p</i> 约束的是<b>内环</b>（<i>u</i>→<i>θ</i>，须 ω<sub>n</sub> ≳ 2<i>p</i>），
+            右半平面零点 <i>z</i> 约束的是<b>外环</b>（θ_ref→<i>x</i>，须 ω<sub>o</sub> ≲ <i>z</i>/2）。两者作用在不同回路上，
+            所以并不构成"夹逼到空集"的矛盾。但可以证明</p>
+          <div class="eq">p / z = 1 / √( 1 − 3m / (4(M+m)) ) &gt; 1　（无摩擦，均匀细杆）</div>
+          <p>即 <b>z &lt; p 恒成立</b>，且这个比值<b>只取决于质量比</b> m/(M+m)，与摆长 <i>L</i>、重力 <i>g</i> 完全无关
+            （默认参数 p/z = 1.1282，数值验证吻合到 6 位）。由此得到串级结构的理论依据：
+            内环下限 2<i>p</i> 与外环上限 <i>z</i>/2 之间必然相差约 4.5 倍，两个环<b>被迫时标分离</b>——这正是串级 PID 能成立的原因。</p>
+          <p><b>摆越短为什么越难？</b>因为 <i>p</i> 与 <i>z</i> 都按 <span class="eq-inline">∝ √(g/L)</span> 同比例变大
+            （比值不变）：L 从 0.6 m 减到 0.2 m，p 从 5.59 涨到 9.68 rad/s，内环带宽要求、采样率要求、执行器带宽要求全部跟着抬高，
+            而这些都是有物理上限的。所以"短摆难控"的本质不是稳定性，而是<b>硬件跟不上</b>。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">4. LQR：从代价函数到 Riccati 方程</div>
+          <p>目标：<span class="eq-inline">min J = ∫₀<sup>∞</sup>(sᵀQs + uᵀRu)dt</span>，约束 <i>ṡ</i> = <i>As</i> + <i>Bu</i>，
+            <i>Q</i> ≥ 0、<i>R</i> &gt; 0。用"猜一个二次型值函数"的办法最快：设 <span class="eq-inline">V(s) = sᵀPs</span>
+            为从 <i>s</i> 出发的最优代价，则 Hamilton–Jacobi–Bellman 方程给出</p>
+          <div class="eq">min<sub>u</sub> [ sᵀQs + uᵀRu + 2sᵀP(As + Bu) ] = 0</div>
+          <p>对 <i>u</i> 求偏导得 <span class="eq-inline">2Ru + 2BᵀPs = 0 ⇒ u* = −R⁻¹BᵀP s ≡ −Ks</span>，代回即得
+            <b>代数 Riccati 方程 (ARE)</b>：</p>
+          <div class="eq big">AᵀP + PA − PBR⁻¹BᵀP + Q = 0</div>
+          <p>只要 (A,B) 可稳、Q ≥ 0、R &gt; 0，ARE 存在唯一的对称正定稳定解 <i>P</i>，且闭环 <i>A−BK</i>
+            必定稳定——<b>稳定性是免费赠送的</b>，不需要再去试凑。这正是 LQR 与 PID 最本质的区别。</p>
+          <p><b>本平台怎么解 ARE（就在你的浏览器里）：</b></p>
+          <ol>
+            <li><b>Bass 算法</b>给出保证稳定的初始增益：取 β &gt; ‖A‖，解 <span class="eq-inline">MS + SMᵀ = 2BBᵀ</span>
+              （<i>M</i> = <i>A</i>+β<i>I</i>），则 <span class="eq-inline">K₀ = BᵀS⁻¹</span> 必稳定。
+              证明：令 <i>P</i>=<i>S</i>⁻¹ 可得 <span class="eq-inline">(A−BBᵀP)ᵀP + P(A−BBᵀP) = −2βP &lt; 0</span>。</li>
+            <li><b>Kleinman–Newton 迭代</b>（对 ARE 做牛顿法，二次收敛）：解 Lyapunov 方程
+              <span class="eq-inline">(A−BKᵢ)ᵀP + P(A−BKᵢ) = −(Q + KᵢᵀRKᵢ)</span>，再取 <span class="eq-inline">Kᵢ₊₁ = R⁻¹BᵀP</span>。
+              Lyapunov 方程按元素展开成 16×16 线性方程组直接消元求解。</li>
+          </ol>
+          <p class="note">分析面板实时显示 ARE 残差（绝对与归一化两种口径）。这不是装饰：它是"我真的解出了方程"的证据。
+            <b>谈残差必须归一化</b>——绝对残差的量级由 ‖Q‖ 决定（此处 Q_θθ=328），理论下限约 1e−13，
+            连 scipy 自己的绝对残差都是 6.9e−12。本实现绝对残差 5.5e−13、归一化 1.7e−14。
+            另有一条完全独立的求解路径（自适应步长的 Riccati 微分方程反向积分）在自检脚本里做交叉验证，两者相对差 3.9e−11；
+            Python 参考实现 + scipy 构成第三、第四方复核，41 项对照全部通过。</p>
+          <p><b>一个可以手算的精确不变量：</b></p>
+          <div class="eq big">K_x = −√(q_x / R)</div>
+          <p>它<b>精确成立</b>，与 m、L、g、摩擦、其他权重全都无关（由 Kalman 谱分解恒等式在 A 的零特征值方向取 s→0 极限可得）。
+            默认 q_x=4、R=0.01 ⇒ K_x = −20 精确命中；q_x/R=80000 ⇒ −282.842712475。
+            同理 LQI 的积分增益 k_i = −√(q_I/R)。<b>这比"两个实现互相对照"更强</b>——它是一把能用笔算校验任何 LQR 求解器的标尺。</p>
+          <p><b>Q、R 怎么选（Bryson 定则）：</b>令 <span class="eq-inline">Qᵢᵢ = qᵢ / xᵢ,max²</span>、
+            <span class="eq-inline">R = ρ / u_max²</span>。这样 <i>qᵢ</i>、<i>ρ</i> 变成无量纲的"相对在意程度"，
+            量纲问题交给"允许的最大偏差"处理，调参立刻变得有物理直觉。</p>
+          <p><b>LQR 的白送裕度：</b>单输入 LQR 的回路满足 |1 + L(jω)| ≥ 1，由此可证
+            增益裕度区间必含 <span class="eq-inline">[½, ∞)</span>、相位裕度 ≥ 60°。分析面板会把实际的 α 稳定区间算给你看
+            （默认参数下达到 [0.06, ∞)，远好于理论下界）。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">5. PID：能做到什么，做不到什么</div>
+          <p><b>(a) 单环 PID 有两个可证明的死穴。</b></p>
+          <p><b>死穴一：位置永远只是临界稳定。</b>只反馈 <i>θ</i> 时，<i>A</i> 的第一列与 <i>B</i> 的第一元素都是零，
+            而反馈向量前两项也是零 ⇒ 闭环矩阵第一列仍全为零 ⇒ det = 0，必有原点极点（分析面板可以看到）。
+            所以角度能稳，位置临界稳定 → 任何微小扰动都让小车匀速漂走。这是<b>结构性</b>缺陷，调任何增益都无效。</p>
+          <p><b>死穴二：b &gt; 0 时纯 PD 连角度都稳不住。</b>把 §3 的含摩擦传函代入 PID，约简掉公共的 <i>s</i> 后得三次特征方程</p>
+          <div class="eq">D₀s³ + [(M+m)c + bJ + mlK_d]s² + [mlK_p − (M+m)mgl + bc]s + (mlK_i − b·mgl) = 0</div>
+          <p>三次多项式稳定要求全部系数同号，故常数项须为正：</p>
+          <div class="eq big">K_i &gt; b·g　（默认参数：K_i &gt; 0.981）</div>
+          <p>实测：<i>b</i>=0.1 时 K_i=0 ⇒ 闭环最大实部 <b>+0.0308</b>（不稳）；K_i=0.5 ⇒ +0.0151（仍不稳）；
+            K_i=1.079（1.1× 门限）⇒ +3e−6（稳）。而 <i>b</i>=0 时 K_i=0 就能稳。
+            <b>教科书里"PD 就能稳住倒立摆角度"只在无摩擦模型下成立</b>——有粘性摩擦时积分项是必需品，不是精修。
+            这个结论是与 Python 参考实现交叉验证时发现的，两个独立实现给出同样的门限。</p>
+          <p><b>(b) 串级结构。</b>外环把"位置误差"翻译成"期望倾角"，内环去跟踪这个倾角：</p>
+          <div class="eq">θ_ref = K<sub>p,o</sub>(x_ref − x) − K<sub>d,o</sub>ẋ + K<sub>i,o</sub>∫(x_ref − x)dt</div>
+          <div class="eq">u = K<sub>p</sub>(θ − θ_ref) + K<sub>i</sub>∫(θ − θ_ref)dt + K<sub>d</sub>θ̇</div>
+          <p>为什么符号是这样：因为 ∂<i>θ̈</i>/∂<i>u</i> &lt; 0，所以 <i>u</i> 要和 <i>θ</i> <b>同号</b>；
+            又因为稳态时 <span class="eq-inline">ẍ = g·tanθ</span>，想往右加速就必须<b>先向右倾斜</b>，故外环增益取正。</p>
+          <p><b>(c) 解析调参（本平台默认值的来历）。</b>忽略摩擦，内环闭环特征方程为
+            <span class="eq-inline">s² − p² + g₀(K<sub>p</sub> + K<sub>d</sub>s) = 0</span>（<i>g₀</i> = <i>ml</i>/<i>D₀</i>），
+            于是</p>
+          <div class="eq">K<sub>p</sub> = (ω<sub>n</sub>² + p²)/g₀,&nbsp;&nbsp; K<sub>d</sub> = 2ζω<sub>n</sub>/g₀</div>
+          <p>外环把内环视为理想的 <span class="eq-inline">ẍ ≈ g·θ_ref</span>，即双积分器：</p>
+          <div class="eq">K<sub>p,o</sub> = ω<sub>o</sub>²/g,&nbsp;&nbsp; K<sub>d,o</sub> = 2ζ<sub>o</sub>ω<sub>o</sub>/g</div>
+          <p>默认取 ω<sub>n</sub>=12 rad/s（&gt; p=5.59）、ζ=0.9、ω<sub>o</sub>=1.2 rad/s（&lt; z/2=2.5）、ζ<sub>o</sub>=0.7。
+            这套参数是在 576 组候选里按"三种工况的总稳定时间 + 控制能量"筛出来的。</p>
+          <p><b>(d) 工程细节不是可选项。</b>微分项必须一阶滤波（否则噪声直接乘以 K<sub>d</sub> 进入执行器）；
+            积分必须抗饱和。本平台用"条件积分 + 积分限幅"，而<b>没有</b>用反计算(back-calculation)——
+            因为当比例项本身就远超限幅时，反计算会把积分器推向巨大的反向值，误差回落后积分项接管，造成反向飞车。
+            这个陷阱在开发本平台时真实发生过（小车飞到 8.9 m）。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">6. 静差：为什么 LQR 也需要积分</div>
+          <p>加一个常值风扰 <i>d</i>（作用在小车上）。平衡态要求 <i>θ</i>=0 且合力为零，即 <i>u</i><sub>控制</sub> = −<i>d</i>，
+            而 <span class="eq-inline">u<sub>控制</sub> = −K_x(x − x_ref)</span>，于是</p>
+          <div class="eq">x<sub>ss</sub> − x_ref = d / K_x</div>
+          <p>默认 K_x = −20 N/m、<i>d</i> = 1 N ⇒ 静差 −0.05 m。仿真实测值与此完全一致（自检脚本里有这一条断言）。
+            消除办法不是"手工外挂积分项"（符号极易搞错），而是把积分器并入状态做<b>增广 LQR (LQI)</b>：</p>
+          <div class="eq">ż = x − x_ref,&nbsp;&nbsp; 增广状态 [z, x, ẋ, θ, θ̇]</div>
+          <p>对增广系统解 ARE，Riccati 方程会自动给出符号正确的 <i>k</i><sub>i</sub>；当积分权重 <i>q</i><sub>I</sub>=0 时
+            解出的 <i>k</i><sub>i</sub> 恰为 0，自动退化成普通 LQR。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">7. 摆起：能量法（非线性控制）</div>
+          <p>直立点附近的线性控制器无法把摆从下垂位置甩起来（那里离平衡点 180°，线性模型完全失效）。
+            改用能量视角：取摆杆能量 <span class="eq-inline">E = ½Jθ̇² + mgl cosθ</span>，目标 <span class="eq-inline">E_d = mgl</span>。
+            对时间求导，并用运动方程消去 <i>θ̈</i>（<i>a</i> = <i>ẍ</i> 为小车加速度）：</p>
+          <div class="eq">Ė = −c θ̇² − m l · a · θ̇ cosθ</div>
+          <p>于是只要令 <span class="eq-inline">a = −k·θ̇cosθ</span>（<i>k</i>&gt;0），就有 <span class="eq-inline">Ė = mlk(θ̇cosθ)² &gt; 0</span>，
+            能量单调上升。取 <span class="eq-inline">k = k_E(E_d − E)</span> 即得本平台使用的泵浦律：</p>
+          <div class="eq">a = k_E (E − E_d) θ̇ cosθ</div>
+          <p>它自带"能量过多时反向抽能"的性质。所需驱动力由完整非线性模型精确反解（<code>forceForCartAccel</code>）。</p>
+          <p><b>切换到 LQR 的判据（实测标定，不是拍脑袋）：</b>本平台扫描过 LQR 在力饱和下的真实吸引域，
+            结论是"小车速度"才是关键约束——静止居中时 |θ|≤0.6 rad 都能接住，
+            但 |ẋ| ≥ 1 m/s 时即使 θ 很小也会失败（速度项 K_v·ẋ 把 10 N 的力矩全部吃光）。
+            所以切换条件是四条同时满足：|θ|&lt;0.45、|θ̇|&lt;2.5、|ẋ|&lt;0.5、|x−x_ref|&lt;0.7。
+            捕获后位置给定从"当前位置"以 0.25 m/s 斜坡滑回目标，实现无扰接管。</p>
+          <p class="note">还有一个实践细节：摩擦会让能量停在 E_d 稍下方，摆<b>差一点</b>过不了顶（实测停在 0.355 rad）。
+            解决办法是把泵浦目标设为 <span class="eq-inline">E_d(1+ε)</span>，ε=4%。</p>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">8. 一页总结：PID 与 LQR 的分工</div>
+          <table class="cmp">
+            <tr><th></th><th>串级 PID</th><th>LQR</th></tr>
+            <tr><td>需要的先验</td><td>只需知道"谁快谁慢"，可现场试凑</td><td>需要完整状态空间模型 A、B</td></tr>
+            <tr><td>需要的测量</td><td>θ、x（速度可由差分近似）</td><td>四个状态全部（实机需配观测器/Kalman）</td></tr>
+            <tr><td>稳定性</td><td>自己保证，靠裕度检查</td><td>只要 Q≥0、R&gt;0，数学上自动保证</td></tr>
+            <tr><td>调参对象</td><td>6 个增益，交互耦合</td><td>5 个权重，物理意义清晰、单调</td></tr>
+            <tr><td>多目标权衡</td><td>靠串级结构人为分离</td><td>写进代价函数，一次求解</td></tr>
+            <tr><td>鲁棒裕度</td><td>有限区间，需逐一验证</td><td>先天含 [½,∞) 增益裕度、≥60° 相位裕度</td></tr>
+            <tr><td>采样率要求</td><td>Ts_crit = 111 ms（9 Hz）</td><td>Ts_crit = 37 ms（27 Hz），<b>更苛刻</b></td></tr>
+            <tr><td>扩展性</td><td>加一个自由度就要重新搭结构</td><td>加状态只是把矩阵变大（LQI、LQG、MPC 同一路线）</td></tr>
+            <tr><td>大范围机动</td><td>不适用</td><td>不适用（需能量法等非线性方法）</td></tr>
+          </table>
+          <p class="note">关于采样率那一行别误会：LQR 更苛刻<b>不是缺陷</b>。实测两者的
+            <span class="eq-inline">T_s,crit · |λ|max</span>（|λ|max = 最快闭环极点模长）几乎相同（1.075 vs 1.151），
+            差别完全来自"LQR 的最快极点快了 2.8 倍"，而那是我们自己在 Q/R 里要求的。
+            把 ρ 调大到 30，LQR 的 Ts_crit 就升到 159 ms。<b>由此得到比教科书更好用的判据：
+            采样率要盯你设计出来的最快闭环极点，而不是被控对象的不稳定极点 p</b>
+            —— 实测 p·Ts_crit 跨 12 倍（0.073→0.887）完全不可用，而 Ts_crit·|λ|max 稳定在 1.05~1.97。
+            工程取值 Ts ≤ 1/(10|λ|max)。详见 docs/理论推导.md §6.2 与实验 7。</p>
+          <p class="note">教学结论：PID 是"局部经验的胜利"，LQR 是"模型知识的胜利"。
+            倒立摆之所以是经典教具，正因为它同时暴露了两者的边界——单环 PID 的结构性失败、
+            右半平面零点的带宽夹逼、LQR 对模型与全状态的依赖、以及线性方法在大范围机动上的彻底失效。</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script src="src/linalg.js"></script>
+<script src="src/model.js"></script>
+<script src="src/lqr.js"></script>
+<script src="src/controllers.js"></script>
+<script src="src/analysis.js"></script>
+<script src="src/scope.js"></script>
+<script src="src/render.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

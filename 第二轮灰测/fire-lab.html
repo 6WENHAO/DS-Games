@@ -1,0 +1,2845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>3D 真实火焰燃烧模拟实验室 · 原生 WebGL2</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#07090c;color:#e9eef5;
+  font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;font-size:13px}
+#glcanvas{position:fixed;left:0;top:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.pane{position:fixed;z-index:10;background:linear-gradient(180deg,rgba(17,20,26,.90),rgba(10,12,16,.88));
+  border:1px solid rgba(255,255,255,.10);border-radius:13px;box-shadow:0 16px 44px rgba(0,0,0,.55);
+  backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);user-select:none}
+#ui{top:12px;right:12px;width:280px;overflow:hidden}
+#ui .hd{display:flex;align-items:center;gap:8px;padding:11px 13px;font-weight:600;letter-spacing:.4px;
+  border-bottom:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);cursor:default}
+#ui .hd .dot{width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#ffe9a8,#ff8a1e 45%,#c2340a);
+  box-shadow:0 0 10px rgba(255,140,30,.85);animation:flick 1.6s infinite ease-in-out}
+@keyframes flick{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.72;transform:scale(.86)}}
+#ui .hd span.t{flex:1}
+#ui .hd button{all:unset;cursor:pointer;width:22px;height:22px;line-height:20px;text-align:center;border-radius:6px;
+  color:#9fb0c4;background:rgba(255,255,255,.06)}
+#ui .hd button:hover{background:rgba(255,255,255,.14);color:#fff}
+#ui .bd{padding:10px 13px 13px;max-height:calc(100vh - 130px);overflow-y:auto;scrollbar-width:thin}
+#ui .bd::-webkit-scrollbar{width:6px}#ui .bd::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+.sec{margin:9px 0 4px;font-size:11px;letter-spacing:1.2px;color:#7d8ea3;text-transform:uppercase}
+.grp{margin:9px 0 11px}
+.lbl{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;color:#c9d6e5}
+.lbl b{font-weight:600;color:#ffb763;font-variant-numeric:tabular-nums;font-size:12px}
+.hint{font-size:11px;color:#6f8096;margin-top:-4px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;outline:none;
+  background:linear-gradient(90deg,#ff7a18,#ffd08a 55%,rgba(255,255,255,.14) 55%);cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:#fff;border:3px solid #ff8b25;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#fff;border:3px solid #ff8b25}
+.row{display:flex;gap:7px;margin-top:9px}
+.row button{flex:1;all:unset;cursor:pointer;text-align:center;padding:8px 6px;border-radius:9px;font-size:12px;font-weight:600;
+  color:#e9eef5;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);transition:.15s}
+.row button:hover{background:rgba(255,255,255,.15);transform:translateY(-1px)}
+.row button.fire{background:linear-gradient(180deg,#ff8d2a,#d94f06);border-color:#ffab5d;color:#fff}
+.row button.fire:hover{filter:brightness(1.12)}
+.row button.danger{background:rgba(210,60,60,.20);border-color:rgba(255,120,120,.35);color:#ffbdbd}
+.row button.danger:hover{background:rgba(220,60,60,.34)}
+#stat{margin-top:11px;padding-top:9px;border-top:1px solid rgba(255,255,255,.08);
+  font-size:11px;color:#8fa1b6;line-height:1.75;font-variant-numeric:tabular-nums}
+#stat i{color:#ffc07a;font-style:normal}
+#hud{left:12px;top:12px;padding:9px 12px;font-size:11.5px;line-height:1.7;color:#a9bacd;font-variant-numeric:tabular-nums}
+#hud b{color:#ffce93;font-weight:600}
+#tip{left:12px;bottom:12px;padding:9px 12px;font-size:11.5px;line-height:1.8;color:#9db0c4;max-width:340px}
+#tip k{display:inline-block;padding:0 5px;border-radius:4px;background:rgba(255,255,255,.10);color:#e6eef7;
+  border:1px solid rgba(255,255,255,.13);font-family:inherit;font-size:10.5px}
+#toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%) translateY(10px);z-index:20;
+  padding:8px 16px;border-radius:20px;background:rgba(10,12,16,.86);border:1px solid rgba(255,160,60,.35);
+  color:#ffd7a8;font-size:12.5px;opacity:0;transition:.28s;pointer-events:none}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#load{position:fixed;left:0;top:0;width:100%;height:100%;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 42%,#141a22,#07090c 70%)}
+#load .box{text-align:center}
+#load .fl{width:52px;height:52px;margin:0 auto 16px;border-radius:50%;
+  background:radial-gradient(circle at 50% 62%,#fff6cf,#ffb42e 32%,#e4550a 62%,rgba(190,40,0,0) 78%);
+  animation:pulse 1.1s infinite ease-in-out;filter:blur(.4px)}
+@keyframes pulse{0%,100%{transform:scale(1) translateY(0);opacity:.95}50%{transform:scale(1.16) translateY(-4px);opacity:1}}
+#load .t1{font-size:16px;font-weight:600;letter-spacing:1px;color:#f2f6fb}
+#load .t2{margin-top:7px;font-size:12px;color:#8b9bb0}
+#err{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;display:none;max-width:520px;
+  padding:22px 26px;border-radius:14px;background:rgba(24,12,12,.95);border:1px solid rgba(255,110,110,.4);
+  color:#ffd9d9;line-height:1.8;font-size:13px}
+@media (max-width:760px){#ui{width:238px;top:8px;right:8px}#tip{display:none}}
+</style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+
+<div id="hud" class="pane">
+  <div>FPS <b id="h_fps">--</b> &nbsp;·&nbsp; 分辨率 <b id="h_res">--</b></div>
+  <div>草叶 <b id="h_grass">--</b> &nbsp;·&nbsp; 树木 <b id="h_tree">--</b> &nbsp;·&nbsp; 岩石 <b id="h_rock">--</b></div>
+  <div>燃烧中 <b id="h_burn">0</b> &nbsp;·&nbsp; 已焚毁 <b id="h_ash">0%</b> &nbsp;·&nbsp; 粒子 <b id="h_part">0</b></div>
+</div>
+
+<div id="ui" class="pane">
+  <div class="hd"><span class="dot"></span><span class="t">火焰实验室 · 控制台</span><button id="fold" title="折叠">–</button></div>
+  <div class="bd" id="uibd">
+    <div class="sec">环境</div>
+    <div class="grp"><div class="lbl"><span>风力大小</span><b id="v_wind">3.0 级</b></div>
+      <input id="s_wind" type="range" min="0" max="10" step="0.1" value="3">
+      <div class="hint">影响火焰倾斜、草木摆动、烟雾走向</div></div>
+    <div class="grp"><div class="lbl"><span>风向</span><b id="v_dir">40°</b></div>
+      <input id="s_dir" type="range" min="0" max="360" step="1" value="40"></div>
+    <div class="sec">燃烧</div>
+    <div class="grp"><div class="lbl"><span>火焰强度</span><b id="v_int">1.00</b></div>
+      <input id="s_int" type="range" min="0.25" max="3" step="0.05" value="1">
+      <div class="hint">火焰体积 / 亮度 / 温度 / 蔓延加成</div></div>
+    <div class="grp"><div class="lbl"><span>燃烧蔓延速度</span><b id="v_spr">1.00</b></div>
+      <input id="s_spr" type="range" min="0.1" max="4" step="0.05" value="1"></div>
+    <div class="grp"><div class="lbl"><span>烟雾浓度</span><b id="v_smk">1.00</b></div>
+      <input id="s_smk" type="range" min="0" max="2" step="0.05" value="1"></div>
+    <div class="sec">画面</div>
+    <div class="grp"><div class="lbl"><span>曝光</span><b id="v_exp">1.00</b></div>
+      <input id="s_exp" type="range" min="0.5" max="2" step="0.05" value="1"></div>
+    <div class="grp"><div class="lbl"><span>渲染质量</span><b id="v_q">自动</b></div>
+      <input id="s_q" type="range" min="0" max="3" step="1" value="0">
+      <div class="hint">自动 / 低 / 中 / 高（体积步进与分辨率）</div></div>
+    <div class="row"><button id="b_ignite" class="fire">随机点火</button><button id="b_wall" class="fire">线状火墙</button></div>
+    <div class="row"><button id="b_tree">点燃树木</button><button id="b_pause">暂停时间</button></div>
+    <div class="row"><button id="b_reset" class="danger">重置场景</button></div>
+    <div id="stat">
+      <div>火源簇 <i id="t_src">0</i> · 动态点光源 <i id="t_light">0</i></div>
+      <div>燃烧树木 <i id="t_tb">0</i> / 焚毁 <i id="t_td">0</i></div>
+      <div>体积步进 <i id="t_steps">0</i> · 缩放 <i id="t_scale">1.00</i></div>
+    </div>
+  </div>
+</div>
+
+<div id="tip" class="pane">
+  <div><k>左键拖动</k> 旋转视角 &nbsp; <k>右键拖动</k> 平移 &nbsp; <k>滚轮</k> 缩放</div>
+  <div><k>单击草地/树木</k> 点火（可多处同时点燃，火焰会合并） &nbsp; <k>R</k> 重置 &nbsp; <k>F</k> 随机点火</div>
+</div>
+
+<div id="toast"></div>
+<div id="err"></div>
+<div id="load"><div class="box"><div class="fl"></div>
+  <div class="t1">3D 真实火焰燃烧模拟实验室</div>
+  <div class="t2" id="loadtxt">正在初始化 WebGL2 …</div></div></div>
+
+<script>
+(function(){
+"use strict";
+var NL = String.fromCharCode(10);
+function glsl(a){ return a.join(NL); }
+var $ = function(id){ return document.getElementById(id); };
+
+function fatal(msg){
+  var e = $("err"); e.style.display = "block";
+  e.innerHTML = "<b>无法启动火焰实验室</b><br>" + msg;
+  var l = $("load"); if(l) l.style.display = "none";
+}
+
+var canvas = $("glcanvas");
+var gl = null;
+try{
+  gl = canvas.getContext("webgl2", { antialias:false, alpha:false, depth:false, stencil:false,
+    premultipliedAlpha:false, preserveDrawingBuffer:false, powerPreference:"high-performance" });
+}catch(e){}
+if(!gl){ fatal("当前浏览器或显卡驱动不支持 <b>WebGL2</b>。<br>本实验室为原生 WebGL2 实现（未使用 three.js），请使用较新版本的 Chrome / Edge / Firefox，并确认已开启硬件加速。"); return; }
+
+var EXT_HDR = gl.getExtension("EXT_color_buffer_float");
+var EXT_ANISO = gl.getExtension("EXT_texture_filter_anisotropic");
+
+/* ============================================================
+   0. 常量与工具
+   ============================================================ */
+var CFG = {
+  terrainSize: 200, terrainSeg: 176, terrainYRange: 2.0,
+  gridN: 128, gridExtent: 96,
+  grassCount: 55000, grassRadius: 32,
+  treeCount: 98, treeRadius: 43, rockCount: 140,
+  maxParticles: 4800, maxLights: 8
+};
+var params = {
+  wind: 3.0, windDir: 40, intensity: 1.0, spread: 1.0, smoke: 1.0,
+  exposure: 1.0, quality: 0, paused: false
+};
+
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function smoothstep(e0,e1,x){ var t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0;
+  var t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
+  return ((t^(t>>>14))>>>0)/4294967296; }; }
+var rnd = mulberry32(20240617);
+function rrange(a,b){ return a+(b-a)*rnd(); }
+
+function v3sub(a,b){ return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
+function v3add(a,b){ return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]; }
+function v3scale(a,s){ return [a[0]*s,a[1]*s,a[2]*s]; }
+function v3cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function v3len(a){ return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]); }
+function v3norm(a){ var l=v3len(a)||1; return [a[0]/l,a[1]/l,a[2]/l]; }
+
+/* ---- 数值噪声（CPU） ---- */
+function ihash2(x,y){ var h=(Math.imul(x,374761393)+Math.imul(y,668265263))|0;
+  h=Math.imul(h^(h>>>13),1274126177); h=h^(h>>>16); return (h>>>0)/4294967296; }
+function noise2(x,y){
+  var xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
+  var u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+  var a=ihash2(xi,yi), b=ihash2(xi+1,yi), c=ihash2(xi,yi+1), d=ihash2(xi+1,yi+1);
+  return (a+(b-a)*u)*(1-v)+(c+(d-c)*u)*v;
+}
+function fbm2c(x,y,oct){ var s=0,a=0.5,f=1,i; for(i=0;i<oct;i++){ s+=a*noise2(x*f,y*f); f*=2.03; a*=0.5; } return s; }
+function ihash3(x,y,z){ var h=(Math.imul(x,374761393)+Math.imul(y,668265263)+Math.imul(z,2147483647))|0;
+  h=Math.imul(h^(h>>>13),1274126177); h=h^(h>>>16); return (h>>>0)/4294967296; }
+function noise3(x,y,z){
+  var xi=Math.floor(x), yi=Math.floor(y), zi=Math.floor(z);
+  var xf=x-xi, yf=y-yi, zf=z-zi;
+  var u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf), w=zf*zf*(3-2*zf);
+  function g(a,b,c){ return ihash3(a,b,c); }
+  var c000=g(xi,yi,zi), c100=g(xi+1,yi,zi), c010=g(xi,yi+1,zi), c110=g(xi+1,yi+1,zi);
+  var c001=g(xi,yi,zi+1), c101=g(xi+1,yi,zi+1), c011=g(xi,yi+1,zi+1), c111=g(xi+1,yi+1,zi+1);
+  var x00=c000+(c100-c000)*u, x10=c010+(c110-c010)*u, x01=c001+(c101-c001)*u, x11=c011+(c111-c011)*u;
+  var y0=x00+(x10-x00)*v, y1=x01+(x11-x01)*v;
+  return y0+(y1-y0)*w;
+}
+
+/* ---- 地形高度（平原 + 轻微起伏，高度差 <= 3） ---- */
+function terrainHeight(x,z){
+  var r = Math.sqrt(x*x+z*z);
+  var m = smoothstep(112, 72, r);
+  var h = fbm2c(x*0.0125+11.3, z*0.0125-7.1, 4)*2.15 - 1.02;
+  h += (noise2(x*0.052-3.3, z*0.052+9.4)-0.5)*0.42;
+  return h*m*0.92;
+}
+function terrainNormal(x,z){
+  var e=0.6;
+  var hl=terrainHeight(x-e,z), hr=terrainHeight(x+e,z);
+  var hd=terrainHeight(x,z-e), hu=terrainHeight(x,z+e);
+  return v3norm([hl-hr, 2*e, hd-hu]);
+}
+
+/* ---- 4x4 矩阵 ---- */
+function m4(){ return new Float32Array(16); }
+function m4perspective(o,fovy,aspect,near,far){
+  var f=1/Math.tan(fovy/2), nf=1/(near-far);
+  o[0]=f/aspect;o[1]=0;o[2]=0;o[3]=0; o[4]=0;o[5]=f;o[6]=0;o[7]=0;
+  o[8]=0;o[9]=0;o[10]=(far+near)*nf;o[11]=-1; o[12]=0;o[13]=0;o[14]=2*far*near*nf;o[15]=0; return o;
+}
+function m4lookAt(o,eye,ctr,up){
+  var x0,x1,x2,y0,y1,y2,z0,z1,z2,len;
+  z0=eye[0]-ctr[0]; z1=eye[1]-ctr[1]; z2=eye[2]-ctr[2];
+  len=1/Math.sqrt(z0*z0+z1*z1+z2*z2); z0*=len; z1*=len; z2*=len;
+  x0=up[1]*z2-up[2]*z1; x1=up[2]*z0-up[0]*z2; x2=up[0]*z1-up[1]*z0;
+  len=Math.sqrt(x0*x0+x1*x1+x2*x2);
+  if(!len){ x0=0;x1=0;x2=0; } else { len=1/len; x0*=len;x1*=len;x2*=len; }
+  y0=z1*x2-z2*x1; y1=z2*x0-z0*x2; y2=z0*x1-z1*x0;
+  o[0]=x0;o[1]=y0;o[2]=z0;o[3]=0; o[4]=x1;o[5]=y1;o[6]=z1;o[7]=0; o[8]=x2;o[9]=y2;o[10]=z2;o[11]=0;
+  o[12]=-(x0*eye[0]+x1*eye[1]+x2*eye[2]);
+  o[13]=-(y0*eye[0]+y1*eye[1]+y2*eye[2]);
+  o[14]=-(z0*eye[0]+z1*eye[1]+z2*eye[2]); o[15]=1; return o;
+}
+function m4mul(o,a,b){
+  for(var i=0;i<4;i++){
+    var b0=b[i*4],b1=b[i*4+1],b2=b[i*4+2],b3=b[i*4+3];
+    o[i*4  ]=a[0]*b0+a[4]*b1+a[8]*b2+a[12]*b3;
+    o[i*4+1]=a[1]*b0+a[5]*b1+a[9]*b2+a[13]*b3;
+    o[i*4+2]=a[2]*b0+a[6]*b1+a[10]*b2+a[14]*b3;
+    o[i*4+3]=a[3]*b0+a[7]*b1+a[11]*b2+a[15]*b3;
+  } return o;
+}
+function m4invert(o,a){
+  var a00=a[0],a01=a[1],a02=a[2],a03=a[3], a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+      a20=a[8],a21=a[9],a22=a[10],a23=a[11], a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+  var b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10,
+      b03=a01*a12-a02*a11, b04=a01*a13-a03*a11, b05=a02*a13-a03*a12,
+      b06=a20*a31-a21*a30, b07=a20*a32-a22*a30, b08=a20*a33-a23*a30,
+      b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32;
+  var det=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  if(!det) return null; det=1/det;
+  o[0]=(a11*b11-a12*b10+a13*b09)*det; o[1]=(a02*b10-a01*b11-a03*b09)*det;
+  o[2]=(a31*b05-a32*b04+a33*b03)*det; o[3]=(a22*b04-a21*b05-a23*b03)*det;
+  o[4]=(a12*b08-a10*b11-a13*b07)*det; o[5]=(a00*b11-a02*b08+a03*b07)*det;
+  o[6]=(a32*b02-a30*b05-a33*b01)*det; o[7]=(a20*b05-a22*b02+a23*b01)*det;
+  o[8]=(a10*b10-a11*b08+a13*b06)*det; o[9]=(a01*b08-a00*b10-a03*b06)*det;
+  o[10]=(a30*b04-a31*b02+a33*b00)*det; o[11]=(a21*b02-a20*b04-a23*b00)*det;
+  o[12]=(a11*b07-a10*b09-a12*b06)*det; o[13]=(a00*b09-a01*b07+a02*b06)*det;
+  o[14]=(a31*b01-a30*b03-a32*b00)*det; o[15]=(a20*b03-a21*b01+a22*b00)*det;
+  return o;
+}
+
+/* ============================================================
+   1. WebGL 基础设施
+   ============================================================ */
+function compileShader(type, src, tag){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    var log = gl.getShaderInfoLog(s);
+    var lines = src.split(NL), out = [], i;
+    for(i=0;i<lines.length;i++) out.push((i+1)+": "+lines[i]);
+    console.error("[shader " + tag + "] " + log + NL + out.join(NL));
+    throw new Error("着色器编译失败 (" + tag + "): " + log);
+  }
+  return s;
+}
+function makeProgram(vs, fs, tag){
+  var p = gl.createProgram();
+  gl.attachShader(p, compileShader(gl.VERTEX_SHADER, vs, tag+".vert"));
+  gl.attachShader(p, compileShader(gl.FRAGMENT_SHADER, fs, tag+".frag"));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("着色器链接失败 ("+tag+"): "+gl.getProgramInfoLog(p));
+  var cache = {};
+  return {
+    prog: p, tag: tag,
+    u: function(n){ if(!(n in cache)) cache[n] = gl.getUniformLocation(p, n); return cache[n]; },
+    use: function(){ gl.useProgram(p); return this; }
+  };
+}
+function makeBuf(target, data, usage){
+  var b = gl.createBuffer(); gl.bindBuffer(target, b);
+  gl.bufferData(target, data, usage || gl.STATIC_DRAW); gl.bindBuffer(target, null); return b;
+}
+function makeVAO(attribs, indexBuf){
+  var vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  for(var i=0;i<attribs.length;i++){
+    var a = attribs[i];
+    gl.bindBuffer(gl.ARRAY_BUFFER, a.buf);
+    gl.enableVertexAttribArray(a.loc);
+    gl.vertexAttribPointer(a.loc, a.size, a.type||gl.FLOAT, !!a.norm, a.stride||0, a.offset||0);
+    if(a.divisor) gl.vertexAttribDivisor(a.loc, a.divisor);
+  }
+  if(indexBuf) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuf);
+  gl.bindVertexArray(null); gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  return vao;
+}
+/* 简易网格构建器 */
+function MeshBuilder(){ this.v = []; this.i = []; this.n = 0; }
+MeshBuilder.prototype.vert = function(arr){ for(var i=0;i<arr.length;i++) this.v.push(arr[i]); return this.n++; };
+MeshBuilder.prototype.tri = function(a,b,c){ this.i.push(a,b,c); };
+MeshBuilder.prototype.quad = function(a,b,c,d){ this.i.push(a,b,c,a,c,d); };
+MeshBuilder.prototype.upload = function(){
+  var idx = this.n > 65535 ? new Uint32Array(this.i) : new Uint16Array(this.i);
+  return {
+    vbo: makeBuf(gl.ARRAY_BUFFER, new Float32Array(this.v)),
+    ibo: makeBuf(gl.ELEMENT_ARRAY_BUFFER, idx),
+    itype: this.n > 65535 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+    count: this.i.length, nverts: this.n
+  };
+};
+
+/* ---- 渲染目标 ---- */
+function createRT(w, h, opt){
+  opt = opt || {};
+  var rt = { w:w, h:h, float: !!opt.float && !!EXT_HDR, depth: !!opt.depth };
+  rt.fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fbo);
+  rt.tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, rt.tex);
+  var ifmt = rt.float ? gl.RGBA16F : gl.RGBA8;
+  var type = rt.float ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+  gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, gl.RGBA, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt.tex, 0);
+  if(rt.depth){
+    rt.dtex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, rt.dtex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, w, h, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, rt.dtex, 0);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return rt;
+}
+function freeRT(rt){
+  if(!rt) return;
+  gl.deleteFramebuffer(rt.fbo); gl.deleteTexture(rt.tex);
+  if(rt.dtex) gl.deleteTexture(rt.dtex);
+}
+function bindRT(rt){
+  if(rt){ gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fbo); gl.viewport(0,0,rt.w,rt.h); }
+  else { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,canvas.width,canvas.height); }
+}
+function bindTex(unit, tex, is3d){
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(is3d ? gl.TEXTURE_3D : gl.TEXTURE_2D, tex);
+}
+/* 纹理单元约定 */
+var TU = { ground:0, fire:1, height:2, noise3:3, scene:4, depth:5, firebuf:6, bloom:7, extra:8 };
+
+/* ---- 全屏四边形 ---- */
+var QUAD_VAO = null;
+(function(){
+  var vbo = makeBuf(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]));
+  QUAD_VAO = makeVAO([{ buf:vbo, loc:0, size:2 }]);
+})();
+function drawQuad(){ gl.bindVertexArray(QUAD_VAO); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null); }
+
+/* ============================================================
+   2. 程序化纹理
+   ============================================================ */
+var TEX = {};
+/* 地表贴图: R=泥土量 G=颜色扰动 B=色调 A=草密度 */
+var GROUND = { size: 512, data: null };
+function grassDensityRaw(x, z, dirt, cv){
+  var r = Math.sqrt(x*x+z*z);
+  var m = smoothstep(CFG.grassRadius+7, CFG.grassRadius-12, r);
+  return clamp((1.0 - dirt*0.88) * (0.42+0.80*cv) * m, 0, 1);
+}
+function buildGroundMap(){
+  var S = GROUND.size, data = new Uint8Array(S*S*4), i, j;
+  for(j=0;j<S;j++){
+    for(i=0;i<S;i++){
+      var wx = (i/(S-1)-0.5)*CFG.terrainSize, wz = (j/(S-1)-0.5)*CFG.terrainSize;
+      var dirt = smoothstep(0.545, 0.725, fbm2c(wx*0.045+21.1, wz*0.045-8.3, 3));
+      dirt = Math.max(dirt, smoothstep(0.60, 0.82, fbm2c(wx*0.135-4.2, wz*0.135+2.8, 2))*0.7);
+      var cv = fbm2c(wx*0.085+3.1, wz*0.085+7.7, 3);
+      var tint = fbm2c(wx*0.021-15.5, wz*0.021+4.4, 2);
+      var gd = grassDensityRaw(wx, wz, dirt, cv);
+      var o = (j*S+i)*4;
+      data[o]   = clamp(dirt,0,1)*255;
+      data[o+1] = clamp(cv,0,1)*255;
+      data[o+2] = clamp(tint,0,1)*255;
+      data[o+3] = gd*255;
+    }
+  }
+  GROUND.data = data;
+  var t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  if(EXT_ANISO) gl.texParameterf(gl.TEXTURE_2D, EXT_ANISO.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+  TEX.ground = t;
+}
+function sampleGround(x, z){
+  var S = GROUND.size;
+  var u = clamp((x/CFG.terrainSize+0.5)*(S-1), 0, S-1) | 0;
+  var v = clamp((z/CFG.terrainSize+0.5)*(S-1), 0, S-1) | 0;
+  var o = (v*S+u)*4, d = GROUND.data;
+  return { dirt: d[o]/255, cv: d[o+1]/255, tint: d[o+2]/255, gd: d[o+3]/255 };
+}
+/* 地形高度贴图（供体积渲染取地面高度） */
+function buildHeightMap(){
+  var S = 256, data = new Uint8Array(S*S), i, j;
+  for(j=0;j<S;j++) for(i=0;i<S;i++){
+    var wx=(i/(S-1)-0.5)*CFG.terrainSize, wz=(j/(S-1)-0.5)*CFG.terrainSize;
+    data[j*S+i] = clamp(terrainHeight(wx,wz)/CFG.terrainYRange*0.5+0.5, 0, 1)*255;
+  }
+  var t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, S, S, 0, gl.RED, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  TEX.height = t;
+}
+/* 可平铺 3D 噪声（火焰湍流） */
+function buildNoise3D(){
+  var S = 48, data = new Uint8Array(S*S*S*4);
+  function lattice(P){ var t=new Float32Array(P*P*P), i; for(i=0;i<t.length;i++) t[i]=rnd(); return t; }
+  var LT = [ {p:4,t:lattice(4)}, {p:8,t:lattice(8)}, {p:12,t:lattice(12)}, {p:16,t:lattice(16)} ];
+  function vn(l, x, y, z){
+    var P=l.p, t=l.t;
+    var fx=x*P, fy=y*P, fz=z*P;
+    var ix=Math.floor(fx), iy=Math.floor(fy), iz=Math.floor(fz);
+    var tx=fx-ix, ty=fy-iy, tz=fz-iz;
+    tx=tx*tx*(3-2*tx); ty=ty*ty*(3-2*ty); tz=tz*tz*(3-2*tz);
+    var x0=((ix%P)+P)%P, x1=(x0+1)%P, y0=((iy%P)+P)%P, y1=(y0+1)%P, z0=((iz%P)+P)%P, z1=(z0+1)%P;
+    var g000=t[(z0*P+y0)*P+x0], g100=t[(z0*P+y0)*P+x1], g010=t[(z0*P+y1)*P+x0], g110=t[(z0*P+y1)*P+x1];
+    var g001=t[(z1*P+y0)*P+x0], g101=t[(z1*P+y0)*P+x1], g011=t[(z1*P+y1)*P+x0], g111=t[(z1*P+y1)*P+x1];
+    var a=g000+(g100-g000)*tx, b=g010+(g110-g010)*tx, c=g001+(g101-g001)*tx, d=g011+(g111-g011)*tx;
+    var e=a+(b-a)*ty, f=c+(d-c)*ty;
+    return e+(f-e)*tz;
+  }
+  var x,y,z,o;
+  for(z=0;z<S;z++) for(y=0;y<S;y++) for(x=0;x<S;x++){
+    var u=x/S, v=y/S, w=z/S;
+    var r = vn(LT[0],u,v,w)*0.62 + vn(LT[1],u,v,w)*0.38;
+    var g = vn(LT[1],u+0.31,v,w)*0.60 + vn(LT[2],u,v,w)*0.40;
+    var b = vn(LT[2],u,v+0.17,w)*0.60 + vn(LT[3],u,v,w)*0.40;
+    var a = vn(LT[3],u,v,w+0.23);
+    o = ((z*S+y)*S+x)*4;
+    data[o]=clamp(r,0,1)*255; data[o+1]=clamp(g,0,1)*255;
+    data[o+2]=clamp(b,0,1)*255; data[o+3]=clamp(a,0,1)*255;
+  }
+  var t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, t);
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, S, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.REPEAT);
+  gl.bindTexture(gl.TEXTURE_3D, null);
+  TEX.noise3 = t;
+}
+/* 燃烧场纹理: R=火 G=炭化 B=燃料 A=热/烟源 */
+function buildFireTex(){
+  var N = CFG.gridN;
+  var t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(N*N*4));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  TEX.fire = t;
+}
+
+/* ============================================================
+   3. 公共 GLSL 片段
+   ============================================================ */
+var CH_HEAD = glsl([
+  "precision highp float;",
+  "precision highp sampler3D;"
+]);
+var CH_NOISE = glsl([
+  "float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }",
+  "float hash13(vec3 p3){ p3 = fract(p3*0.1031); p3 += dot(p3, p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }",
+  "float vnoise2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);",
+  "  float a=hash12(i), b=hash12(i+vec2(1.0,0.0)), c=hash12(i+vec2(0.0,1.0)), d=hash12(i+vec2(1.0,1.0));",
+  "  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y); }",
+  "float fbm2(vec2 p){ float s=0.0, a=0.5; for(int i=0;i<5;i++){ s+=a*vnoise2(p); p=p*2.03+vec2(1.7,-2.3); a*=0.5; } return s; }",
+  "float fbm2b(vec2 p){ float s=0.0, a=0.5; for(int i=0;i<3;i++){ s+=a*vnoise2(p); p=p*2.07+vec2(-1.1,3.3); a*=0.5; } return s; }",
+  "float ridge2(vec2 p){ return 1.0 - abs(fbm2b(p)*2.0-1.0); }"
+]);
+/* 火焰点光源 + 太阳 + 雾 */
+var CH_LIGHT = glsl([
+  "#define MAXL 8",
+  "uniform vec4 uLightPos[MAXL];",
+  "uniform vec4 uLightCol[MAXL];",
+  "uniform int  uLightCount;",
+  "uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyCol; uniform vec3 uGndCol;",
+  "uniform vec3 uCamPos; uniform vec3 uFogCol; uniform float uFogDensity; uniform float uTime;",
+  "vec3 fireLights(vec3 wp, vec3 n, vec3 albedo, float gloss){",
+  "  vec3 acc = vec3(0.0);",
+  "  vec3 V = normalize(uCamPos - wp);",
+  "  for(int i=0;i<MAXL;i++){",
+  "    if(i>=uLightCount) break;",
+  "    vec3 d = uLightPos[i].xyz - wp; float dist = length(d)+1e-4; vec3 L = d/dist;",
+  "    float R = uLightPos[i].w;",
+  "    float att = clamp(1.0 - dist/R, 0.0, 1.0); att = att*att*(1.0+0.6*uLightCol[i].w);",
+  "    float nl = max(dot(n,L),0.0)*0.82 + 0.18;",
+  "    vec3 H = normalize(L+V); float sp = pow(max(dot(n,H),0.0), 28.0)*gloss;",
+  "    acc += uLightCol[i].rgb * att * (albedo*nl + vec3(sp));",
+  "  }",
+  "  return acc; }",
+  "vec3 applyFog(vec3 col, vec3 wp){",
+  "  float dist = length(wp - uCamPos);",
+  "  float hf = clamp(1.0 - (wp.y-0.5)*0.020, 0.55, 1.0);",
+  "  float f = 1.0 - exp(-pow(dist*uFogDensity*hf, 2.55));",
+  "  return mix(col, uFogCol, clamp(f, 0.0, 0.985)); }"
+]);
+var CH_FIRECOL = glsl([
+  "vec3 fireRamp(float t){",
+  "  t = clamp(t, 0.0, 1.0);",
+  "  vec3 c = mix(vec3(0.26,0.020,0.004), vec3(0.95,0.16,0.012), smoothstep(0.00,0.30,t));",
+  "  c = mix(c, vec3(1.00,0.42,0.045), smoothstep(0.24,0.52,t));",
+  "  c = mix(c, vec3(1.00,0.72,0.20),  smoothstep(0.48,0.76,t));",
+  "  c = mix(c, vec3(1.00,0.94,0.66),  smoothstep(0.72,0.93,t));",
+  "  c = mix(c, vec3(1.00,0.99,0.92),  smoothstep(0.90,1.00,t));",
+  "  return c; }"
+]);
+var VS_QUAD = glsl([
+  "#version 300 es",
+  "layout(location=0) in vec2 aPos;",
+  "out vec2 vUv;",
+  "void main(){ vUv = aPos*0.5+0.5; gl_Position = vec4(aPos, 0.0, 1.0); }"
+]);
+
+/* ============================================================
+   4. 相机与全局光照状态
+   ============================================================ */
+var SUN = { dir: v3norm([0.42, 0.74, 0.36]), col: [3.40, 3.16, 2.74] };
+var SKYC = { zenith: [0.175, 0.395, 0.93], horizon: [0.585, 0.705, 0.855] };
+var AMB = { sky: [0.34, 0.46, 0.68], gnd: [0.20, 0.17, 0.12] };
+var FOG = { col: [0.665, 0.745, 0.855], density: 0.0080 };
+
+var cam = { yaw: 0.86, pitch: 0.785, dist: 46, target: [0, 1.4, 0], pos: [0, 10, 40], fov: 52*Math.PI/180 };
+var MAT = { view: m4(), proj: m4(), vp: m4(), invVP: m4() };
+
+function camUpdate(){
+  var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  cam.pos[0] = cam.target[0] + cam.dist*cp*Math.sin(cam.yaw);
+  cam.pos[1] = cam.target[1] + cam.dist*sp;
+  cam.pos[2] = cam.target[2] + cam.dist*cp*Math.cos(cam.yaw);
+  var minY = terrainHeight(cam.pos[0], cam.pos[2]) + 0.75;
+  if(cam.pos[1] < minY) cam.pos[1] = minY;
+  var aspect = Math.max(0.35, canvas.width / Math.max(1, canvas.height));
+  m4perspective(MAT.proj, cam.fov, aspect, 0.12, 640);
+  m4lookAt(MAT.view, cam.pos, cam.target, [0,1,0]);
+  m4mul(MAT.vp, MAT.proj, MAT.view);
+  m4invert(MAT.invVP, MAT.vp);
+}
+
+/* 火焰点光源池 */
+var LIGHTS = { pos: new Float32Array(CFG.maxLights*4), col: new Float32Array(CFG.maxLights*4), count: 0 };
+var windVec = new Float32Array(2);
+var TIME = { t: 0, dt: 0 };
+
+function setCommon(pr){
+  gl.uniformMatrix4fv(pr.u("uVP"), false, MAT.vp);
+  gl.uniform3fv(pr.u("uCamPos"), cam.pos);
+  gl.uniform3fv(pr.u("uSunDir"), SUN.dir);
+  gl.uniform3fv(pr.u("uSunCol"), SUN.col);
+  gl.uniform3fv(pr.u("uSkyCol"), AMB.sky);
+  gl.uniform3fv(pr.u("uGndCol"), AMB.gnd);
+  gl.uniform3fv(pr.u("uFogCol"), FOG.col);
+  gl.uniform1f(pr.u("uFogDensity"), FOG.density);
+  gl.uniform1f(pr.u("uTime"), TIME.t);
+  gl.uniform2fv(pr.u("uWindVec"), windVec);
+  gl.uniform1f(pr.u("uWindStr"), params.wind/10);
+  gl.uniform4fv(pr.u("uLightPos"), LIGHTS.pos);
+  gl.uniform4fv(pr.u("uLightCol"), LIGHTS.col);
+  gl.uniform1i(pr.u("uLightCount"), LIGHTS.count);
+  gl.uniform1f(pr.u("uGridExtent"), CFG.gridExtent);
+  gl.uniform1f(pr.u("uTerrainSize"), CFG.terrainSize);
+  gl.uniform1i(pr.u("uFire"), TU.fire);
+  gl.uniform1i(pr.u("uGround"), TU.ground);
+  gl.uniform1i(pr.u("uHeight"), TU.height);
+}
+
+/* ============================================================
+   5. 天空盒（渐变蓝天 + 缓慢移动的云）
+   ============================================================ */
+var PROG = {};
+PROG.sky = makeProgram(VS_QUAD, glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "in vec2 vUv; out vec4 oCol;",
+  "uniform mat4 uInvVP; uniform vec3 uCamPos; uniform vec3 uSunDir;",
+  "uniform vec3 uSkyCol; uniform vec3 uFogCol; uniform float uTime; uniform vec2 uWindVec;",
+  "void main(){",
+  "  vec2 ndc = vUv*2.0-1.0;",
+  "  vec4 f = uInvVP*vec4(ndc, 1.0, 1.0);",
+  "  vec3 dir = normalize(f.xyz/f.w - uCamPos);",
+  "  float h = dir.y;",
+  "  vec3 col = mix(uFogCol, uSkyCol, pow(clamp(h*1.06, 0.0, 1.0), 0.72));",
+  "  col = mix(col, uFogCol*0.86, smoothstep(0.0, -0.22, h));",
+  "  float sd = max(dot(dir, uSunDir), 0.0);",
+  "  col += vec3(1.0,0.94,0.80)*pow(sd, 1600.0)*22.0;",
+  "  col += vec3(1.0,0.82,0.58)*pow(sd, 10.0)*0.22;",
+  "  if(h > 0.012){",
+  "    vec2 cuv = dir.xz/max(h, 0.025)*0.62;",
+  "    vec2 drift = -uWindVec*uTime*0.050 + vec2(uTime*0.018, uTime*0.007);",
+  "    float n1 = fbm2(cuv + drift);",
+  "    float n2 = fbm2(cuv*2.6 - drift*1.6 + vec2(5.2,1.3));",
+  "    float base = n1*0.90 + n2*0.42;",
+  "    float cov = smoothstep(0.46, 0.82, base);",
+  "    float dens = smoothstep(0.40, 1.00, base);",
+  "    float shade = smoothstep(0.30, 0.88, n2);",
+  "    vec3 cc = mix(vec3(0.55,0.60,0.70), vec3(1.06,1.04,1.00), shade);",
+  "    cc += vec3(1.0,0.86,0.62)*pow(sd, 5.0)*0.42;",
+  "    float fade = smoothstep(0.012, 0.15, h);",
+  "    col = mix(col, cc, clamp(cov*dens*1.35, 0.0, 0.94)*fade);",
+  "  }",
+  "  oCol = vec4(max(col, vec3(0.0)), 1.0);",
+  "}"
+]), "sky");
+
+function drawSky(){
+  var pr = PROG.sky.use();
+  gl.uniformMatrix4fv(pr.u("uInvVP"), false, MAT.invVP);
+  gl.uniform3fv(pr.u("uCamPos"), cam.pos);
+  gl.uniform3fv(pr.u("uSunDir"), SUN.dir);
+  gl.uniform3fv(pr.u("uSkyCol"), SKYC.zenith);
+  gl.uniform3fv(pr.u("uFogCol"), SKYC.horizon);
+  gl.uniform1f(pr.u("uTime"), TIME.t);
+  gl.uniform2fv(pr.u("uWindVec"), windVec);
+  gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
+  drawQuad();
+  gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
+}
+
+/* ============================================================
+   6. 障碍物登记（岩石/树干处不长草）
+   ============================================================ */
+var BLOCKERS = { cell: 4.0, map: {} };
+function blockerKey(x,z){ return (Math.floor(x/BLOCKERS.cell)+512) * 4096 + (Math.floor(z/BLOCKERS.cell)+512); }
+function addBlocker(x,z,r){
+  var k = blockerKey(x,z);
+  if(!BLOCKERS.map[k]) BLOCKERS.map[k] = [];
+  BLOCKERS.map[k].push([x,z,r]);
+}
+function blocked(x,z,extra){
+  var c = BLOCKERS.cell, ix = Math.floor(x/c), iz = Math.floor(z/c), i, j, k, arr, n, b, dx, dz, rr;
+  for(i=-1;i<=1;i++) for(j=-1;j<=1;j++){
+    k = (ix+i+512)*4096 + (iz+j+512);
+    arr = BLOCKERS.map[k];
+    if(!arr) continue;
+    for(n=0;n<arr.length;n++){
+      b = arr[n]; dx = x-b[0]; dz = z-b[1];
+      rr = b[2]+extra;
+      if(dx*dx+dz*dz < rr*rr) return true;
+    }
+  }
+  return false;
+}
+
+/* ============================================================
+   7. 地形
+   ============================================================ */
+var TERRAIN = null, SKIRT = null;
+function buildTerrain(){
+  var N = CFG.terrainSeg, S = CFG.terrainSize, half = S*0.5, i, j;
+  var nv = (N+1)*(N+1);
+  var verts = new Float32Array(nv*6);
+  var H = new Float32Array(nv);
+  for(j=0;j<=N;j++) for(i=0;i<=N;i++){
+    var x = -half + S*i/N, z = -half + S*j/N;
+    H[j*(N+1)+i] = terrainHeight(x,z);
+  }
+  var step = S/N, o = 0;
+  for(j=0;j<=N;j++) for(i=0;i<=N;i++){
+    var x = -half + step*i, z = -half + step*j;
+    var idx = j*(N+1)+i;
+    var hl = H[j*(N+1)+Math.max(0,i-1)], hr = H[j*(N+1)+Math.min(N,i+1)];
+    var hd = H[Math.max(0,j-1)*(N+1)+i], hu = H[Math.min(N,j+1)*(N+1)+i];
+    var nx = hl-hr, ny = 2*step, nz = hd-hu;
+    var nl = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+    verts[o++] = x; verts[o++] = H[idx]; verts[o++] = z;
+    verts[o++] = nx/nl; verts[o++] = ny/nl; verts[o++] = nz/nl;
+  }
+  var idxArr = new Uint32Array(N*N*6), p = 0;
+  for(j=0;j<N;j++) for(i=0;i<N;i++){
+    var a = j*(N+1)+i, b = a+1, c = a+(N+1), d = c+1;
+    idxArr[p++]=a; idxArr[p++]=c; idxArr[p++]=b;
+    idxArr[p++]=b; idxArr[p++]=c; idxArr[p++]=d;
+  }
+  var vbo = makeBuf(gl.ARRAY_BUFFER, verts);
+  var ibo = makeBuf(gl.ELEMENT_ARRAY_BUFFER, idxArr);
+  TERRAIN = {
+    vao: makeVAO([
+      { buf:vbo, loc:0, size:3, stride:24, offset:0 },
+      { buf:vbo, loc:1, size:3, stride:24, offset:12 }
+    ], ibo),
+    count: idxArr.length
+  };
+  /* 远景地裙：把世界边缘藏进大气雾中，任何角度都不穿帮 */
+  var seg = 96, rr = [114, 150, 205, 300, 430], sv = [], si = [], ri, ii;
+  for(ri=0;ri<rr.length;ri++) for(ii=0;ii<=seg;ii++){
+    var aa = ii/seg*Math.PI*2;
+    sv.push(Math.cos(aa)*rr[ri], -0.06, Math.sin(aa)*rr[ri], 0, 1, 0);
+  }
+  for(ri=0;ri<rr.length-1;ri++) for(ii=0;ii<seg;ii++){
+    var s0 = ri*(seg+1)+ii, s1 = s0+1, s2 = s0+(seg+1), s3 = s2+1;
+    si.push(s0, s1, s2, s1, s3, s2);
+  }
+  var svbo = makeBuf(gl.ARRAY_BUFFER, new Float32Array(sv));
+  var sibo = makeBuf(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(si));
+  SKIRT = {
+    vao: makeVAO([
+      { buf:svbo, loc:0, size:3, stride:24, offset:0 },
+      { buf:svbo, loc:1, size:3, stride:24, offset:12 }
+    ], sibo),
+    count: si.length
+  };
+}
+PROG.terrain = makeProgram(glsl([
+  "#version 300 es", CH_HEAD,
+  "layout(location=0) in vec3 aPos;",
+  "layout(location=1) in vec3 aNrm;",
+  "uniform mat4 uVP;",
+  "out vec3 vWP; out vec3 vN;",
+  "void main(){ vWP = aPos; vN = aNrm; gl_Position = uVP*vec4(aPos, 1.0); }"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT,
+  "in vec3 vWP; in vec3 vN; out vec4 oCol;",
+  "uniform sampler2D uGround; uniform sampler2D uFire;",
+  "uniform float uGridExtent; uniform float uTerrainSize;",
+  "void main(){",
+  "  vec3 N = normalize(vN);",
+  "  vec2 guv = vWP.xz/uTerrainSize + 0.5;",
+  "  vec4 gm = texture(uGround, guv);",
+  "  vec4 F  = texture(uFire, vWP.xz/uGridExtent + 0.5);",
+  "  float slope = 1.0 - clamp(N.y, 0.0, 1.0);",
+  "  float d1 = fbm2(vWP.xz*0.85);",
+  "  float d2 = vnoise2(vWP.xz*6.5);",
+  "  float d3 = vnoise2(vWP.xz*23.0);",
+  /* 草地基色 */
+  "  vec3 gA = vec3(0.105,0.225,0.062), gB = vec3(0.285,0.430,0.128), gDry = vec3(0.475,0.435,0.170);",
+  "  vec3 grass = mix(gA, gB, clamp(gm.g*0.75 + d1*0.55, 0.0, 1.0));",
+  "  grass = mix(grass, gDry, smoothstep(0.40, 0.92, d1*0.55 + gm.b*0.65));",
+  "  grass *= 0.86 + 0.30*d2 + 0.10*d3;",
+  /* 泥土 / 碎石 */
+  "  vec3 dirtC = mix(vec3(0.235,0.165,0.108), vec3(0.430,0.330,0.215), d2*0.8+0.12);",
+  "  dirtC = mix(dirtC, vec3(0.30,0.28,0.26), smoothstep(0.55,0.85,d3)*0.35);",
+  "  float dirtAmt = clamp(gm.r*1.05 + smoothstep(0.16,0.52,slope*1.9) + (d2-0.5)*0.30, 0.0, 1.0);",
+  "  dirtAmt = smoothstep(0.22, 0.72, dirtAmt);",
+  "  vec3 albedo = mix(grass, dirtC, dirtAmt);",
+  /* 草叶根部暗部（与草叶几何呼应） */
+  "  albedo *= mix(1.0, 0.80, gm.a*(1.0-dirtAmt)*0.8);",
+  /* 炭化 / 灰烬 */
+  "  float ch = clamp(F.g*(0.70 + 0.62*vnoise2(vWP.xz*2.9) + 0.22*d3), 0.0, 1.0);",
+  "  vec3 ash = mix(vec3(0.024,0.021,0.020), vec3(0.112,0.104,0.098), smoothstep(0.55,1.0,ch)*0.55*d2);",
+  "  albedo = mix(albedo, ash, smoothstep(0.03, 0.34, ch));",
+  /* 光照 */
+  "  float nl = max(dot(N, uSunDir), 0.0);",
+  "  vec3 col = albedo * (uSunCol*nl*0.335 + mix(uGndCol, uSkyCol, N.y*0.5+0.5)*0.40);",
+  "  col += fireLights(vWP, N, albedo, 0.035);",
+  /* 余烬与地表火光 */
+  "  float flick = 0.62 + 0.38*sin(uTime*8.5 + vWP.x*2.7 + vWP.z*1.9);",
+  "  col += vec3(1.0,0.40,0.075)*F.r*2.1*flick;",
+  "  col += vec3(1.0,0.22,0.03)*smoothstep(0.20,0.95,ch)*F.a*0.95*flick;",
+  "  col = applyFog(col, vWP);",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "terrain");
+
+function drawTerrain(){
+  var pr = PROG.terrain.use();
+  setCommon(pr);
+  gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+  gl.bindVertexArray(TERRAIN.vao);
+  gl.drawElements(gl.TRIANGLES, TERRAIN.count, gl.UNSIGNED_INT, 0);
+  if(SKIRT){
+    gl.bindVertexArray(SKIRT.vao);
+    gl.drawElements(gl.TRIANGLES, SKIRT.count, gl.UNSIGNED_SHORT, 0);
+  }
+  gl.bindVertexArray(null);
+}
+
+/* ============================================================
+   8. 草地（GPU 实例化草叶 + 风动着色器 + 燃烧碳化）
+   ============================================================ */
+var GRASS = { vao:null, count:0, draw:0, ibo:null, idxCount:24 };
+function buildGrass(){
+  var rows = 5, verts = [], k;
+  for(k=0;k<rows;k++){
+    var t = k/(rows-1);
+    verts.push(-0.5, t, 0.5, t);
+  }
+  var idx = [];
+  for(k=0;k<rows-1;k++){
+    var a = k*2, b = a+1, c = a+2, d = a+3;
+    idx.push(a,c,b, b,c,d);
+  }
+  var vbo = makeBuf(gl.ARRAY_BUFFER, new Float32Array(verts));
+  GRASS.ibo = makeBuf(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx));
+  GRASS.idxCount = idx.length;
+
+  var want = CFG.grassCount;
+  var inst = new Float32Array(want*12);
+  var R = CFG.grassRadius, n = 0, tries = 0, maxTries = want*14;
+  while(n < want && tries < maxTries){
+    tries++;
+    var ang = rnd()*Math.PI*2;
+    var rr = R*Math.pow(rnd(), 0.58);
+    var x = Math.cos(ang)*rr, z = Math.sin(ang)*rr;
+    var g = sampleGround(x,z);
+    if(g.gd < 0.06) continue;
+    if(rnd() > g.gd*0.98 + 0.02) continue;
+    if(blocked(x, z, 0.15)) continue;
+    var y = terrainHeight(x,z);
+    var clump = fbm2c(x*0.55+31.0, z*0.55-12.0, 2);
+    var hgt = (0.34 + 0.46*clump + rnd()*0.30) * (0.75 + 0.5*g.gd);
+    var o = n*12;
+    inst[o]   = x; inst[o+1] = y; inst[o+2] = z; inst[o+3] = hgt;
+    inst[o+4] = 0.034 + rnd()*0.040;
+    inst[o+5] = rnd()*Math.PI*2;
+    inst[o+6] = rnd()*Math.PI*2;
+    inst[o+7] = rnd() < 0.14 ? (0.50 + rnd()*0.85) : (rnd()-0.35)*0.55;
+    inst[o+8] = clamp(0.25 + g.cv*0.6 + (rnd()-0.5)*0.55, 0, 1);
+    inst[o+9] = clamp(g.tint*0.85 + (rnd()-0.5)*0.4 + g.dirt*0.35, 0, 1);
+    inst[o+10] = rnd();
+    inst[o+11] = clump;
+    n++;
+  }
+  GRASS.count = n; GRASS.draw = n;
+  var ibuf = makeBuf(gl.ARRAY_BUFFER, inst);
+  GRASS.vao = makeVAO([
+    { buf:vbo,  loc:0, size:2 },
+    { buf:ibuf, loc:1, size:4, stride:48, offset:0,  divisor:1 },
+    { buf:ibuf, loc:2, size:4, stride:48, offset:16, divisor:1 },
+    { buf:ibuf, loc:3, size:4, stride:48, offset:32, divisor:1 }
+  ], GRASS.ibo);
+}
+PROG.grass = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "layout(location=0) in vec2 aVert;",
+  "layout(location=1) in vec4 aI1;",
+  "layout(location=2) in vec4 aI2;",
+  "layout(location=3) in vec4 aI3;",
+  "uniform mat4 uVP; uniform float uTime; uniform vec2 uWindVec; uniform float uWindStr;",
+  "uniform sampler2D uFire; uniform float uGridExtent;",
+  "out vec3 vWP; out vec3 vN; out vec3 vCol; out float vAO; out float vGlow; out float vT;",
+  "void main(){",
+  "  vec3 base = aI1.xyz;",
+  "  vec4 F = textureLod(uFire, base.xz/uGridExtent + 0.5, 0.0);",
+  "  float fire = F.r, ch = F.g;",
+  "  float burn = smoothstep(0.05, 0.50, ch);",
+  "  float gone = smoothstep(0.66, 0.96, ch)*(0.60 + 0.40*step(0.42, aI3.z));",
+  "  float t = aVert.y;",
+  "  float H = aI1.w*(1.0 - 0.42*burn)*(1.0 - gone);",
+  "  float w = aI2.x*(1.0 - 0.80*t*t)*(1.0 - gone*0.95);",
+  "  float yaw = aI2.y, cy = cos(yaw), sy = sin(yaw);",
+  /* 风：低频阵风 + 高频抖动 + 热浪抖动 */
+  "  float gust = 0.45 + 0.90*vnoise2(base.xz*0.055 + uWindVec*uTime*0.42);",
+  "  float sway = sin(uTime*(1.35+1.05*uWindStr) + aI2.z + dot(base.xz, uWindVec)*0.26)*(0.10+0.85*uWindStr)*gust;",
+  "  sway += sin(uTime*(3.7+2.4*uWindStr) + aI2.z*2.7)*(0.03+0.09*uWindStr);",
+  "  sway += sin(uTime*14.0 + aI2.z*5.1)*0.34*fire;",
+  "  float bend = aI2.w + sway + burn*0.62;",
+  "  float tt = t*t;",
+  "  vec3 lp = vec3(aVert.x*w, t*H, bend*tt*H*0.62);",
+  "  lp.y -= bend*bend*tt*H*0.13;",
+  /* 热浪上扬 */
+  "  lp.y += fire*H*0.10*tt;",
+  "  vec3 wp = vec3(base.x + (cy*lp.x + sy*lp.z), base.y + lp.y, base.z + (-sy*lp.x + cy*lp.z));",
+  "  vec3 nl = normalize(vec3(0.0, bend*0.5*t, -1.0));",
+  "  vN = normalize(vec3(cy*nl.x + sy*nl.z, nl.y, -sy*nl.x + cy*nl.z));",
+  "  vec3 cA = vec3(0.070,0.215,0.050), cB = vec3(0.275,0.455,0.115), cD = vec3(0.520,0.455,0.160);",
+  "  vec3 col = mix(cA, cB, clamp(aI3.x, 0.0, 1.0));",
+  "  col = mix(col, cD, aI3.y*0.60);",
+  "  col *= 0.85 + 0.35*aI3.z;",
+  "  col = mix(col, vec3(0.215,0.080,0.020), smoothstep(0.02, 0.30, ch));",
+  "  col = mix(col, vec3(0.042,0.038,0.036), smoothstep(0.22, 0.70, ch));",
+  "  vCol = col;",
+  "  vAO = mix(0.42, 1.0, t);",
+  "  vGlow = fire*smoothstep(0.10, 0.90, t)*(0.55 + 0.45*sin(uTime*17.0 + aI2.z*3.3));",
+  "  vT = t; vWP = wp;",
+  "  gl_Position = uVP*vec4(wp, 1.0);",
+  "}"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT,
+  "in vec3 vWP; in vec3 vN; in vec3 vCol; in float vAO; in float vGlow; in float vT;",
+  "out vec4 oCol;",
+  "void main(){",
+  "  vec3 N = normalize(vN);",
+  "  if(!gl_FrontFacing) N = -N;",
+  "  float nl = max(dot(N, uSunDir), 0.0);",
+  "  vec3 col = vCol*(uSunCol*(nl*0.315+0.05) + mix(uGndCol, uSkyCol, 0.5+0.5*N.y)*0.38)*vAO;",
+  "  col += vCol*uSunCol*pow(max(dot(-N, uSunDir), 0.0), 2.2)*0.085*vT;",
+  "  col += fireLights(vWP, N, vCol, 0.10);",
+  "  col += vec3(1.0,0.42,0.085)*vGlow*2.4;",
+  "  col = applyFog(col, vWP);",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "grass");
+
+function drawGrass(){
+  var pr = PROG.grass.use();
+  setCommon(pr);
+  gl.disable(gl.CULL_FACE);
+  gl.bindVertexArray(GRASS.vao);
+  gl.drawElementsInstanced(gl.TRIANGLES, GRASS.idxCount, gl.UNSIGNED_SHORT, 0, GRASS.draw);
+  gl.bindVertexArray(null);
+  gl.enable(gl.CULL_FACE);
+}
+
+/* ============================================================
+   9. 程序化树木（松树 / 橡树 / 灌木）
+   ============================================================ */
+/* 树干顶点: pos3 nrm3 uv2 hFrac1 = 9 floats
+   树叶顶点: pos3 nrm3 uv2 center3 seed1 hFrac1 = 13 floats */
+function addTube(mb, p0, p1, r0, r1, seg, vStart, treeH){
+  var d = v3sub(p1, p0), len = v3len(d);
+  if(len < 1e-5) return vStart;
+  var dir = v3scale(d, 1/len);
+  var up = Math.abs(dir[1]) > 0.95 ? [1,0,0] : [0,1,0];
+  var t1 = v3norm(v3cross(up, dir)), t2 = v3cross(dir, t1);
+  var base = mb.n, i;
+  for(i=0;i<=seg;i++){
+    var a = i/seg*Math.PI*2, ca = Math.cos(a), sa = Math.sin(a);
+    var nx = t1[0]*ca+t2[0]*sa, ny = t1[1]*ca+t2[1]*sa, nz = t1[2]*ca+t2[2]*sa;
+    mb.vert([p0[0]+nx*r0, p0[1]+ny*r0, p0[2]+nz*r0, nx,ny,nz, i/seg*1.7, vStart, clamp(p0[1]/treeH,0,1)]);
+    mb.vert([p1[0]+nx*r1, p1[1]+ny*r1, p1[2]+nz*r1, nx,ny,nz, i/seg*1.7, vStart+len*1.15, clamp(p1[1]/treeH,0,1)]);
+  }
+  for(i=0;i<seg;i++){
+    var a0 = base+i*2, b0 = a0+1, a1 = base+(i+1)*2, b1 = a1+1;
+    mb.quad(a0, a1, b1, b0);
+  }
+  return vStart + len*1.15;
+}
+function rotateDir(dir, yaw, tilt){
+  var up = Math.abs(dir[1]) > 0.95 ? [1,0,0] : [0,1,0];
+  var t1 = v3norm(v3cross(up, dir)), t2 = v3cross(dir, t1);
+  var st = Math.sin(tilt), ct = Math.cos(tilt), ca = Math.cos(yaw), sa = Math.sin(yaw);
+  return v3norm([ dir[0]*ct + (t1[0]*ca+t2[0]*sa)*st,
+                  dir[1]*ct + (t1[1]*ca+t2[1]*sa)*st,
+                  dir[2]*ct + (t1[2]*ca+t2[2]*sa)*st ]);
+}
+function addLeafQuad(mb, c, u, v, n, s, seed, treeH){
+  var base = mb.n, k;
+  var cor = [[-1,-1],[1,-1],[1,1],[-1,1]];
+  var hf = clamp(c[1]/treeH, 0, 1);
+  for(k=0;k<4;k++){
+    var cx = cor[k][0], cy = cor[k][1];
+    mb.vert([ c[0]+u[0]*cx*s+v[0]*cy*s, c[1]+u[1]*cx*s+v[1]*cy*s, c[2]+u[2]*cx*s+v[2]*cy*s,
+              n[0],n[1],n[2], cx*0.5+0.5, cy*0.5+0.5, c[0],c[1],c[2], seed, hf ]);
+  }
+  mb.quad(base, base+1, base+2, base+3);
+}
+function addLeafCluster(mb, c, size, treeH, count){
+  count = count + 1;
+  for(var i=0;i<count;i++){
+    var s = size*(0.62+rnd()*0.58);
+    var yaw = rnd()*6.2832, pitch = (rnd()-0.5)*1.5;
+    var n = [Math.cos(yaw)*Math.cos(pitch), Math.sin(pitch), Math.sin(yaw)*Math.cos(pitch)];
+    var u = v3norm(v3cross(n, [0.0, 1.0, 0.03]));
+    var v = v3cross(n, u);
+    var cc = [ c[0]+(rnd()-0.5)*size*0.85, c[1]+(rnd()-0.5)*size*0.55, c[2]+(rnd()-0.5)*size*0.85 ];
+    addLeafQuad(mb, cc, u, v, n, s, rnd(), treeH);
+  }
+}
+function addFrond(mb, org, dir, len, width, roll, treeH, seed){
+  var up = [0,1,0];
+  var side = v3cross(dir, up);
+  if(v3len(side) < 0.02) side = [1,0,0];
+  side = v3norm(side);
+  var nrm = v3norm(v3cross(side, dir));
+  var cr = Math.cos(roll), sr = Math.sin(roll);
+  var s2 = v3norm([ side[0]*cr+nrm[0]*sr, side[1]*cr+nrm[1]*sr, side[2]*cr+nrm[2]*sr ]);
+  var n2 = v3norm(v3cross(s2, dir));
+  var base = mb.n, k;
+  var pts = [[0,-1],[1,-1],[1,1],[0,1]];
+  var hf = clamp(org[1]/treeH, 0, 1);
+  for(k=0;k<4;k++){
+    var ax = pts[k][0], ay = pts[k][1];
+    mb.vert([ org[0]+dir[0]*len*ax + s2[0]*width*ay,
+              org[1]+dir[1]*len*ax + s2[1]*width*ay,
+              org[2]+dir[2]*len*ax + s2[2]*width*ay,
+              n2[0],n2[1],n2[2], ax, ay*0.5+0.5, org[0],org[1],org[2], seed, hf ]);
+  }
+  mb.quad(base, base+1, base+2, base+3);
+}
+
+function genPine(){
+  var tm = new MeshBuilder(), lm = new MeshBuilder();
+  var H = 7.0 + rnd()*3.4;
+  var r0 = 0.20 + rnd()*0.07;
+  var lx = (rnd()-0.5)*0.09, lz = (rnd()-0.5)*0.09;
+  var segs = 7, prev = [0,0,0], vv = 0, i;
+  function rad(t){ return r0*(1-t)*(1-t)*0.88 + 0.020; }
+  for(i=1;i<=segs;i++){
+    var t = i/segs;
+    var p = [lx*H*t*t, H*t, lz*H*t*t];
+    vv = addTube(tm, prev, p, rad((i-1)/segs), rad(t), 7, vv, H);
+    prev = p;
+  }
+  var nw = 10 + Math.floor(rnd()*4), w, b;
+  for(w=0;w<nw;w++){
+    var tt = 0.20 + 0.78*(w/(nw-1));
+    var y = H*tt, cx = lx*H*tt*tt, cz = lz*H*tt*tt;
+    var spread = Math.pow(1.0-tt, 0.72)*(2.0+rnd()*0.75) + 0.32;
+    var cnt = 5 + Math.floor(rnd()*4);
+    for(b=0;b<cnt;b++){
+      var a = rnd()*6.2832;
+      var dir = v3norm([Math.cos(a), -0.26-rnd()*0.34, Math.sin(a)]);
+      var org = [cx+Math.cos(a)*0.05, y+(rnd()-0.5)*0.22, cz+Math.sin(a)*0.05];
+      var len = spread*(0.72+rnd()*0.55), sd = rnd();
+      addFrond(lm, org, dir, len, len*0.30, 0.0, H, sd);
+      addFrond(lm, org, dir, len*0.92, len*0.27, 1.5708, H, sd+0.37);
+    }
+  }
+  var top = [lx*H, H*1.005, lz*H];
+  addFrond(lm, top, [0,1,0], 0.85, 0.26, 0.0, H, rnd());
+  addFrond(lm, top, [0,1,0], 0.85, 0.26, 1.5708, H, rnd());
+  return { trunk:tm, leaf:lm, H:H, canopyY:H*0.60, canopyR:2.4, trunkR:r0, leafType:1, name:"pine" };
+}
+function branchRec(tm, lm, p, dir, len, rad, depth, treeH){
+  var p1 = v3add(p, v3scale(dir, len));
+  addTube(tm, p, p1, rad, rad*0.60, depth < 2 ? 7 : 5, rnd()*3.0, treeH);
+  if(depth >= 3 || rad < 0.050){
+    addLeafCluster(lm, p1, Math.max(0.42, len*0.78), treeH, 3);
+    return;
+  }
+  var nb = rnd() < 0.62 ? 3 : 2, i;
+  for(i=0;i<nb;i++){
+    var nd = rotateDir(dir, rnd()*6.2832, 0.38+rnd()*0.52);
+    nd[1] += 0.14; nd = v3norm(nd);
+    branchRec(tm, lm, p1, nd, len*(0.60+rnd()*0.24), rad*0.60, depth+1, treeH);
+  }
+  if(depth >= 2) addLeafCluster(lm, p1, Math.max(0.38, len*0.62), treeH, 2);
+}
+function genOak(){
+  var tm = new MeshBuilder(), lm = new MeshBuilder();
+  var H = 5.8 + rnd()*2.2;
+  var trunkH = H*0.40, r0 = 0.30 + rnd()*0.11;
+  var prev = [0,0,0], vv = 0, i;
+  for(i=1;i<=3;i++){
+    var t = i/3;
+    var p = [(rnd()-0.5)*0.20*t, trunkH*t, (rnd()-0.5)*0.20*t];
+    vv = addTube(tm, prev, p, lerp(r0, r0*0.70, (i-1)/3), lerp(r0, r0*0.70, t), 8, vv, H);
+    prev = p;
+  }
+  var nMain = 3 + Math.floor(rnd()*2), b;
+  for(b=0;b<nMain;b++){
+    var a = b/nMain*6.2832 + rnd()*0.85;
+    var dir = rotateDir([0,1,0], a, 0.50+rnd()*0.38);
+    branchRec(tm, lm, prev, dir, H*0.31*(0.85+rnd()*0.4), r0*0.62, 1, H);
+  }
+  return { trunk:tm, leaf:lm, H:H, canopyY:H*0.72, canopyR:H*0.42, trunkR:r0, leafType:0, name:"oak" };
+}
+function genBush(){
+  var tm = new MeshBuilder(), lm = new MeshBuilder();
+  var H = 1.15 + rnd()*0.65;
+  var ns = 4 + Math.floor(rnd()*3), i;
+  for(i=0;i<ns;i++){
+    var a = rnd()*6.2832;
+    var dir = v3norm([Math.cos(a)*0.55, 1.0, Math.sin(a)*0.55]);
+    var len = H*(0.55+rnd()*0.35);
+    var p1 = v3scale(dir, len);
+    addTube(tm, [Math.cos(a)*0.05, 0, Math.sin(a)*0.05], p1, 0.055+rnd()*0.03, 0.022, 5, rnd()*2.0, H);
+    addLeafCluster(lm, p1, 0.40+rnd()*0.22, H, 3);
+  }
+  var nc = 7 + Math.floor(rnd()*5);
+  for(i=0;i<nc;i++){
+    var a2 = rnd()*6.2832, rr = Math.pow(rnd(),0.55)*(0.62+H*0.30);
+    var c = [Math.cos(a2)*rr, H*(0.30+rnd()*0.68), Math.sin(a2)*rr];
+    addLeafCluster(lm, c, 0.34+rnd()*0.24, H, 2);
+  }
+  return { trunk:tm, leaf:lm, H:H, canopyY:H*0.62, canopyR:H*0.85+0.4, trunkR:0.09, leafType:0, name:"bush" };
+}
+
+var TREES = { models: [], list: [], groups: [], burning: 0, dead: 0 };
+
+function buildTrees(){
+  var defs = [genPine(), genPine(), genOak(), genOak(), genBush(), genBush()];
+  var i, m;
+  for(i=0;i<defs.length;i++){
+    m = defs[i];
+    var tu = m.trunk.upload(), lu = m.leaf.upload();
+    TREES.models.push({
+      H:m.H, canopyY:m.canopyY, canopyR:m.canopyR, trunkR:m.trunkR, leafType:m.leafType, name:m.name,
+      trunk:tu, leaf:lu, species:(i<2?0:(i<4?1:2))
+    });
+  }
+  /* 分布 */
+  var placed = [], n = 0, tries = 0;
+  while(n < CFG.treeCount && tries < CFG.treeCount*60){
+    tries++;
+    var ang = rnd()*Math.PI*2, rr = 7.0 + Math.pow(rnd(), 0.72)*(CFG.treeRadius-7.0);
+    var x = Math.cos(ang)*rr, z = Math.sin(ang)*rr;
+    var pick = rnd();
+    var mi = pick < 0.34 ? (rnd()<0.5?0:1) : (pick < 0.66 ? (rnd()<0.5?2:3) : (rnd()<0.5?4:5));
+    var mdl = TREES.models[mi];
+    var isBush = mdl.species === 2;
+    var minD = isBush ? 1.6 : 4.3;
+    var ok = true, k;
+    for(k=0;k<placed.length;k++){
+      var dx = x-placed[k][0], dz = z-placed[k][1];
+      if(dx*dx+dz*dz < (minD+placed[k][2])*(minD+placed[k][2])){ ok = false; break; }
+    }
+    if(!ok) continue;
+    if(blocked(x, z, 1.1)) continue;
+    var g = sampleGround(x,z);
+    if(!isBush && g.dirt > 0.72 && rnd() < 0.7) continue;
+    placed.push([x, z, isBush?1.0:2.6]);
+    var sc = isBush ? (0.75+rnd()*0.55) : (0.78+rnd()*0.52);
+    TREES.list.push({
+      x:x, y:terrainHeight(x,z)-0.10-0.12*sc, z:z, yaw:rnd()*6.2832, scale:sc, mi:mi,
+      leafBurn:0, trunkBurn:0, ignH:0.5, fade:0, burning:false, alive:true,
+      seed:rnd(), heatOut:0, emit:0
+    });
+    addBlocker(x, z, mdl.trunkR*sc*2.4 + (isBush?0.35:0.20));
+    n++;
+  }
+  /* 分组实例缓冲 */
+  for(i=0;i<TREES.models.length;i++){
+    var idxs = [], j;
+    for(j=0;j<TREES.list.length;j++) if(TREES.list[j].mi === i) idxs.push(j);
+    var data = new Float32Array(Math.max(1, idxs.length)*12);
+    var ibuf = makeBuf(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    var mo = TREES.models[i];
+    var ia = [
+      { buf:ibuf, loc:4, size:4, stride:48, offset:0,  divisor:1 },
+      { buf:ibuf, loc:5, size:4, stride:48, offset:16, divisor:1 },
+      { buf:ibuf, loc:6, size:4, stride:48, offset:32, divisor:1 }
+    ];
+    var vaoT = makeVAO([
+      { buf:mo.trunk.vbo, loc:0, size:3, stride:36, offset:0 },
+      { buf:mo.trunk.vbo, loc:1, size:3, stride:36, offset:12 },
+      { buf:mo.trunk.vbo, loc:2, size:2, stride:36, offset:24 },
+      { buf:mo.trunk.vbo, loc:3, size:1, stride:36, offset:32 }
+    ].concat(ia), mo.trunk.ibo);
+    var vaoL = makeVAO([
+      { buf:mo.leaf.vbo, loc:0, size:3, stride:52, offset:0 },
+      { buf:mo.leaf.vbo, loc:1, size:3, stride:52, offset:12 },
+      { buf:mo.leaf.vbo, loc:2, size:2, stride:52, offset:24 },
+      { buf:mo.leaf.vbo, loc:3, size:3, stride:52, offset:32 },
+      { buf:mo.leaf.vbo, loc:7, size:2, stride:52, offset:44 }
+    ].concat(ia), mo.leaf.ibo);
+    TREES.groups.push({ mi:i, idxs:idxs, data:data, ibuf:ibuf, vaoT:vaoT, vaoL:vaoL, live:0 });
+  }
+}
+function updateTreeInstances(){
+  var g, i, k, t, o, cnt;
+  for(k=0;k<TREES.groups.length;k++){
+    g = TREES.groups[k]; cnt = 0;
+    for(i=0;i<g.idxs.length;i++){
+      t = TREES.list[g.idxs[i]];
+      if(!t.alive) continue;
+      o = cnt*12;
+      g.data[o]=t.x; g.data[o+1]=t.y; g.data[o+2]=t.z; g.data[o+3]=t.yaw;
+      g.data[o+4]=t.scale; g.data[o+5]=t.leafBurn; g.data[o+6]=t.trunkBurn; g.data[o+7]=t.ignH;
+      g.data[o+8]=t.fade; g.data[o+9]=t.seed; g.data[o+10]=0; g.data[o+11]=0;
+      cnt++;
+    }
+    g.live = cnt;
+    if(cnt > 0){
+      gl.bindBuffer(gl.ARRAY_BUFFER, g.ibuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, g.data, 0, cnt*12);
+    }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+}
+
+var CH_TREEINST = glsl([
+  "layout(location=4) in vec4 aInst0;",
+  "layout(location=5) in vec4 aInst1;",
+  "layout(location=6) in vec4 aInst2;",
+  "vec3 treePlace(vec3 lp, out float sc){",
+  "  sc = aInst1.x*(1.0 - 0.92*smoothstep(0.55, 1.0, aInst2.x));",
+  "  float c = cos(aInst0.w), s = sin(aInst0.w);",
+  "  vec3 q = lp*sc;",
+  "  return vec3(aInst0.x + (c*q.x + s*q.z), aInst0.y + q.y, aInst0.z + (-s*q.x + c*q.z)); }"
+]);
+
+PROG.trunk = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "layout(location=0) in vec3 aPos;",
+  "layout(location=1) in vec3 aNrm;",
+  "layout(location=2) in vec2 aUV;",
+  "layout(location=3) in float aH;",
+  CH_TREEINST,
+  "uniform mat4 uVP; uniform float uTime; uniform vec2 uWindVec; uniform float uWindStr;",
+  "out vec3 vWP; out vec3 vN; out vec2 vUV; out float vProg; out float vH;",
+  "void main(){",
+  "  float sc; vec3 wp = treePlace(aPos, sc);",
+  "  float hf = aH;",
+  "  float amp = (0.045 + 0.55*uWindStr)*hf*hf*sc*2.0;",
+  "  float ph = aInst2.y*6.2832;",
+  "  wp.xz += uWindVec*amp*(0.55 + 0.55*sin(uTime*(1.05+0.55*uWindStr) + ph));",
+  "  float c = cos(aInst0.w), s = sin(aInst0.w);",
+  "  vN = normalize(vec3(c*aNrm.x + s*aNrm.z, aNrm.y, -s*aNrm.x + c*aNrm.z));",
+  "  vProg = clamp((aInst1.z*1.40 - abs(hf - aInst1.w)*0.70)*2.1, 0.0, 1.0);",
+  "  vH = hf; vUV = aUV; vWP = wp;",
+  "  gl_Position = uVP*vec4(wp, 1.0);",
+  "}"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT,
+  "in vec3 vWP; in vec3 vN; in vec2 vUV; in float vProg; in float vH;",
+  "out vec4 oCol;",
+  "void main(){",
+  "  vec3 N = normalize(vN);",
+  "  if(!gl_FrontFacing) N = -N;",
+  "  float bark = fbm2(vec2(vUV.x*8.0, vUV.y*1.35))*0.85;",
+  "  bark += vnoise2(vec2(vUV.x*34.0, vUV.y*3.2))*0.30;",
+  "  float grooves = ridge2(vec2(vUV.x*11.0, vUV.y*0.85));",
+  "  vec3 c = mix(vec3(0.175,0.128,0.088), vec3(0.395,0.300,0.212), clamp(bark,0.0,1.0));",
+  "  c *= 0.72 + 0.42*grooves;",
+  "  c *= 0.88 + 0.24*vnoise2(vUV*vec2(70.0,10.0));",
+  "  float ao = 0.72 + 0.28*smoothstep(0.0, 0.35, vH);",
+  "  vec3 albedo = mix(c, vec3(0.045,0.038,0.036), smoothstep(0.12, 0.68, vProg));",
+  "  float nl = max(dot(N, uSunDir), 0.0);",
+  "  vec3 col = albedo*(uSunCol*nl*0.315 + mix(uGndCol, uSkyCol, 0.5+0.5*N.y)*0.38)*ao;",
+  "  col += fireLights(vWP, N, albedo, 0.06);",
+  "  float front = smoothstep(0.10, 0.32, vProg)*(1.0 - smoothstep(0.42, 0.80, vProg));",
+  "  float crack = smoothstep(0.55, 0.85, ridge2(vec2(vUV.x*13.0, vUV.y*1.1)));",
+  "  float fl = 0.55 + 0.45*sin(uTime*9.5 + vH*24.0 + vUV.x*7.0);",
+  "  col += vec3(1.0,0.34,0.045)*front*2.6*fl;",
+  "  col += vec3(1.0,0.22,0.028)*smoothstep(0.62,1.0,vProg)*crack*1.1*fl;",
+  "  col = applyFog(col, vWP);",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "trunk");
+
+PROG.leaf = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "layout(location=0) in vec3 aPos;",
+  "layout(location=1) in vec3 aNrm;",
+  "layout(location=2) in vec2 aUV;",
+  "layout(location=3) in vec3 aCenter;",
+  "layout(location=7) in vec2 aMeta;",
+  CH_TREEINST,
+  "uniform mat4 uVP; uniform float uTime; uniform vec2 uWindVec; uniform float uWindStr;",
+  "out vec3 vWP; out vec3 vN; out vec2 vUV; out float vSeed; out float vProg; out float vGlow; out float vAlpha;",
+  "void main(){",
+  "  float prog = clamp((aInst1.y*1.45 - (abs(aMeta.y - aInst1.w)*0.80 + aMeta.x*0.14))*2.5, 0.0, 1.0);",
+  "  float shrink = 1.0 - smoothstep(0.48, 1.0, prog);",
+  "  vec3 lp = aCenter + (aPos - aCenter)*shrink;",
+  "  float ph = aCenter.x*0.85 + aCenter.z*0.65 + aInst2.y*6.2832;",
+  "  float amp = (0.035 + 0.42*uWindStr)*(0.35 + aMeta.y*1.15);",
+  "  lp += vec3(uWindVec.x, -0.22, uWindVec.y)*amp*(0.5 + 0.5*sin(uTime*(1.6+0.9*uWindStr) + ph));",
+  "  lp += vec3(sin(uTime*5.3 + aMeta.x*21.0), cos(uTime*4.6 + aMeta.x*14.0), sin(uTime*6.1 + aMeta.x*8.0))",
+  "        *(0.020 + 0.055*uWindStr);",
+  "  lp.y += prog*0.18*(1.0-shrink);",
+  "  float sc; vec3 wp = treePlace(lp, sc);",
+  "  float c = cos(aInst0.w), s = sin(aInst0.w);",
+  "  vN = normalize(vec3(c*aNrm.x + s*aNrm.z, aNrm.y, -s*aNrm.x + c*aNrm.z));",
+  "  vUV = aUV; vSeed = aMeta.x; vProg = prog;",
+  "  vGlow = smoothstep(0.04, 0.26, prog)*(1.0 - smoothstep(0.34, 0.62, prog));",
+  "  vAlpha = 1.0 - smoothstep(0.62, 0.98, prog);",
+  "  vWP = wp;",
+  "  gl_Position = uVP*vec4(wp, 1.0);",
+  "}"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT,
+  "in vec3 vWP; in vec3 vN; in vec2 vUV; in float vSeed; in float vProg; in float vGlow; in float vAlpha;",
+  "out vec4 oCol;",
+  "uniform int uLeafType;",
+  "void main(){",
+  "  float a;",
+  "  if(uLeafType == 1){",
+  "    float taper = (1.0 - vUV.x*0.92)*0.52;",
+  "    float dy = abs(vUV.y - 0.5);",
+  "    float comb = 0.55 + 0.45*sin(vUV.x*118.0 + vSeed*40.0);",
+  "    a = 1.0 - smoothstep(taper*(0.42+0.62*comb) - 0.012, taper*(0.42+0.62*comb) + 0.012, dy);",
+  "    a *= smoothstep(0.02, 0.10, vUV.x)*(1.0 - smoothstep(0.90, 1.0, vUV.x));",
+  "    a *= 0.55 + 0.45*step(0.35, vnoise2(vec2(vUV.x*40.0, vSeed*30.0)));",
+  "  } else {",
+  "    vec2 q = vUV*2.0 - 1.0;",
+  "    float r = length(q*vec2(1.0, 1.12));",
+  "    float n = fbm2b(vUV*5.5 + vSeed*17.0);",
+  "    a = 1.0 - smoothstep(0.62, 1.02, r + (n-0.5)*0.85);",
+  "    float veins = smoothstep(0.42, 0.9, vnoise2(vUV*vec2(9.0,9.0) + vSeed*11.0));",
+  "    a *= 0.65 + 0.35*veins;",
+  "    float holes = vnoise2(vUV*14.0 + vSeed*31.0);",
+  "    a *= smoothstep(0.28, 0.56, holes*0.62 + 0.34);",
+  "  }",
+  "  a *= vAlpha;",
+  "  if(a < 0.42) discard;",
+  "  vec3 N = normalize(vN);",
+  "  if(!gl_FrontFacing) N = -N;",
+  "  vec3 base = uLeafType == 1 ? vec3(0.085,0.185,0.085) : vec3(0.135,0.265,0.078);",
+  "  base = mix(base, uLeafType == 1 ? vec3(0.150,0.255,0.115) : vec3(0.255,0.375,0.110), vSeed);",
+  "  base = mix(base, vec3(0.40,0.29,0.075), smoothstep(0.0, 0.55, vSeed)*0.22);",
+  "  vec3 albedo = mix(base, vec3(0.255,0.100,0.030), smoothstep(0.02, 0.26, vProg));",
+  "  albedo = mix(albedo, vec3(0.040,0.034,0.032), smoothstep(0.24, 0.60, vProg));",
+  "  float nl = max(dot(N, uSunDir), 0.0);",
+  "  vec3 col = albedo*(uSunCol*nl*0.315 + mix(uGndCol, uSkyCol, 0.5+0.5*N.y)*0.44);",
+  "  col += albedo*uSunCol*pow(max(dot(-N, uSunDir), 0.0), 2.5)*0.20;",
+  "  col += fireLights(vWP, N, albedo, 0.12);",
+  "  col += vec3(1.0,0.40,0.07)*vGlow*3.2*(0.6+0.4*sin(uTime*13.0 + vSeed*30.0));",
+  "  col = applyFog(col, vWP);",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "leaf");
+
+function drawTrees(){
+  var k, g, mo;
+  var pt = PROG.trunk.use(); setCommon(pt);
+  gl.disable(gl.CULL_FACE);
+  for(k=0;k<TREES.groups.length;k++){
+    g = TREES.groups[k]; if(!g.live) continue;
+    mo = TREES.models[g.mi];
+    gl.bindVertexArray(g.vaoT);
+    gl.drawElementsInstanced(gl.TRIANGLES, mo.trunk.count, mo.trunk.itype, 0, g.live);
+  }
+  var pl = PROG.leaf.use(); setCommon(pl);
+  for(k=0;k<TREES.groups.length;k++){
+    g = TREES.groups[k]; if(!g.live) continue;
+    mo = TREES.models[g.mi];
+    gl.uniform1i(pl.u("uLeafType"), mo.leafType);
+    gl.bindVertexArray(g.vaoL);
+    gl.drawElementsInstanced(gl.TRIANGLES, mo.leaf.count, mo.leaf.itype, 0, g.live);
+  }
+  gl.bindVertexArray(null);
+  gl.enable(gl.CULL_FACE);
+}
+
+/* ============================================================
+   10. 岩石（苔藓 / 裂痕 / 不可燃 / 反射暖光）
+   ============================================================ */
+var ROCKS = { variants: [], list: [], vao:null, count:0 };
+function icosphere(sub){
+  var t = (1+Math.sqrt(5))/2;
+  var verts = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]];
+  var i; for(i=0;i<verts.length;i++) verts[i] = v3norm(verts[i]);
+  var faces = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+               [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  var s, f;
+  for(s=0;s<sub;s++){
+    var nf = [], cache = {};
+    var mid = function(a,b){
+      var k = Math.min(a,b)*100000 + Math.max(a,b);
+      if(k in cache) return cache[k];
+      var m = v3norm([(verts[a][0]+verts[b][0])*0.5, (verts[a][1]+verts[b][1])*0.5, (verts[a][2]+verts[b][2])*0.5]);
+      verts.push(m); cache[k] = verts.length-1; return cache[k];
+    };
+    for(f=0;f<faces.length;f++){
+      var A=faces[f][0], B=faces[f][1], C=faces[f][2];
+      var ab=mid(A,B), bc=mid(B,C), ca=mid(C,A);
+      nf.push([A,ab,ca],[B,bc,ab],[C,ca,bc],[ab,bc,ca]);
+    }
+    faces = nf;
+  }
+  return { verts:verts, faces:faces };
+}
+function buildRocks(){
+  var mb = new MeshBuilder();
+  var sphere = icosphere(2);
+  var NV = 4, offsets = [], i;
+  for(i=0;i<NV;i++) offsets.push([rnd()*40, rnd()*40, rnd()*40]);
+  var ranges = [];
+  for(i=0;i<NV;i++){
+    var off = offsets[i], start = mb.i.length, f, k;
+    var dv = [], j;
+    for(j=0;j<sphere.verts.length;j++){
+      var v = sphere.verts[j];
+      var d = 1.0 + 0.30*(noise3(v[0]*1.7+off[0], v[1]*1.7+off[1], v[2]*1.7+off[2])-0.5)*2.0
+                  + 0.13*(noise3(v[0]*4.3+off[0], v[1]*4.3+off[1], v[2]*4.3+off[2])-0.5)*2.0;
+      var p = [v[0]*d, v[1]*d*(0.60+rnd()*0.0), v[2]*d];
+      if(p[1] < -0.42) p[1] = -0.42 + (p[1]+0.42)*0.22;
+      dv.push(p);
+    }
+    for(f=0;f<sphere.faces.length;f++){
+      var A=dv[sphere.faces[f][0]], B=dv[sphere.faces[f][1]], C=dv[sphere.faces[f][2]];
+      var n = v3norm(v3cross(v3sub(B,A), v3sub(C,A)));
+      var b0 = mb.n;
+      mb.vert([A[0],A[1],A[2], n[0],n[1],n[2]]);
+      mb.vert([B[0],B[1],B[2], n[0],n[1],n[2]]);
+      mb.vert([C[0],C[1],C[2], n[0],n[1],n[2]]);
+      mb.tri(b0, b0+1, b0+2);
+    }
+    ranges.push({ start:start, count:mb.i.length-start });
+  }
+  var mesh = mb.upload();
+  /* 实例分布 */
+  var inst = [], n = 0, tries = 0;
+  while(n < CFG.rockCount && tries < CFG.rockCount*40){
+    tries++;
+    var ang = rnd()*Math.PI*2, rr = Math.pow(rnd(), 0.58)*(CFG.terrainSize*0.235);
+    var x = Math.cos(ang)*rr, z = Math.sin(ang)*rr;
+    if(blocked(x, z, 0.9)) continue;
+    var sc = 0.34 + Math.pow(rnd(), 1.85)*1.80;
+    var y = terrainHeight(x,z) - sc*0.40;
+    var vi = Math.floor(rnd()*NV);
+    var tint = 0.72 + rnd()*0.36;
+    inst.push({ x:x, y:y, z:z, yaw:rnd()*6.2832, sx:sc*(0.85+rnd()*0.45), sy:sc*(0.72+rnd()*0.5),
+                sz:sc*(0.85+rnd()*0.45), seed:rnd(), tint:tint, moss:clamp(rnd()*1.25-0.10,0,1), vi:vi, r:sc });
+    addBlocker(x, z, sc*0.92);
+    ROCKS.list.push(inst[inst.length-1]);
+    n++;
+  }
+  /* 按变体分组 -> 单缓冲多次绘制 */
+  var groups = [];
+  for(i=0;i<NV;i++) groups.push([]);
+  for(i=0;i<inst.length;i++) groups[inst[i].vi].push(inst[i]);
+  var flat = new Float32Array(inst.length*12), o = 0, gi = [];
+  for(i=0;i<NV;i++){
+    gi.push({ first:o/12, num:groups[i].length, range:ranges[i] });
+    var arr = groups[i], j2;
+    for(j2=0;j2<arr.length;j2++){
+      var it = arr[j2];
+      flat[o++]=it.x; flat[o++]=it.y; flat[o++]=it.z; flat[o++]=it.yaw;
+      flat[o++]=it.sx; flat[o++]=it.sy; flat[o++]=it.sz; flat[o++]=it.seed;
+      flat[o++]=it.tint*0.63; flat[o++]=it.tint*0.605; flat[o++]=it.tint*0.565; flat[o++]=it.moss;
+    }
+  }
+  var ibuf = makeBuf(gl.ARRAY_BUFFER, flat);
+  for(i=0;i<NV;i++){
+    var bo = gi[i].first*48;
+    gi[i].vao = makeVAO([
+      { buf:mesh.vbo, loc:0, size:3, stride:24, offset:0 },
+      { buf:mesh.vbo, loc:1, size:3, stride:24, offset:12 },
+      { buf:ibuf, loc:2, size:4, stride:48, offset:bo,    divisor:1 },
+      { buf:ibuf, loc:3, size:4, stride:48, offset:bo+16, divisor:1 },
+      { buf:ibuf, loc:4, size:4, stride:48, offset:bo+32, divisor:1 }
+    ], mesh.ibo);
+  }
+  ROCKS.mesh = mesh; ROCKS.gi = gi; ROCKS.count = inst.length;
+}
+PROG.rock = makeProgram(glsl([
+  "#version 300 es", CH_HEAD,
+  "layout(location=0) in vec3 aPos;",
+  "layout(location=1) in vec3 aNrm;",
+  "layout(location=2) in vec4 aI0;",
+  "layout(location=3) in vec4 aI1;",
+  "layout(location=4) in vec4 aI2;",
+  "uniform mat4 uVP;",
+  "out vec3 vWP; out vec3 vN; out vec3 vLP; out vec3 vTint; out float vSeed; out float vMoss;",
+  "void main(){",
+  "  vec3 q = aPos*aI1.xyz;",
+  "  float c = cos(aI0.w), s = sin(aI0.w);",
+  "  vec3 wp = vec3(aI0.x + (c*q.x + s*q.z), aI0.y + q.y, aI0.z + (-s*q.x + c*q.z));",
+  "  vec3 nn = normalize(aNrm/max(aI1.xyz, vec3(0.05)));",
+  "  vN = normalize(vec3(c*nn.x + s*nn.z, nn.y, -s*nn.x + c*nn.z));",
+  "  vWP = wp; vLP = aPos; vTint = aI2.xyz; vSeed = aI1.w; vMoss = aI2.w;",
+  "  gl_Position = uVP*vec4(wp, 1.0);",
+  "}"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT,
+  "in vec3 vWP; in vec3 vN; in vec3 vLP; in vec3 vTint; in float vSeed; in float vMoss;",
+  "out vec4 oCol;",
+  "uniform sampler2D uFire; uniform float uGridExtent;",
+  "void main(){",
+  "  vec3 N = normalize(vN);",
+  "  vec2 sp = vLP.xz*2.6 + vLP.y*1.7 + vSeed*23.0;",
+  "  float mott = fbm2(sp*1.5);",
+  "  vec3 base = vTint*(0.72 + 0.55*mott);",
+  "  base = mix(base, base*vec3(1.06,0.98,0.90), 0.4);",
+  /* 裂痕 */
+  "  float cr = ridge2(sp*2.2 + 3.1);",
+  "  float crack = smoothstep(0.80, 0.99, cr);",
+  "  base *= 1.0 - crack*0.72;",
+  "  float cr2 = ridge2(sp*5.5 - 1.7);",
+  "  base *= 1.0 - smoothstep(0.88, 1.0, cr2)*0.45;",
+  /* 苔藓：朝上表面 + 噪声斑块 */
+  "  float mnoise = fbm2b(sp*1.15 + 7.3);",
+  "  float moss = smoothstep(0.18, 0.72, N.y) * smoothstep(0.42, 0.68, mnoise) * (0.35 + 0.9*vMoss);",
+  "  moss *= 1.0 - crack*0.5;",
+  "  vec3 mossC = mix(vec3(0.115,0.205,0.075), vec3(0.245,0.330,0.115), mnoise);",
+  "  vec3 albedo = mix(base, mossC, clamp(moss, 0.0, 0.92));",
+  "  float nl = max(dot(N, uSunDir), 0.0);",
+  "  vec3 col = albedo*(uSunCol*nl*0.335 + mix(uGndCol, uSkyCol, 0.5+0.5*N.y)*0.40);",
+  "  float gloss = mix(0.42, 0.10, moss);",
+  "  col += fireLights(vWP, N, albedo, gloss);",
+  /* 被地表火焰烘烤的余温（不可燃，只被照亮） */
+  "  vec4 F = texture(uFire, vWP.xz/uGridExtent + 0.5);",
+  "  col += vec3(1.0,0.34,0.06)*F.r*0.55*max(0.0, 1.0 - N.y*0.4);",
+  "  col = applyFog(col, vWP);",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "rock");
+function drawRocks(){
+  var pr = PROG.rock.use(); setCommon(pr);
+  gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+  var i, isz = (ROCKS.mesh.itype === gl.UNSIGNED_INT ? 4 : 2);
+  for(i=0;i<ROCKS.gi.length;i++){
+    var g = ROCKS.gi[i];
+    if(!g.num) continue;
+    gl.bindVertexArray(g.vao);
+    gl.drawElementsInstanced(gl.TRIANGLES, g.range.count, ROCKS.mesh.itype, g.range.start*isz, g.num);
+  }
+  gl.bindVertexArray(null);
+}
+
+/* ============================================================
+   11. 燃烧场模拟（CPU 细胞自动机 -> GPU 纹理）
+   ============================================================ */
+var SIM = {
+  N: CFG.gridN, ext: CFG.gridExtent, cell: CFG.gridExtent/CFG.gridN,
+  fuel:null, fire:null, fireOld:null, chr:null, acc:null, smold:null, canopy:null, rndv:null,
+  pix:null, off:null, w:new Float32Array(8),
+  burning:0, totalFuel:1, ash:0, maxFire:0,
+  bbx0:0, bbz0:0, bbx1:0, bbz1:0, active:false
+};
+function gridToWorld(i){ return ((i+0.5)/SIM.N - 0.5)*SIM.ext; }
+function worldToGrid(x){ return (x/SIM.ext + 0.5)*SIM.N - 0.5; }
+
+function simInit(){
+  var N = SIM.N, n = N*N, i, j;
+  SIM.fuel = new Float32Array(n); SIM.fire = new Float32Array(n);
+  SIM.fireOld = new Float32Array(n); SIM.chr = new Float32Array(n);
+  SIM.acc = new Float32Array(n); SIM.smold = new Float32Array(n);
+  SIM.canopy = new Float32Array(n); SIM.rndv = new Float32Array(n);
+  SIM.pix = new Uint8Array(n*4);
+  SIM.off = new Int32Array([-1, 1, -N, N, -N-1, -N+1, N-1, N+1]);
+  var tot = 0;
+  for(j=0;j<N;j++) for(i=0;i<N;i++){
+    var id = j*N+i;
+    var wx = gridToWorld(i), wz = gridToWorld(j);
+    var g = sampleGround(wx, wz);
+    var f = clamp(g.gd*1.18, 0, 1);
+    if(i<2 || j<2 || i>N-3 || j>N-3) f = 0;
+    SIM.fuel[id] = f;
+    SIM.rndv[id] = 0.45 + 1.10*rnd();
+    tot += f;
+  }
+  /* 岩石不可燃 */
+  var k, c = SIM.cell;
+  for(k=0;k<ROCKS.list.length;k++){
+    var r = ROCKS.list[k], rad = r.r*0.95 + 0.25;
+    var i0 = Math.max(0, Math.floor(worldToGrid(r.x-rad))), i1 = Math.min(N-1, Math.ceil(worldToGrid(r.x+rad)));
+    var j0 = Math.max(0, Math.floor(worldToGrid(r.z-rad))), j1 = Math.min(N-1, Math.ceil(worldToGrid(r.z+rad)));
+    for(j=j0;j<=j1;j++) for(i=i0;i<=i1;i++){
+      var dx = gridToWorld(i)-r.x, dz = gridToWorld(j)-r.z;
+      if(dx*dx+dz*dz < rad*rad){ tot -= SIM.fuel[j*N+i]; SIM.fuel[j*N+i] = 0; }
+    }
+  }
+  /* 树下枯枝落叶：额外燃料 */
+  for(k=0;k<TREES.list.length;k++){
+    var t = TREES.list[k], mo = TREES.models[t.mi];
+    var rad2 = Math.max(0.9, mo.canopyR*t.scale*0.55);
+    var a0 = Math.max(0, Math.floor(worldToGrid(t.x-rad2))), a1 = Math.min(N-1, Math.ceil(worldToGrid(t.x+rad2)));
+    var b0 = Math.max(0, Math.floor(worldToGrid(t.z-rad2))), b1 = Math.min(N-1, Math.ceil(worldToGrid(t.z+rad2)));
+    for(j=b0;j<=b1;j++) for(i=a0;i<=a1;i++){
+      var ex = gridToWorld(i)-t.x, ez = gridToWorld(j)-t.z;
+      if(ex*ex+ez*ez < rad2*rad2){
+        var id2 = j*N+i, add = Math.min(0.5, 0.65 - SIM.fuel[id2]*0.4);
+        if(add > 0 && SIM.fuel[id2] > 0.0){
+          var nf3 = Math.min(1, SIM.fuel[id2]+add);
+          tot += nf3 - SIM.fuel[id2];
+          SIM.fuel[id2] = nf3;
+        }
+      }
+    }
+  }
+  SIM.totalFuel = Math.max(1, tot);
+}
+function simInitFuelOnly(){
+  var N = SIM.N, i, j, tot = 0, k;
+  for(j=0;j<N;j++) for(i=0;i<N;i++){
+    var id = j*N+i;
+    var g = sampleGround(gridToWorld(i), gridToWorld(j));
+    var f = clamp(g.gd*1.18, 0, 1);
+    if(i<2 || j<2 || i>N-3 || j>N-3) f = 0;
+    SIM.fuel[id] = f; tot += f;
+  }
+  for(k=0;k<ROCKS.list.length;k++){
+    var r = ROCKS.list[k], rad = r.r*0.95+0.25;
+    var i0 = Math.max(0, Math.floor(worldToGrid(r.x-rad))), i1 = Math.min(N-1, Math.ceil(worldToGrid(r.x+rad)));
+    var j0 = Math.max(0, Math.floor(worldToGrid(r.z-rad))), j1 = Math.min(N-1, Math.ceil(worldToGrid(r.z+rad)));
+    for(j=j0;j<=j1;j++) for(i=i0;i<=i1;i++){
+      var dx = gridToWorld(i)-r.x, dz = gridToWorld(j)-r.z;
+      if(dx*dx+dz*dz < rad*rad){ tot -= SIM.fuel[j*N+i]; SIM.fuel[j*N+i] = 0; }
+    }
+  }
+  for(k=0;k<TREES.list.length;k++){
+    var t = TREES.list[k], mo = TREES.models[t.mi];
+    var rad2 = Math.max(0.9, mo.canopyR*t.scale*0.55);
+    var a0 = Math.max(0, Math.floor(worldToGrid(t.x-rad2))), a1 = Math.min(N-1, Math.ceil(worldToGrid(t.x+rad2)));
+    var b0 = Math.max(0, Math.floor(worldToGrid(t.z-rad2))), b1 = Math.min(N-1, Math.ceil(worldToGrid(t.z+rad2)));
+    for(j=b0;j<=b1;j++) for(i=a0;i<=a1;i++){
+      var ex = gridToWorld(i)-t.x, ez = gridToWorld(j)-t.z;
+      if(ex*ex+ez*ez < rad2*rad2){
+        var id2 = j*N+i, add = Math.min(0.5, 0.65 - SIM.fuel[id2]*0.4);
+        if(add > 0 && SIM.fuel[id2] > 0.0){
+          var nf3 = Math.min(1, SIM.fuel[id2]+add);
+          tot += nf3 - SIM.fuel[id2];
+          SIM.fuel[id2] = nf3;
+        }
+      }
+    }
+  }
+  SIM.totalFuel = Math.max(1, tot);
+}
+function igniteAt(x, z, radius, strength, seedAcc){
+  var N = SIM.N, hit = 0, i, j;
+  var i0 = Math.max(1, Math.floor(worldToGrid(x-radius))), i1 = Math.min(N-2, Math.ceil(worldToGrid(x+radius)));
+  var j0 = Math.max(1, Math.floor(worldToGrid(z-radius))), j1 = Math.min(N-2, Math.ceil(worldToGrid(z+radius)));
+  for(j=j0;j<=j1;j++) for(i=i0;i<=i1;i++){
+    var dx = gridToWorld(i)-x, dz = gridToWorld(j)-z;
+    if(dx*dx+dz*dz > radius*radius) continue;
+    var id = j*N+i;
+    if(SIM.fuel[id] < 0.03) continue;
+    var fall = 1.0 - Math.sqrt(dx*dx+dz*dz)/radius*0.55;
+    if(SIM.fire[id] < strength*fall) SIM.fire[id] = strength*fall;
+    if(seedAcc) SIM.acc[id] = Math.max(SIM.acc[id], 0.85);
+    hit++;
+  }
+  return hit;
+}
+function simSampleFire(x, z){
+  var N = SIM.N;
+  var i = Math.round(worldToGrid(x)), j = Math.round(worldToGrid(z));
+  if(i<0||j<0||i>=N||j>=N) return 0;
+  return SIM.fire[j*N+i];
+}
+function simSampleFuel(x, z){
+  var N = SIM.N;
+  var i = Math.round(worldToGrid(x)), j = Math.round(worldToGrid(z));
+  if(i<0||j<0||i>=N||j>=N) return 0;
+  return SIM.fuel[j*N+i];
+}
+function simStep(dt){
+  var N = SIM.N, fire = SIM.fire, old = SIM.fireOld, fuel = SIM.fuel,
+      chr = SIM.chr, acc = SIM.acc, sm = SIM.smold, rv = SIM.rndv, off = SIM.off, w = SIM.w;
+  old.set(fire);
+  var spread = 0.42*params.spread*(0.60+0.55*params.intensity);
+  var ws = params.wind/10;
+  var ang = params.windDir*Math.PI/180, wdx = Math.cos(ang), wdz = Math.sin(ang);
+  var dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]];
+  var k;
+  for(k=0;k<8;k++){
+    var dx = -dirs[k][0], dz = -dirs[k][1];
+    var l = Math.sqrt(dx*dx+dz*dz);
+    var dot = (dx/l)*wdx + (dz/l)*wdz;
+    w[k] = (1.0/l) * Math.max(0.10, 1.0 + 2.1*ws*dot);
+  }
+  var burn = 0, fuelNow = 0, mx = 0, i, j;
+  var bx0 = 1e9, bz0 = 1e9, bx1 = -1e9, bz1 = -1e9;
+  var burnRate = (0.16 + 0.22*params.intensity);
+  for(j=1;j<N-1;j++){
+    for(i=1;i<N-1;i++){
+      var id = j*N+i, f = old[id], fu = fuel[id];
+      if(fu > 0.02 && f < 0.07){
+        var inflow = 0;
+        for(k=0;k<8;k++){ var nf = old[id+off[k]]; if(nf > 0.09) inflow += nf*w[k]; }
+        if(inflow > 0){
+          acc[id] += dt*inflow*spread*rv[id]*(0.50+0.95*fu);
+          if(acc[id] > 1.0 && fire[id] < 0.30) fire[id] = 0.30;
+        }
+      }
+      if(f > 0.002){
+        var nf2;
+        if(fu > 0.004){
+          nf2 = f + dt*(2.5*f*(1.06-f)*(0.42+0.62*fu));
+          var b2 = Math.min(fu, dt*burnRate*(0.28+1.0*f));
+          fuel[id] = fu - b2;
+          chr[id] = Math.min(1, chr[id] + b2*2.7);
+          if(fuel[id] <= 0.004 && sm[id] < 0.62) sm[id] = 0.62;
+        } else {
+          nf2 = f - dt*f*(1.30 + 0.70*ws);
+        }
+        fire[id] = nf2 < 0.002 ? 0 : (nf2 > 1 ? 1 : nf2);
+      }
+      var ff = fire[id];
+      if(ff > 0.03){
+        burn++;
+        if(ff > mx) mx = ff;
+        var wx = gridToWorld(i), wz = gridToWorld(j);
+        if(wx < bx0) bx0 = wx; if(wx > bx1) bx1 = wx;
+        if(wz < bz0) bz0 = wz; if(wz > bz1) bz1 = wz;
+      }
+      if(sm[id] > 0){ sm[id] -= dt*0.072; if(sm[id] < 0) sm[id] = 0; }
+      fuelNow += fuel[id];
+    }
+  }
+  SIM.burning = burn; SIM.maxFire = mx;
+  SIM.ash = clamp(1.0 - fuelNow/SIM.totalFuel, 0, 1);
+  SIM.bbx0 = bx0; SIM.bbz0 = bz0; SIM.bbx1 = bx1; SIM.bbz1 = bz1;
+  SIM.active = burn > 0;
+}
+function simUpload(){
+  var N = SIM.N, n = N*N, px = SIM.pix, i;
+  var fire = SIM.fire, chr = SIM.chr, fuel = SIM.fuel, sm = SIM.smold, cp = SIM.canopy;
+  for(i=0;i<n;i++){
+    var o = i*4;
+    px[o]   = fire[i]*255;
+    px[o+1] = chr[i]*255;
+    px[o+2] = fuel[i]*255;
+    var h = fire[i]; if(sm[i] > h) h = sm[i]; if(cp[i] > h) h = cp[i];
+    px[o+3] = (h > 1 ? 1 : h)*255;
+  }
+  bindTex(TU.fire, TEX.fire);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  gl.generateMipmap(gl.TEXTURE_2D);
+}
+
+/* ---- 火焰簇（用于点光源 / 粒子发射 / 热浪） ---- */
+var CLU = { M: 16, heat:null, cx:null, cz:null, cnt:null, list:[] };
+function cluInit(){
+  var M = CLU.M;
+  CLU.heat = new Float32Array(M*M); CLU.cx = new Float32Array(M*M);
+  CLU.cz = new Float32Array(M*M); CLU.cnt = new Float32Array(M*M);
+}
+function computeClusters(){
+  var M = CLU.M, N = SIM.N, per = N/M, i, j;
+  CLU.heat.fill(0); CLU.cx.fill(0); CLU.cz.fill(0); CLU.cnt.fill(0);
+  var fire = SIM.fire;
+  for(j=1;j<N-1;j++){
+    var cj = (j/per)|0;
+    for(i=1;i<N-1;i++){
+      var f = fire[j*N+i];
+      if(f < 0.04) continue;
+      var ci = (i/per)|0, id = cj*M+ci;
+      CLU.heat[id] += f;
+      CLU.cx[id] += gridToWorld(i)*f;
+      CLU.cz[id] += gridToWorld(j)*f;
+      CLU.cnt[id] += 1;
+    }
+  }
+  CLU.list.length = 0;
+  var area = SIM.cell*SIM.cell;
+  for(i=0;i<M*M;i++){
+    var h = CLU.heat[i];
+    if(h < 0.10) continue;
+    var x = CLU.cx[i]/h, z = CLU.cz[i]/h;
+    var rad = clamp(Math.sqrt(CLU.cnt[i]*area/Math.PI), 0.45, 6.5);
+    CLU.list.push({ x:x, y:terrainHeight(x,z), z:z, heat:h, r:rad, n:CLU.cnt[i] });
+  }
+  CLU.list.sort(function(a,b){ return b.heat - a.heat; });
+}
+
+/* ---- 树冠火源（体积渲染用） ---- */
+var CANOPY = { arr: new Float32Array(32), arrB: new Float32Array(32), count: 0, list: [] };
+
+/* ---- 动态点光源 ---- */
+function updateLights(){
+  var cand = [], i, c;
+  for(i=0;i<CLU.list.length && i<10;i++){
+    c = CLU.list[i];
+    var hn = clamp(c.heat/9.0, 0, 1);
+    var fh = (0.6 + 2.4*Math.sqrt(clamp(c.heat/6.0,0,1)))*params.intensity;
+    cand.push({ x:c.x, y:c.y + fh*0.42 + 0.25, z:c.z, w:c.heat,
+                r: (3.2 + 5.6*hn + 1.6*(params.intensity-1))*1.0, i: clamp(0.55+1.55*hn, 0, 2.6) });
+  }
+  for(i=0;i<CANOPY.list.length;i++){
+    c = CANOPY.list[i];
+    cand.push({ x:c.x, y:c.y, z:c.z, w:c.I*7.5, r:(4.0+3.6*c.I)+2.0, i:clamp(c.I*1.7,0,2.6) });
+  }
+  cand.sort(function(a,b){ return b.w - a.w; });
+  var n = Math.min(CFG.maxLights, cand.length);
+  for(i=0;i<n;i++){
+    var L = cand[i];
+    var fl = 0.72 + 0.42*noise2(TIME.t*3.1 + i*13.7, i*4.3) + 0.16*Math.sin(TIME.t*11.0 + i*2.1);
+    var inten = L.i*params.intensity*fl;
+    LIGHTS.pos[i*4]   = L.x; LIGHTS.pos[i*4+1] = L.y; LIGHTS.pos[i*4+2] = L.z;
+    LIGHTS.pos[i*4+3] = Math.max(2.5, L.r);
+    var warm = clamp(L.i*0.5, 0, 1);
+    LIGHTS.col[i*4]   = (1.00)*inten*1.55;
+    LIGHTS.col[i*4+1] = (0.44 + 0.20*warm)*inten*1.55;
+    LIGHTS.col[i*4+2] = (0.13 + 0.13*warm)*inten*1.55;
+    LIGHTS.col[i*4+3] = clamp(fl-0.8, 0, 1);
+  }
+  for(i=n;i<CFG.maxLights;i++){
+    LIGHTS.pos[i*4+3] = 0.001;
+    LIGHTS.col[i*4] = 0; LIGHTS.col[i*4+1] = 0; LIGHTS.col[i*4+2] = 0; LIGHTS.col[i*4+3] = 0;
+  }
+  LIGHTS.count = n;
+}
+
+/* ============================================================
+   12. 树木燃烧推进
+   ============================================================ */
+function igniteTree(t, hFrac){
+  if(!t.alive || t.burning) return false;
+  t.burning = true;
+  t.ignH = clamp(hFrac === undefined ? 0.45 : hFrac, 0.02, 0.98);
+  t.leafBurn = 0.012;
+  return true;
+}
+function updateTrees(dt){
+  var i, t, mo, burning = 0, dead = 0;
+  CANOPY.list.length = 0;
+  SIM.canopy.fill(0);
+  var sp = params.spread*(0.55+0.50*params.intensity);
+  for(i=0;i<TREES.list.length;i++){
+    t = TREES.list[i];
+    if(!t.alive){ dead++; continue; }
+    mo = TREES.models[t.mi];
+    if(!t.burning){
+      if(simSampleFire(t.x, t.z) > 0.34 + 0.10*rnd()) igniteTree(t, 0.06 + rnd()*0.18);
+      continue;
+    }
+    burning++;
+    t.leafBurn += dt*0.150*sp*(mo.species === 2 ? 1.55 : 1.0);
+    if(t.leafBurn > 0.26) t.trunkBurn += dt*0.082*sp*(mo.species === 2 ? 1.6 : 1.0);
+    if(t.trunkBurn > 1.30){
+      t.fade += dt*0.34;
+      if(t.fade >= 1.0){ t.alive = false; }
+    }
+    /* 引燃树下地表 */
+    if(t.leafBurn > 0.12 && t.trunkBurn < 1.25){
+      igniteAt(t.x, t.z, Math.max(1.0, mo.canopyR*t.scale*0.42), 0.50, true);
+    }
+    /* 树冠火 -> 体积渲染源 + 烟源标记 */
+    var I = smoothstep(0.0, 0.14, t.leafBurn)*(1.0 - smoothstep(0.72, 1.30, t.leafBurn));
+    var It = smoothstep(0.05, 0.45, t.trunkBurn)*(1.0 - smoothstep(1.05, 1.35, t.trunkBurn));
+    var Itot = clamp(I*1.0 + It*0.55, 0, 1.35);
+    if(Itot > 0.02){
+      var cy = t.y + mo.canopyY*t.scale*(0.62 + 0.30*I);
+      var cr = Math.max(0.55, mo.canopyR*t.scale*(0.42 + 0.28*I));
+      CANOPY.list.push({ x:t.x, y:cy, z:t.z, R:cr, I:Itot*params.intensity,
+                         H:cr*2.3 + 1.2*params.intensity, tree:i });
+      /* 烟源标记（供体积烟柱与跳步测试） */
+      var N = SIM.N;
+      var gi = Math.round(worldToGrid(t.x)), gj = Math.round(worldToGrid(t.z));
+      var rr = Math.max(1, Math.round(cr/SIM.cell)), a, b;
+      for(b=-rr;b<=rr;b++) for(a=-rr;a<=rr;a++){
+        var xi = gi+a, zj = gj+b;
+        if(xi<0||zj<0||xi>=N||zj>=N) continue;
+        if(a*a+b*b > rr*rr) continue;
+        var idc = zj*N+xi;
+        if(SIM.canopy[idc] < Itot) SIM.canopy[idc] = Math.min(1, Itot);
+      }
+    }
+    /* 火星 / 烟 / 落叶余烬 */
+    t.emit += dt*(14.0 + 26.0*Itot)*params.intensity;
+    while(t.emit > 1){
+      t.emit -= 1;
+      var ar = rnd()*6.2832, rr2 = mo.canopyR*t.scale*(0.25+rnd()*0.75);
+      var px = t.x + Math.cos(ar)*rr2, pz = t.z + Math.sin(ar)*rr2;
+      var py = t.y + mo.canopyY*t.scale*(0.35+rnd()*0.85);
+      var pick = rnd();
+      if(pick < 0.42) partSpawn(0, px, py, pz, Itot);
+      else if(pick < 0.80) partSpawn(1, px, py+0.4, pz, Itot);
+      else partSpawn(2, px, py, pz, Itot);
+    }
+  }
+  TREES.burning = burning; TREES.dead = dead;
+  /* 上传树冠火源（最多 8） */
+  CANOPY.list.sort(function(a,b){ return b.I - a.I; });
+  var m = Math.min(8, CANOPY.list.length);
+  for(i=0;i<m;i++){
+    var c = CANOPY.list[i];
+    CANOPY.arr[i*4] = c.x; CANOPY.arr[i*4+1] = c.y; CANOPY.arr[i*4+2] = c.z; CANOPY.arr[i*4+3] = c.R;
+    CANOPY.arrB[i*4] = c.I; CANOPY.arrB[i*4+1] = c.H; CANOPY.arrB[i*4+2] = 0; CANOPY.arrB[i*4+3] = 0;
+  }
+  for(i=m;i<8;i++){ CANOPY.arr[i*4+3] = 0; CANOPY.arrB[i*4] = 0; CANOPY.arrB[i*4+1] = 1; }
+  CANOPY.count = m;
+}
+
+/* ============================================================
+   13. 粒子系统（火焰絮 / 烟雾 / 火星）
+   ============================================================ */
+var PART = {
+  n: 0, max: CFG.maxParticles,
+  x:null, y:null, z:null, vx:null, vy:null, vz:null,
+  life:null, ml:null, size:null, seed:null, type:null, temp:null,
+  bf:null, bs:null, be:null, order:null,
+  cFlame:0, cSmoke:0, cEmber:0, accF:0, accS:0, accE:0
+};
+function partInit(){
+  var m = PART.max;
+  PART.x = new Float32Array(m); PART.y = new Float32Array(m); PART.z = new Float32Array(m);
+  PART.vx = new Float32Array(m); PART.vy = new Float32Array(m); PART.vz = new Float32Array(m);
+  PART.life = new Float32Array(m); PART.ml = new Float32Array(m); PART.size = new Float32Array(m);
+  PART.seed = new Float32Array(m); PART.type = new Uint8Array(m); PART.temp = new Float32Array(m);
+  PART.bf = new Float32Array(m*8); PART.bs = new Float32Array(m*8); PART.be = new Float32Array(m*8);
+  PART.order = [];
+  PART.n = 0;
+}
+function partSpawn(type, x, y, z, power){
+  if(PART.n >= PART.max) return;
+  var i = PART.n++;
+  PART.x[i] = x; PART.y[i] = y; PART.z[i] = z;
+  PART.type[i] = type; PART.seed[i] = rnd(); PART.temp[i] = clamp(power, 0, 2);
+  var ang = rnd()*6.2832, sp = rnd();
+  if(type === 0){
+    PART.vx[i] = Math.cos(ang)*sp*0.48; PART.vz[i] = Math.sin(ang)*sp*0.48;
+    PART.vy[i] = 1.15 + rnd()*1.55 + power*0.85;
+    PART.ml[i] = 0.38 + rnd()*0.52; PART.size[i] = (0.15 + rnd()*0.26)*(0.7+power*0.6);
+  } else if(type === 1){
+    PART.vx[i] = Math.cos(ang)*sp*0.45; PART.vz[i] = Math.sin(ang)*sp*0.45;
+    PART.vy[i] = 1.1 + rnd()*1.5 + power*0.8;
+    PART.ml[i] = 3.2 + rnd()*3.6; PART.size[i] = (0.45 + rnd()*0.75)*(0.75+power*0.5);
+  } else {
+    PART.vx[i] = Math.cos(ang)*sp*1.5; PART.vz[i] = Math.sin(ang)*sp*1.5;
+    PART.vy[i] = 2.4 + rnd()*4.4 + power*2.2;
+    PART.ml[i] = 1.1 + rnd()*2.1; PART.size[i] = 0.035 + rnd()*0.055;
+  }
+  PART.life[i] = 0;
+}
+function partKill(i){
+  var n = PART.n-1;
+  if(i !== n){
+    PART.x[i]=PART.x[n]; PART.y[i]=PART.y[n]; PART.z[i]=PART.z[n];
+    PART.vx[i]=PART.vx[n]; PART.vy[i]=PART.vy[n]; PART.vz[i]=PART.vz[n];
+    PART.life[i]=PART.life[n]; PART.ml[i]=PART.ml[n]; PART.size[i]=PART.size[n];
+    PART.seed[i]=PART.seed[n]; PART.type[i]=PART.type[n]; PART.temp[i]=PART.temp[n];
+  }
+  PART.n = n;
+}
+function partUpdate(dt){
+  var ang = params.windDir*Math.PI/180, ws = params.wind/10;
+  var wx = Math.cos(ang)*ws*9.0, wz = Math.sin(ang)*ws*9.0;
+  var i = 0;
+  while(i < PART.n){
+    var ty = PART.type[i];
+    PART.life[i] += dt;
+    if(PART.life[i] >= PART.ml[i]){ partKill(i); continue; }
+    var t = PART.life[i]/PART.ml[i];
+    var turb = 1.0;
+    if(ty === 0){
+      PART.vy[i] += dt*(5.2 - 2.0*t);
+      PART.vx[i] += (wx*0.55 - PART.vx[i])*dt*1.6 + (noise2(PART.x[i]*1.6+TIME.t*2.2, PART.z[i]*1.6)-0.5)*dt*7.0;
+      PART.vz[i] += (wz*0.55 - PART.vz[i])*dt*1.6 + (noise2(PART.z[i]*1.6-TIME.t*2.0, PART.x[i]*1.6)-0.5)*dt*7.0;
+    } else if(ty === 1){
+      PART.vy[i] += dt*(1.85 - 1.1*t);
+      PART.vx[i] += (wx - PART.vx[i])*dt*0.95 + (noise2(PART.x[i]*0.75+TIME.t*0.85, PART.z[i]*0.75)-0.5)*dt*3.4;
+      PART.vz[i] += (wz - PART.vz[i])*dt*0.95 + (noise2(PART.z[i]*0.75-TIME.t*0.9, PART.x[i]*0.75)-0.5)*dt*3.4;
+      PART.vy[i] *= (1.0 - dt*0.18);
+    } else {
+      PART.vy[i] -= dt*4.6;
+      PART.vx[i] += (wx*1.15 - PART.vx[i])*dt*1.15;
+      PART.vz[i] += (wz*1.15 - PART.vz[i])*dt*1.15;
+    }
+    PART.x[i] += PART.vx[i]*dt; PART.y[i] += PART.vy[i]*dt; PART.z[i] += PART.vz[i]*dt;
+    if(ty === 2){
+      var gh = terrainHeight(PART.x[i], PART.z[i]);
+      if(PART.y[i] <= gh + 0.03){
+        /* 火星落地即消失，偶尔引燃新火点（飞火） */
+        if(rnd() < 0.055 && params.spread > 0.15 && simSampleFuel(PART.x[i], PART.z[i]) > 0.12){
+          igniteAt(PART.x[i], PART.z[i], 0.55, 0.42, true);
+        }
+        partKill(i); continue;
+      }
+    }
+    i++;
+  }
+}
+function partEmitFromGround(dt){
+  var i, c, tot = 0;
+  for(i=0;i<CLU.list.length;i++) tot += CLU.list[i].heat;
+  if(tot <= 0) return;
+  var pi = params.intensity;
+  var rateF = Math.min(250, tot*15*pi), rateS = Math.min(165, tot*8.5*params.smoke*pi), rateE = Math.min(110, tot*5.0*pi);
+  PART.accF += rateF*dt; PART.accS += rateS*dt; PART.accE += rateE*dt;
+  function pick(){
+    var r = rnd()*tot, s = 0, k;
+    for(k=0;k<CLU.list.length;k++){ s += CLU.list[k].heat; if(r <= s) return CLU.list[k]; }
+    return CLU.list[CLU.list.length-1];
+  }
+  var guard = 0;
+  while(PART.accF >= 1 && guard++ < 300){
+    PART.accF -= 1; c = pick();
+    var a = rnd()*6.2832, rr = c.r*Math.sqrt(rnd())*0.9;
+    var x = c.x+Math.cos(a)*rr, z = c.z+Math.sin(a)*rr;
+    var f = simSampleFire(x, z);
+    if(f < 0.12) continue;
+    var fh = (0.6+2.4*Math.sqrt(clamp(c.heat/6,0,1)))*pi;
+    partSpawn(0, x, terrainHeight(x,z)+fh*(0.14+rnd()*0.36), z, f*1.1);
+  }
+  guard = 0;
+  while(PART.accS >= 1 && guard++ < 240){
+    PART.accS -= 1; c = pick();
+    var a2 = rnd()*6.2832, rr2 = c.r*Math.sqrt(rnd())*1.15;
+    var x2 = c.x+Math.cos(a2)*rr2, z2 = c.z+Math.sin(a2)*rr2;
+    var fh2 = (0.6+2.4*Math.sqrt(clamp(c.heat/6,0,1)))*pi;
+    partSpawn(1, x2, terrainHeight(x2,z2)+fh2*(0.85+rnd()*0.75), z2, clamp(c.heat/4,0.2,1.4));
+  }
+  guard = 0;
+  while(PART.accE >= 1 && guard++ < 160){
+    PART.accE -= 1; c = pick();
+    var a3 = rnd()*6.2832, rr3 = c.r*Math.sqrt(rnd())*0.8;
+    var x3 = c.x+Math.cos(a3)*rr3, z3 = c.z+Math.sin(a3)*rr3;
+    if(simSampleFire(x3, z3) < 0.15) continue;
+    partSpawn(2, x3, terrainHeight(x3,z3)+0.25, z3, clamp(c.heat/4,0.2,1.4));
+  }
+}
+function partBuildBuffers(){
+  var nf = 0, ns = 0, ne = 0, i;
+  var cx = cam.pos[0], cy = cam.pos[1], cz = cam.pos[2];
+  /* 烟雾按视距排序（远->近） */
+  var ord = PART.order; ord.length = 0;
+  for(i=0;i<PART.n;i++) if(PART.type[i] === 1) ord.push(i);
+  ord.sort(function(a,b){
+    var da = (PART.x[a]-cx)*(PART.x[a]-cx)+(PART.y[a]-cy)*(PART.y[a]-cy)+(PART.z[a]-cz)*(PART.z[a]-cz);
+    var db = (PART.x[b]-cx)*(PART.x[b]-cx)+(PART.y[b]-cy)*(PART.y[b]-cy)+(PART.z[b]-cz)*(PART.z[b]-cz);
+    return db - da;
+  });
+  for(i=0;i<PART.n;i++){
+    var ty = PART.type[i];
+    if(ty === 1) continue;
+    var t = PART.life[i]/PART.ml[i];
+    var o;
+    if(ty === 0){
+      o = nf*8; nf++;
+      PART.bf[o]=PART.x[i]; PART.bf[o+1]=PART.y[i]; PART.bf[o+2]=PART.z[i];
+      PART.bf[o+3]=PART.size[i]*(0.55+0.95*t);
+      PART.bf[o+4]=PART.temp[i]; PART.bf[o+5]=PART.seed[i]*6.2832+t*1.4;
+      PART.bf[o+6]=PART.seed[i]; PART.bf[o+7]=t;
+    } else {
+      o = ne*8; ne++;
+      PART.be[o]=PART.x[i]; PART.be[o+1]=PART.y[i]; PART.be[o+2]=PART.z[i];
+      PART.be[o+3]=PART.size[i]*(1.0-0.35*t);
+      PART.be[o+4]=PART.temp[i]; PART.be[o+5]=PART.seed[i]*6.2832;
+      PART.be[o+6]=PART.seed[i]; PART.be[o+7]=t;
+    }
+  }
+  for(i=0;i<ord.length;i++){
+    var k = ord[i], t2 = PART.life[k]/PART.ml[k];
+    var o2 = ns*8; ns++;
+    PART.bs[o2]=PART.x[k]; PART.bs[o2+1]=PART.y[k]; PART.bs[o2+2]=PART.z[k];
+    PART.bs[o2+3]=PART.size[k]*(0.85+2.4*t2);
+    PART.bs[o2+4]=PART.temp[k]; PART.bs[o2+5]=PART.seed[k]*6.2832+t2*(PART.seed[k]-0.5)*1.8;
+    PART.bs[o2+6]=PART.seed[k]; PART.bs[o2+7]=t2;
+  }
+  PART.cFlame = nf; PART.cSmoke = ns; PART.cEmber = ne;
+}
+
+/* ---- 粒子绘制 ---- */
+var PBUF = {};
+function partGL(){
+  var q = new Float32Array([-1,-1, 1,-1, 1,1, -1,-1, 1,1, -1,1]);
+  PBUF.quad = makeBuf(gl.ARRAY_BUFFER, q);
+  PBUF.fbuf = makeBuf(gl.ARRAY_BUFFER, PART.bf, gl.DYNAMIC_DRAW);
+  PBUF.sbuf = makeBuf(gl.ARRAY_BUFFER, PART.bs, gl.DYNAMIC_DRAW);
+  PBUF.ebuf = makeBuf(gl.ARRAY_BUFFER, PART.be, gl.DYNAMIC_DRAW);
+  function mk(b){
+    return makeVAO([
+      { buf:PBUF.quad, loc:0, size:2 },
+      { buf:b, loc:1, size:4, stride:32, offset:0,  divisor:1 },
+      { buf:b, loc:2, size:4, stride:32, offset:16, divisor:1 }
+    ]);
+  }
+  PBUF.vaoF = mk(PBUF.fbuf); PBUF.vaoS = mk(PBUF.sbuf); PBUF.vaoE = mk(PBUF.ebuf);
+}
+var CH_PVS = glsl([
+  "layout(location=0) in vec2 aCorner;",
+  "layout(location=1) in vec4 aI0;",
+  "layout(location=2) in vec4 aI1;",
+  "uniform mat4 uVP; uniform vec3 uRight; uniform vec3 uUp; uniform float uStretch;",
+  "vec3 billboard(){",
+  "  float c = cos(aI1.y), s = sin(aI1.y);",
+  "  vec2 q = vec2(aCorner.x*c - aCorner.y*s, aCorner.x*s + aCorner.y*c);",
+  "  return aI0.xyz + uRight*q.x*aI0.w + uUp*q.y*aI0.w*uStretch; }"
+]);
+PROG.pflame = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_PVS,
+  "out vec2 vUv; out float vTemp; out float vT; out float vSeed;",
+  "void main(){ vec3 wp = billboard(); vUv = aCorner*0.5+0.5;",
+  "  vTemp = aI1.x; vT = aI1.w; vSeed = aI1.z; gl_Position = uVP*vec4(wp,1.0); }"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_FIRECOL,
+  "in vec2 vUv; in float vTemp; in float vT; in float vSeed;",
+  "out vec4 oCol; uniform float uTime; uniform float uIntensity;",
+  "void main(){",
+  "  float r = length(vUv*2.0-1.0);",
+  "  float n = fbm2b(vUv*4.2 + vec2(vSeed*17.0, -uTime*2.4));",
+  "  float a = 1.0 - smoothstep(0.12, 0.94, r + (n-0.5)*1.28);",
+  "  a *= 0.34 + 0.66*(1.0 - vUv.y*0.85);",
+  "  a *= smoothstep(0.0, 0.10, vT)*(1.0 - smoothstep(0.42, 1.0, vT));",
+  "  if(a <= 0.003) discard;",
+  "  float temp = clamp(vTemp*(1.15 - 0.85*vT), 0.0, 1.0);",
+  "  vec3 col = fireRamp(temp)*(0.85 + 3.9*temp*temp);",
+  "  oCol = vec4(col*a*uIntensity, a);",
+  "}"
+]), "pflame");
+PROG.psmoke = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_LIGHT, CH_PVS,
+  "out vec2 vUv; out float vT; out float vSeed; out vec3 vCol;",
+  "void main(){",
+  "  vec3 wp = billboard(); vUv = aCorner*0.5+0.5; vT = aI1.w; vSeed = aI1.z;",
+  "  vec3 base = mix(vec3(0.105,0.100,0.097), vec3(0.34,0.335,0.325), clamp(vT*1.5, 0.0, 1.0));",
+  "  vec3 lit = base*(uSkyCol*0.42 + uSunCol*0.17) + fireLights(aI0.xyz, vec3(0.0,1.0,0.0), base*2.6, 0.0);",
+  "  vCol = applyFog(lit, aI0.xyz);",
+  "  gl_Position = uVP*vec4(wp, 1.0);",
+  "}"
+]), glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "in vec2 vUv; in float vT; in float vSeed; in vec3 vCol;",
+  "out vec4 oCol; uniform float uSmoke;",
+  "void main(){",
+  "  float r = length(vUv*2.0-1.0);",
+  "  float n = fbm2b(vUv*2.7 + vSeed*23.0);",
+  "  float a = 1.0 - smoothstep(0.24, 1.0, r + (n-0.5)*0.70);",
+  "  a *= smoothstep(0.0, 0.14, vT)*(1.0 - smoothstep(0.30, 0.94, vT))*0.46*clamp(uSmoke,0.0,2.0);",
+  "  if(a <= 0.004) discard;",
+  "  oCol = vec4(vCol*a, a);",
+  "}"
+]), "psmoke");
+PROG.pember = makeProgram(glsl([
+  "#version 300 es", CH_HEAD, CH_PVS,
+  "out vec2 vUv; out float vT; out float vSeed; out float vTemp;",
+  "void main(){ vec3 wp = billboard(); vUv = aCorner*0.5+0.5; vT = aI1.w; vSeed = aI1.z; vTemp = aI1.x;",
+  "  gl_Position = uVP*vec4(wp, 1.0); }"
+]), glsl([
+  "#version 300 es", CH_HEAD,
+  "in vec2 vUv; in float vT; in float vSeed; in float vTemp;",
+  "out vec4 oCol; uniform float uTime;",
+  "void main(){",
+  "  float r = length(vUv*2.0-1.0);",
+  "  float a = 1.0 - smoothstep(0.05, 1.0, r);",
+  "  if(a <= 0.004) discard;",
+  "  float fl = 0.5 + 0.5*sin(uTime*38.0 + vSeed*41.0);",
+  "  vec3 col = mix(vec3(1.0,0.36,0.045), vec3(1.0,0.86,0.48), fl*0.65);",
+  "  col *= (1.6 + 3.4*fl)*(1.0 - vT*0.72)*(0.6+0.8*vTemp);",
+  "  oCol = vec4(col*a, a);",
+  "}"
+]), "pember");
+
+function drawParticles(){
+  var right = [MAT.view[0], MAT.view[4], MAT.view[8]];
+  var up = [MAT.view[1], MAT.view[5], MAT.view[9]];
+  gl.depthMask(false);
+  gl.enable(gl.BLEND);
+  if(PART.cSmoke > 0){
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    var ps = PROG.psmoke.use(); setCommon(ps);
+    gl.uniform3fv(ps.u("uRight"), right); gl.uniform3fv(ps.u("uUp"), up);
+    gl.uniform1f(ps.u("uSmoke"), params.smoke);
+    gl.uniform1f(ps.u("uStretch"), 1.0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, PBUF.sbuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, PART.bs, 0, PART.cSmoke*8);
+    gl.bindVertexArray(PBUF.vaoS);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, PART.cSmoke);
+  }
+  gl.blendFunc(gl.ONE, gl.ONE);
+  if(PART.cFlame > 0){
+    var pf = PROG.pflame.use();
+    gl.uniformMatrix4fv(pf.u("uVP"), false, MAT.vp);
+    gl.uniform3fv(pf.u("uRight"), right); gl.uniform3fv(pf.u("uUp"), up);
+    gl.uniform1f(pf.u("uTime"), TIME.t);
+    gl.uniform1f(pf.u("uIntensity"), clamp(params.intensity, 0.3, 3.0));
+    gl.uniform1f(pf.u("uStretch"), 1.75);
+    gl.bindBuffer(gl.ARRAY_BUFFER, PBUF.fbuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, PART.bf, 0, PART.cFlame*8);
+    gl.bindVertexArray(PBUF.vaoF);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, PART.cFlame);
+  }
+  if(PART.cEmber > 0){
+    var pe = PROG.pember.use();
+    gl.uniformMatrix4fv(pe.u("uVP"), false, MAT.vp);
+    gl.uniform3fv(pe.u("uRight"), right); gl.uniform3fv(pe.u("uUp"), up);
+    gl.uniform1f(pe.u("uTime"), TIME.t);
+    gl.uniform1f(pe.u("uStretch"), 1.0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, PBUF.ebuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, PART.be, 0, PART.cEmber*8);
+    gl.bindVertexArray(PBUF.vaoE);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, PART.cEmber);
+  }
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.disable(gl.BLEND);
+  gl.depthMask(true);
+}
+
+/* ============================================================
+   14. 体积火焰（屏幕空间光线步进 + 2D 燃烧场 + 3D 湍流噪声）
+   ============================================================ */
+PROG.vol = makeProgram(VS_QUAD, glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE, CH_FIRECOL,
+  "in vec2 vUv; out vec4 oCol;",
+  "uniform mat4 uInvVP; uniform vec3 uCamPos;",
+  "uniform sampler2D uDepth; uniform sampler2D uFire; uniform sampler2D uHeight; uniform sampler3D uNoise;",
+  "uniform vec3 uBBMin; uniform vec3 uBBMax;",
+  "uniform vec2 uWindVec; uniform float uTime; uniform float uIntensity; uniform float uSmoke;",
+  "uniform float uWindStr; uniform float uGridExtent; uniform float uTerrainSize; uniform float uTerrainY;",
+  "uniform int uSteps; uniform vec2 uJitter;",
+  "uniform vec4 uCan[8]; uniform vec4 uCanB[8]; uniform int uCanCount;",
+  "float groundY(vec2 xz){ return (texture(uHeight, xz/uTerrainSize+0.5).r*2.0-1.0)*uTerrainY; }",
+  "void main(){",
+  "  vec2 ndc = vUv*2.0-1.0;",
+  "  vec4 pn = uInvVP*vec4(ndc, -1.0, 1.0); vec3 ro = pn.xyz/pn.w;",
+  "  vec4 pf = uInvVP*vec4(ndc,  1.0, 1.0); vec3 fp = pf.xyz/pf.w;",
+  "  vec3 rd = normalize(fp - ro);",
+  "  vec3 rds = rd + vec3(equal(rd, vec3(0.0)))*1e-5;",
+  "  float dz = texture(uDepth, vUv).r;",
+  "  float tMax = 1.0e5;",
+  "  if(dz < 1.0){ vec4 wp = uInvVP*vec4(ndc, dz*2.0-1.0, 1.0); tMax = length(wp.xyz/wp.w - ro); }",
+  "  vec3 ta = (uBBMin - ro)/rds, tb = (uBBMax - ro)/rds;",
+  "  vec3 tmn = min(ta, tb), tmx = max(ta, tb);",
+  "  float tEnter = max(max(tmn.x, tmn.y), tmn.z);",
+  "  float tExit  = min(min(tmx.x, tmx.y), tmx.z);",
+  "  tEnter = max(tEnter, 0.05); tExit = min(tExit, tMax);",
+  "  if(tExit <= tEnter){ oCol = vec4(0.0); return; }",
+  "  float span = tExit - tEnter;",
+  "  float ds = span/float(uSteps);",
+  "  float jit = hash12(gl_FragCoord.xy*1.37 + uJitter);",
+  "  float t = tEnter + ds*jit;",
+  "  vec3 acc = vec3(0.0); float trans = 1.0;",
+  "  for(int i=0;i<96;i++){",
+  "    if(i >= uSteps || t > tExit || trans < 0.015) break;",
+  "    vec3 p = ro + rd*t;",
+  "    float coarse = textureLod(uFire, p.xz/uGridExtent + 0.5, 3.0).a;",
+  "    if(coarse < 0.0035 && uCanCount == 0){ t += ds*2.0; continue; }",
+  "    float gy = groundY(p.xz);",
+  "    float h = p.y - gy;",
+  "    vec3 np = p*0.42; np.y -= uTime*1.15;",
+  "    float n1 = texture(uNoise, np*0.55).r;",
+  "    float n2 = texture(uNoise, np*1.75 + vec3(0.0, -uTime*0.85, 0.0)).g;",
+  "    float turb = n1*0.62 + n2*0.38;",
+  /* ---- 地表火焰：直接由 2D 燃烧场驱动，任意数量火源自动合并 ---- */
+  "    vec2 shear = -uWindVec*max(h, 0.0)*(0.30 + 0.42*uWindStr);",
+  "    vec2 guv = (p.xz + shear)/uGridExtent + 0.5;",
+  "    float fi = texture(uFire, guv).r;",
+  "    float fw = textureLod(uFire, guv, 2.0).r;",
+  "    float Hf = (0.95 + 3.90*sqrt(max(fw, 0.0)))*uIntensity;",
+  "    float hn = h/max(Hf, 0.25);",
+  "    float prof = smoothstep(-0.07, 0.09, hn)*(1.0 - smoothstep(0.30, 1.04, hn));",
+  "    float dG = fi*prof;",
+  "    float mask = smoothstep(0.28 + 0.40*clamp(hn, 0.0, 1.2), 0.80, turb + 0.32*fi);",
+  "    dG *= mask*2.15;",
+  "    float temp = fi*(1.0 - 0.66*clamp(hn, 0.0, 1.0))*(0.48 + 0.85*turb)*(0.72 + 0.42*uIntensity);",
+  /* ---- 树冠火焰 ---- */
+  "    float dC = 0.0, tC = 0.0;",
+  "    for(int k=0;k<8;k++){",
+  "      if(k >= uCanCount) break;",
+  "      vec3 rel = p - uCan[k].xyz;",
+  "      float R = uCan[k].w; float I = uCanB[k].x; float Hc = max(uCanB[k].y, 0.4);",
+  "      float hh = rel.y/Hc + 0.34;",
+  "      if(hh < -0.12 || hh > 1.3) continue;",
+  "      vec2 off = uWindVec*Hc*hh*hh*(0.34 + 0.30*uWindStr);",
+  "      float wr = R*max(0.14, 1.0 + 0.24*hh - 0.98*hh*hh);",
+  "      float rr = length(rel.xz - off)/wr;",
+  "      float ff = (1.0 - smoothstep(0.22, 1.0, rr))*smoothstep(-0.12, 0.06, hh)*(1.0 - smoothstep(0.42, 1.0, hh));",
+  "      dC += ff*I; tC = max(tC, ff*I*(1.0 - 0.52*clamp(hh, 0.0, 1.0)));",
+  "    }",
+  "    dC *= smoothstep(0.24, 0.78, turb + 0.30)*2.35;",
+  "    temp = max(temp, tC*(0.80 + 0.45*uIntensity));",
+  /* ---- 烟雾层（湍流上升扩散） ---- */
+  "    vec2 suv = (p.xz - uWindVec*max(h,0.0)*(0.55 + 0.40*uWindStr))/uGridExtent + 0.5;",
+  "    float sSrc = textureLod(uFire, suv, 2.0).a;",
+  "    float sh = h/(Hf*3.0 + 5.0);",
+  "    float sProf = smoothstep(0.08, 0.48, sh)*(1.0 - smoothstep(0.55, 1.35, sh));",
+  "    float dS = sSrc*sProf*uSmoke*(0.40 + 1.0*turb)*0.62;",
+  "    float dTot = dG + dC;",
+  "    float sigE = dTot*3.4, sigS = dS*1.25;",
+  "    float sig = (sigE + sigS)*ds;",
+  "    if(sig > 0.0004){",
+  "      float a = 1.0 - exp(-sig);",
+  "      vec3 em = fireRamp(clamp(temp*1.28, 0.0, 1.0))*(0.30 + 5.6*temp*temp)*uIntensity;",
+  "      vec3 sc = vec3(0.052,0.048,0.046)*(1.0 + 5.5*temp);",
+  "      vec3 c = (em*sigE + sc*sigS)/max(sigE + sigS, 1e-5);",
+  "      acc += trans*c*a;",
+  "      trans *= 1.0 - a;",
+  "    }",
+  "    t += ds;",
+  "  }",
+  "  oCol = vec4(acc, 1.0 - trans);",
+  "}"
+]), "volumetric");
+
+var VBB = { min: new Float32Array(3), max: new Float32Array(3), ok: false };
+function computeVolumeBB(){
+  var x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, top = -1e9, ok = false, i;
+  if(SIM.burning > 0){
+    ok = true;
+    x0 = SIM.bbx0; z0 = SIM.bbz0; x1 = SIM.bbx1; z1 = SIM.bbz1;
+    top = Math.max(top, 2.2 + (0.85+3.40)*params.intensity*3.1 + 5.0);
+  }
+  for(i=0;i<CANOPY.list.length;i++){
+    var c = CANOPY.list[i]; ok = true;
+    if(c.x-c.R*2.2 < x0) x0 = c.x-c.R*2.2;
+    if(c.x+c.R*2.2 > x1) x1 = c.x+c.R*2.2;
+    if(c.z-c.R*2.2 < z0) z0 = c.z-c.R*2.2;
+    if(c.z+c.R*2.2 > z1) z1 = c.z+c.R*2.2;
+    if(c.y + c.H*1.6 + 6.0 > top) top = c.y + c.H*1.6 + 6.0;
+  }
+  VBB.ok = ok;
+  if(!ok) return;
+  var ws = params.wind/10;
+  var lat = 3.0 + ws*Math.max(6.0, top)*0.85;
+  VBB.min[0] = x0-lat; VBB.min[1] = -3.2; VBB.min[2] = z0-lat;
+  VBB.max[0] = x1+lat; VBB.max[1] = top;  VBB.max[2] = z1+lat;
+}
+function drawVolumetric(){
+  var pr = PROG.vol.use();
+  gl.uniformMatrix4fv(pr.u("uInvVP"), false, MAT.invVP);
+  gl.uniform3fv(pr.u("uCamPos"), cam.pos);
+  gl.uniform1i(pr.u("uDepth"), TU.depth);
+  gl.uniform1i(pr.u("uFire"), TU.fire);
+  gl.uniform1i(pr.u("uHeight"), TU.height);
+  gl.uniform1i(pr.u("uNoise"), TU.noise3);
+  gl.uniform3fv(pr.u("uBBMin"), VBB.min);
+  gl.uniform3fv(pr.u("uBBMax"), VBB.max);
+  gl.uniform2fv(pr.u("uWindVec"), windVec);
+  gl.uniform1f(pr.u("uTime"), TIME.t);
+  gl.uniform1f(pr.u("uIntensity"), params.intensity);
+  gl.uniform1f(pr.u("uSmoke"), params.smoke);
+  gl.uniform1f(pr.u("uWindStr"), params.wind/10);
+  gl.uniform1f(pr.u("uGridExtent"), CFG.gridExtent);
+  gl.uniform1f(pr.u("uTerrainSize"), CFG.terrainSize);
+  gl.uniform1f(pr.u("uTerrainY"), CFG.terrainYRange);
+  gl.uniform1i(pr.u("uSteps"), perf.steps);
+  gl.uniform2f(pr.u("uJitter"), (TIME.t*61.7)%97.0, (TIME.t*37.1)%89.0);
+  gl.uniform4fv(pr.u("uCan"), CANOPY.arr);
+  gl.uniform4fv(pr.u("uCanB"), CANOPY.arrB);
+  gl.uniform1i(pr.u("uCanCount"), CANOPY.count);
+  gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
+  drawQuad();
+  gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
+}
+
+/* ============================================================
+   15. 后期：泛光 + 热浪折射 + 色调映射
+   ============================================================ */
+PROG.bright = makeProgram(VS_QUAD, glsl([
+  "#version 300 es", CH_HEAD,
+  "in vec2 vUv; out vec4 oCol;",
+  "uniform sampler2D uScene; uniform sampler2D uFireBuf; uniform float uThresh;",
+  "void main(){",
+  "  vec3 s = texture(uScene, vUv).rgb;",
+  "  vec4 f = texture(uFireBuf, vUv);",
+  "  vec3 c = s*(1.0-f.a) + f.rgb;",
+  "  c = max(c - vec3(uThresh), vec3(0.0));",
+  "  oCol = vec4(c, 1.0);",
+  "}"
+]), "bright");
+PROG.blur = makeProgram(VS_QUAD, glsl([
+  "#version 300 es", CH_HEAD,
+  "in vec2 vUv; out vec4 oCol;",
+  "uniform sampler2D uTex; uniform vec2 uDir;",
+  "void main(){",
+  "  vec3 s = texture(uTex, vUv).rgb*0.227;",
+  "  s += (texture(uTex, vUv + uDir*1.3846).rgb + texture(uTex, vUv - uDir*1.3846).rgb)*0.3162;",
+  "  s += (texture(uTex, vUv + uDir*3.2308).rgb + texture(uTex, vUv - uDir*3.2308).rgb)*0.0702;",
+  "  oCol = vec4(s, 1.0);",
+  "}"
+]), "blur");
+PROG.final = makeProgram(VS_QUAD, glsl([
+  "#version 300 es", CH_HEAD, CH_NOISE,
+  "in vec2 vUv; out vec4 oCol;",
+  "uniform sampler2D uScene; uniform sampler2D uFireBuf; uniform sampler2D uBloom;",
+  "uniform float uTime; uniform float uExposure; uniform float uBloomStr; uniform vec2 uTexel;",
+  "vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }",
+  "void main(){",
+  /* --- 热浪：屏幕下方存在火焰 -> 上方空气折射扰动 --- */
+  "  float heat = 0.0;",
+  "  for(int k=1;k<=5;k++){",
+  "    float o = float(k)*0.022;",
+  "    heat += texture(uFireBuf, vec2(vUv.x, vUv.y - o)).a*(1.15 - float(k)*0.18);",
+  "  }",
+  "  heat += texture(uFireBuf, vUv).a*0.55;",
+  "  heat = clamp(heat*0.62, 0.0, 1.2);",
+  "  vec2 nq = vUv*vec2(26.0, 15.0);",
+  "  float d1 = fbm2b(nq + vec2(0.0, -uTime*1.7));",
+  "  float d2 = fbm2b(nq*1.7 + vec2(4.3, -uTime*2.3));",
+  "  vec2 dir = vec2(d1 - 0.5, (d2 - 0.5)*0.75);",
+  "  vec2 duv = vUv + dir*heat*0.030;",
+  "  vec3 scene = texture(uScene, duv).rgb;",
+  "  vec4 fire = texture(uFireBuf, vUv + dir*heat*0.008);",
+  "  vec3 col = scene*(1.0 - fire.a) + fire.rgb;",
+  "  col += texture(uBloom, vUv).rgb*uBloomStr;",
+  "  col *= uExposure;",
+  "  col = aces(col*1.02);",
+  "  col = pow(col, vec3(1.0/2.2));",
+  "  float vig = smoothstep(1.34, 0.32, length((vUv-0.5)*vec2(1.05,1.0)));",
+  "  col *= 0.82 + 0.18*vig;",
+  "  col += (hash12(vUv*1024.0 + fract(uTime)*97.0) - 0.5)*0.0055;",
+  "  oCol = vec4(col, 1.0);",
+  "}"
+]), "final");
+
+/* ============================================================
+   16. 渲染目标与自适应画质
+   ============================================================ */
+var RT = { scene:null, fire:null, bloomA:null, bloomB:null };
+var perf = { acc:0, n:0, scale:1.0, steps:34, fps:60, lastAdapt:0 };
+function qualityApply(){
+  var q = params.quality;
+  if(q === 1){ perf.scale = 0.62; perf.steps = 22; }
+  else if(q === 2){ perf.scale = 0.82; perf.steps = 32; }
+  else if(q === 3){ perf.scale = 1.0; perf.steps = 46; }
+  resizeRTs();
+}
+function resizeRTs(){
+  var dpr = Math.min(window.devicePixelRatio || 1, 1.8);
+  var cw = Math.max(320, canvas.clientWidth | 0), chh = Math.max(240, canvas.clientHeight | 0);
+  canvas.width = Math.floor(cw*dpr); canvas.height = Math.floor(chh*dpr);
+  var w = Math.max(320, Math.floor(canvas.width*perf.scale));
+  var h = Math.max(200, Math.floor(canvas.height*perf.scale));
+  freeRT(RT.scene); freeRT(RT.fire); freeRT(RT.bloomA); freeRT(RT.bloomB);
+  RT.scene = createRT(w, h, { float:true, depth:true });
+  RT.fire  = createRT(Math.max(160, w>>1), Math.max(100, h>>1), { float:true });
+  RT.bloomA = createRT(Math.max(80, w>>2), Math.max(50, h>>2), { float:true });
+  RT.bloomB = createRT(Math.max(80, w>>2), Math.max(50, h>>2), { float:true });
+  var el = $("h_res"); if(el) el.textContent = w+"x"+h;
+}
+function perfAdapt(dt){
+  perf.acc += dt; perf.n++;
+  if(perf.n >= 40){
+    var avg = perf.acc/perf.n; perf.fps = 1/Math.max(avg, 1e-4);
+    perf.acc = 0; perf.n = 0;
+    if(params.quality === 0){
+      if(avg > 1/34 && perf.scale > 0.55){
+        perf.scale = Math.max(0.55, perf.scale-0.09);
+        perf.steps = Math.max(20, perf.steps-4);
+        resizeRTs();
+      } else if(avg < 1/56 && perf.scale < 1.0){
+        perf.scale = Math.min(1.0, perf.scale+0.05);
+        perf.steps = Math.min(42, perf.steps+2);
+        resizeRTs();
+      }
+    }
+    GRASS.draw = Math.max(Math.min(GRASS.count, 24000), Math.round(GRASS.count*clamp(perf.scale*1.12, 0.5, 1.0)));
+  }
+}
+
+/* ============================================================
+   17. 相机控制（Orbit）与拾取点火
+   ============================================================ */
+var ctl = { down:false, btn:0, lx:0, ly:0, moved:0, t0:0, ptrs:{}, pinch:0 };
+canvas.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+canvas.addEventListener("pointerdown", function(e){
+  canvas.setPointerCapture(e.pointerId);
+  ctl.ptrs[e.pointerId] = { x:e.clientX, y:e.clientY };
+  var keys = Object.keys(ctl.ptrs);
+  if(keys.length === 2){
+    var a = ctl.ptrs[keys[0]], b = ctl.ptrs[keys[1]];
+    ctl.pinch = Math.hypot(a.x-b.x, a.y-b.y);
+    ctl.down = false; return;
+  }
+  ctl.down = true; ctl.btn = e.button; ctl.lx = e.clientX; ctl.ly = e.clientY;
+  ctl.moved = 0; ctl.t0 = performance.now();
+});
+canvas.addEventListener("pointermove", function(e){
+  if(ctl.ptrs[e.pointerId]) { ctl.ptrs[e.pointerId].x = e.clientX; ctl.ptrs[e.pointerId].y = e.clientY; }
+  var keys = Object.keys(ctl.ptrs);
+  if(keys.length === 2){
+    var a = ctl.ptrs[keys[0]], b = ctl.ptrs[keys[1]];
+    var d = Math.hypot(a.x-b.x, a.y-b.y);
+    if(ctl.pinch > 0) cam.dist = clamp(cam.dist*(ctl.pinch/Math.max(d,1)), 5, 112);
+    ctl.pinch = d; return;
+  }
+  if(!ctl.down) return;
+  var dx = e.clientX-ctl.lx, dy = e.clientY-ctl.ly;
+  ctl.lx = e.clientX; ctl.ly = e.clientY;
+  ctl.moved += Math.abs(dx)+Math.abs(dy);
+  if(ctl.btn === 2 || e.shiftKey){
+    var s = cam.dist*0.0016;
+    var sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
+    cam.target[0] += (-dx*cy + dy*sy*0.6)*s*1.6;
+    cam.target[2] += ( dx*sy + dy*cy*0.6)*s*1.6;
+    cam.target[0] = clamp(cam.target[0], -70, 70);
+    cam.target[2] = clamp(cam.target[2], -70, 70);
+    cam.target[1] = terrainHeight(cam.target[0], cam.target[2]) + 1.4;
+  } else {
+    cam.yaw -= dx*0.0055;
+    cam.pitch = clamp(cam.pitch + dy*0.0045, 0.045, 1.50);
+  }
+});
+function endPointer(e){
+  delete ctl.ptrs[e.pointerId];
+  if(Object.keys(ctl.ptrs).length < 2) ctl.pinch = 0;
+  if(!ctl.down) return;
+  ctl.down = false;
+  if(ctl.btn === 0 && ctl.moved < 6 && performance.now()-ctl.t0 < 480){
+    tryIgnite(e.clientX, e.clientY);
+  }
+}
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
+canvas.addEventListener("wheel", function(e){
+  e.preventDefault();
+  var f = Math.exp(clamp(e.deltaY, -260, 260)*0.0013);
+  cam.dist = clamp(cam.dist*f, 5, 112);
+}, { passive:false });
+window.addEventListener("keydown", function(e){
+  var k = e.key.toLowerCase();
+  if(k === "r"){ resetScene(); }
+  else if(k === "f"){ randomIgnite(); }
+  else if(k === "t"){ igniteRandomTree(); }
+  else if(k === " "){ params.paused = !params.paused; syncUI(); e.preventDefault(); }
+});
+
+function unproject(nx, ny, nz){
+  var m = MAT.invVP;
+  var x = m[0]*nx+m[4]*ny+m[8]*nz+m[12];
+  var y = m[1]*nx+m[5]*ny+m[9]*nz+m[13];
+  var z = m[2]*nx+m[6]*ny+m[10]*nz+m[14];
+  var w = m[3]*nx+m[7]*ny+m[11]*nz+m[15];
+  if(Math.abs(w) < 1e-9) w = 1e-9;
+  return [x/w, y/w, z/w];
+}
+function screenRay(px, py){
+  var r = canvas.getBoundingClientRect();
+  var nx = ((px-r.left)/r.width)*2-1, ny = 1-((py-r.top)/r.height)*2;
+  var a = unproject(nx, ny, -1), b = unproject(nx, ny, 1);
+  return { o:a, d:v3norm(v3sub(b, a)) };
+}
+function raySphere(ro, rd, c, r){
+  var ox = ro[0]-c[0], oy = ro[1]-c[1], oz = ro[2]-c[2];
+  var b = ox*rd[0]+oy*rd[1]+oz*rd[2];
+  var cc = ox*ox+oy*oy+oz*oz-r*r;
+  var disc = b*b-cc;
+  if(disc < 0) return -1;
+  var sq = Math.sqrt(disc), t1 = -b-sq;
+  if(t1 > 0.08) return t1;
+  var t2 = -b+sq;
+  return t2 > 0.08 ? t2 : -1;
+}
+function marchTerrain(ro, rd){
+  var t = 0.15, i, lp = 0;
+  for(i=0;i<300;i++){
+    var x = ro[0]+rd[0]*t, y = ro[1]+rd[1]*t, z = ro[2]+rd[2]*t;
+    if(t > 420) return -1;
+    if(Math.abs(x) > 115 || Math.abs(z) > 115){ if(y > 3.0 && rd[1] >= 0) return -1; }
+    var h = terrainHeight(x, z);
+    var diff = y-h;
+    if(diff < 0.015){
+      var t0 = lp, t1 = t, k;
+      for(k=0;k<22;k++){
+        var tm = (t0+t1)*0.5;
+        var pm = [ro[0]+rd[0]*tm, ro[1]+rd[1]*tm, ro[2]+rd[2]*tm];
+        if(pm[1]-terrainHeight(pm[0], pm[2]) > 0) t0 = tm; else t1 = tm;
+      }
+      return (t0+t1)*0.5;
+    }
+    lp = t;
+    t += Math.max(0.22, Math.min(3.2, diff*0.62));
+  }
+  return -1;
+}
+var toastTimer = 0;
+function toast(msg){
+  var el = $("toast");
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove("on"); }, 1900);
+}
+function tryIgnite(px, py){
+  var ray = screenRay(px, py);
+  var best = 1e9, bt = -1, bh = 0.5, i;
+  for(i=0;i<TREES.list.length;i++){
+    var t = TREES.list[i];
+    if(!t.alive) continue;
+    var mo = TREES.models[t.mi];
+    var cy = t.y + mo.canopyY*t.scale;
+    var cr = mo.canopyR*t.scale*1.02;
+    var hit = raySphere(ray.o, ray.d, [t.x, cy, t.z], cr);
+    if(hit > 0 && hit < best){
+      best = hit; bt = i;
+      var hy = ray.o[1]+ray.d[1]*hit;
+      bh = clamp((hy-t.y)/(mo.H*t.scale), 0.05, 0.95);
+    }
+    var th = mo.H*t.scale*0.28;
+    var tr = Math.max(0.30, mo.trunkR*t.scale*2.2);
+    var hit2 = raySphere(ray.o, ray.d, [t.x, t.y+th, t.z], tr);
+    if(hit2 > 0 && hit2 < best){ best = hit2; bt = i; bh = 0.22; }
+  }
+  var tg = marchTerrain(ray.o, ray.d);
+  if(bt >= 0 && (tg < 0 || best < tg + 0.6)){
+    var tr2 = TREES.list[bt];
+    if(tr2.burning){ toast("这棵树已经在燃烧"); return; }
+    igniteTree(tr2, bh);
+    var mo2 = TREES.models[tr2.mi];
+    var k;
+    for(k=0;k<26;k++){
+      var a = rnd()*6.2832, rr = mo2.canopyR*tr2.scale*rnd();
+      partSpawn(0, tr2.x+Math.cos(a)*rr, tr2.y+mo2.canopyY*tr2.scale*(0.5+rnd()*0.6), tr2.z+Math.sin(a)*rr, 0.9);
+    }
+    toast("已点燃" + (mo2.name === "pine" ? "松树" : (mo2.name === "oak" ? "橡树" : "灌木")) + "：树叶先燃 → 蔓延至树干");
+    return;
+  }
+  if(tg > 0){
+    var hx = ray.o[0]+ray.d[0]*tg, hz = ray.o[2]+ray.d[2]*tg;
+    if(simSampleFuel(hx, hz) < 0.05){
+      toast("此处为泥土/岩石，无可燃物");
+      return;
+    }
+    var n = igniteAt(hx, hz, 1.15, 0.92, true);
+    if(n > 0){
+      var j;
+      for(j=0;j<20;j++){
+        var a2 = rnd()*6.2832, r2 = rnd()*1.1;
+        partSpawn(0, hx+Math.cos(a2)*r2, terrainHeight(hx,hz)+0.25+rnd()*0.5, hz+Math.sin(a2)*r2, 0.85);
+      }
+      for(j=0;j<8;j++) partSpawn(2, hx, terrainHeight(hx,hz)+0.3, hz, 0.8);
+      toast("已点火（草地蔓延最快，风向决定走势）");
+    } else toast("此处无可燃物");
+  }
+}
+function randomIgnite(){
+  var i;
+  for(i=0;i<400;i++){
+    var a = rnd()*6.2832, rr = Math.pow(rnd(), 0.6)*CFG.grassRadius*0.92;
+    var x = Math.cos(a)*rr, z = Math.sin(a)*rr;
+    if(simSampleFuel(x, z) > 0.35 && simSampleFire(x, z) < 0.05){
+      igniteAt(x, z, 1.2, 0.95, true);
+      toast("已在 (" + x.toFixed(1) + ", " + z.toFixed(1) + ") 点火");
+      return;
+    }
+  }
+  toast("没有找到可燃位置");
+}
+function igniteLine(){
+  var ang = params.windDir*Math.PI/180;
+  var px = -Math.sin(ang), pz = Math.cos(ang);
+  var cx = (rnd()-0.5)*16, cz = (rnd()-0.5)*16;
+  var i, hit = 0;
+  for(i=-9;i<=9;i++){
+    var x = cx+px*i*1.4, z = cz+pz*i*1.4;
+    hit += igniteAt(x, z, 1.0, 0.9, true);
+  }
+  toast(hit > 0 ? "已引燃一道垂直于风向的火墙" : "该区域无可燃物");
+}
+function igniteRandomTree(){
+  var cand = [], i;
+  for(i=0;i<TREES.list.length;i++){
+    var t = TREES.list[i];
+    if(t.alive && !t.burning) cand.push(i);
+  }
+  if(!cand.length){ toast("没有可点燃的树木"); return; }
+  var pick = TREES.list[cand[(rnd()*cand.length)|0]];
+  igniteTree(pick, 0.25+rnd()*0.5);
+  toast("已点燃一棵树（" + TREES.models[pick.mi].name + "）");
+}
+function resetScene(){
+  var i;
+  SIM.fire.fill(0); SIM.chr.fill(0); SIM.acc.fill(0); SIM.smold.fill(0); SIM.canopy.fill(0);
+  simInitFuelOnly();
+  for(i=0;i<TREES.list.length;i++){
+    var t = TREES.list[i];
+    t.leafBurn = 0; t.trunkBurn = 0; t.fade = 0; t.burning = false; t.alive = true; t.emit = 0;
+  }
+  PART.n = 0; PART.accF = 0; PART.accS = 0; PART.accE = 0;
+  CANOPY.list.length = 0; CANOPY.count = 0;
+  LIGHTS.count = 0; CLU.list.length = 0;
+  simUpload();
+  toast("场景已重置");
+}
+
+/* ============================================================
+   18. UI
+   ============================================================ */
+function bindSlider(id, label, key, fmt){
+  var s = $(id), l = $(label);
+  function upd(){
+    params[key] = parseFloat(s.value);
+    l.textContent = fmt(params[key]);
+    var pct = (s.value-s.min)/(s.max-s.min)*100;
+    s.style.background = "linear-gradient(90deg,#ff7a18," + "#ffd08a " + pct + "%,rgba(255,255,255,.14) " + pct + "%)";
+    if(key === "quality") qualityApply();
+  }
+  s.addEventListener("input", upd); upd();
+}
+function syncUI(){
+  $("b_pause").textContent = params.paused ? "继续时间" : "暂停时间";
+}
+function initUI(){
+  bindSlider("s_wind", "v_wind", "wind", function(v){ return v.toFixed(1)+" 级"; });
+  bindSlider("s_dir", "v_dir", "windDir", function(v){ return v.toFixed(0)+"°"; });
+  bindSlider("s_int", "v_int", "intensity", function(v){ return v.toFixed(2); });
+  bindSlider("s_spr", "v_spr", "spread", function(v){ return v.toFixed(2); });
+  bindSlider("s_smk", "v_smk", "smoke", function(v){ return v.toFixed(2); });
+  bindSlider("s_exp", "v_exp", "exposure", function(v){ return v.toFixed(2); });
+  bindSlider("s_q", "v_q", "quality", function(v){
+    return ["自动","低","中","高"][v|0];
+  });
+  $("b_ignite").addEventListener("click", randomIgnite);
+  $("b_wall").addEventListener("click", igniteLine);
+  $("b_tree").addEventListener("click", igniteRandomTree);
+  $("b_reset").addEventListener("click", resetScene);
+  $("b_pause").addEventListener("click", function(){ params.paused = !params.paused; syncUI(); });
+  $("fold").addEventListener("click", function(){
+    var b = $("uibd");
+    var hid = b.style.display === "none";
+    b.style.display = hid ? "block" : "none";
+    this.textContent = hid ? "–" : "+";
+  });
+  syncUI();
+}
+
+/* ============================================================
+   19. 主循环
+   ============================================================ */
+var lastT = 0, simAcc = 0, hudAcc = 0, started = false;
+function renderFrame(){
+  camUpdate();
+  /* --- 场景 --- */
+  bindRT(RT.scene);
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearDepth(1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  bindTex(TU.ground, TEX.ground);
+  bindTex(TU.fire, TEX.fire);
+  bindTex(TU.height, TEX.height);
+  bindTex(TU.noise3, TEX.noise3, true);
+  drawSky();
+  drawTerrain();
+  drawRocks();
+  drawGrass();
+  drawTrees();
+  drawParticles();
+  /* --- 体积火焰 --- */
+  bindRT(RT.fire);
+  gl.clearColor(0,0,0,0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  if(VBB.ok){
+    bindTex(TU.depth, RT.scene.dtex);
+    drawVolumetric();
+  }
+  /* --- 泛光 --- */
+  bindRT(RT.bloomA);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  var pb = PROG.bright.use();
+  bindTex(TU.scene, RT.scene.tex);
+  bindTex(TU.firebuf, RT.fire.tex);
+  gl.uniform1i(pb.u("uScene"), TU.scene);
+  gl.uniform1i(pb.u("uFireBuf"), TU.firebuf);
+  gl.uniform1f(pb.u("uThresh"), 0.72);
+  gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
+  drawQuad();
+  var pbl = PROG.blur.use();
+  bindRT(RT.bloomB);
+  bindTex(TU.bloom, RT.bloomA.tex);
+  gl.uniform1i(pbl.u("uTex"), TU.bloom);
+  gl.uniform2f(pbl.u("uDir"), 1.0/RT.bloomA.w, 0.0);
+  drawQuad();
+  bindRT(RT.bloomA);
+  bindTex(TU.bloom, RT.bloomB.tex);
+  gl.uniform1i(pbl.u("uTex"), TU.bloom);
+  gl.uniform2f(pbl.u("uDir"), 0.0, 1.0/RT.bloomB.h);
+  drawQuad();
+  /* --- 合成 --- */
+  bindRT(null);
+  var pf = PROG.final.use();
+  bindTex(TU.scene, RT.scene.tex);
+  bindTex(TU.firebuf, RT.fire.tex);
+  bindTex(TU.bloom, RT.bloomA.tex);
+  gl.uniform1i(pf.u("uScene"), TU.scene);
+  gl.uniform1i(pf.u("uFireBuf"), TU.firebuf);
+  gl.uniform1i(pf.u("uBloom"), TU.bloom);
+  gl.uniform1f(pf.u("uTime"), TIME.t);
+  gl.uniform1f(pf.u("uExposure"), params.exposure);
+  gl.uniform1f(pf.u("uBloomStr"), 0.52);
+  gl.uniform2f(pf.u("uTexel"), 1.0/RT.scene.w, 1.0/RT.scene.h);
+  drawQuad();
+  gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
+}
+function updateHUD(){
+  $("h_fps").textContent = perf.fps.toFixed(0);
+  $("h_grass").textContent = GRASS.draw.toLocaleString();
+  $("h_tree").textContent = (TREES.list.length-TREES.dead) + "/" + TREES.list.length;
+  $("h_rock").textContent = ROCKS.count;
+  $("h_burn").textContent = SIM.burning;
+  $("h_ash").textContent = (SIM.ash*100).toFixed(1)+"%";
+  $("h_part").textContent = PART.n;
+  $("t_src").textContent = CLU.list.length;
+  $("t_light").textContent = LIGHTS.count;
+  $("t_tb").textContent = TREES.burning;
+  $("t_td").textContent = TREES.dead;
+  $("t_steps").textContent = perf.steps;
+  $("t_scale").textContent = perf.scale.toFixed(2);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  if(!lastT) lastT = now;
+  var dt = Math.min(0.05, (now-lastT)/1000);
+  lastT = now;
+  if(!params.paused){
+    TIME.t += dt; TIME.dt = dt;
+    var ang = params.windDir*Math.PI/180, ws = params.wind/10;
+    windVec[0] = Math.cos(ang)*ws; windVec[1] = Math.sin(ang)*ws;
+    simAcc += dt;
+    var steps = 0;
+    while(simAcc >= 1/60 && steps < 3){ simStep(1/60); simAcc -= 1/60; steps++; }
+    if(simAcc > 0.2) simAcc = 0;
+    computeClusters();
+    updateTrees(dt);
+    updateLights();
+    partEmitFromGround(dt);
+    partUpdate(dt);
+    partBuildBuffers();
+    updateTreeInstances();
+    computeVolumeBB();
+    simUpload();
+  }
+  perfAdapt(dt);
+  renderFrame();
+  hudAcc += dt;
+  if(hudAcc > 0.25){ hudAcc = 0; updateHUD(); }
+}
+
+/* ============================================================
+   20. 启动
+   ============================================================ */
+var STAGES = [
+  ["生成地表与高度贴图…", function(){ buildGroundMap(); buildHeightMap(); }],
+  ["烘焙体积湍流噪声…", function(){ buildNoise3D(); }],
+  ["构建平原地形网格…", function(){ buildTerrain(); }],
+  ["生成树木（松/橡/灌木）…", function(){ buildTrees(); }],
+  ["散布岩石与苔藓…", function(){ buildRocks(); }],
+  ["播种 55000 株草叶…", function(){ buildGrass(); }],
+  ["初始化燃烧场与粒子…", function(){ buildFireTex(); simInit(); cluInit(); partInit(); partGL(); }],
+  ["装配渲染管线…", function(){ resizeRTs(); simUpload(); initUI(); }]
+];
+function runStage(i){
+  if(i >= STAGES.length){
+    $("load").style.display = "none";
+    started = true;
+    camUpdate();
+    igniteAt(3.0, -2.0, 1.6, 0.95, true);
+    requestAnimationFrame(loop);
+    return;
+  }
+  $("loadtxt").textContent = STAGES[i][0];
+  setTimeout(function(){
+    try{ STAGES[i][1](); }
+    catch(err){ fatal("初始化阶段「"+STAGES[i][0]+"」失败：<br>"+(err && err.message ? err.message : err)); console.error(err); return; }
+    runStage(i+1);
+  }, 16);
+}
+window.addEventListener("resize", function(){ if(started) resizeRTs(); });
+window.addEventListener("error", function(e){ fatal("运行错误：" + (e.message || "未知")); });
+runStage(0);
+})();
+</script>
+</body>
+</html>

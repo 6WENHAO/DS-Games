@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 体素霸王龙 (Voxel T-Rex)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            user-select: none;
+            background-color: #0f172a;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="text-slate-100">
+
+    <!-- Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay -->
+    <div class="fixed top-4 left-4 z-10 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+        <!-- Title Box -->
+        <div class="glass-panel p-4 rounded-2xl shadow-2xl pointer-events-auto">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
+                    <i data-lucide="box" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight tracking-wide text-white">三维体素霸王龙</h1>
+                    <p class="text-xs text-slate-400">3D Voxel T-Rex Simulator</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Animation Controls -->
+        <div class="glass-panel p-4 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-3">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="play-circle" class="w-4 h-4"></i> 动作控制 (Animations)
+            </span>
+            <div class="grid grid-cols-2 gap-2">
+                <button id="btn-idle" class="anim-btn active px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40">
+                    <i data-lucide="coffee" class="w-4 h-4"></i> 待机 (Idle)
+                </button>
+                <button id="btn-walk" class="anim-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-2 border border-slate-700/50">
+                    <i data-lucide="footprints" class="w-4 h-4"></i> 行走 (Walk)
+                </button>
+                <button id="btn-run" class="anim-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-2 border border-slate-700/50">
+                    <i data-lucide="zap" class="w-4 h-4"></i> 奔跑 (Run)
+                </button>
+                <button id="btn-roar" class="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-rose-900/50 col-span-1">
+                    <i data-lucide="flame" class="w-4 h-4"></i> 咆哮 (Roar!)
+                </button>
+            </div>
+        </div>
+
+        <!-- Customization Drawer -->
+        <div class="glass-panel p-4 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-3">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="palette" class="w-4 h-4"></i> 主题皮肤 (Skins)
+            </span>
+            <div class="grid grid-cols-3 gap-2" id="skin-selector">
+                <button data-skin="classic" class="skin-btn p-2 rounded-xl border border-emerald-500/50 bg-emerald-950/40 text-emerald-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-emerald-400 transition">
+                    <span class="w-4 h-4 rounded-full bg-emerald-500 inline-block border border-white/20"></span>
+                    经典绿
+                </button>
+                <button data-skin="lava" class="skin-btn p-2 rounded-xl border border-slate-700/50 bg-slate-800/40 text-slate-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-500 transition">
+                    <span class="w-4 h-4 rounded-full bg-rose-600 inline-block border border-white/20"></span>
+                    熔岩红
+                </button>
+                <button data-skin="cyber" class="skin-btn p-2 rounded-xl border border-slate-700/50 bg-slate-800/40 text-slate-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-500 transition">
+                    <span class="w-4 h-4 rounded-full bg-cyan-400 inline-block border border-white/20"></span>
+                    赛博朋克
+                </button>
+                <button data-skin="desert" class="skin-btn p-2 rounded-xl border border-slate-700/50 bg-slate-800/40 text-slate-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-500 transition">
+                    <span class="w-4 h-4 rounded-full bg-amber-500 inline-block border border-white/20"></span>
+                    荒漠棕
+                </button>
+                <button data-skin="bone" class="skin-btn p-2 rounded-xl border border-slate-700/50 bg-slate-800/40 text-slate-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-500 transition">
+                    <span class="w-4 h-4 rounded-full bg-slate-200 inline-block border border-white/20"></span>
+                    白骨骼
+                </button>
+                <button data-skin="gold" class="skin-btn p-2 rounded-xl border border-slate-700/50 bg-slate-800/40 text-slate-300 text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-500 transition">
+                    <span class="w-4 h-4 rounded-full bg-yellow-400 inline-block border border-white/20"></span>
+                    黄金体素
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Settings Top Right -->
+    <div class="fixed top-4 right-4 z-10 flex gap-2 pointer-events-auto">
+        <button id="btn-lighting" class="glass-panel p-3 rounded-2xl hover:bg-slate-800/80 transition text-slate-300 hover:text-white shadow-xl" title="切换光照环境">
+            <i data-lucide="sun" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-pedestal" class="glass-panel p-3 rounded-2xl hover:bg-slate-800/80 transition text-slate-300 hover:text-white shadow-xl" title="切换基座">
+            <i data-lucide="layers" class="w-5 h-5"></i>
+        </button>
+        <button id="btn-autorotate" class="glass-panel p-3 rounded-2xl hover:bg-slate-800/80 transition text-slate-300 hover:text-white shadow-xl" title="自动旋转">
+            <i data-lucide="rotate-cw" class="w-5 h-5"></i>
+        </button>
+    </div>
+
+    <!-- Instructions Bottom Center -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none hidden md:block">
+        <div class="glass-panel px-4 py-2 rounded-full text-xs text-slate-400 flex items-center gap-3">
+            <span><strong class="text-slate-200">左键拖拽:</strong> 旋转视角</span>
+            <span>•</span>
+            <span><strong class="text-slate-200">右键拖拽:</strong> 平移视角</span>
+            <span>•</span>
+            <span><strong class="text-slate-200">滚轮:</strong> 缩放大小</span>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Core Scene Variables
+        let scene, camera, renderer, controls;
+        let tRexGroup, torsoGroup, headGroup, jawGroup, tailGroup1, tailGroup2, tailGroup3;
+        let legLGroup, legRGroup, armLGroup, armRGroup, lowerLegL, lowerLegR, footL, footR;
+        let pedestalGroup, roarParticles = [];
+        let dirLight, ambientLight, hemiLight;
+
+        // Animation States
+        let currentAnimation = 'idle'; // 'idle', 'walk', 'run', 'roar'
+        let animTime = 0;
+        let animSpeed = 1.0;
+        let isRoaring = false;
+        let roarTimer = 0;
+        let currentSkin = 'classic';
+        let isNightMode = false;
+        let showPedestal = true;
+
+        // Voxel Cache & Color Palette Definition
+        const voxelSize = 0.4;
+        const sharedBoxGeometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+        
+        // Color Palettes
+        const PALETTES = {
+            classic: { primary: 0x3b7a57, belly: 0x8a9a60, stripe: 0x1e3b26, eye: 0xffd700, claw: 0x222222, mouth: 0xd64545, teeth: 0xf0f0f0 },
+            lava:    { primary: 0x221111, belly: 0xb91c1c, stripe: 0xf97316, eye: 0xfacc15, claw: 0x0f0f0f, mouth: 0xef4444, teeth: 0xfee2e2 },
+            cyber:   { primary: 0x0f172a, belly: 0x06b6d4, stripe: 0x3b82f6, eye: 0xf43f5e, claw: 0x64748b, mouth: 0xec4899, teeth: 0xffffff },
+            desert:  { primary: 0xd97706, belly: 0xfef08a, stripe: 0x78350f, eye: 0x10b981, claw: 0x451a03, mouth: 0xb91c1c, teeth: 0xfffbeb },
+            bone:    { primary: 0xe2e8f0, belly: 0xc084fc, stripe: 0x94a3b8, eye: 0xef4444, claw: 0x334155, mouth: 0x881337, teeth: 0xffffff },
+            gold:    { primary: 0xeab308, belly: 0xfef08a, stripe: 0xca8a04, eye: 0xffffff, claw: 0xa16207, mouth: 0x991b1b, teeth: 0xffffff }
+        };
+
+        // Material Cache per Palette
+        let materials = {};
+
+        function createMaterials(paletteKey) {
+            const pal = PALETTES[paletteKey];
+            materials = {
+                primary: new THREE.MeshStandardMaterial({ color: pal.primary, roughness: 0.6, metalness: 0.1 }),
+                belly:   new THREE.MeshStandardMaterial({ color: pal.belly,   roughness: 0.7, metalness: 0.0 }),
+                stripe:  new THREE.MeshStandardMaterial({ color: pal.stripe,  roughness: 0.5, metalness: 0.1 }),
+                eye:     new THREE.MeshStandardMaterial({ color: pal.eye,     roughness: 0.2, metalness: 0.8, emissive: pal.eye, emissiveIntensity: 0.3 }),
+                claw:    new THREE.MeshStandardMaterial({ color: pal.claw,    roughness: 0.4, metalness: 0.3 }),
+                mouth:   new THREE.MeshStandardMaterial({ color: pal.mouth,   roughness: 0.5, metalness: 0.0 }),
+                teeth:   new THREE.MeshStandardMaterial({ color: pal.teeth,   roughness: 0.3, metalness: 0.2 }),
+                black:   new THREE.MeshStandardMaterial({ color: 0x111111,    roughness: 0.2, metalness: 0.5 })
+            };
+        }
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.025);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(12, 8, 16);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.05; // Slightly below horizon
+            controls.minDistance = 5;
+            controls.maxDistance = 40;
+            controls.target.set(0, 3.5, 0);
+
+            // Setup Materials
+            createMaterials('classic');
+
+            // Lights
+            setupLights();
+
+            // Build T-Rex Skeleton Groups
+            buildTRexStructure();
+
+            // Build Pedestal Ground
+            buildPedestal();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            setupUIListeners();
+
+            // Animation Loop
+            animate();
+        }
+
+        function setupLights() {
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.4);
+            hemiLight.position.set(0, 20, 0);
+            scene.add(hemiLight);
+
+            dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(12, 18, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 40;
+            const d = 12;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            dirLight.shadow.bias = -0.0005;
+            scene.add(dirLight);
+        }
+
+        // Helper to place voxel at coordinate
+        function addVoxel(parent, x, y, z, matType = 'primary', scale = [1,1,1]) {
+            const mesh = new THREE.Mesh(sharedBoxGeometry, materials[matType]);
+            mesh.position.set(x * voxelSize, y * voxelSize, z * voxelSize);
+            mesh.scale.set(scale[0], scale[1], scale[2]);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData = { matType }; // stored for theme switching
+            parent.add(mesh);
+            return mesh;
+        }
+
+        function buildTRexStructure() {
+            tRexGroup = new THREE.Group();
+            tRexGroup.position.set(0, 3.8, 0); // elevated off base
+            scene.add(tRexGroup);
+
+            // --- TORSO GROUP ---
+            torsoGroup = new THREE.Group();
+            tRexGroup.add(torsoGroup);
+
+            // Torso Main Body Voxels
+            for(let x = -2; x <= 2; x++) {
+                for(let y = -2; y <= 4; y++) {
+                    for(let z = -4; z <= 4; z++) {
+                        let mat = 'primary';
+                        // Belly underneath
+                        if(y <= 0 && Math.abs(x) <= 1) mat = 'belly';
+                        // Darker dorsal stripes on top
+                        if(y === 4 || (z % 2 === 0 && y === 3)) mat = 'stripe';
+                        
+                        // Taper torso shape
+                        if(Math.abs(x) === 2 && (y === 4 || y === -2 || z === 4 || z === -4)) continue;
+                        
+                        addVoxel(torsoGroup, x, y, z, mat);
+                    }
+                }
+            }
+
+            // Chest Extension
+            for(let x = -1; x <= 1; x++) {
+                for(let y = 0; y <= 3; y++) {
+                    addVoxel(torsoGroup, x, y, 5, 'primary');
+                    addVoxel(torsoGroup, x, y - 1, 5, 'belly');
+                }
+            }
+
+            // --- HEAD & NECK GROUP ---
+            headGroup = new THREE.Group();
+            headGroup.position.set(0, 3 * voxelSize, 4.5 * voxelSize);
+            torsoGroup.add(headGroup);
+
+            // Neck
+            for(let x = -1; x <= 1; x++) {
+                for(let y = 0; y <= 3; y++) {
+                    for(let z = 0; z <= 2; z++) {
+                        addVoxel(headGroup, x, y, z, y < 1 ? 'belly' : 'primary');
+                    }
+                }
+            }
+
+            // Skull / Upper Snout
+            const headOffsetZ = 2;
+            const headOffsetY = 2;
+            for(let x = -2; x <= 2; x++) {
+                for(let y = 1; y <= 4; y++) {
+                    for(let z = 1; z <= 7; z++) {
+                        // Taper snout tip
+                        if(z >= 6 && Math.abs(x) === 2) continue;
+                        if(y === 4 && z >= 6) continue;
+
+                        let mat = 'primary';
+                        if(y === 4 && z % 2 === 0) mat = 'stripe';
+                        addVoxel(headGroup, x, y + headOffsetY, z + headOffsetZ, mat);
+                    }
+                }
+            }
+
+            // Eyes & Brows
+            addVoxel(headGroup, -2.1, 3.5 + headOffsetY, 3 + headOffsetZ, 'eye');
+            addVoxel(headGroup, 2.1, 3.5 + headOffsetY, 3 + headOffsetZ, 'eye');
+            addVoxel(headGroup, -2, 4.2 + headOffsetY, 3 + headOffsetZ, 'stripe');
+            addVoxel(headGroup, 2, 4.2 + headOffsetY, 3 + headOffsetZ, 'stripe');
+
+            // Upper Teeth
+            for(let z = 2; z <= 7; z++) {
+                if(z % 1.5 === 0) {
+                    addVoxel(headGroup, -1.8, 0.4 + headOffsetY, z + headOffsetZ, 'teeth', [0.6, 0.8, 0.6]);
+                    addVoxel(headGroup, 1.8, 0.4 + headOffsetY, z + headOffsetZ, 'teeth', [0.6, 0.8, 0.6]);
+                }
+            }
+            addVoxel(headGroup, -1, 0.4 + headOffsetY, 7.2 + headOffsetZ, 'teeth', [0.6, 0.8, 0.6]);
+            addVoxel(headGroup, 0, 0.4 + headOffsetY, 7.2 + headOffsetZ, 'teeth', [0.6, 0.8, 0.6]);
+            addVoxel(headGroup, 1, 0.4 + headOffsetY, 7.2 + headOffsetZ, 'teeth', [0.6, 0.8, 0.6]);
+
+            // Roof of Mouth
+            for(let x = -1; x <= 1; x++) {
+                for(let z = 2; z <= 6; z++) {
+                    addVoxel(headGroup, x, 0.8 + headOffsetY, z + headOffsetZ, 'mouth');
+                }
+            }
+
+            // --- HINGED LOWER JAW GROUP ---
+            jawGroup = new THREE.Group();
+            jawGroup.position.set(0, (1 + headOffsetY) * voxelSize, (1.5 + headOffsetZ) * voxelSize);
+            headGroup.add(jawGroup);
+
+            for(let x = -1.5; x <= 1.5; x += 1) {
+                for(let z = 0; z <= 5.5; z++) {
+                    if(Math.abs(x) > 1 && z > 4.5) continue;
+                    addVoxel(jawGroup, x, -0.5, z, 'primary');
+                    addVoxel(jawGroup, x, 0.2, z, 'mouth'); // Tongue/interior
+                }
+            }
+            // Lower Teeth
+            for(let z = 1; z <= 5; z++) {
+                if(z % 1.5 === 0) {
+                    addVoxel(jawGroup, -1.5, 0.6, z, 'teeth', [0.5, 0.7, 0.5]);
+                    addVoxel(jawGroup, 1.5, 0.6, z, 'teeth', [0.5, 0.7, 0.5]);
+                }
+            }
+
+            // --- ARMS (Tiny iconic T-Rex arms) ---
+            armLGroup = new THREE.Group();
+            armRGroup = new THREE.Group();
+            armLGroup.position.set(-2.2 * voxelSize, 0.5 * voxelSize, 4 * voxelSize);
+            armRGroup.position.set(2.2 * voxelSize, 0.5 * voxelSize, 4 * voxelSize);
+            torsoGroup.add(armLGroup);
+            torsoGroup.add(armRGroup);
+
+            // Left Arm
+            addVoxel(armLGroup, 0, 0, 0, 'primary');
+            addVoxel(armLGroup, 0, -1, 0.5, 'primary');
+            addVoxel(armLGroup, 0, -1, 1.2, 'claw', [0.5, 0.5, 0.8]);
+
+            // Right Arm
+            addVoxel(armRGroup, 0, 0, 0, 'primary');
+            addVoxel(armRGroup, 0, -1, 0.5, 'primary');
+            addVoxel(armRGroup, 0, -1, 1.2, 'claw', [0.5, 0.5, 0.8]);
+
+            // --- LEGS ---
+            // Left Leg Group
+            legLGroup = new THREE.Group();
+            legLGroup.position.set(-2.5 * voxelSize, 0, -1 * voxelSize);
+            tRexGroup.add(legLGroup);
+
+            // Thigh L
+            for(let x = -1; x <= 0; x++) {
+                for(let y = -2; y <= 2; y++) {
+                    for(let z = -2; z <= 1; z++) {
+                        addVoxel(legLGroup, x, y, z, 'primary');
+                    }
+                }
+            }
+
+            // Calf / Shin L
+            lowerLegL = new THREE.Group();
+            lowerLegL.position.set(-0.5 * voxelSize, -2 * voxelSize, -1 * voxelSize);
+            legLGroup.add(lowerLegL);
+
+            for(let y = -3; y <= 0; y++) {
+                for(let z = -1; z <= 0; z++) {
+                    addVoxel(lowerLegL, 0, y, z, 'primary');
+                }
+            }
+
+            // Foot L
+            footL = new THREE.Group();
+            footL.position.set(0, -3.5 * voxelSize, 0);
+            lowerLegL.add(footL);
+
+            for(let x = -1; x <= 1; x++) {
+                addVoxel(footL, x, 0, 1, 'primary');
+                addVoxel(footL, x, 0, 2, 'claw', [0.8, 0.6, 1.2]); // 3 Toes
+            }
+            addVoxel(footL, 0, 0, 0, 'primary');
+            addVoxel(footL, 0, 0, -1, 'claw'); // Back dewclaw
+
+            // Right Leg Group
+            legRGroup = new THREE.Group();
+            legRGroup.position.set(2.5 * voxelSize, 0, -1 * voxelSize);
+            tRexGroup.add(legRGroup);
+
+            // Thigh R
+            for(let x = 0; x <= 1; x++) {
+                for(let y = -2; y <= 2; y++) {
+                    for(let z = -2; z <= 1; z++) {
+                        addVoxel(legRGroup, x, y, z, 'primary');
+                    }
+                }
+            }
+
+            // Calf / Shin R
+            lowerLegR = new THREE.Group();
+            lowerLegR.position.set(0.5 * voxelSize, -2 * voxelSize, -1 * voxelSize);
+            legRGroup.add(lowerLegR);
+
+            for(let y = -3; y <= 0; y++) {
+                for(let z = -1; z <= 0; z++) {
+                    addVoxel(lowerLegR, 0, y, z, 'primary');
+                }
+            }
+
+            // Foot R
+            footR = new THREE.Group();
+            footR.position.set(0, -3.5 * voxelSize, 0);
+            lowerLegR.add(footR);
+
+            for(let x = -1; x <= 1; x++) {
+                addVoxel(footR, x, 0, 1, 'primary');
+                addVoxel(footR, x, 0, 2, 'claw', [0.8, 0.6, 1.2]); // 3 Toes
+            }
+            addVoxel(footR, 0, 0, 0, 'primary');
+            addVoxel(footR, 0, 0, -1, 'claw'); // Back dewclaw
+
+            // --- TAIL (3 Hinged Segments) ---
+            tailGroup1 = new THREE.Group();
+            tailGroup1.position.set(0, 1 * voxelSize, -4 * voxelSize);
+            torsoGroup.add(tailGroup1);
+
+            // Tail Segment 1 (Base)
+            for(let x = -2; x <= 2; x++) {
+                for(let y = -1; y <= 2; y++) {
+                    for(let z = 0; z >= -4; z--) {
+                        if(Math.abs(x) === 2 && y === 2) continue;
+                        addVoxel(tailGroup1, x, y, z, y === -1 ? 'belly' : 'primary');
+                    }
+                }
+            }
+
+            // Tail Segment 2 (Mid)
+            tailGroup2 = new THREE.Group();
+            tailGroup2.position.set(0, 0, -4.5 * voxelSize);
+            tailGroup1.add(tailGroup2);
+
+            for(let x = -1.5; x <= 1.5; x += 1) {
+                for(let y = -0.5; y <= 1.5; y++) {
+                    for(let z = 0; z >= -4; z--) {
+                        let mat = 'primary';
+                        if(y === 1.5) mat = 'stripe';
+                        addVoxel(tailGroup2, x, y, z, mat);
+                    }
+                }
+            }
+
+            // Tail Segment 3 (Tip)
+            tailGroup3 = new THREE.Group();
+            tailGroup3.position.set(0, 0, -4.5 * voxelSize);
+            tailGroup2.add(tailGroup3);
+
+            for(let x = -1; x <= 1; x++) {
+                for(let y = 0; y <= 1; y++) {
+                    for(let z = 0; z >= -4; z--) {
+                        addVoxel(tailGroup3, x, y, z, 'primary');
+                    }
+                }
+            }
+        }
+
+        function buildPedestal() {
+            pedestalGroup = new THREE.Group();
+            scene.add(pedestalGroup);
+
+            const matGrass = new THREE.MeshStandardMaterial({ color: 0x40803d, roughness: 0.9 });
+            const matDirt  = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 });
+            const matStone = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.8 });
+            const matFoliage = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.7 });
+            const matWood = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
+
+            const pRadius = 24;
+            const size = 0.8;
+            const geo = new THREE.BoxGeometry(size, size, size);
+
+            // Circular Voxel Platform
+            for(let x = -pRadius; x <= pRadius; x++) {
+                for(let z = -pRadius; z <= pRadius; z++) {
+                    const dist = Math.sqrt(x*x + z*z);
+                    if(dist < pRadius) {
+                        // Top Layer Grass
+                        const meshG = new THREE.Mesh(geo, matGrass);
+                        meshG.position.set(x * size, -1.2, z * size);
+                        meshG.receiveShadow = true;
+                        pedestalGroup.add(meshG);
+
+                        // Middle Layer Dirt
+                        if(dist < pRadius - 1) {
+                            const meshD = new THREE.Mesh(geo, matDirt);
+                            meshD.position.set(x * size, -1.2 - size, z * size);
+                            meshD.receiveShadow = true;
+                            pedestalGroup.add(meshD);
+                        }
+
+                        // Bottom Layer Rock Base
+                        if(dist < pRadius - 3) {
+                            const meshS = new THREE.Mesh(geo, matStone);
+                            meshS.position.set(x * size, -1.2 - size * 2, z * size);
+                            pedestalGroup.add(meshS);
+                        }
+                    }
+                }
+            }
+
+            // Decorative Prehistoric Voxel Rocks & Ferns
+            const propCoords = [
+                {x: -12, z: 8}, {x: 14, z: -10}, {x: -10, z: -12}, {x: 12, z: 12}
+            ];
+
+            propCoords.forEach(p => {
+                // Mini Voxel Rock
+                for(let rx = 0; rx < 2; rx++) {
+                    for(let ry = 0; ry < 2; ry++) {
+                        for(let rz = 0; rz < 2; rz++) {
+                            const rock = new THREE.Mesh(geo, matStone);
+                            rock.position.set((p.x + rx) * size, -1.2 + ry * size, (p.z + rz) * size);
+                            rock.castShadow = true;
+                            rock.receiveShadow = true;
+                            pedestalGroup.add(rock);
+                        }
+                    }
+                }
+                // Mini Fern / Plant Trunk
+                const trunk = new THREE.Mesh(geo, matWood);
+                trunk.position.set(p.x * size, -0.4, (p.z + 2) * size);
+                pedestalGroup.add(trunk);
+
+                const bush = new THREE.Mesh(geo, matFoliage);
+                bush.position.set(p.x * size, 0.4, (p.z + 2) * size);
+                bush.scale.set(2, 1.5, 2);
+                bush.castShadow = true;
+                pedestalGroup.add(bush);
+            });
+        }
+
+        function switchSkin(skinName) {
+            if(!PALETTES[skinName]) return;
+            currentSkin = skinName;
+            createMaterials(skinName);
+
+            // Traverse and update materials
+            tRexGroup.traverse((child) => {
+                if(child.isMesh && child.userData && child.userData.matType) {
+                    const mType = child.userData.matType;
+                    if(materials[mType]) {
+                        child.material = materials[mType];
+                    }
+                }
+            });
+        }
+
+        function updateAnimation(delta) {
+            animTime += delta * animSpeed * 4;
+
+            // Roar timer trigger override
+            if(isRoaring) {
+                roarTimer += delta * 3;
+                
+                // Roar Pose: Back tilted, head up, jaw wide open, arms raised
+                torsoGroup.rotation.x = THREE.MathUtils.lerp(torsoGroup.rotation.x, -0.3, 0.1);
+                headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, -0.6, 0.1);
+                jawGroup.rotation.x = THREE.MathUtils.lerp(jawGroup.rotation.x, 0.9, 0.15);
+                
+                armLGroup.rotation.x = THREE.MathUtils.lerp(armLGroup.rotation.x, -0.8, 0.1);
+                armRGroup.rotation.x = THREE.MathUtils.lerp(armRGroup.rotation.x, -0.8, 0.1);
+                
+                tailGroup1.rotation.x = THREE.MathUtils.lerp(tailGroup1.rotation.x, 0.3, 0.1);
+                tailGroup2.rotation.y = Math.sin(roarTimer * 8) * 0.1;
+
+                // Spawn shockwave ring particles from jaw
+                if(Math.random() > 0.3) {
+                    spawnRoarParticle();
+                }
+
+                if(roarTimer > Math.PI * 1.5) {
+                    isRoaring = false;
+                    roarTimer = 0;
+                }
+                return;
+            }
+
+            // Normal Pose Animations (Idle, Walk, Run)
+            if (currentAnimation === 'idle') {
+                // Gentle breathing and subtle tail sway
+                const breath = Math.sin(animTime * 0.8) * 0.03;
+                torsoGroup.position.y = breath;
+                torsoGroup.rotation.x = THREE.MathUtils.lerp(torsoGroup.rotation.x, 0, 0.05);
+
+                headGroup.rotation.x = THREE.MathUtils.lerp(headGroup.rotation.x, Math.sin(animTime * 0.8 + 1) * 0.02, 0.05);
+                jawGroup.rotation.x = THREE.MathUtils.lerp(jawGroup.rotation.x, 0.05 + Math.sin(animTime * 0.5) * 0.03, 0.05);
+
+                legLGroup.rotation.x = THREE.MathUtils.lerp(legLGroup.rotation.x, 0, 0.1);
+                legRGroup.rotation.x = THREE.MathUtils.lerp(legRGroup.rotation.x, 0, 0.1);
+                lowerLegL.rotation.x = THREE.MathUtils.lerp(lowerLegL.rotation.x, 0, 0.1);
+                lowerLegR.rotation.x = THREE.MathUtils.lerp(lowerLegR.rotation.x, 0, 0.1);
+
+                armLGroup.rotation.x = Math.sin(animTime * 0.8) * 0.08;
+                armRGroup.rotation.x = -Math.sin(animTime * 0.8) * 0.08;
+
+                tailGroup1.rotation.y = Math.sin(animTime * 0.6) * 0.08;
+                tailGroup2.rotation.y = Math.sin(animTime * 0.6 - 0.5) * 0.1;
+                tailGroup3.rotation.y = Math.sin(animTime * 0.6 - 1.0) * 0.12;
+
+            } else if (currentAnimation === 'walk' || currentAnimation === 'run') {
+                const speedMult = currentAnimation === 'run' ? 2.2 : 1.2;
+                const t = animTime * speedMult;
+
+                // Leg stride cycle
+                const legAngleL = Math.sin(t) * (currentAnimation === 'run' ? 0.7 : 0.45);
+                const legAngleR = -Math.sin(t) * (currentAnimation === 'run' ? 0.7 : 0.45);
+
+                legLGroup.rotation.x = legAngleL;
+                legRGroup.rotation.x = legAngleR;
+
+                // Knee bending
+                lowerLegL.rotation.x = legAngleL > 0 ? legAngleL * 0.8 : 0;
+                lowerLegR.rotation.x = legAngleR > 0 ? legAngleR * 0.8 : 0;
+
+                // Torso bobbing
+                torsoGroup.position.y = Math.abs(Math.sin(t * 2)) * 0.2;
+                torsoGroup.rotation.x = (currentAnimation === 'run' ? 0.15 : 0.05) + Math.sin(t * 2) * 0.03;
+                torsoGroup.rotation.z = Math.sin(t) * 0.04;
+
+                // Head counter-bob
+                headGroup.rotation.x = -Math.sin(t * 2) * 0.04;
+                jawGroup.rotation.x = 0.1 + Math.abs(Math.sin(t)) * 0.15;
+
+                // Arms swing
+                armLGroup.rotation.x = -legAngleL * 0.6;
+                armRGroup.rotation.x = -legAngleR * 0.6;
+
+                // Tail counter balance sway
+                tailGroup1.rotation.y = -Math.sin(t) * 0.2;
+                tailGroup2.rotation.y = -Math.sin(t - 0.4) * 0.25;
+                tailGroup3.rotation.y = -Math.sin(t - 0.8) * 0.3;
+            }
+        }
+
+        function triggerRoar() {
+            if(isRoaring) return;
+            isRoaring = true;
+            roarTimer = 0;
+
+            // Camera subtle shake effect
+            let shakeCount = 0;
+            const originalCamPos = camera.position.clone();
+            const shakeInterval = setInterval(() => {
+                camera.position.x = originalCamPos.x + (Math.random() - 0.5) * 0.3;
+                camera.position.y = originalCamPos.y + (Math.random() - 0.5) * 0.3;
+                shakeCount++;
+                if(shakeCount > 20) {
+                    clearInterval(shakeInterval);
+                    camera.position.copy(originalCamPos);
+                }
+            }, 30);
+        }
+
+        function spawnRoarParticle() {
+            const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const pal = PALETTES[currentSkin];
+            const mat = new THREE.MeshBasicMaterial({ 
+                color: pal.eye, 
+                transparent: true, 
+                opacity: 0.9 
+            });
+            const p = new THREE.Mesh(geo, mat);
+
+            // Position at mouth
+            const mouthWorldPos = new THREE.Vector3();
+            jawGroup.getWorldPosition(mouthWorldPos);
+            p.position.copy(mouthWorldPos).add(new THREE.Vector3(0, 0.2, 0.8));
+
+            // Velocity forward
+            const dir = new THREE.Vector3(0, 0.2, 1).applyQuaternion(headGroup.getWorldQuaternion(new THREE.Quaternion()));
+            p.userData = {
+                velocity: dir.multiplyScalar(0.3 + Math.random() * 0.2),
+                life: 1.0
+            };
+
+            scene.add(p);
+            roarParticles.push(p);
+        }
+
+        function updateParticles(delta) {
+            for(let i = roarParticles.length - 1; i >= 0; i--) {
+                const p = roarParticles[i];
+                p.position.add(p.userData.velocity);
+                p.scale.multiplyScalar(1.05); // Expand shockwave block
+                p.userData.life -= delta * 2;
+                p.material.opacity = p.userData.life;
+
+                if(p.userData.life <= 0) {
+                    scene.remove(p);
+                    p.geometry.dispose();
+                    p.material.dispose();
+                    roarParticles.splice(i, 1);
+                }
+            }
+        }
+
+        function setupUIListeners() {
+            // Animation Buttons
+            const animBtns = document.querySelectorAll('.anim-btn');
+            animBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    animBtns.forEach(b => {
+                        b.classList.remove('bg-emerald-600', 'text-white', 'shadow-lg', 'shadow-emerald-900/40', 'active');
+                        b.classList.add('bg-slate-800', 'text-slate-300', 'border', 'border-slate-700/50');
+                    });
+                    const target = e.currentTarget;
+                    target.classList.remove('bg-slate-800', 'text-slate-300', 'border', 'border-slate-700/50');
+                    target.classList.add('bg-emerald-600', 'text-white', 'shadow-lg', 'shadow-emerald-900/40', 'active');
+
+                    if(target.id === 'btn-idle') currentAnimation = 'idle';
+                    if(target.id === 'btn-walk') currentAnimation = 'walk';
+                    if(target.id === 'btn-run') currentAnimation = 'run';
+                });
+            });
+
+            // Roar Button
+            document.getElementById('btn-roar').addEventListener('click', triggerRoar);
+
+            // Skin Selectors
+            const skinBtns = document.querySelectorAll('.skin-btn');
+            skinBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    skinBtns.forEach(b => {
+                        b.classList.remove('border-emerald-500/50', 'bg-emerald-950/40', 'text-emerald-300');
+                        b.classList.add('border-slate-700/50', 'bg-slate-800/40', 'text-slate-300');
+                    });
+                    const target = e.currentTarget;
+                    target.classList.remove('border-slate-700/50', 'bg-slate-800/40', 'text-slate-300');
+                    target.classList.add('border-emerald-500/50', 'bg-emerald-950/40', 'text-emerald-300');
+
+                    const skin = target.getAttribute('data-skin');
+                    switchSkin(skin);
+                });
+            });
+
+            // Lighting Mode Toggle
+            document.getElementById('btn-lighting').addEventListener('click', () => {
+                isNightMode = !isNightMode;
+                if(isNightMode) {
+                    scene.background.setHex(0x020617);
+                    scene.fog.color.setHex(0x020617);
+                    ambientLight.intensity = 0.2;
+                    dirLight.intensity = 0.6;
+                    dirLight.color.setHex(0x38bdf8); // Cyber blue moonlight
+                } else {
+                    scene.background.setHex(0x0f172a);
+                    scene.fog.color.setHex(0x0f172a);
+                    ambientLight.intensity = 0.6;
+                    dirLight.intensity = 1.2;
+                    dirLight.color.setHex(0xffffff);
+                }
+            });
+
+            // Pedestal Toggle
+            document.getElementById('btn-pedestal').addEventListener('click', () => {
+                showPedestal = !showPedestal;
+                pedestalGroup.visible = showPedestal;
+            });
+
+            // Auto Rotate Toggle
+            document.getElementById('btn-autorotate').addEventListener('click', (e) => {
+                controls.autoRotate = !controls.autoRotate;
+                controls.autoRotateSpeed = 2.0;
+                e.currentTarget.classList.toggle('text-emerald-400');
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            
+            // Update Skeleton Animation
+            updateAnimation(delta);
+
+            // Update Particle Effects
+            updateParticles(delta);
+
+            // Update Camera Orbit Controls
+            controls.update();
+
+            // Render Frame
+            renderer.render(scene, camera);
+        }
+
+        // Run On Page Load
+        window.onload = function() {
+            init();
+        };
+    </script>
+</body>
+</html>

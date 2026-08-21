@@ -1,0 +1,291 @@
+/* ============================================================
+   tools/make-probe.js —— 生成 BUG 诊断页 tools/_probe.html
+   采集：命中测试（点击是否被遮挡）、战斗第一回合主角状态时间线、
+        全部卡牌在手牌尺寸/网格尺寸下的文字溢出
+   ============================================================ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const ROOT = path.join(__dirname, '..');
+
+let html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+html = html.replace('href="css/', 'href="../css/').replace(/src="js\//g, 'src="../js/');
+
+const DRIVER = `
+<script>
+(function () {
+  const REP = { hits: {}, timeline: [], cardOverflow: { hand: [], grid: [] }, rewardOverlay: {} };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  showCardChooser = async (o) => (o.cards || []).slice(0, o.count || 1);
+
+  function desc(el) {
+    if (!el) return 'null';
+    return (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ').join('.') : el.tagName);
+  }
+  /* 命中测试：某元素中心点实际能收到事件的是谁 */
+  function hit(name, sel, frac) {
+    const n = document.querySelector(sel);
+    if (!n) { REP.hits[name] = 'MISSING'; return; }
+    const r = n.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height * (frac == null ? 0.5 : frac);
+    const el = document.elementFromPoint(x, y);
+    const ok = el === n || n.contains(el) || (el && el.contains(n));
+    REP.hits[name] = (ok ? 'OK   ' : 'BLOCK') + ' → ' + desc(el);
+  }
+
+  function snap(label) {
+    const nodes = document.querySelectorAll('#player-slot .combatant');
+    const o = { label: label, count: nodes.length };
+    const n = nodes[0];
+    if (n) {
+      const cs = getComputedStyle(n);
+      const r = n.getBoundingClientRect();
+      o.cls = n.className;
+      o.style = cs.opacity + '/' + cs.display + '/' + cs.visibility + '/anim=' + cs.animationName;
+      o.rect = [r.left | 0, r.top | 0, r.width | 0, r.height | 0];
+      const svg = n.querySelector('.body svg');
+      o.hasSvg = !!svg;
+      if (svg) {
+        const sr = svg.getBoundingClientRect();
+        o.svgRect = [sr.left | 0, sr.top | 0, sr.width | 0, sr.height | 0];
+        const scs = getComputedStyle(svg);
+        o.svgStyle = scs.opacity + '/' + scs.display + '/' + scs.visibility;
+        const p = svg.querySelector('path');
+        if (p) {
+          const pr = p.getBoundingClientRect();
+          o.path0 = getComputedStyle(p).fill + ' rect=' + [pr.width | 0, pr.height | 0];
+        }
+        o.paths = svg.querySelectorAll('path,rect,circle,ellipse').length;
+      }
+      const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height * 0.35);
+      o.topAt = desc(el);
+    }
+    const ps = document.getElementById('player-slot');
+    if (ps) {
+      const pcs = getComputedStyle(ps), pr = ps.getBoundingClientRect();
+      o.slot = [pr.left | 0, pr.top | 0, pr.width | 0, pr.height | 0] + ' ' + pcs.display + '/' + pcs.opacity;
+      o.slotKids = ps.children.length;
+    }
+    REP.timeline.push(o);
+  }
+
+  /* 所有卡牌文字溢出测试（测内层块元素，且验证自动缩放是否救回） */
+  function overflowTest(kind) {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-3000px;top:0;';
+    document.getElementById('stage').appendChild(host);
+    const out = [];
+    let worst = 0, need = 0, total = 0;
+    Object.keys(CARDS).forEach(id => {
+      [0, 1].forEach(up => {
+        if (up && !canUpgradeCard(makeCard(id, 0))) return;
+        const c = makeCard(id, up);
+        const n = document.createElement('div');
+        if (kind === 'hand') {
+          n.className = 'card no-anim';
+          n.style.cssText = 'position:relative;left:0;bottom:auto;width:190px;height:264px;';
+        } else {
+          n.className = 'grid-card';
+          n.style.cssText = 'position:relative;';
+        }
+        n.innerHTML = cardHtml(c);
+        host.appendChild(n);
+        total++;
+        const box = n.querySelector('.c-desc'), inner = n.querySelector('.c-desc-in');
+        const nm = n.querySelector('.c-name');
+        const before = inner.scrollHeight - box.clientHeight;
+        fitAllCardText();
+        const after = inner.scrollHeight - box.clientHeight;
+        const fs = getComputedStyle(inner).fontSize;
+        const nx = nm.scrollWidth - nm.clientWidth;
+        if (before > 1 || after > 1 || nx > 1) {
+          need++;
+          if (before > worst) worst = before;
+          out.push(cardName(c) + ' 溢出' + before + 'px→修正后' + after + 'px 字号' + fs +
+            ' 名字溢出' + nx + ' 「' + inner.textContent.trim() + '」');
+        }
+        host.removeChild(n);
+      });
+    });
+    host.remove();
+    return { total: total, needFit: need, worst: worst, list: out.slice(0, 40) };
+  }
+
+  async function scenarioClick() {
+    const res = {};
+    function realClick(sel) {
+      const n = document.querySelector(sel);
+      const r = n.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!top) return 'elementFromPoint=null';
+      top.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return desc(top);
+    }
+    res.pileDraw = realClick('#pile-draw');
+    await sleep(60);
+    res.overlayOpened = document.querySelectorAll('.overlay').length;
+    /* 故意不走 closeOverlay，直接摘掉节点，验证不会残留「整屏点不动」 */
+    document.querySelectorAll('.overlay').forEach(n => n.remove());
+    await sleep(30);
+    const t0 = CB.turn;
+    res.endTurnClickedOn = realClick('#btn-end-turn');
+    await sleep(2600);
+    res.turn = t0 + ' → ' + CB.turn;
+    res.playerHpAfterEnemyTurn = CB.player.hp;
+    res.playerClsAfterEnemyTurn = (document.querySelector('#player-slot .combatant') || {}).className;
+    /* 悬停提示是否遮挡手牌点击 */
+    const card0 = document.querySelector('#hand .card');
+    if (card0) {
+      card0.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+      await sleep(30);
+      const r = card0.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height * 0.3);
+      res.hoverTipBlocks = desc(top);
+      card0.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+    }
+    /* 拖拽出牌是否仍然有效（pointer-events 改动后） */
+    if (CB && !CB.over) {
+      const card = document.querySelector('#hand .card');
+      const cd = card && card._card;
+      if (cd && canPlayCard(cd)) {
+        const r = card.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const e0 = CB.energy, h0 = CB.hand.length;
+        const fire = (t, cx, cy) => card.dispatchEvent(new PointerEvent(t, {
+          bubbles: true, cancelable: true, pointerId: 1, clientX: cx, clientY: cy, buttons: t === 'pointerup' ? 0 : 1
+        }));
+        const en = document.querySelector('#enemy-slots .combatant .body');
+        const er = en.getBoundingClientRect();
+        fire('pointerdown', x, y);
+        fire('pointermove', x, y - 120);
+        window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: er.left + er.width / 2, clientY: er.top + er.height / 2 }));
+        fire('pointermove', er.left + er.width / 2, er.top + er.height / 2);
+        fire('pointerup', er.left + er.width / 2, er.top + er.height / 2);
+        await sleep(400);
+        res.dragPlay = '能量 ' + e0 + '→' + CB.energy + '，手牌 ' + h0 + '→' + CB.hand.length;
+      } else res.dragPlay = '无可打出手牌';
+    }
+    REP.clickTest = res;
+  }
+
+  /* 描述排版专项：带「消耗/虚无/固有」后缀的卡（旧代码里 <br> 会变成 flex 项而不换行） */
+  function descLayoutTest() {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-3000px;top:0;';
+    document.getElementById('stage').appendChild(host);
+    const out = [];
+    ['impervious', 'reaper', 'pummel', 'warcry', 'carnage', 'ghostly_armor', 'brutality',
+      'feed', 'offering', 'sever_soul', 'second_wind', 'shockwave', 'perfected_strike'].forEach(id => {
+        const c = makeCard(id, id === 'brutality' ? 1 : 0);
+        const n = document.createElement('div');
+        n.className = 'grid-card';
+        n.style.cssText = 'position:relative;';
+        n.innerHTML = cardHtml(c);
+        host.appendChild(n);
+        fitAllCardText();
+        const box = n.querySelector('.c-desc'), inner = n.querySelector('.c-desc-in');
+        const lh = parseFloat(getComputedStyle(inner).lineHeight) || 16;
+        const ir = inner.getBoundingClientRect();
+        const span = inner.querySelector('span.kw');
+        let spanInfo = '无后缀';
+        if (span) {
+          const sr = span.getBoundingClientRect();
+          spanInfo = '后缀行偏移=' + Math.round(sr.top - ir.top) + 'px 宽=' + Math.round(sr.width) +
+            ' 居中偏差=' + Math.round((sr.left + sr.width / 2) - (ir.left + ir.width / 2));
+        }
+        out.push(cardName(c) + ' 直接子元素=' + box.childElementCount +
+          ' 文本高=' + Math.round(inner.scrollHeight) + '/' + box.clientHeight +
+          ' 行数=' + Math.round(inner.scrollHeight / lh) + ' ' + spanInfo);
+        host.removeChild(n);
+      });
+    host.remove();
+    return out;
+  }
+
+  async function run() {
+    /* ---------- 战斗第一回合：完全走真实流程 ---------- */
+    Game.newRun();
+    snap('newRun 之后（地图）');
+    const node = S.map.grid[0].filter(Boolean)[0];
+    Game.enterNode(node);          /* 不 await，模拟真实点击 */
+    snap('enterNode 同步返回时');
+    for (let i = 0; i < 14; i++) {
+      await sleep(120);
+      snap('T+' + ((i + 1) * 120) + 'ms');
+    }
+    /* 命中测试（此时应为玩家回合） */
+    hit('结束回合按钮', '#btn-end-turn');
+    hit('能量球', '#energy-panel');
+    hit('抽牌堆', '#pile-draw');
+    hit('弃牌堆', '#pile-discard');
+    hit('消耗堆', '#pile-exhaust');
+    hit('顶栏牌组按钮', '#btn-deck');
+    hit('顶栏药水位', '.potion-slot');
+    hit('敌人身体', '#enemy-slots .combatant .body', 0.5);
+    hit('主角身体', '#player-slot .combatant .body', 0.5);
+    hit('第一张手牌', '#hand .card', 0.3);
+    REP.combatInfo = {
+      turn: CB && CB.turn, busy: CB && CB.busy, hand: CB && CB.hand.length,
+      screen: Game.screen, enemies: CB && CB.enemies.map(e => e.name + ':' + e.hp)
+    };
+    /* 真实点击：用 elementFromPoint 拿到最上层元素再点，验证不再被遮挡 */
+    await scenarioClick();
+
+    /* 打一张牌后再看主角 */
+    if (CB && CB.hand.length) {
+      const c = CB.hand.find(canPlayCard);
+      if (c) {
+        const t = CARDS[c.id].target === 'enemy' ? A.aliveEnemies()[0] : null;
+        await playCard(c, t);
+        await sleep(200);
+        snap('打出一张牌之后');
+      }
+    }
+
+    /* ---------- 卡牌文字溢出 ---------- */
+    REP.cardOverflow.hand = overflowTest('hand');
+    REP.cardOverflow.grid = overflowTest('grid');
+    REP.descLayout = descLayoutTest();
+
+    /* ---------- 奖励卡牌浮层结构 ---------- */
+    CB = null;
+    Game.show('reward');
+    Game.pendingRewards = null;
+    showCardRewardChoice(() => { });
+    await sleep(120);
+    const ov = document.querySelector('.overlay');
+    if (ov) {
+      const cards = ov.querySelectorAll('.grid-card');
+      REP.rewardOverlay.count = cards.length;
+      REP.rewardOverlay.cards = Array.prototype.slice.call(cards).map(n => {
+        const r = n.getBoundingClientRect(), d = n.querySelector('.c-desc');
+        const dr = d.getBoundingClientRect();
+        return {
+          name: n.querySelector('.c-name').textContent,
+          rect: [r.left | 0, r.top | 0, r.width | 0, r.height | 0],
+          descRect: [dr.left | 0, dr.top | 0, dr.width | 0, dr.height | 0],
+          descOver: d.scrollHeight - d.clientHeight,
+          lines: Math.round(d.scrollHeight / parseFloat(getComputedStyle(d).lineHeight)),
+          text: d.textContent.trim()
+        };
+      });
+      const g = ov.querySelector('.card-grid');
+      const gr = g.getBoundingClientRect();
+      REP.rewardOverlay.grid = [gr.left | 0, gr.top | 0, gr.width | 0, gr.height | 0];
+    }
+  }
+
+  setTimeout(() => {
+    run().catch(e => { REP.error = (e && e.stack) || String(e); }).then(() => {
+      const txt = JSON.stringify(REP, null, 1);
+      document.documentElement.innerHTML = '<head><meta charset="utf-8"></head><body><pre id="__report">'
+        + txt.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre></body>';
+    });
+  }, 250);
+})();
+</script>
+`;
+
+html = html.replace('</body>', DRIVER + '\n</body>');
+fs.writeFileSync(path.join(ROOT, 'tools', '_probe.html'), html, 'utf8');
+console.log('已生成 tools/_probe.html');

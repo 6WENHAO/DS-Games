@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>snap</title>
+<style>html,body{margin:0;height:100%;background:#0e1116;overflow:hidden}canvas{display:block}</style>
+</head><body>
+<script src="js/three.min.js"></script>
+<script src="js/geom.js"></script>
+<script src="js/piano.js"></script>
+<script>
+/* 单帧快照工具：#view=front|side|top|keys|tail|closed  #bg=dark|light */
+var q = {};
+location.hash.replace(/^#/, '').split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) q[p[0]] = p[1]; });
+var view = q.view || 'front';
+var dark = q.bg !== 'light';
+
+var W = window.innerWidth, H = window.innerHeight;
+var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.setClearColor(dark ? 0x0e1116 : 0xf0f2f5, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+if ('useLegacyLights' in renderer) renderer.useLegacyLights = false;
+document.body.appendChild(renderer.domElement);
+
+var scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.9));
+var d1 = new THREE.DirectionalLight(0xffffff, 2.6); d1.position.set(2.4, 3.9, 1.9); scene.add(d1);
+var d2 = new THREE.DirectionalLight(0xdfe8ff, 1.0); d2.position.set(-3.2, 2.2, -1.4); scene.add(d2);
+var d3 = new THREE.DirectionalLight(0xffffff, 0.8); d3.position.set(-0.6, 1.6, -4.2); scene.add(d3);
+var d4 = new THREE.DirectionalLight(0xffffff, 0.7); d4.position.set(0.5, -1.0, 2.5); scene.add(d4);
+
+var piano = Piano.build();
+scene.add(piano.root);
+
+/* #debug=1：各部件替换为无光照灰阶，便于用 ASCII 读出结构 */
+if (q.debug) {
+  var MM = piano.materials;
+  var flat = function (v) { return new THREE.MeshBasicMaterial({ color: new THREE.Color(v, v, v) }); };
+  var map = [
+    [MM.whiteKey, flat(1.00)], [MM.blackKey, flat(0.02)], [MM.blackKeyContrast, flat(0.02)],
+    [MM.lacquer, flat(0.50)], [MM.lacquerSoft, flat(0.33)], [MM.plate, flat(0.70)],
+    [MM.soundboard, flat(0.24)], [MM.string, flat(0.95)], [MM.stringBass, flat(0.95)],
+    [MM.felt, flat(0.85)], [MM.metal, flat(0.62)], [MM.metalSoft, flat(0.62)], [MM.decal, flat(0.0)]
+  ];
+  piano.root.traverse(function (o) {
+    if (!o.isMesh) return;
+    for (var i = 0; i < map.length; i++) if (o.material === map[i][0]) { o.material = map[i][1]; return; }
+  });
+}
+
+/* 与 app.js 相同的开盖姿态 */
+var P = piano.parts, open = q.view === 'closed' ? 0 : 1;
+P.lid.rotation.z = 0.80 * open;
+P.frontLid.rotation.x = -Math.PI * open;
+P.fallboard.rotation.x = -Math.PI * open;
+P.fallboardFold.rotation.x = Math.PI * open;
+P.desk.rotation.x = 1.40 - 1.72 * open;
+piano.root.updateMatrixWorld(true);
+if (open) {
+  var a = P.stickAnchorCase.clone();
+  var b = P.lid.localToWorld(P.stickAnchorLid.clone());
+  P.stick.group.visible = true;
+  P.stick.rod.matrixAutoUpdate = false;
+  P.stick.foot.matrixAutoUpdate = false;
+  piano.cylBetween(P.stick.rod.matrix, a, b, 1);
+  P.stick.foot.matrix.compose(a, new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
+} else {
+  P.stick.group.visible = false;
+}
+
+var VIEWS = {
+  front:  { th: 0.00, ph: 1.00, r: 3.95, t: [0, 0.88, -0.62] },
+  hero:   { th: 0.70, ph: 0.98, r: 4.15, t: [0, 0.88, -0.62] },
+  side:   { th: 1.45, ph: 0.96, r: 4.05, t: [0, 0.88, -0.85] },
+  top:    { th: 0.22, ph: 0.21, r: 5.00, t: [0, 0.80, -1.18] },
+  tail:   { th: 3.05, ph: 0.90, r: 3.85, t: [0, 0.92, -1.15] },
+  keys:   { th: 0.50, ph: 0.80, r: 1.10, t: [-0.08, 0.76, -0.16] },
+  player: { th: 0.00, ph: 0.72, r: 1.62, t: [0, 0.76, -0.12] },
+  closed: { th: 0.70, ph: 0.98, r: 4.15, t: [0, 0.75, -0.62] },
+  inside: { th: 0.30, ph: 0.45, r: 2.10, t: [0, 0.82, -0.85] },
+  kbtop:  { th: 0.00, ph: 0.02, r: 0.46, t: [0, 0.737, -0.15], fov: 76 },
+  strtop: { th: 0.00, ph: 0.02, r: 0.62, t: [0, 0.829, -0.80], fov: 76 },
+};
+var v = VIEWS[view] || VIEWS.front;
+var cam = new THREE.PerspectiveCamera(v.fov || 38, W / H, 0.05, 60);
+var tgt = new THREE.Vector3(v.t[0], v.t[1], v.t[2]);
+cam.position.set(
+  tgt.x + v.r * Math.sin(v.ph) * Math.sin(v.th),
+  tgt.y + v.r * Math.cos(v.ph),
+  tgt.z + v.r * Math.sin(v.ph) * Math.cos(v.th)
+);
+cam.lookAt(tgt);
+
+/* 地面（浅色模式下才加，暗色模式保持纯剪影） */
+if (!dark) {
+  var g = new THREE.Mesh(new THREE.CircleGeometry(16, 48),
+    new THREE.MeshStandardMaterial({ color: 0xdfe3e9, roughness: 0.6 }));
+  g.rotation.x = -Math.PI / 2;
+  scene.add(g);
+}
+
+renderer.render(scene, cam);
+document.title = 'ok ' + renderer.info.render.calls + ' calls / ' + renderer.info.render.triangles + ' tris';
+</script>
+</body></html>

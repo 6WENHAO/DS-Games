@@ -1,0 +1,2121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>歼-20「威龙」· 超精细参数化三维模型</title>
+<style>
+  :root{
+    --bg0:#05070a; --bg1:#0b1017; --line:rgba(140,190,225,.18);
+    --txt:#dbe7f2; --dim:#8ea4b8; --acc:#6fd0ff; --warn:#ffb347; --red:#ff5f56;
+    --panel:rgba(9,14,20,.62); --panel2:rgba(9,14,20,.82);
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg0);color:var(--txt);font-family:var(--ui)}
+  #stage{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%;outline:none}
+  #vignette{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 45%,transparent 45%,rgba(0,0,0,.42) 88%,rgba(0,0,0,.62) 100%)}
+  .ui{position:fixed;z-index:8;pointer-events:none}
+  .ui *{pointer-events:auto}
+  body.nohud .ui{opacity:0;pointer-events:none;transition:opacity .25s}
+
+  /* ---------- 顶部标题 ---------- */
+  #topL{top:18px;left:20px}
+  #topL .kicker{font:600 10.5px/1.2 var(--mono);letter-spacing:.34em;color:var(--acc);opacity:.85}
+  #topL h1{margin:6px 0 2px;font-size:26px;font-weight:650;letter-spacing:.06em;
+    text-shadow:0 2px 22px rgba(0,0,0,.85)}
+  #topL h1 small{font-size:13px;font-weight:400;color:var(--dim);letter-spacing:.18em;margin-left:8px}
+  #topL .sub{font:400 11px/1.5 var(--mono);color:var(--dim);letter-spacing:.12em}
+  #topL .bar{width:180px;height:1px;background:linear-gradient(90deg,var(--acc),transparent);margin:9px 0 7px}
+
+  /* ---------- 右上规格 ---------- */
+  #topR{top:18px;right:20px;text-align:right}
+  #topR .t{font:600 10px/1 var(--mono);letter-spacing:.3em;color:var(--dim);margin-bottom:8px}
+  #topR table{border-collapse:collapse;font:400 11.5px/1.65 var(--mono);margin-left:auto}
+  #topR td{padding:1px 0 1px 14px;white-space:nowrap}
+  #topR td.k{color:var(--dim);letter-spacing:.06em}
+  #topR td.v{color:var(--txt);text-align:right}
+  #topR td.v b{color:var(--acc);font-weight:600}
+
+  /* ---------- 控制面板 ---------- */
+  #panel{right:18px;top:150px;width:214px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:12px 12px 14px;backdrop-filter:blur(14px) saturate(1.2);
+    box-shadow:0 18px 48px rgba(0,0,0,.55)}
+  #panel h2{margin:2px 0 9px;font:600 9.5px/1 var(--mono);letter-spacing:.28em;color:var(--acc)}
+  #panel .grp{margin:0 0 11px}
+  #panel .grp>.lbl{font:600 9px/1 var(--mono);letter-spacing:.2em;color:var(--dim);margin:0 0 7px}
+  .sw{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    font-size:12px;padding:4px 6px;border-radius:7px;cursor:pointer;user-select:none;transition:background .15s}
+  .sw:hover{background:rgba(111,208,255,.08)}
+  .sw i{font-style:normal;color:var(--dim);font:400 9.5px var(--mono)}
+  .tog{position:relative;width:32px;height:16px;border-radius:9px;background:rgba(255,255,255,.10);
+    border:1px solid var(--line);flex:0 0 auto;transition:.2s}
+  .tog::after{content:"";position:absolute;left:2px;top:2px;width:10px;height:10px;border-radius:50%;
+    background:var(--dim);transition:.2s}
+  .sw.on .tog{background:rgba(111,208,255,.28);border-color:rgba(111,208,255,.55)}
+  .sw.on .tog::after{left:18px;background:var(--acc);box-shadow:0 0 10px var(--acc)}
+  .sl{margin:7px 6px 10px}
+  .sl label{display:flex;justify-content:space-between;font:400 10px/1.4 var(--mono);color:var(--dim)}
+  .sl label b{color:var(--txt);font-weight:500}
+  .sl input{-webkit-appearance:none;appearance:none;width:100%;height:2px;margin:8px 0 0;border-radius:2px;
+    background:rgba(255,255,255,.16);outline:none}
+  .sl input::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:var(--acc);box-shadow:0 0 9px rgba(111,208,255,.8);cursor:pointer}
+  .sl input::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:var(--acc);cursor:pointer}
+  .seg{display:flex;gap:4px}
+  .seg button{flex:1;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--dim);
+    font:500 10.5px var(--ui);padding:5px 0;border-radius:6px;cursor:pointer;transition:.15s}
+  .seg button:hover{color:var(--txt);background:rgba(111,208,255,.12)}
+  .seg button.on{color:#04121b;background:var(--acc);border-color:var(--acc);font-weight:700}
+
+  /* ---------- 底部视角栏 ---------- */
+  #dock{bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:6px;
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:7px 8px;
+    backdrop-filter:blur(14px);box-shadow:0 14px 40px rgba(0,0,0,.5)}
+  #dock button{background:transparent;border:1px solid transparent;color:var(--dim);cursor:pointer;
+    font:500 12px var(--ui);padding:6px 11px;border-radius:7px;transition:.15s;letter-spacing:.03em}
+  #dock button:hover{color:var(--txt);background:rgba(111,208,255,.12)}
+  #dock button.on{color:#04121b;background:var(--acc);font-weight:700}
+  #dock .sep{width:1px;background:var(--line);margin:3px 3px}
+
+  /* ---------- 左下提示 ---------- */
+  #tips{bottom:20px;left:20px;font:400 10.5px/1.9 var(--mono);color:var(--dim);opacity:.72}
+  #tips b{color:var(--txt);font-weight:500}
+  #fps{position:fixed;left:20px;top:calc(100% - 130px);font:400 10px var(--mono);color:var(--dim);opacity:.5;z-index:8}
+
+  /* ---------- 载入 / 错误 ---------- */
+  #load{position:fixed;inset:0;z-index:30;background:radial-gradient(60% 60% at 50% 45%,#0b1017,#05070a 80%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .6s}
+  #load.gone{opacity:0;pointer-events:none}
+  #load .ring{width:44px;height:44px;border:2px solid rgba(111,208,255,.16);border-top-color:var(--acc);
+    border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #load .t{font:600 11px var(--mono);letter-spacing:.3em;color:var(--acc)}
+  #load .s{font:400 11px var(--mono);color:var(--dim);letter-spacing:.1em;min-height:16px}
+  #err{position:fixed;inset:auto 16px 16px 16px;z-index:40;display:none;padding:12px 14px;border-radius:10px;
+    background:rgba(60,10,10,.9);border:1px solid rgba(255,95,86,.5);color:#ffd9d6;
+    font:400 11.5px/1.6 var(--mono);white-space:pre-wrap;max-height:42vh;overflow:auto}
+  #diag{position:fixed;left:-9999px;top:-9999px;white-space:pre}
+  @media (max-width:900px){
+    #panel{display:none} #topR{display:none} #topL h1{font-size:19px} #tips{display:none}
+    #dock button{padding:6px 8px;font-size:11px}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="vignette"></div>
+
+<div class="ui" id="topL">
+  <div class="kicker">CHENGDU AEROSPACE · 5TH GENERATION</div>
+  <h1>歼-20 <small>「威龙」/ J-20 MIGHTY DRAGON</small></h1>
+  <div class="bar"></div>
+  <div class="sub">PROCEDURAL HIGH-FIDELITY DIGITAL MOCK-UP · WebGL / PBR</div>
+</div>
+
+<div class="ui" id="topR">
+  <div class="t">SPECIFICATION</div>
+  <table>
+    <tr><td class="k">机长 LENGTH</td><td class="v"><b>20.4</b> m</td></tr>
+    <tr><td class="k">翼展 SPAN</td><td class="v"><b>13.01</b> m</td></tr>
+    <tr><td class="k">机高 HEIGHT</td><td class="v"><b>4.45</b> m</td></tr>
+    <tr><td class="k">翼面积 WING AREA</td><td class="v"><b>73</b> m²</td></tr>
+    <tr><td class="k">最大起飞 MTOW</td><td class="v"><b>37</b> t</td></tr>
+    <tr><td class="k">动力 POWERPLANT</td><td class="v">2 × <b>WS-10C</b></td></tr>
+    <tr><td class="k">极速 V<sub>MAX</sub></td><td class="v"><b>2.0</b> Ma</td></tr>
+    <tr><td class="k">布局 LAYOUT</td><td class="v">鸭式 + DSI</td></tr>
+  </table>
+</div>
+
+<div class="ui" id="panel">
+  <h2>MODEL CONTROL</h2>
+  <div class="grp">
+    <div class="lbl">状态 · CONFIGURATION</div>
+    <div class="sw" data-t="bays"><span>弹舱开启 <i>BAYS</i></span><span class="tog"></span></div>
+    <div class="sw" data-t="gear"><span>起落架放下 <i>GEAR</i></span><span class="tog"></span></div>
+    <div class="sw" data-t="canopy"><span>座舱盖开启 <i>CANOPY</i></span><span class="tog"></span></div>
+    <div class="sw on" data-t="ab"><span>加力燃烧 <i>A/B</i></span><span class="tog"></span></div>
+    <div class="sw" data-t="anim"><span>操纵面演示 <i>FCS</i></span><span class="tog"></span></div>
+  </div>
+  <div class="grp">
+    <div class="lbl">显示 · DISPLAY</div>
+    <div class="sw on" data-t="lines"><span>蒙皮分块线 <i>PANEL</i></span><span class="tog"></span></div>
+    <div class="sw on" data-t="marks"><span>国籍标志 <i>MARKS</i></span><span class="tog"></span></div>
+    <div class="sw on" data-t="rotate"><span>自动旋转 <i>SPIN</i></span><span class="tog"></span></div>
+    <div class="sw" data-t="grid"><span>坐标标尺 <i>GRID</i></span><span class="tog"></span></div>
+  </div>
+  <div class="grp">
+    <div class="lbl">环境 · ENVIRONMENT</div>
+    <div class="seg" id="envSeg">
+      <button data-e="studio" class="on">展厅</button>
+      <button data-e="sky">高空</button>
+      <button data-e="dusk">黄昏</button>
+    </div>
+  </div>
+  <div class="grp">
+    <div class="lbl">参数 · PARAMETERS</div>
+    <div class="sl"><label>曝光 EXPOSURE <b id="vExp">1.05</b></label>
+      <input id="sExp" type="range" min="0.4" max="2.0" step="0.01" value="1.05"></div>
+    <div class="sl"><label>鸭翼偏角 CANARD <b id="vCan">0°</b></label>
+      <input id="sCan" type="range" min="-22" max="22" step="0.5" value="0"></div>
+    <div class="sl"><label>蒙皮反光 SHEEN <b id="vShe">0.42</b></label>
+      <input id="sShe" type="range" min="0" max="1" step="0.01" value="0.42"></div>
+  </div>
+</div>
+
+<div class="ui" id="dock">
+  <button data-v="hero" class="on">立体</button>
+  <button data-v="front">前视</button>
+  <button data-v="side">侧视</button>
+  <button data-v="top">俯视</button>
+  <button data-v="bottom">仰视</button>
+  <button data-v="rear">尾视</button>
+  <button data-v="cockpit">座舱</button>
+  <div class="sep"></div>
+  <button data-v="shot">截图</button>
+</div>
+
+<div class="ui" id="tips">
+  <div><b>左键拖拽</b> 旋转 · <b>滚轮</b> 缩放 · <b>右键/双指</b> 平移</div>
+  <div><b>H</b> 隐藏界面 · <b>1-7</b> 视角 · <b>空格</b> 暂停旋转 · <b>B/G/C</b> 弹舱/起落架/座舱盖</div>
+</div>
+<div id="fps"></div>
+
+<div id="load"><div class="ring"></div><div class="t">BUILDING AIRFRAME</div><div class="s" id="loadS">正在加载三维引擎…</div></div>
+<div id="err"></div>
+<div id="diag"></div>
+
+<script type="module">
+/* =====================================================================
+   歼-20「威龙」超精细参数化三维模型 —— 单文件交付
+   全部机体外形由代码放样(loft)生成：无外部模型/贴图依赖
+   ===================================================================== */
+const q = new URLSearchParams(location.search);
+const DIAG = [];
+const say = (m) => { const e = document.getElementById('loadS'); if (e) e.textContent = m; DIAG.push(m); };
+const fail = (m) => {
+  const e = document.getElementById('err');
+  e.style.display = 'block';
+  e.textContent += (e.textContent ? '\n' : '') + m;
+  DIAG.push('ERROR: ' + m);
+  const d = document.getElementById('diag'); if (d) d.textContent = DIAG.join('\n');
+};
+window.addEventListener('error', (ev) => fail('[window] ' + (ev.message || ev.error)));
+window.addEventListener('unhandledrejection', (ev) => fail('[promise] ' + (ev.reason && (ev.reason.stack || ev.reason.message) || ev.reason)));
+
+/* ---------------- three.js 多 CDN 回退加载 ---------------- */
+const CDNS = [
+  'https://unpkg.com/three@0.160.1/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js',
+  'https://esm.sh/three@0.160.1',
+  'https://cdn.skypack.dev/three@0.160.1'
+];
+let THREE = null, cdnUsed = '';
+for (const url of CDNS) {
+  try { say('加载三维引擎 ' + new URL(url).host + ' …'); THREE = await import(/* @vite-ignore */ url); cdnUsed = url; break; }
+  catch (e) { DIAG.push('CDN failed: ' + url + ' :: ' + e.message); }
+}
+if (!THREE) {
+  fail('无法加载 three.js（已尝试 4 个 CDN）。请连接网络后刷新页面。');
+  document.getElementById('load').classList.add('gone');
+  throw new Error('three.js unavailable');
+}
+DIAG.push('three r' + THREE.REVISION + ' via ' + cdnUsed);
+say('three r' + THREE.REVISION + ' 就绪，构建机体…');
+
+const { Vector2, Vector3, Color, MathUtils } = THREE;
+const PI = Math.PI, TAU = PI * 2, D2R = PI / 180;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (t) => t * t * (3 - 2 * t);
+
+/* =====================================================================
+   1. 轨道控制器（自研，零附加依赖）
+   ===================================================================== */
+class Orbit {
+  constructor(cam, dom) {
+    this.cam = cam; this.dom = dom;
+    this.target = new Vector3(0, 0.4, 0); this.tTarget = this.target.clone();
+    this.dist = 34; this.tDist = 34;
+    this.theta = -0.72; this.tTheta = -0.72;   // 方位角
+    this.phi = 1.30; this.tPhi = 1.30;         // 极角（自 +Y 起算）
+    this.minDist = 5; this.maxDist = 180;
+    this.minPhi = 0.05; this.maxPhi = PI - 0.05;
+    this.damp = 0.10; this.auto = true; this.autoSpeed = 0.055;
+    this.enabled = true;
+    this._ptr = new Map(); this._mode = 0; this._last = new Vector2(); this._pinch = 0;
+    const el = dom;
+    el.style.touchAction = 'none';
+    el.addEventListener('contextmenu', e => e.preventDefault());
+    el.addEventListener('pointerdown', e => {
+      if (!this.enabled) return;
+      el.setPointerCapture(e.pointerId);
+      this._ptr.set(e.pointerId, new Vector2(e.clientX, e.clientY));
+      if (this._ptr.size === 1) { this._mode = (e.button === 2 || e.shiftKey) ? 2 : 1; this._last.set(e.clientX, e.clientY); }
+      else if (this._ptr.size === 2) { this._mode = 3; this._pinch = this._pinchDist(); }
+      this.auto = false; if (onUserInput) onUserInput();
+    });
+    el.addEventListener('pointermove', e => {
+      if (!this._ptr.has(e.pointerId)) return;
+      this._ptr.set(e.pointerId, new Vector2(e.clientX, e.clientY));
+      if (this._mode === 3 && this._ptr.size >= 2) {
+        const d = this._pinchDist();
+        this.tDist = clamp(this.tDist * (this._pinch / Math.max(d, 1)), this.minDist, this.maxDist);
+        this._pinch = d; return;
+      }
+      const dx = e.clientX - this._last.x, dy = e.clientY - this._last.y;
+      this._last.set(e.clientX, e.clientY);
+      if (this._mode === 1) {
+        this.tTheta -= dx * 0.0058; this.tPhi = clamp(this.tPhi - dy * 0.0058, this.minPhi, this.maxPhi);
+      } else if (this._mode === 2) this.pan(dx, dy);
+    });
+    const up = e => { this._ptr.delete(e.pointerId); if (this._ptr.size === 0) this._mode = 0; };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    el.addEventListener('wheel', e => {
+      if (!this.enabled) return; e.preventDefault();
+      this.tDist = clamp(this.tDist * Math.exp(clamp(e.deltaY, -240, 240) * 0.0011), this.minDist, this.maxDist);
+      this.auto = false; if (onUserInput) onUserInput();
+    }, { passive: false });
+  }
+  _pinchDist() { const p = [...this._ptr.values()]; return p[0].distanceTo(p[1]); }
+  pan(dx, dy) {
+    const s = this.tDist * 0.0013;
+    const right = new Vector3().setFromMatrixColumn(this.cam.matrix, 0);
+    const up = new Vector3().setFromMatrixColumn(this.cam.matrix, 1);
+    this.tTarget.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+  }
+  set(theta, phi, dist, target) {
+    this.tTheta = theta; this.tPhi = clamp(phi, this.minPhi, this.maxPhi); this.tDist = clamp(dist, this.minDist, this.maxDist);
+    if (target) this.tTarget.copy(target);
+  }
+  snap() { this.theta = this.tTheta; this.phi = this.tPhi; this.dist = this.tDist; this.target.copy(this.tTarget); this.apply(); }
+  apply() {
+    const sp = Math.sin(this.phi), cp = Math.cos(this.phi);
+    this.cam.position.set(
+      this.target.x + this.dist * sp * Math.cos(this.theta),
+      this.target.y + this.dist * cp,
+      this.target.z + this.dist * sp * Math.sin(this.theta));
+    this.cam.lookAt(this.target);
+  }
+  update(dt) {
+    if (this.auto) this.tTheta += this.autoSpeed * dt;
+    const k = 1 - Math.pow(1 - this.damp, dt * 60);
+    this.theta = lerp(this.theta, this.tTheta, k);
+    this.phi = lerp(this.phi, this.tPhi, k);
+    this.dist = lerp(this.dist, this.tDist, k);
+    this.target.lerp(this.tTarget, k);
+    this.apply();
+  }
+}
+let onUserInput = null;
+
+/* =====================================================================
+   2. 放样(loft)几何引擎
+      · 站位参数经 Catmull-Rom 平滑插值 → 逐站生成截面环 → 缝合曲面
+      · 环被划分为若干"带(band)"，带与带之间可指定折痕权重(0平滑/1硬边)
+      · 重复站位 = 沿长度方向的硬边；退化环 = 收敛成尖点
+   ===================================================================== */
+function cr1(a, s) {                                   // Catmull-Rom 采样
+  const n = a.length; let i = Math.floor(s);
+  if (i > n - 2) i = n - 2; if (i < 0) i = 0;
+  const t = s - i, t2 = t * t, t3 = t2 * t;
+  const p0 = a[Math.max(0, i - 1)], p1 = a[i], p2 = a[Math.min(n - 1, i + 1)], p3 = a[Math.min(n - 1, i + 2)];
+  return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+function interpStations(ctrl, N, defs) {                // 控制站 → N 个密集站
+  const keys = new Set(); ctrl.forEach(c => Object.keys(c).forEach(k => keys.add(k)));
+  if (defs) Object.keys(defs).forEach(k => keys.add(k));   // 默认值也必须成列，否则 undefined 会污染出 NaN
+  const cols = {};
+  for (const k of keys) cols[k] = ctrl.map(c => (c[k] !== undefined ? c[k] : (defs && defs[k] !== undefined ? defs[k] : 0)));
+  const out = [];
+  for (let i = 0; i < N; i++) {
+    const s = (i / (N - 1)) * (ctrl.length - 1), o = {};
+    for (const k of keys) o[k] = cr1(cols[k], s);
+    out.push(o);
+  }
+  return out;
+}
+function sampleBez(p0, p1, p2, p3, n) {                 // 三次贝塞尔采样（含两端点）
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1), mt = 1 - t;
+    const w0 = mt * mt * mt, w1 = 3 * mt * mt * t, w2 = 3 * mt * t * t, w3 = t * t * t;
+    out.push([w0 * p0[0] + w1 * p1[0] + w2 * p2[0] + w3 * p3[0], w0 * p0[1] + w1 * p1[1] + w2 * p2[1] + w3 * p3[1]]);
+  }
+  return out;
+}
+function segB(a, b, bulge, n) {                         // 依"鼓度"生成弧段（法向左手侧为正）
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1e-6;
+  const px = -dy / L, py = dx / L;
+  return sampleBez(a,
+    [a[0] + dx / 3 + px * bulge, a[1] + dy / 3 + py * bulge],
+    [a[0] + dx * 2 / 3 + px * bulge, a[1] + dy * 2 / 3 + py * bulge], b, n);
+}
+function segC(a, c1, c2, b, n) { return sampleBez(a, c1, c2, b, n); }
+function segO(a, b, bulge, n, inside) {                 // 鼓度朝"外"（远离 inside 参考点）为正
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1e-6;
+  let px = -dy / L, py = dx / L;
+  const mx = (a[0] + b[0]) / 2 - inside[0], my = (a[1] + b[1]) / 2 - inside[1];
+  if (px * mx + py * my < 0) { px = -px; py = -py; }
+  return sampleBez(a,
+    [a[0] + dx / 3 + px * bulge, a[1] + dy / 3 + py * bulge],
+    [a[0] + dx * 2 / 3 + px * bulge, a[1] + dy * 2 / 3 + py * bulge], b, n);
+}
+function joinSeg(a, b) { return a.concat(b.slice(1)); }
+function ringFromSegs(segs) {                           // 段序列 → 环（相邻段端点重复，形成带边界）
+  const pts = [], bands = [];
+  for (const s of segs) { const i0 = pts.length; for (const p of s) pts.push(p); bands.push({ i0, i1: pts.length - 1 }); }
+  return { pts, bands };
+}
+
+/* 核心：把 rings[i][k] = [x,y,z] 缝合为 BufferGeometry */
+function loft(cfg) {
+  const rings = cfg.rings, bands = cfg.bands;
+  const N = rings.length, K = rings[0].length;
+  const crease = cfg.crease || (() => 1);
+  const closed = cfg.closed !== false;
+  const pos = new Float32Array(N * K * 3), nor = new Float32Array(N * K * 3), uv = new Float32Array(N * K * 2);
+  const uScale = cfg.uScale || 1, vScale = cfg.vScale || 1;
+  for (let i = 0; i < N; i++) for (let k = 0; k < K; k++) {
+    const o = i * K + k, p = rings[i][k];
+    pos[o * 3] = p[0]; pos[o * 3 + 1] = p[1]; pos[o * 3 + 2] = p[2];
+    uv[o * 2] = (i / (N - 1)) * uScale; uv[o * 2 + 1] = (k / (K - 1)) * vScale;
+  }
+  const bandOf = new Int32Array(K).fill(0);
+  for (let b = 0; b < bands.length; b++) for (let k = bands[b].i0; k <= bands[b].i1; k++) bandOf[k] = b;
+  // 法线：带内中心差分，带边界单侧差分 → 天然硬边
+  const nrm = (ax, ay, az) => { const l = Math.hypot(ax, ay, az) || 1e-9; return [ax / l, ay / l, az / l]; };
+  for (let i = 0; i < N; i++) {
+    const im = Math.max(0, i - 1), ip = Math.min(N - 1, i + 1);
+    for (let k = 0; k < K; k++) {
+      const b = bands[bandOf[k]];
+      const km = k > b.i0 ? k - 1 : k, kp = k < b.i1 ? k + 1 : k;
+      const A = rings[i][km], B = rings[i][kp], C = rings[im][k], D = rings[ip][k];
+      const dv = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+      const du = [D[0] - C[0], D[1] - C[1], D[2] - C[2]];
+      const n = nrm(dv[1] * du[2] - dv[2] * du[1], dv[2] * du[0] - dv[0] * du[2], dv[0] * du[1] - dv[1] * du[0]);
+      const o = (i * K + k) * 3; nor[o] = n[0]; nor[o + 1] = n[1]; nor[o + 2] = n[2];
+    }
+  }
+  // 退化法线修补（尖点/重复站）
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < N; i++) for (let k = 0; k < K; k++) {
+      const o = (i * K + k) * 3;
+      if (Math.hypot(nor[o], nor[o + 1], nor[o + 2]) > 0.5) continue;
+      const src = [[Math.min(N - 1, i + 1), k], [Math.max(0, i - 1), k], [i, Math.min(K - 1, k + 1)], [i, Math.max(0, k - 1)]];
+      for (const [si, sk] of src) {
+        const so = (si * K + sk) * 3;
+        if (Math.hypot(nor[so], nor[so + 1], nor[so + 2]) > 0.5) { nor[o] = nor[so]; nor[o + 1] = nor[so + 1]; nor[o + 2] = nor[so + 2]; break; }
+      }
+    }
+  }
+  // 朝向修正（用中段截面的有向面积判定环绕方向，保证法线朝外）
+  let flip = cfg.flip;
+  if (flip === undefined) {
+    const im = Math.max(0, (N >> 1) - 1), ip = Math.min(N - 1, (N >> 1) + 1), ic = N >> 1;
+    const C = [0, 0, 0], R = rings[ic];
+    for (const p of R) { C[0] += p[0]; C[1] += p[1]; C[2] += p[2]; }
+    C[0] /= K; C[1] /= K; C[2] /= K;
+    const A = [0, 0, 0];
+    for (let k = 0; k < K - 1; k++) {
+      const a = [R[k][0] - C[0], R[k][1] - C[1], R[k][2] - C[2]];
+      const b = [R[k + 1][0] - C[0], R[k + 1][1] - C[1], R[k + 1][2] - C[2]];
+      A[0] += a[1] * b[2] - a[2] * b[1]; A[1] += a[2] * b[0] - a[0] * b[2]; A[2] += a[0] * b[1] - a[1] * b[0];
+    }
+    const T = [rings[ip][0][0] - rings[im][0][0], rings[ip][0][1] - rings[im][0][1], rings[ip][0][2] - rings[im][0][2]];
+    const dot = A[0] * T[0] + A[1] * T[1] + A[2] * T[2];
+    flip = !(dot > 0);
+  }
+  if (flip) for (let i = 0; i < nor.length; i++) nor[i] = -nor[i];
+  // 折痕混合
+  const bnds = [];
+  for (let b = 0; b < bands.length; b++) {
+    const prev = b === 0 ? bands[bands.length - 1] : bands[b - 1];
+    if (b === 0 && !closed) continue;
+    bnds.push([prev.i1, bands[b].i0, b]);
+  }
+  for (let i = 0; i < N; i++) for (const [ka, kb, b] of bnds) {
+    const w = clamp(crease(i / (N - 1), b), 0, 1);
+    if (w >= 0.999) continue;
+    const oa = (i * K + ka) * 3, ob = (i * K + kb) * 3;
+    const ax = nor[oa] + nor[ob], ay = nor[oa + 1] + nor[ob + 1], az = nor[oa + 2] + nor[ob + 2];
+    const l = Math.hypot(ax, ay, az) || 1e-9;
+    const mx = ax / l, my = ay / l, mz = az / l;
+    for (const o of [oa, ob]) {
+      const nx = lerp(mx, nor[o], w), ny = lerp(my, nor[o + 1], w), nz = lerp(mz, nor[o + 2], w);
+      const ll = Math.hypot(nx, ny, nz) || 1e-9;
+      nor[o] = nx / ll; nor[o + 1] = ny / ll; nor[o + 2] = nz / ll;
+    }
+  }
+  // 索引（skip 可挖出真实开口：弹舱 / 起落架舱）
+  const idx = [], skip = cfg.skip;
+  for (const b of bands) for (let i = 0; i < N - 1; i++) for (let k = b.i0; k < b.i1; k++) {
+    if (skip && skip(i, k)) continue;
+    const a = i * K + k, bb = i * K + k + 1, c = (i + 1) * K + k + 1, d = (i + 1) * K + k;
+    if (!flip) { idx.push(a, bb, c, a, c, d); } else { idx.push(a, c, bb, a, d, c); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  const api = {
+    geometry: geo, N, K, rings, bands, flip,
+    vert(i, k) {                                        // 精确网格顶点（挖洞/舱门对缝用）
+      const o = (clamp(i, 0, N - 1) | 0) * K + (clamp(k, 0, K - 1) | 0);
+      return { p: new Vector3(pos[o * 3], pos[o * 3 + 1], pos[o * 3 + 2]), n: new Vector3(nor[o * 3], nor[o * 3 + 1], nor[o * 3 + 2]) };
+    },
+    at(u, v, off) {                                     // 曲面采样（u 纵向 0..1，v 环向 0..1）
+      const fi = clamp(u, 0, 1) * (N - 1), fk = clamp(v, 0, 1) * (K - 1);
+      const i0 = Math.floor(fi), k0 = Math.floor(fk);
+      const i1 = Math.min(N - 1, i0 + 1), k1 = Math.min(K - 1, k0 + 1);
+      const ti = fi - i0, tk = fk - k0;
+      const p = new Vector3(), n = new Vector3(), tmp = new Vector3();
+      const w = [[i0, k0, (1 - ti) * (1 - tk)], [i1, k0, ti * (1 - tk)], [i0, k1, (1 - ti) * tk], [i1, k1, ti * tk]];
+      for (const [ii, kk, ww] of w) {
+        const o = ii * K + kk;
+        p.add(tmp.set(pos[o * 3], pos[o * 3 + 1], pos[o * 3 + 2]).multiplyScalar(ww));
+        n.add(tmp.set(nor[o * 3], nor[o * 3 + 1], nor[o * 3 + 2]).multiplyScalar(ww));
+      }
+      n.normalize();
+      if (off) p.addScaledVector(n, off);
+      return { p, n };
+    }
+  };
+  return api;
+}
+/* 端面封盖（扇形） */
+function capGeo(ringPts, outwardSign) {
+  const K = ringPts.length;
+  const c = [0, 0, 0];
+  for (const p of ringPts) { c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; }
+  c[0] /= K; c[1] /= K; c[2] /= K;
+  const pos = [], nor = [], uv = [], idx = [];
+  pos.push(c[0], c[1], c[2]); uv.push(.5, .5);
+  for (const p of ringPts) { pos.push(p[0], p[1], p[2]); uv.push(0, 0); }
+  // 平均法线
+  const a = new Vector3(ringPts[0][0] - c[0], ringPts[0][1] - c[1], ringPts[0][2] - c[2]);
+  const b = new Vector3(ringPts[Math.floor(K / 3)][0] - c[0], ringPts[Math.floor(K / 3)][1] - c[1], ringPts[Math.floor(K / 3)][2] - c[2]);
+  const n = new Vector3().crossVectors(a, b).normalize().multiplyScalar(outwardSign || 1);
+  for (let i = 0; i <= K; i++) nor.push(n.x, n.y, n.z);
+  for (let i = 1; i < K; i++) idx.push(0, i, i + 1);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+/* 合并同属性几何 */
+function mergeGeos(list) {
+  list = list.filter(Boolean);
+  if (list.length === 1) return list[0];
+  let np = 0, ni = 0;
+  for (const g of list) { np += g.attributes.position.count; ni += g.index.count; }
+  const pos = new Float32Array(np * 3), nor = new Float32Array(np * 3), uv = new Float32Array(np * 2);
+  const idx = np > 65000 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let po = 0, io = 0, base = 0;
+  for (const g of list) {
+    const c = g.attributes.position.count;
+    pos.set(g.attributes.position.array.subarray(0, c * 3), po * 3);
+    nor.set(g.attributes.normal.array.subarray(0, c * 3), po * 3);
+    uv.set(g.attributes.uv.array.subarray(0, c * 2), po * 2);
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx[io + i] = gi[i] + base;
+    po += c; io += gi.length; base += c;
+  }
+  const g2 = new THREE.BufferGeometry();
+  g2.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g2.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g2.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g2.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g2;
+}
+
+/* ---------------- 翼面（机翼/鸭翼/垂尾/腹鳍/挂架）---------------- */
+function foilT(x, ratio) {                              // NACA 对称厚度分布（后缘收敛为零）
+  const s = Math.sqrt(Math.max(x, 0));
+  let y = 5 * ratio * (0.2969 * s - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1015 * x * x * x * x);
+  y -= 5 * ratio * 0.0021 * x;
+  return Math.max(y, 0);
+}
+/*  sections: [{le:[x,y,z], te:[x,y,z], th:厚度比, up:[x,y,z]}] */
+function buildFoil(sections, opt = {}) {
+  const nSpan = opt.nSpan || 26, nCh = opt.nCh || 30;
+  const flat = sections.map(s => ({
+    lex: s.le[0], ley: s.le[1], lez: s.le[2], tex: s.te[0], tey: s.te[1], tez: s.te[2],
+    th: s.th, upx: s.up[0], upy: s.up[1], upz: s.up[2]
+  }));
+  const dense = interpStations(flat, nSpan);
+  const rings = [];
+  for (const d of dense) {
+    const le = new Vector3(d.lex, d.ley, d.lez), te = new Vector3(d.tex, d.tey, d.tez);
+    const ch = new Vector3().subVectors(te, le); const chord = ch.length(); ch.divideScalar(chord || 1);
+    const up = new Vector3(d.upx, d.upy, d.upz).normalize();
+    up.addScaledVector(ch, -up.dot(ch)).normalize();
+    const upper = [], lower = [];
+    for (let i = 0; i < nCh; i++) {
+      const s = i / (nCh - 1), t = 0.5 * (1 - Math.cos(PI * s));   // 余弦分布：前缘加密
+      const yt = foilT(t, d.th) * chord;
+      const camber = opt.camber ? opt.camber(t, s) * chord : 0;
+      const px = le.x + ch.x * t * chord, py = le.y + ch.y * t * chord, pz = le.z + ch.z * t * chord;
+      upper.push([px + up.x * (yt + camber), py + up.y * (yt + camber), pz + up.z * (yt + camber)]);
+      lower.push([px - up.x * (yt - camber), py - up.y * (yt - camber), pz - up.z * (yt - camber)]);
+    }
+    // 环：后缘 → 上表面 → 前缘 → 下表面 → 后缘
+    const bandU = upper.slice().reverse();        // TE→LE
+    const bandL = lower.slice();                 // LE→TE
+    const pts = bandU.concat(bandL);
+    rings.push(pts);
+  }
+  const K = rings[0].length;
+  const bands = [{ i0: 0, i1: nCh - 1 }, { i0: nCh, i1: K - 1 }];
+  const lo = loft({ rings, bands, closed: true, crease: (u, b) => (b === 1 ? 0.0 : 1.0), flip: opt.flip });
+  const geos = [lo.geometry];
+  if (opt.capTip !== false) geos.push(capGeo(rings[rings.length - 1], 1));
+  if (opt.capRoot) geos.push(capGeo(rings[0], -1));
+  lo.merged = mergeGeos(geos);
+  return lo;
+}
+
+/* =====================================================================
+   3. 程序化贴图 / 材质库 / 环境
+   ===================================================================== */
+function cv(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function mul32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+/* 可平铺 fBm 噪声 → Float32 高度场 */
+function fbmField(size, oct, seed) {
+  const rnd = mul32(seed || 1);
+  const field = new Float32Array(size * size);
+  let amp = 1, tot = 0;
+  for (let o = 0; o < oct; o++) {
+    const g = 4 << o;                                  // 每层格点数（保证周期可平铺）
+    const grid = new Float32Array(g * g);
+    for (let i = 0; i < g * g; i++) grid[i] = rnd();
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const fx = x / size * g, fy = y / size * g;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy);
+      const tx = smooth(fx - x0), ty = smooth(fy - y0);
+      const i00 = grid[(y0 % g) * g + (x0 % g)], i10 = grid[(y0 % g) * g + ((x0 + 1) % g)];
+      const i01 = grid[((y0 + 1) % g) * g + (x0 % g)], i11 = grid[((y0 + 1) % g) * g + ((x0 + 1) % g)];
+      field[y * size + x] += amp * lerp(lerp(i00, i10, tx), lerp(i01, i11, tx), ty);
+    }
+    tot += amp; amp *= 0.52;
+  }
+  for (let i = 0; i < field.length; i++) field[i] /= tot;
+  return field;
+}
+function texFromCanvas(c, rx, ry, srgb) {
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx || 1, ry || 1);
+  t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+/* 蒙皮粗糙度 / 色调斑块 / 法线：模拟隐身涂层的分块质感 */
+function buildSkinMaps() {
+  const S = 512;
+  const f1 = fbmField(S, 6, 7), f2 = fbmField(S, 3, 19);
+  const rnd = mul32(1234);
+  // 分块斑块：低对比矩形拼贴（涂层补片）
+  const patch = new Float32Array(S * S).fill(0.5);
+  for (let p = 0; p < 130; p++) {
+    const w = 18 + rnd() * 96, h = 14 + rnd() * 70, x0 = rnd() * S, y0 = rnd() * S;
+    const v = 0.5 + (rnd() - 0.5) * 0.5;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const xi = (x0 + x | 0) % S, yi = (y0 + y | 0) % S;
+      const e = smooth(clamp(Math.min(x, w - x, y, h - y) / 6, 0, 1));
+      patch[yi * S + xi] = lerp(patch[yi * S + xi], v, e * 0.85);
+    }
+  }
+  const cRough = cv(S, S), cTint = cv(S, S), cNorm = cv(S, S);
+  const dR = cRough.getContext('2d').createImageData(S, S);
+  const dT = cTint.getContext('2d').createImageData(S, S);
+  const dN = cNorm.getContext('2d').createImageData(S, S);
+  const hgt = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) {
+    const n1 = f1[i], n2 = f2[i], pa = patch[i];
+    // 粗糙度：斑块 + 细噪声
+    const r = clamp(0.40 + (pa - 0.5) * 0.34 + (n1 - 0.5) * 0.20 + (n2 - 0.5) * 0.10, 0.06, 0.95);
+    dR.data[i * 4] = dR.data[i * 4 + 1] = dR.data[i * 4 + 2] = r * 255; dR.data[i * 4 + 3] = 255;
+    // 色调：极低对比明暗差（同色异构涂层）
+    const t = clamp(0.86 + (pa - 0.5) * 0.20 + (n1 - 0.5) * 0.07, 0.5, 1.0);
+    dT.data[i * 4] = t * 252; dT.data[i * 4 + 1] = t * 254; dT.data[i * 4 + 2] = t * 255; dT.data[i * 4 + 3] = 255;
+    hgt[i] = pa * 0.55 + n1 * 0.45;
+  }
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x;
+    const hx = hgt[y * S + ((x + 1) % S)] - hgt[y * S + ((x - 1 + S) % S)];
+    const hy = hgt[((y + 1) % S) * S + x] - hgt[((y - 1 + S) % S) * S + x];
+    const nx = -hx * 6, ny = -hy * 6, nz = 1;
+    const l = Math.hypot(nx, ny, nz);
+    dN.data[i * 4] = (nx / l * .5 + .5) * 255; dN.data[i * 4 + 1] = (ny / l * .5 + .5) * 255;
+    dN.data[i * 4 + 2] = (nz / l * .5 + .5) * 255; dN.data[i * 4 + 3] = 255;
+  }
+  cRough.getContext('2d').putImageData(dR, 0, 0);
+  cTint.getContext('2d').putImageData(dT, 0, 0);
+  cNorm.getContext('2d').putImageData(dN, 0, 0);
+  return {
+    rough: texFromCanvas(cRough, 3, 3), tint: texFromCanvas(cTint, 3, 3, true), norm: texFromCanvas(cNorm, 3, 3)
+  };
+}
+/* 尾喷口热变色金属 */
+function buildHeatMap() {
+  const c = cv(256, 64), g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 256, 0);
+  grd.addColorStop(0.00, '#9aa0a2'); grd.addColorStop(0.35, '#8a8b86');
+  grd.addColorStop(0.58, '#6f6558'); grd.addColorStop(0.74, '#5a4a3e');
+  grd.addColorStop(0.86, '#3f4450'); grd.addColorStop(1.00, '#2b2f38');
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 64);
+  const rnd = mul32(55);
+  for (let i = 0; i < 260; i++) {                        // 烧蚀条纹
+    const x = rnd() * 256, y = rnd() * 64, w = 4 + rnd() * 40;
+    g.globalAlpha = 0.05 + rnd() * 0.13;
+    g.fillStyle = rnd() > 0.5 ? '#20242c' : '#b9a184';
+    g.fillRect(x, y, w, 1 + rnd() * 2);
+  }
+  g.globalAlpha = 1;
+  return texFromCanvas(c, 1, 1, true);
+}
+/* 八一军徽（低可视度版本） */
+function buildStarTex(lowvis) {
+  const S = 256, c = cv(S, S), g = c.getContext('2d');
+  g.clearRect(0, 0, S, S);
+  const R = S * 0.46, cxp = S / 2, cyp = S / 2;
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -PI / 2 + i * PI / 5, r = i % 2 ? R * 0.415 : R;
+    const x = cxp + Math.cos(a) * r, y = cyp + Math.sin(a) * r;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+  g.fillStyle = lowvis ? 'rgba(78,86,94,0.92)' : '#c8102e';
+  g.fill();
+  g.lineWidth = S * 0.02; g.strokeStyle = lowvis ? 'rgba(150,160,170,0.5)' : 'rgba(255,255,255,0.75)'; g.stroke();
+  g.fillStyle = lowvis ? 'rgba(150,158,166,0.95)' : '#ffdf00';
+  g.font = 'bold ' + (S * 0.30) + 'px "Microsoft YaHei","PingFang SC",sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('八', cxp - S * 0.115, cyp + S * 0.02);
+  g.fillText('一', cxp + S * 0.125, cyp + S * 0.02);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+/* 文字/编号贴图 */
+function buildTextTex(txt, opt = {}) {
+  const w = opt.w || 512, h = opt.h || 128, c = cv(w, h), g = c.getContext('2d');
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = opt.color || 'rgba(120,132,142,0.95)';
+  g.font = (opt.weight || 'bold') + ' ' + (opt.size || h * 0.72) + 'px ' + (opt.font || '"Arial Narrow",Impact,"Microsoft YaHei",sans-serif');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (opt.stroke) { g.lineWidth = h * 0.04; g.strokeStyle = opt.stroke; g.strokeText(txt, w / 2, h / 2); }
+  g.fillText(txt, w / 2, h / 2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+/* 座舱多功能显示器 */
+function buildMFDTex() {
+  const S = 256, c = cv(S, S), g = c.getContext('2d');
+  g.fillStyle = '#020a08'; g.fillRect(0, 0, S, S);
+  g.strokeStyle = 'rgba(90,255,190,0.55)'; g.lineWidth = 1.4;
+  g.beginPath(); g.arc(S / 2, S / 2, S * 0.40, 0, TAU); g.stroke();
+  g.beginPath(); g.arc(S / 2, S / 2, S * 0.22, 0, TAU); g.stroke();
+  g.beginPath(); g.moveTo(S / 2, S * 0.06); g.lineTo(S / 2, S * 0.94); g.moveTo(S * 0.06, S / 2); g.lineTo(S * 0.94, S / 2); g.stroke();
+  g.fillStyle = 'rgba(120,255,200,0.9)';
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * TAU + 0.4, r = S * (0.12 + (i % 3) * 0.11);
+    g.beginPath(); g.arc(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 3, 0, TAU); g.fill();
+  }
+  g.font = 'bold 13px monospace'; g.fillStyle = 'rgba(150,255,210,0.95)';
+  g.fillText('RDR 160', 8, 20); g.fillText('AAM  6', 8, S - 12);
+  g.fillText('M1.62', S - 60, 20); g.fillText('45 000', S - 66, S - 12);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function buildGlowTex() {
+  const S = 128, c = cv(S, S), g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.18, 'rgba(190,225,255,0.85)');
+  grd.addColorStop(0.45, 'rgba(90,150,255,0.30)'); grd.addColorStop(1, 'rgba(40,80,200,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
+}
+function buildRadialAlpha(inner, outer) {
+  const S = 512, c = cv(S, S), g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, S / 2 * inner, S / 2, S / 2, S / 2 * outer);
+  grd.addColorStop(0, '#ffffff'); grd.addColorStop(1, '#000000');
+  g.fillStyle = grd; g.fillRect(0, 0, S, S);
+  return texFromCanvas(c, 1, 1);
+}
+
+const SK = buildSkinMaps();
+const MAT = {};
+MAT.skin = new THREE.MeshPhysicalMaterial({
+  color: 0x4a5057, metalness: 0.58, roughness: 0.46,
+  map: SK.tint, roughnessMap: SK.rough, normalMap: SK.norm,
+  normalScale: new Vector2(0.32, 0.32),
+  clearcoat: 0.42, clearcoatRoughness: 0.58,
+  iridescence: 0.16, iridescenceIOR: 1.30, iridescenceThicknessRange: [180, 540],
+  envMapIntensity: 1.0
+});
+MAT.skinB = MAT.skin.clone();                              // 略深色调（雷达罩/介质面板）
+MAT.skinB.color = new Color(0x3c4146); MAT.skinB.metalness = 0.16; MAT.skinB.roughness = 0.56;
+MAT.skinB.iridescence = 0.05; MAT.skinB.clearcoat = 0.22;
+MAT.skinC = MAT.skin.clone();                              // 略浅（活动面/舱门）
+MAT.skinC.color = new Color(0x525860);
+MAT.dielectric = new THREE.MeshPhysicalMaterial({          // 天线/介质窗
+  color: 0x2b3036, metalness: 0.05, roughness: 0.42, clearcoat: 0.7, clearcoatRoughness: 0.25, envMapIntensity: 0.9
+});
+MAT.dark = new THREE.MeshStandardMaterial({ color: 0x0b0d10, metalness: 0.25, roughness: 0.85, envMapIntensity: 0.35 });
+MAT.duct = new THREE.MeshStandardMaterial({ color: 0x22262b, metalness: 0.35, roughness: 0.55, side: THREE.DoubleSide, envMapIntensity: 0.6 });
+MAT.bay = new THREE.MeshStandardMaterial({ color: 0x2e3338, metalness: 0.45, roughness: 0.6, side: THREE.DoubleSide, envMapIntensity: 0.7 });
+MAT.hot = new THREE.MeshPhysicalMaterial({
+  map: buildHeatMap(), color: 0xffffff, metalness: 1.0, roughness: 0.34,
+  clearcoat: 0.25, envMapIntensity: 1.3, side: THREE.DoubleSide
+});
+MAT.turbine = new THREE.MeshStandardMaterial({ color: 0x54585c, metalness: 1.0, roughness: 0.28, side: THREE.DoubleSide, envMapIntensity: 1.2 });
+MAT.glass = new THREE.MeshPhysicalMaterial({
+  color: 0xb99a5c, metalness: 0.42, roughness: 0.035, transparent: true, opacity: 0.40,
+  clearcoat: 1.0, clearcoatRoughness: 0.02, envMapIntensity: 2.1,
+  iridescence: 0.85, iridescenceIOR: 1.42, iridescenceThicknessRange: [260, 780],
+  side: THREE.DoubleSide, depthWrite: false
+});
+MAT.glassDark = new THREE.MeshPhysicalMaterial({
+  color: 0x0d1216, metalness: 0.55, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.5
+});
+MAT.cockpit = new THREE.MeshStandardMaterial({ color: 0x191d21, metalness: 0.2, roughness: 0.78, envMapIntensity: 0.4 });
+MAT.pit = new THREE.MeshStandardMaterial({ color: 0x23282a, metalness: 0.15, roughness: 0.82, side: THREE.DoubleSide, envMapIntensity: 0.35 });
+MAT.seat = new THREE.MeshStandardMaterial({ color: 0x232a2c, metalness: 0.1, roughness: 0.9, envMapIntensity: 0.35 });
+MAT.mfd = new THREE.MeshBasicMaterial({ map: buildMFDTex(), toneMapped: false });
+MAT.rubber = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.0, roughness: 0.92, envMapIntensity: 0.4 });
+MAT.gear = new THREE.MeshPhysicalMaterial({ color: 0xa8b0b6, metalness: 0.95, roughness: 0.24, clearcoat: 0.4, envMapIntensity: 1.4 });
+MAT.hub = new THREE.MeshPhysicalMaterial({ color: 0x6d7378, metalness: 0.9, roughness: 0.35, envMapIntensity: 1.2 });
+MAT.missile = new THREE.MeshPhysicalMaterial({ color: 0x5b6167, metalness: 0.35, roughness: 0.48, clearcoat: 0.3, envMapIntensity: 1.0 });
+MAT.missileNose = new THREE.MeshPhysicalMaterial({ color: 0x2d3238, metalness: 0.1, roughness: 0.35, clearcoat: 0.8, envMapIntensity: 1.0 });
+MAT.seeker = new THREE.MeshPhysicalMaterial({ color: 0x0a0e12, metalness: 0.2, roughness: 0.03, clearcoat: 1, envMapIntensity: 2.2 });
+MAT.line = new THREE.LineBasicMaterial({ color: 0x141a20, transparent: true, opacity: 0.62 });
+MAT.lineSoft = new THREE.LineBasicMaterial({ color: 0x1b2229, transparent: true, opacity: 0.34 });
+MAT.navG = new THREE.MeshBasicMaterial({ color: 0x39ff9a, toneMapped: false });
+MAT.navR = new THREE.MeshBasicMaterial({ color: 0xff4d4d, toneMapped: false });
+MAT.navW = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+MAT.flame = new THREE.MeshBasicMaterial({ color: 0x9fc4ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false, toneMapped: false });
+const TEX = { star: buildStarTex(true), starHi: buildStarTex(false), glow: buildGlowTex() };
+/* 贴花材质 */
+function decalMat(tex, op) {
+  return new THREE.MeshStandardMaterial({
+    map: tex, transparent: true, opacity: op === undefined ? 0.92 : op, roughness: 0.55, metalness: 0.2,
+    depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, envMapIntensity: 0.6
+  });
+}
+
+/* =====================================================================
+   4. 机体建模（模型坐标：机头 x=0 → 机尾 x=20.4；y 上；z 侧向）
+   ===================================================================== */
+const AC = { L: 20.4, cx: 10.15, floorY: -1.98 };
+const airframe = new THREE.Group();      // 机体本体
+const root = new THREE.Group();          // 世界根（居中）
+airframe.position.x = -AC.cx; root.add(airframe);
+const P = {};                            // 可动部件登记
+
+/* ---------------- 4.1 机身 ---------------- */
+const FDEF = { bBot: .05, bLow: .07, bUp: .05, bTop: .05, keelW: .42, topW: .52, crBo: .35, crCh: 1, crSh: .2 };
+const FUSE_ST = [
+  { x: -0.03, wbo: 0, ybo: 0, wch: 0, ych: 0, wsh: 0, ysh: 0, ybc: 0, ytc: 0, bBot: .01, bLow: .01, bUp: .01, bTop: .01, crSh: .05 },
+  { x: 0.25, wbo: .06, ybo: -.09, wch: .10, ych: -.030, wsh: .07, ysh: .040, ybc: -.10, ytc: .06, bBot: .01, bLow: .012, bUp: .010, bTop: .012, crBo: .2, crSh: .05 },
+  { x: 0.75, wbo: .16, ybo: -.18, wch: .25, ych: -.055, wsh: .17, ysh: .090, ybc: -.20, ytc: .14, bBot: .02, bLow: .022, bUp: .018, bTop: .022, crBo: .2, crSh: .08 },
+  { x: 1.50, wbo: .28, ybo: -.27, wch: .43, ych: -.070, wsh: .29, ysh: .155, ybc: -.31, ytc: .24, bBot: .03, bLow: .035, bUp: .028, bTop: .035, crBo: .22, crSh: .10 },
+  { x: 2.40, wbo: .39, ybo: -.35, wch: .59, ych: -.060, wsh: .39, ysh: .220, ybc: -.40, ytc: .33, bBot: .035, bLow: .05, bUp: .038, bTop: .045, crBo: .25, crSh: .12 },
+  { x: 3.20, wbo: .47, ybo: -.41, wch: .71, ych: -.040, wsh: .47, ysh: .280, ybc: -.46, ytc: .41, bBot: .04, bLow: .06, bUp: .045, bTop: .05, crBo: .28, crSh: .16 },
+  { x: 4.00, wbo: .55, ybo: -.45, wch: .82, ych: -.015, wsh: .55, ysh: .340, ybc: -.51, ytc: .440, bBot: .045, bLow: .07, bUp: .05, bTop: .040, crBo: .3, crSh: .22 },
+  { x: 5.00, wbo: .63, ybo: -.49, wch: .94, ych: .015, wsh: .62, ysh: .400, ybc: -.55, ytc: .455, bBot: .05, bLow: .075, bUp: .05, bTop: .030, crBo: .32, crSh: .28 },
+  { x: 6.00, wbo: .71, ybo: -.52, wch: 1.05, ych: .045, wsh: .68, ysh: .450, ybc: -.58, ytc: .478, bBot: .055, bLow: .08, bUp: .05, bTop: .028, crBo: .34, crSh: .34 },
+  { x: 7.10, wbo: .80, ybo: -.55, wch: 1.14, ych: .060, wsh: .75, ysh: .490, ybc: -.62, ytc: .548, bBot: .06, bLow: .08, bUp: .05, bTop: .035, crBo: .36, crSh: .45 },
+  { x: 8.30, wbo: .89, ybo: -.58, wch: 1.21, ych: .060, wsh: .82, ysh: .510, ybc: -.65, ytc: .688, bBot: .065, bLow: .08, bUp: .05, bTop: .055, crBo: .38, crSh: .6 },
+  { x: 9.60, wbo: .96, ybo: -.61, wch: 1.26, ych: .045, wsh: .87, ysh: .520, ybc: -.68, ytc: .755, bBot: .07, bLow: .08, bUp: .05, bTop: .06, crBo: .4, crSh: .72 },
+  { x: 11.20, wbo: 1.01, ybo: -.63, wch: 1.29, ych: .025, wsh: .90, ysh: .520, ybc: -.70, ytc: .780, bBot: .075, bLow: .08, bUp: .05, bTop: .06, crBo: .42, crSh: .78 },
+  { x: 12.80, wbo: 1.03, ybo: -.645, wch: 1.30, ych: .005, wsh: .92, ysh: .515, ybc: -.71, ytc: .780, bBot: .08, bLow: .08, bUp: .05, bTop: .06, crBo: .44, crSh: .78 },
+  { x: 14.40, wbo: 1.04, ybo: -.645, wch: 1.30, ych: -.015, wsh: .93, ysh: .505, ybc: -.71, ytc: .770, bBot: .09, bLow: .08, bUp: .05, bTop: .06, crBo: .45, crSh: .78 },
+  { x: 15.80, wbo: 1.05, ybo: -.635, wch: 1.29, ych: -.040, wsh: .95, ysh: .490, ybc: -.70, ytc: .750, bBot: .11, bLow: .08, bUp: .05, bTop: .055, crBo: .46, crSh: .76, crCh: .95 },
+  { x: 17.00, wbo: 1.06, ybo: -.620, wch: 1.27, ych: -.060, wsh: .97, ysh: .470, ybc: -.63, ytc: .710, bBot: .17, bLow: .08, bUp: .05, bTop: .05, keelW: .5, crBo: .48, crSh: .72, crCh: .9 },
+  { x: 18.20, wbo: 1.08, ybo: -.575, wch: 1.25, ych: -.080, wsh: .99, ysh: .440, ybc: -.50, ytc: .660, bBot: .24, bLow: .075, bUp: .05, bTop: .045, keelW: .56, crBo: .5, crSh: .68, crCh: .85 },
+  { x: 19.30, wbo: 1.09, ybo: -.530, wch: 1.23, ych: -.100, wsh: 1.00, ysh: .410, ybc: -.38, ytc: .580, bBot: .27, bLow: .07, bUp: .05, bTop: .04, keelW: .6, crBo: .5, crSh: .64, crCh: .8 },
+  { x: 20.35, wbo: 1.06, ybo: -.480, wch: 1.19, ych: -.120, wsh: .98, ysh: .370, ybc: -.28, ytc: .500, bBot: .27, bLow: .065, bUp: .05, bTop: .035, keelW: .62, crBo: .5, crSh: .6, crCh: .8 }
+];
+const NF = 190;
+const fdense = interpStations(FUSE_ST, NF, FDEF);
+function fuseRing(p) {
+  const ins = [0, (p.ytc + p.ybc) * 0.5];
+  const BOl = [-p.wbo, p.ybo], BOr = [p.wbo, p.ybo], CHl = [-p.wch, p.ych], CHr = [p.wch, p.ych];
+  const SHl = [-p.wsh, p.ysh], SHr = [p.wsh, p.ysh], BC = [0, p.ybc], TC = [0, p.ytc];
+  const bottom = joinSeg(
+    segC(BOl, [-p.wbo * .72, p.ybo - p.bBot], [-p.wbo * p.keelW, p.ybc], BC, 9),
+    segC(BC, [p.wbo * p.keelW, p.ybc], [p.wbo * .72, p.ybo - p.bBot], BOr, 9));
+  const top = joinSeg(
+    segC(SHr, [p.wsh * .74, p.ysh + p.bTop], [p.wsh * p.topW, p.ytc], TC, 10),
+    segC(TC, [-p.wsh * p.topW, p.ytc], [-p.wsh * .74, p.ysh + p.bTop], SHl, 10));
+  return ringFromSegs([
+    bottom,
+    segO(BOr, CHr, p.bLow, 9, ins),
+    segO(CHr, SHr, p.bUp, 9, ins),
+    top,
+    segO(SHl, CHl, p.bUp, 9, ins),
+    segO(CHl, BOl, p.bLow, 9, ins)
+  ]);
+}
+const FK = { BOT0: 0, BOTC: 8, BOT1: 16, LOWR: 17, UPPR: 26, TOP: 35, TOPC: 44, UPPL: 54, LOWL: 63, END: 71 };
+const FI = (x) => { let b = 0, bd = 1e9; for (let i = 0; i < NF; i++) { const d = Math.abs(fdense[i].x - x); if (d < bd) { bd = d; b = i; } } return b; };
+/* 腹部开口：主弹舱两扇 + 前起落架舱 */
+const HOLES = {
+  bayR: { i0: FI(9.30), i1: FI(14.15), k0: 8, k1: 14 },
+  bayL: { i0: FI(9.30), i1: FI(14.15), k0: 2, k1: 8 },
+  nlg: { i0: FI(4.30), i1: FI(6.05), k0: 6, k1: 10 },
+  pit: { i0: FI(4.15), i1: FI(7.05), k0: 39, k1: 49 }      // 座舱开口（机背甲板）
+};
+const skipF = (i, k) => {
+  for (const h of Object.values(HOLES)) if (i >= h.i0 && i < h.i1 && k >= h.k0 && k < h.k1) return true;
+  return false;
+};
+const fuseRingsPts = fdense.map(p => fuseRing(p).pts);
+const fuse = loft({
+  rings: fdense.map((p, i) => fuseRingsPts[i].map(q => [p.x, q[1], q[0]])),
+  bands: fuseRing(fdense[0]).bands,
+  crease: (u, b) => {
+    const s = fdense[Math.round(clamp(u, 0, 1) * (NF - 1))];
+    return (b === 0 || b === 1) ? s.crBo : (b === 2 || b === 5) ? s.crCh : s.crSh;
+  },
+  skip: skipF, uScale: 2.6, vScale: 1.4
+});
+airframe.add(new THREE.Mesh(fuse.geometry, MAT.skin));
+{ // 尾端封盖
+  const cap = new THREE.Mesh(capGeo(fuse.rings[NF - 1], 1), MAT.dark);
+  airframe.add(cap);
+}
+
+/* 曲面凸包（DSI 鼓包 / 各类整形罩）：边缘与母面完全贴合，无缝 */
+function surfaceBump(lo, u0, u1, v0, v1, peak, nu, nv, opt = {}) {
+  nu = nu || 22; nv = nv || 16;
+  const pos = [], nor = [], uv = [], idx = [];
+  const shape = opt.shape || ((a, b) => Math.sin(PI * a) * Math.sin(PI * b));
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i / (nu - 1), b = j / (nv - 1);
+    const s = lo.at(lerp(u0, u1, a), lerp(v0, v1, b));
+    const h = peak * Math.pow(clamp(shape(a, b), 0, 1), opt.pow || 0.75) + 0.004;
+    const p = s.p.clone().addScaledVector(s.n, h);
+    pos.push(p.x, p.y, p.z); nor.push(s.n.x, s.n.y, s.n.z); uv.push(a, b);
+  }
+  for (let i = 0; i < nu - 1; i++) for (let j = 0; j < nv - 1; j++) {
+    const a = i * nv + j, b2 = i * nv + j + 1, c = (i + 1) * nv + j + 1, d = (i + 1) * nv + j;
+    idx.push(a, b2, c, a, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+/* 舱口内腔（严格贴合开口边缘） */
+function surfaceWell(lo, h, depth, shrink) {
+  const rim = [];
+  for (let k = h.k0; k <= h.k1; k++) rim.push(lo.vert(h.i0, k));
+  for (let i = h.i0 + 1; i <= h.i1; i++) rim.push(lo.vert(i, h.k1));
+  for (let k = h.k1 - 1; k >= h.k0; k--) rim.push(lo.vert(h.i1, k));
+  for (let i = h.i1 - 1; i > h.i0; i--) rim.push(lo.vert(i, h.k0));
+  const C = new Vector3();
+  rim.forEach(r => C.add(r.p)); C.divideScalar(rim.length);
+  const inner = rim.map(r => {
+    const p = r.p.clone().addScaledVector(r.n, -depth);
+    return p.lerp(C.clone().addScaledVector(r.n, -depth), shrink === undefined ? 0.06 : shrink);
+  });
+  const pos = [];
+  const n = rim.length;
+  for (let j = 0; j < n; j++) {
+    const j2 = (j + 1) % n;
+    const a = rim[j].p, b = rim[j2].p, c = inner[j2], d = inner[j];
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
+  }
+  const fc = new Vector3(); inner.forEach(p => fc.add(p)); fc.divideScalar(n);
+  for (let j = 0; j < n; j++) {
+    const j2 = (j + 1) % n;
+    pos.push(fc.x, fc.y, fc.z, inner[j].x, inner[j].y, inner[j].z, inner[j2].x, inner[j2].y, inner[j2].z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0), 2));
+  g.computeVertexNormals();
+  return g;
+}
+/* 贴合曲面的板件（舱门）：外皮 + 内皮 + 侧壁 */
+function surfacePanel(lo, u0, u1, v0, v1, thick, nu, nv) {
+  nu = nu || 12; nv = nv || 8;
+  const V0 = typeof v0 === 'function' ? v0 : () => v0;
+  const V1 = typeof v1 === 'function' ? v1 : () => v1;
+  const O = [], I = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i / (nu - 1);
+    const s = lo.at(lerp(u0, u1, a), lerp(V0(a), V1(a), j / (nv - 1)));
+    O.push(s.p.clone().addScaledVector(s.n, 0.002));
+    I.push(s.p.clone().addScaledVector(s.n, -thick));
+  }
+  const pos = [], push = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  for (let i = 0; i < nu - 1; i++) for (let j = 0; j < nv - 1; j++) {
+    const a = i * nv + j, b = i * nv + j + 1, c = (i + 1) * nv + j + 1, d = (i + 1) * nv + j;
+    push(O[a], O[b], O[c]); push(O[a], O[c], O[d]);
+    push(I[a], I[c], I[b]); push(I[a], I[d], I[c]);
+  }
+  const edge = (list) => { for (let t = 0; t < list.length - 1; t++) { const a = list[t], b = list[t + 1]; push(O[a], I[a], I[b]); push(O[a], I[b], O[b]); } };
+  const eA = [], eB = [], eC = [], eD = [];
+  for (let j = 0; j < nv; j++) { eA.push(j); eB.push((nu - 1) * nv + j); }
+  for (let i = 0; i < nu; i++) { eC.push(i * nv); eD.push(i * nv + nv - 1); }
+  edge(eA); edge(eB.slice().reverse()); edge(eC.slice().reverse()); edge(eD);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0.5), 2));
+  g.computeVertexNormals();
+  return g;
+}
+/* 铰链组：把绝对坐标几何挂到可转动支点上 */
+function hinge(geo, px, py, pz, axis) {
+  geo.translate(-px, -py, -pz);
+  const g = new THREE.Group(); g.position.set(px, py, pz);
+  g.userData.axis = axis.clone().normalize();
+  g.userData.set = (ang) => g.quaternion.setFromAxisAngle(g.userData.axis, ang);
+  return g;
+}
+
+/* ---------------- 4.2 进气道（DSI）---------------- */
+const TDEF = { bBot: .12, bOut: .16, bTop: .12, bIn: .05, rake: 0, cant: 0 };
+const TRUNK_ST = [
+  { x: 6.28, zIn: 1.15, zOut: 1.74, yBot: -.44, yTop: .30, rake: .62, cant: .20, bBot: .09, bOut: .13, bTop: .09, bIn: .04 },
+  { x: 6.95, zIn: 1.10, zOut: 1.82, yBot: -.51, yTop: .35, rake: .28, cant: .09 },
+  { x: 8.20, zIn: 1.05, zOut: 1.89, yBot: -.56, yTop: .40, rake: .08 },
+  { x: 9.60, zIn: 1.00, zOut: 1.92, yBot: -.60, yTop: .42 },
+  { x: 11.40, zIn: .98, zOut: 1.94, yBot: -.63, yTop: .42 },
+  { x: 13.40, zIn: .98, zOut: 1.93, yBot: -.645, yTop: .41 },
+  { x: 15.20, zIn: .98, zOut: 1.91, yBot: -.635, yTop: .39 },
+  { x: 16.45, zIn: .98, zOut: 1.86, yBot: -.60, yTop: .36 },
+  { x: 17.25, zIn: .96, zOut: 1.52, yBot: -.55, yTop: .30, bOut: .12 },
+  { x: 17.95, zIn: .92, zOut: 1.18, yBot: -.47, yTop: .23, bOut: .08 },
+  { x: 18.40, zIn: .86, zOut: .95, yBot: -.40, yTop: .17, bOut: .05 }
+];
+const NT = 90;
+const tdense = interpStations(TRUNK_ST, NT, TDEF);
+function trunkRing(p, side, inset) {
+  const ins = inset || 0;
+  const zi = p.zIn + ins, zo = p.zOut - ins, yb = p.yBot + ins, yt = p.yTop - ins;
+  const c = [(zi + zo) / 2, (yb + yt) / 2];
+  const IB = [zi, yb], OB = [zo, yb], OT = [zo, yt], IT = [zi, yt];
+  const r = ringFromSegs([
+    segO(IB, OB, p.bBot, 10, c),
+    segO(OB, OT, p.bOut, 10, c),
+    segO(OT, IT, p.bTop, 10, c),
+    segO(IT, IB, p.bIn, 8, c)
+  ]);
+  // 唇口斜切（上唇后掠、外侧后掠）
+  const H = (yt - yb) || 1, W = (zo - zi) || 1;
+  const out = r.pts.map(q => {
+    const dx = p.rake * ((q[1] - yb) / H - 0.5) + p.cant * ((q[0] - zi) / W - 0.5);
+    return [p.x + dx, q[1], q[0] * side];
+  });
+  return { pts: out, bands: r.bands };
+}
+const trunkBands = trunkRing(tdense[0], 1).bands;
+const TI = (x) => { let b = 0, bd = 1e9; for (let i = 0; i < NT; i++) { const d = Math.abs(tdense[i].x - x); if (d < bd) { bd = d; b = i; } } return b; };
+const THOLES = {                                        // 主起落架舱（下表面）/ 侧弹舱（外侧壁）
+  mlg: { i0: TI(10.55), i1: TI(12.95), k0: 2, k1: 7 },
+  side: { i0: TI(8.35), i1: TI(11.35), k0: 11, k1: 16 }
+};
+const skipT = (i, k) => {
+  for (const h of Object.values(THOLES)) if (i >= h.i0 && i < h.i1 && k >= h.k0 && k < h.k1) return true;
+  return false;
+};
+P.intake = []; P.trunk = {};
+for (const side of [1, -1]) {
+  const rings = tdense.map(p => trunkRing(p, side).pts);
+  const lo = loft({
+    rings, bands: trunkBands, skip: skipT,
+    crease: (u, b) => 0.42, uScale: 2.2, vScale: 1.1
+  });
+  airframe.add(new THREE.Mesh(lo.geometry, MAT.skin));
+  P.trunk[side] = lo;
+  // 唇口：外环 → 内缩环（薄壁）
+  const lipA = trunkRing(tdense[0], side).pts;
+  const lipB = trunkRing({ ...tdense[0], x: tdense[0].x + 0.045 }, side, 0.052).pts;
+  const lipLo = loft({ rings: [lipA, lipB], bands: trunkBands, crease: () => 1, flip: side > 0 });
+  airframe.add(new THREE.Mesh(lipLo.geometry, MAT.skinB));
+  // S 形进气管道（内壁，向内上方弯曲后被封堵）
+  const duct = [];
+  const DN = 22;
+  for (let i = 0; i < DN; i++) {
+    const t = i / (DN - 1);
+    const p0 = tdense[0];
+    const xx = lerp(p0.x + 0.05, 10.6, t);
+    const shrink = lerp(0.052, 0.16, smooth(t));
+    const zsh = lerp(0, -0.30, smooth(t)) * side;     // 向机身内侧偏
+    const ysh = lerp(0, 0.30, smooth(t));             // 向上抬
+    const q = trunkRing({ ...p0, x: xx, rake: p0.rake * (1 - smooth(t)) }, side, shrink).pts;
+    duct.push(q.map(v => [v[0], v[1] + ysh, v[2] + zsh]));
+  }
+  const dlo = loft({ rings: duct, bands: trunkBands, crease: () => 0.2, flip: side < 0 });
+  const dm = new THREE.Mesh(dlo.geometry, MAT.duct);
+  airframe.add(dm);
+  airframe.add(new THREE.Mesh(capGeo(duct[DN - 1], 1), MAT.dark));
+  P.intake.push(lo);
+}
+/* DSI 鼓包：附着在机身侧面，边缘与蒙皮完全融合 */
+for (const side of [1, -1]) {
+  const v0 = side > 0 ? 0.30 : 0.70, v1 = side > 0 ? 0.415 : 0.585;   // 侧面（下侧带→上侧带）
+  const g = surfaceBump(fuse, FI(4.85) / (NF - 1), FI(6.42) / (NF - 1), Math.min(v0, v1), Math.max(v0, v1), 0.19, 26, 18,
+    { shape: (a, b) => Math.pow(Math.sin(PI * clamp(a * 0.94 + 0.03, 0, 1)), 0.85) * Math.sin(PI * b), pow: 0.9 });
+  airframe.add(new THREE.Mesh(g, MAT.skin));
+}
+
+/* ---------------- 4.3 座舱盖 ---------------- */
+const CAN_ST = [
+  { x: 3.52, z: .29, ys: .430, yt: .450, f: .55 },
+  { x: 3.75, z: .40, ys: .445, yt: .620, f: .60 },
+  { x: 4.05, z: .49, ys: .470, yt: .830, f: .62 },
+  { x: 4.45, z: .555, ys: .500, yt: 1.000, f: .62 },
+  { x: 4.95, z: .59, ys: .530, yt: 1.100, f: .62 },
+  { x: 5.55, z: .605, ys: .560, yt: 1.135, f: .62 },
+  { x: 6.20, z: .60, ys: .595, yt: 1.120, f: .62 },
+  { x: 6.85, z: .565, ys: .630, yt: 1.040, f: .60 },
+  { x: 7.35, z: .48, ys: .655, yt: .900, f: .58 },
+  { x: 7.85, z: .34, ys: .672, yt: .755, f: .55 },
+  { x: 8.15, z: .18, ys: .690, yt: .705, f: .52 }
+];
+const NC = 60;
+const cdense = interpStations(CAN_ST, NC);
+function canRing(p, inflate) {
+  const z = p.z + (inflate || 0), yt = p.yt + (inflate || 0) * 0.9, ys = p.ys;
+  const L = segC([-z, ys], [-z, ys + (yt - ys) * .64], [-z * p.f, yt], [0, yt], 12);
+  const R = segC([0, yt], [z * p.f, yt], [z, ys + (yt - ys) * .64], [z, ys], 12);
+  return ringFromSegs([joinSeg(L, R)]);
+}
+const canBands = canRing(cdense[0], 0).bands;
+const canopyLo = loft({
+  rings: cdense.map(p => canRing(p, 0).pts.map(q => [p.x, q[1], q[0]])),
+  bands: canBands, closed: false, crease: () => 1, flip: false
+});
+P.canopyGlass = new THREE.Mesh(canopyLo.geometry, MAT.glass);
+P.canopyGlass.renderOrder = 12;
+/* 风挡框 + 舱盖框 */
+function canFrame(x0, x1, infl, mat) {
+  const a = cdense.reduce((m, p) => Math.abs(p.x - x0) < Math.abs(m.x - x0) ? p : m, cdense[0]);
+  const b = cdense.reduce((m, p) => Math.abs(p.x - x1) < Math.abs(m.x - x1) ? p : m, cdense[0]);
+  const rs = [
+    canRing({ ...a, z: a.z * .999 }, 0).pts.map(q => [a.x, q[1], q[0]]),
+    canRing(a, infl).pts.map(q => [a.x, q[1], q[0]]),
+    canRing(b, infl).pts.map(q => [b.x, q[1], q[0]]),
+    canRing({ ...b, z: b.z * .999 }, 0).pts.map(q => [b.x, q[1], q[0]])
+  ];
+  const lo = loft({ rings: rs, bands: canBands, closed: false, crease: () => 1 });
+  return new THREE.Mesh(lo.geometry, mat || MAT.skinB);
+}
+const canopyGrp = new THREE.Group();          // 后铰链开启
+canopyGrp.add(P.canopyGlass);
+canopyGrp.add(canFrame(4.02, 4.16, 0.028));   // 风挡后框（弓形梁）
+airframe.add(canopyGrp);
+P.canopy = canopyGrp;
+/* 舱内：下沉座舱盆 + 弹射座椅 + 仪表（全部位于舱盖内轮廓之下） */
+const pit = new THREE.Group();
+{
+  airframe.add(new THREE.Mesh(surfaceWell(fuse, HOLES.pit, 0.52, 0.03), MAT.pit));
+  const fl = -0.045;                                     // 舱底标高（开口下沉后）
+  const box = (w, h, d, x, y, z, m, rz) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m || MAT.cockpit);
+    b.position.set(x, y, z); if (rz) b.rotation.z = rz; pit.add(b); return b;
+  };
+  box(2.70, 0.05, 0.86, 5.55, fl, 0);                    // 舱底板
+  box(0.30, 0.46, 0.80, 4.42, fl + 0.30, 0, MAT.dark, -0.26);    // 仪表台
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.60, 0.34), MAT.mfd);
+  scr.position.set(4.585, fl + 0.34, 0); scr.rotation.y = -PI / 2; scr.rotation.x = 0.26; pit.add(scr);
+  const hud = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.24), new THREE.MeshPhysicalMaterial({
+    color: 0x9fffd8, metalness: 0, roughness: 0.02, transparent: true, opacity: 0.22, side: THREE.DoubleSide, toneMapped: false
+  }));
+  hud.position.set(4.68, fl + 0.70, 0); hud.rotation.y = PI / 2; hud.rotation.x = 0.18; pit.add(hud);
+  box(0.06, 0.14, 0.32, 4.68, fl + 0.86, 0, MAT.dark);   // HUD 上框
+  for (const s of [1, -1]) box(1.40, 0.16, 0.14, 5.20, fl + 0.26, s * 0.36, MAT.dark);   // 侧操纵台
+  // 弹射座椅（TY-5X 简化）
+  const seat = new THREE.Group();
+  seat.add(new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.12, 0.46), MAT.seat));
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.74, 0.46), MAT.seat);
+  back.position.set(-0.30, 0.40, 0); back.rotation.z = 0.22; seat.add(back);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.22, 0.30), MAT.seat);
+  head.position.set(-0.48, 0.84, 0); seat.add(head);
+  const rl = new THREE.Mesh(new THREE.BoxGeometry(0.10, 1.00, 0.12), MAT.dark);
+  rl.position.set(-0.52, 0.50, 0); seat.add(rl);
+  for (const s of [1, -1]) {                             // 座椅侧板
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.26, 0.04), MAT.seat);
+    sp.position.set(-0.06, 0.16, s * 0.23); seat.add(sp);
+  }
+  seat.position.set(5.62, fl + 0.12, 0); pit.add(seat);
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.30, 8), MAT.dark);
+  stick.position.set(5.08, fl + 0.24, 0); stick.rotation.z = -0.10; pit.add(stick);
+  const thr = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.08), MAT.dark);
+  thr.position.set(5.30, fl + 0.36, 0.34); thr.rotation.z = 0.3; pit.add(thr);
+}
+airframe.add(pit);
+
+/* ---------------- 4.4 翼面：机翼 / 鸭翼 / 全动垂尾 / 腹鳍 ---------------- */
+function mirrorSec(s, side) {
+  return { le: [s.le[0], s.le[1], s.le[2] * side], te: [s.te[0], s.te[1], s.te[2] * side], th: s.th, up: [s.up[0], s.up[1], s.up[2] * side] };
+}
+function addFoilPair(secs, opt, hingeAt, axisFn) {
+  const parts = [];
+  for (const side of [1, -1]) {
+    const lo = buildFoil(secs.map(s => mirrorSec(s, side)), opt);
+    let obj;
+    if (hingeAt) {
+      const h = hingeAt(side);
+      const g = hinge(lo.merged, h[0], h[1], h[2], axisFn(side));
+      g.userData.sgn = -side;
+      g.add(new THREE.Mesh(lo.merged, opt.mat || MAT.skin));
+      airframe.add(g); obj = g;
+    } else {
+      obj = new THREE.Mesh(lo.merged, opt.mat || MAT.skin);
+      airframe.add(obj);
+    }
+    parts.push({ obj, lo, side, nCh: opt.nCh || 30 });
+  }
+  return parts;
+}
+const UPY = [0, 1, 0];
+/* 主翼（切尖三角翼：前缘后掠 43°，后缘前掠 16°） */
+const WING = [
+  { le: [9.55, .020, 1.78], te: [16.55, -.030, 1.78], th: .054, up: UPY },
+  { le: [10.30, .012, 2.60], te: [16.30, -.050, 2.60], th: .052, up: UPY },
+  { le: [11.70, -.008, 4.10], te: [15.85, -.082, 4.10], th: .049, up: UPY },
+  { le: [13.55, -.038, 6.08], te: [15.40, -.118, 6.08], th: .046, up: UPY },
+  { le: [13.90, -.046, 6.47], te: [15.22, -.128, 6.47], th: .045, up: UPY },
+  { le: [13.96, -.048, 6.505], te: [15.20, -.130, 6.505], th: .040, up: UPY }
+];
+const WP = addFoilPair(WING, { nSpan: 34, nCh: 34, camber: (t) => 0.006 * Math.sin(PI * Math.pow(t, .75)) });
+/* 鸭翼（全动，绕展向轴偏转） */
+const CANARD = [
+  { le: [6.24, .315, .82], te: [8.86, .285, .82], th: .058, up: [0, 1, .102] },
+  { le: [6.30, .310, 1.02], te: [8.88, .282, 1.02], th: .057, up: [0, 1, .102] },
+  { le: [7.34, .195, 2.10], te: [9.22, .172, 2.10], th: .052, up: [0, 1, .102] },
+  { le: [8.44, .080, 3.17], te: [9.54, .062, 3.17], th: .048, up: [0, 1, .102] },
+  { le: [8.48, .075, 3.21], te: [9.53, .058, 3.21], th: .043, up: [0, 1, .102] }
+];
+P.canard = [];
+const CP = addFoilPair(CANARD, { nSpan: 26, nCh: 30 }, (s) => [7.05, .29, 1.02 * s], (s) => new Vector3(0, -.102, s));
+P.canard = CP.map(p => p.obj);
+/* 全动垂尾（外倾 20°） */
+const VUP = [0, .342, -.94];
+const VTAIL = [
+  { le: [15.78, .22, 1.00], te: [18.94, .22, 1.00], th: .062, up: VUP },
+  { le: [15.85, .50, 1.12], te: [18.90, .50, 1.12], th: .060, up: VUP },
+  { le: [17.25, 1.69, 1.55], te: [19.07, 1.69, 1.55], th: .054, up: VUP },
+  { le: [18.05, 2.36, 1.79], te: [19.18, 2.36, 1.79], th: .050, up: VUP },
+  { le: [18.19, 2.48, 1.84], te: [19.20, 2.48, 1.84], th: .044, up: VUP }
+];
+P.vtail = [];
+const VP = addFoilPair(VTAIL, { nSpan: 26, nCh: 30 }, (s) => [16.9, .55, 1.14 * s], (s) => new Vector3(0, .94, .342 * s));
+P.vtail = VP.map(p => p.obj);
+/* 腹鳍 */
+const FUP = [0, .423, .906];
+const VENTRAL = [
+  { le: [17.42, -.42, .98], te: [19.32, -.42, .98], th: .075, up: FUP },
+  { le: [17.45, -.60, 1.03], te: [19.30, -.60, 1.03], th: .072, up: FUP },
+  { le: [17.80, -1.05, 1.24], te: [19.14, -1.05, 1.24], th: .064, up: FUP },
+  { le: [17.98, -1.30, 1.36], te: [19.05, -1.30, 1.36], th: .058, up: FUP },
+  { le: [18.02, -1.34, 1.38], te: [19.03, -1.34, 1.38], th: .050, up: FUP }
+];
+addFoilPair(VENTRAL, { nSpan: 18, nCh: 26 });
+
+/* ---------------- 4.5 尾喷管（WS-10C 锯齿收敛喷口）---------------- */
+function buildNozzle(zc) {
+  const yc = -0.15, teeth = 18, KN = teeth * 8, amp = 0.135;
+  const grp = new THREE.Group();
+  const ring = (x, r, saw) => {
+    const out = [];
+    for (let k = 0; k < KN; k++) {
+      const a = k / KN * TAU;
+      const t = (k / KN) * teeth, fr = t - Math.floor(t), tri = Math.abs(fr - .5) * 2;
+      const dx = saw ? -amp * (1 - tri) : 0;
+      const rr = r * (saw ? (1 - 0.02 * (1 - tri)) : 1);
+      out.push([x + dx, yc + Math.sin(a) * rr, zc + Math.cos(a) * rr]);
+    }
+    out.push(out[0].slice());
+    return out;
+  };
+  const bands = [{ i0: 0, i1: KN }];
+  const rings = [
+    ring(19.40, .600), ring(19.80, .586), ring(20.20, .566), ring(20.52, .540),
+    ring(20.76, .512), ring(20.94, .492, true), ring(20.945, .468, true),
+    ring(20.80, .452), ring(20.50, .436), ring(20.20, .446), ring(19.90, .468), ring(19.62, .488)
+  ];
+  const lo = loft({ rings, bands, crease: () => 1, uScale: 1, vScale: 1 });
+  const noz = new THREE.Mesh(lo.geometry, MAT.hot);
+  grp.add(noz);
+  // 内部：加力燃烧室 / 火焰稳定器
+  const inner = new THREE.Mesh(new THREE.CylinderGeometry(.487, .50, .9, 32, 1, true), MAT.dark);
+  inner.rotation.z = PI / 2; inner.position.set(19.2, yc, zc); grp.add(inner);
+  const holder = new THREE.Mesh(new THREE.CircleGeometry(.487, 32), MAT.turbine);
+  holder.position.set(19.05, yc, zc); holder.rotation.y = -PI / 2; grp.add(holder);
+  for (let i = 0; i < 8; i++) {                        // 加力喷油环辐条
+    const s = new THREE.Mesh(new THREE.BoxGeometry(.30, .48, .028), MAT.dark);
+    s.position.set(19.35, yc, zc); s.rotation.x = i / 8 * PI; grp.add(s);
+  }
+  // 花瓣分缝线
+  const pts = [];
+  for (let k = 0; k < teeth; k++) {
+    const a = (k / teeth) * TAU;
+    for (const [x, r] of [[19.5, .594], [20.2, .566], [20.6, .532], [20.93, .492]]) {
+      pts.push(new Vector3(x, yc + Math.sin(a) * (r + .004), zc + Math.cos(a) * (r + .004)));
+    }
+  }
+  const seg = [];
+  for (let k = 0; k < teeth; k++) for (let j = 0; j < 3; j++) { seg.push(pts[k * 4 + j], pts[k * 4 + j + 1]); }
+  const lg = new THREE.BufferGeometry().setFromPoints(seg);
+  grp.add(new THREE.LineSegments(lg, MAT.line));
+  // 加力焰
+  const flame = new THREE.Group();
+  const fg = new THREE.CylinderGeometry(.40, .10, 3.6, 24, 1, true);
+  const fm = new THREE.Mesh(fg, MAT.flame); fm.rotation.z = -PI / 2; fm.position.set(22.5, yc, zc);
+  flame.add(fm);
+  const fg2 = new THREE.CylinderGeometry(.22, .05, 1.7, 20, 1, true);
+  const fm2 = new THREE.Mesh(fg2, new THREE.MeshBasicMaterial({ color: 0xdfeaff, transparent: true, opacity: .35, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+  fm2.rotation.z = -PI / 2; fm2.position.set(21.6, yc, zc); flame.add(fm2);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.glow, blending: THREE.AdditiveBlending, transparent: true, opacity: .85, depthWrite: false, toneMapped: false }));
+  sp.scale.setScalar(2.0); sp.position.set(21.05, yc, zc); flame.add(sp);
+  grp.add(flame);
+  return { grp, flame };
+}
+P.nozzles = [];
+for (const zc of [0.63, -0.63]) {
+  const n = buildNozzle(zc);
+  airframe.add(n.grp); P.nozzles.push(n);
+}
+
+/* =====================================================================
+   5. 细节：蒙皮分块线 / 贴合曲面的贴花与传感器窗
+   ===================================================================== */
+const LSEG = [];
+const addPoly = (pts) => { for (let i = 0; i < pts.length - 1; i++) LSEG.push(pts[i], pts[i + 1]); };
+const surfPoly = (lo, uvs, off) => addPoly(uvs.map(([u, v]) => lo.at(u, v, off === undefined ? 0.009 : off).p));
+function ringLine(lo, u, v0, v1, n, off) { const a = []; for (let i = 0; i < n; i++) a.push([u, lerp(v0, v1, i / (n - 1))]); surfPoly(lo, a, off); }
+function longLine(lo, v, u0, u1, n, off) { const a = []; for (let i = 0; i < n; i++) a.push([lerp(u0, u1, i / (n - 1)), v]); surfPoly(lo, a, off); }
+function rectLine(lo, u0, u1, v0, v1, off) {
+  const a = [], N = 8;
+  for (let i = 0; i <= N; i++) a.push([lerp(u0, u1, i / N), v0]);
+  for (let i = 1; i <= N; i++) a.push([u1, lerp(v0, v1, i / N)]);
+  for (let i = 1; i <= N; i++) a.push([lerp(u1, u0, i / N), v1]);
+  for (let i = 1; i <= N; i++) a.push([u0, lerp(v1, v0, i / N)]);
+  surfPoly(lo, a, off);
+}
+function sawLine(lo, u0, u1, v, amp, teeth, off) {
+  const a = [], n = teeth * 2;
+  for (let i = 0; i <= n; i++) a.push([lerp(u0, u1, i / n), v + (i % 2 ? amp : -amp)]);
+  surfPoly(lo, a, off);
+}
+function vChord(t, upper, nCh) {                        // 弦向比例 → 环向参数 v
+  const s = Math.acos(clamp(1 - 2 * t, -1, 1)) / PI, K = 2 * nCh;
+  return (upper ? (nCh - 1) * (1 - s) : nCh + (nCh - 1) * s) / (K - 1);
+}
+/* 贴合曲面的网格片（贴花 / 传感器窗 / 补片） */
+function surfaceGrid(lo, u0, u1, v0, v1, opt = {}) {
+  const nu = opt.nu || 10, nv = opt.nv || 10, off = opt.off === undefined ? 0.006 : opt.off;
+  const pos = [], nor = [], uv = [], idx = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i / (nu - 1), b = j / (nv - 1);
+    const s = lo.at(lerp(u0, u1, a), lerp(v0, v1, b), off);
+    pos.push(s.p.x, s.p.y, s.p.z); nor.push(s.n.x, s.n.y, s.n.z);
+    let tu = opt.swap ? b : a, tv = opt.swap ? a : b;
+    if (opt.flipU) tu = 1 - tu; if (opt.flipV) tv = 1 - tv;
+    uv.push(tu, tv);
+  }
+  for (let i = 0; i < nu - 1; i++) for (let j = 0; j < nv - 1; j++) {
+    const a = i * nv + j, b = i * nv + j + 1, c = (i + 1) * nv + j + 1, d = (i + 1) * nv + j;
+    idx.push(a, b, c, a, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+const MARKS = new THREE.Group(); airframe.add(MARKS);
+const decal = (lo, u0, u1, v0, v1, tex, opt = {}) => {
+  const m = new THREE.Mesh(surfaceGrid(lo, u0, u1, v0, v1, opt), decalMat(tex, opt.opacity));
+  m.renderOrder = 3; MARKS.add(m); return m;
+};
+
+/* ---------------- 5.1 机身分块线 ---------------- */
+const fu = (x) => FI(x) / (NF - 1);
+const V = { boL: 0.0, botC: 8 / 71, boR: 16.5 / 71, chR: 25.5 / 71, shR: 34.5 / 71, top: 44 / 71, shL: 53.5 / 71, chL: 62.5 / 71, boL2: 1.0 };
+for (const x of [3.04, 4.34, 7.62, 8.92, 15.62, 16.98, 18.32, 19.42]) ringLine(fuse, fu(x), 0, 1, 96);
+for (const x of [10.40, 12.25, 13.90]) { ringLine(fuse, fu(x), 0.19, 1.0, 74); ringLine(fuse, fu(x), 0, 0.037, 6); }
+for (const x of [5.05, 5.60]) { ringLine(fuse, fu(x), 0.148, 1.0, 76); ringLine(fuse, fu(x), 0, 0.079, 8); }
+longLine(fuse, V.chR, fu(0.30), fu(20.2), 130); longLine(fuse, V.chL, fu(0.30), fu(20.2), 130);
+longLine(fuse, V.shR, fu(1.80), fu(20.2), 110); longLine(fuse, V.shL, fu(1.80), fu(20.2), 110);
+longLine(fuse, V.boR, fu(1.20), fu(20.2), 110); longLine(fuse, V.boL2 - 0.004, fu(1.20), fu(20.2), 110);
+longLine(fuse, V.top, fu(8.40), fu(20.2), 60);
+for (const v of [0.295, 0.415]) { longLine(fuse, v, fu(3.1), fu(9.4), 40); longLine(fuse, 1 - v + 0.006, fu(3.1), fu(9.4), 40); }
+for (const v of [0.055, 0.165]) { longLine(fuse, v, fu(1.6), fu(9.2), 40); longLine(fuse, v, fu(14.4), fu(20.1), 30); }
+for (const v of [0.545, 0.695]) longLine(fuse, v, fu(9.0), fu(19.6), 40);
+rectLine(fuse, fu(8.30), fu(8.95), V.top - 0.028, V.top + 0.028);      // 空中受油口盖
+rectLine(fuse, fu(3.35), fu(4.05), 0.305, 0.365);                       // 侧面检修口盖
+rectLine(fuse, fu(3.35), fu(4.05), 1 - 0.365, 1 - 0.305);
+rectLine(fuse, fu(6.55), fu(7.35), 0.30, 0.35);
+rectLine(fuse, fu(6.55), fu(7.35), 1 - 0.35, 1 - 0.30);
+sawLine(fuse, fu(14.20), fu(15.30), 0.055, 0.011, 7);                   // 锯齿状口盖边
+sawLine(fuse, fu(14.20), fu(15.30), 0.170, 0.011, 7);
+/* 进气道整流罩分块线 */
+for (const side of [1, -1]) {
+  const lo = P.trunk[side];
+  const tu = (x) => TI(x) / (NT - 1);
+  for (const x of [7.35, 9.60, 13.40, 16.45]) ringLine(lo, tu(x), 0, 1, 46);
+  for (const v of [10 / 37, 19.5 / 37, 29.5 / 37]) longLine(lo, v, tu(6.35), tu(17.9), 46);
+  longLine(lo, 13.5 / 37, tu(6.4), tu(8.3), 12); longLine(lo, 13.5 / 37, tu(11.4), tu(17.6), 22);
+}
+/* 翼面分块线 */
+function foilLines(p, opt = {}) {
+  const lo = p.lo, n = p.nCh, u0 = opt.u0 === undefined ? 0.06 : opt.u0, u1 = opt.u1 === undefined ? 0.985 : opt.u1;
+  for (const up of [true, false]) {
+    if (opt.le !== false) longLine(lo, vChord(opt.leT || 0.14, up, n), u0, u1, 46, 0.006);
+    if (opt.te !== false) longLine(lo, vChord(opt.teT || 0.76, up, n), u0, u1, 46, 0.006);
+  }
+  for (const u of (opt.ribs || [0.3, 0.62])) ringLine(lo, u, vChord(0.16, true, n), vChord(0.16, false, n), 26, 0.006);
+  for (const u of (opt.splits || [])) {
+    const a = [];
+    for (let i = 0; i <= 10; i++) a.push([u, vChord(lerp(opt.teT || 0.76, 0.995, i / 10), true, n)]);
+    for (let i = 0; i <= 10; i++) a.push([u, vChord(lerp(0.995, opt.teT || 0.76, i / 10), false, n)]);
+    surfPoly(lo, a, 0.006);
+  }
+}
+WP.forEach(p => foilLines(p, { splits: [0.34, 0.63], ribs: [0.2, 0.47, 0.8] }));
+CP.forEach(p => foilLines(p, { leT: 0.12, teT: 0.82, ribs: [0.45] }));
+VP.forEach(p => foilLines(p, { leT: 0.16, teT: 0.80, ribs: [0.42], u0: 0.18 }));
+P.panelLines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(LSEG), MAT.line);
+airframe.add(P.panelLines);
+
+/* ---------------- 5.2 国籍标志 / 编号 ---------------- */
+const SERIAL = '2011';
+{
+  const numTex = buildTextTex(SERIAL, { w: 512, h: 180, size: 150, color: 'rgba(96,106,116,0.95)' });
+  const numTex2 = buildTextTex(SERIAL, { w: 512, h: 180, size: 150, color: 'rgba(110,120,130,0.9)' });
+  WP.forEach(p => {                                   // 机翼上/下表面八一军徽
+    const n = p.nCh;
+    decal(p.lo, 0.30, 0.46, vChord(0.62, true, n), vChord(0.30, true, n), TEX.star, { opacity: 0.86, nu: 12, nv: 12 });
+    decal(p.lo, 0.30, 0.46, vChord(0.30, false, n), vChord(0.62, false, n), TEX.star, { opacity: 0.86, nu: 12, nv: 12 });
+  });
+  VP.forEach(p => {                                   // 垂尾外侧编号
+    const n = p.nCh, fl = p.side < 0;
+    decal(p.lo, 0.36, 0.62, vChord(0.62, false, n), vChord(0.26, false, n), numTex,
+      { opacity: 0.85, swap: true, flipU: fl, nu: 10, nv: 14 });
+    decal(p.lo, 0.70, 0.86, vChord(0.72, false, n), vChord(0.40, false, n), TEX.star,
+      { opacity: 0.8, nu: 10, nv: 10 });
+  });
+  // 机头两侧小编号
+  decal(fuse, fu(3.55), fu(4.35), 0.40, 0.455, numTex2, { opacity: 0.8, swap: true, nu: 10, nv: 8 });
+  decal(fuse, fu(3.55), fu(4.35), 1 - 0.455, 1 - 0.40, numTex2, { opacity: 0.8, swap: true, flipU: true, nu: 10, nv: 8 });
+  // 进气道警告条
+  const warn = buildTextTex('危 险 · 进 气', { w: 512, h: 96, size: 62, color: 'rgba(150,60,60,0.9)' });
+  for (const side of [1, -1]) {
+    const lo = P.trunk[side], tu = (x) => TI(x) / (NT - 1);
+    decal(lo, tu(6.9), tu(8.4), 12 / 37, 17 / 37, warn, { opacity: 0.75, swap: true, flipU: side < 0, nu: 10, nv: 8 });
+  }
+}
+
+/* ---------------- 5.3 传感器 / 探头 / 灯光 ---------------- */
+{
+  // EOTS 光电瞄准系统（机头下方多面棱窗）
+  const eots = new THREE.Mesh(new THREE.SphereGeometry(0.30, 7, 4, 0, TAU, 0, PI * 0.62), new THREE.MeshPhysicalMaterial({
+    color: 0x10161c, metalness: 0.6, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 2.0, flatShading: true
+  }));
+  eots.rotation.x = PI; eots.scale.set(1.18, 0.68, 0.84); eots.position.set(2.60, -0.36, 0);
+  airframe.add(eots);
+  const eotsBase = new THREE.Mesh(surfaceGrid(fuse, fu(2.10), fu(3.10), 0.110, 0.115, { nu: 12, nv: 4, off: 0.004 }), MAT.skinB);
+  airframe.add(eotsBase);
+  // DAS 分布式孔径窗（深色介质窗）
+  const dasSpec = [
+    [3.30, 3.75, 0.425, 0.472], [3.30, 3.75, 1 - 0.472, 1 - 0.425],
+    [2.05, 2.45, 0.300, 0.345], [2.05, 2.45, 1 - 0.345, 1 - 0.300],
+    [8.60, 9.10, V.top - 0.022, V.top + 0.022], [12.4, 12.9, 0.085, 0.140]
+  ];
+  for (const [x0, x1, v0, v1] of dasSpec) {
+    const m = new THREE.Mesh(surfaceGrid(fuse, fu(x0), fu(x1), v0, v1, { nu: 8, nv: 6, off: 0.005 }), MAT.glassDark);
+    m.renderOrder = 2; airframe.add(m);
+  }
+  // 空速管 / 迎角传感器
+  const probe = (x, y, z, len, r, rot) => {
+    const g = new THREE.Group();
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.45, r, len, 10), MAT.gear);
+    c.rotation.z = PI / 2; c.position.set(len / 2, 0, 0); g.add(c);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(r * 0.45, r * 1.6, 10), MAT.dark);
+    tip.rotation.z = -PI / 2; tip.position.set(len + r * 0.8, 0, 0); g.add(tip);
+    g.position.set(x, y, z); if (rot) g.rotation.y = rot;
+    airframe.add(g); return g;
+  };
+  probe(1.35, -0.05, 0.30, 0.42, 0.022, -0.22); probe(1.35, -0.05, -0.30, 0.42, 0.022, 0.22);
+  probe(2.15, 0.10, 0.60, 0.20, 0.016, -0.30); probe(2.15, 0.10, -0.60, 0.20, 0.016, 0.30);
+  const nosePitot = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.022, 0.34, 10), MAT.gear);
+  nosePitot.rotation.z = PI / 2; nosePitot.position.set(-0.14, 0.0, 0); airframe.add(nosePitot);
+  // 刀形天线
+  const blade = (x, y, z, h, c, rotX) => {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0); s.lineTo(c, 0); s.lineTo(c * 0.55, h); s.lineTo(0, h * 0.92); s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.022, bevelEnabled: false });
+    g.translate(0, 0, -0.011); g.rotateY(0);
+    const m = new THREE.Mesh(g, MAT.skinB);
+    m.position.set(x, y, z); if (rotX) m.rotation.x = rotX;
+    airframe.add(m); return m;
+  };
+  blade(9.30, 0.775, 0, 0.16, 0.42);
+  blade(13.6, 0.772, 0, 0.13, 0.34);
+  blade(15.2, -0.70, 0.35, 0.14, 0.36, PI);
+  // 航行灯
+  const navLight = (x, y, z, mat, sc) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(sc || 0.05, 10, 8), mat);
+    m.position.set(x, y, z); m.scale.set(0.7, 0.7, 1.4); airframe.add(m);
+    return m;
+  };
+  navLight(14.35, -0.05, 6.52, MAT.navG);   // 右翼绿灯（+z 侧）
+  navLight(14.35, -0.05, -6.52, MAT.navR);  // 左翼红灯
+  navLight(19.15, 2.44, 1.84, MAT.navW, 0.045);
+  navLight(19.15, 2.44, -1.84, MAT.navW, 0.045);
+  navLight(2.35, -0.44, 0.42, MAT.navW, 0.035);
+  navLight(2.35, -0.44, -0.42, MAT.navW, 0.035);
+}
+
+//__CHUNK_DETAIL3__
+
+/* =====================================================================
+   6. 内置弹舱 / 空空导弹 / 起落架
+   ===================================================================== */
+P.bayDoors = []; P.weapons = new THREE.Group(); airframe.add(P.weapons);
+const vk = (k) => k / 71;
+/* ---- 6.1 主弹舱 ---- */
+{
+  const H = { i0: HOLES.bayL.i0, i1: HOLES.bayL.i1, k0: HOLES.bayL.k0, k1: HOLES.bayR.k1 };
+  airframe.add(new THREE.Mesh(surfaceWell(fuse, H, 0.66, 0.02), MAT.bay));
+  const uA = H.i0 / (NF - 1) + 0.0006, uB = H.i1 / (NF - 1) - 0.0006;
+  const zig = (a) => (Math.floor(a * 9) % 2 ? 0.0055 : -0.0055);
+  for (const s of [1, -1]) {                            // s=+1 右(+z)门
+    const vH = s > 0 ? vk(14) - 0.0015 : vk(2) + 0.0015;
+    const vT = (a) => vk(8) + (s > 0 ? -1 : 1) * 0.004 + zig(a) * s;
+    const g = surfacePanel(fuse, uA, uB, vH, vT, 0.035, 30, 7);
+    const p0 = fuse.vert(H.i0, s > 0 ? 14 : 2).p, p1 = fuse.vert(H.i1, s > 0 ? 14 : 2).p;
+    const ax = new Vector3().subVectors(p1, p0).normalize();
+    const hg = hinge(g, p0.x, p0.y, p0.z, ax);
+    hg.userData.sgn = -s; hg.userData.max = 1.15;
+    hg.add(new THREE.Mesh(g, MAT.skinC));
+    airframe.add(hg); P.bayDoors.push(hg);
+  }
+  // PL-15 远程空空导弹 ×4
+  for (const z of [0.22, -0.22, 0.60, -0.60]) {
+    const m = buildPL15(); m.position.set(9.62, -0.40, z); P.weapons.add(m);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.09, 0.12), MAT.dark);
+    rail.position.set(11.4, -0.24, z); P.weapons.add(rail);
+  }
+}
+/* ---- 6.2 侧弹舱（PL-10 格斗弹）---- */
+for (const side of [1, -1]) {
+  const lo = P.trunk[side], H = THOLES.side;
+  airframe.add(new THREE.Mesh(surfaceWell(lo, H, 0.44, 0.02), MAT.bay));
+  const uA = H.i0 / (NT - 1) + 0.001, uB = H.i1 / (NT - 1) - 0.001;
+  const g = surfacePanel(lo, uA, uB, 16 / 37 - 0.002, 11 / 37 + 0.002, 0.03, 18, 7);
+  const p0 = lo.vert(H.i0, 16).p, p1 = lo.vert(H.i1, 16).p;
+  const ax = new Vector3().subVectors(p1, p0).normalize();
+  const hg = hinge(g, p0.x, p0.y, p0.z, ax);
+  hg.userData.sgn = -side; hg.userData.max = 1.30;
+  hg.add(new THREE.Mesh(g, MAT.skinC));
+  airframe.add(hg); P.bayDoors.push(hg);
+  // 发射挂梁（随舱门外摆）
+  const mg = new THREE.Group();
+  const pl10 = buildPL10(); pl10.position.set(8.55, -0.16, (1.62) * side); mg.add(pl10);
+  const tr = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.10, 0.10), MAT.dark);
+  tr.position.set(9.6, 0.02, 1.62 * side); mg.add(tr);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.30, 0.09), MAT.gear);
+  arm.position.set(9.9, 0.14, 1.66 * side); mg.add(arm);
+  const hg2 = new THREE.Group();
+  hg2.position.copy(p0); mg.position.sub(p0);
+  const holder = new THREE.Group(); holder.add(mg); hg2.add(holder);
+  hg2.userData.axis = ax.clone(); hg2.userData.sgn = -side;
+  hg2.userData.set = (a) => hg2.quaternion.setFromAxisAngle(ax, a);
+  airframe.add(hg2); P.sideRail = P.sideRail || []; P.sideRail.push(hg2);
+}
+/* ---- 6.3 导弹 ---- */
+function finGeo(rc, tc, span, sweep, thick) {
+  const s = new THREE.Shape();
+  s.moveTo(0, 0); s.lineTo(rc, 0); s.lineTo(sweep + tc, span); s.lineTo(sweep, span); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: thick, bevelEnabled: false });
+  g.translate(0, 0, -thick / 2);
+  return g;
+}
+function buildPL15() {
+  const g = new THREE.Group(), R = 0.101;
+  const prof = [];
+  for (let i = 0; i <= 12; i++) { const t = i / 12; prof.push(new Vector2(Math.max(R * Math.pow(t, 0.58), 0.004), t * 0.60)); }
+  prof.push(new Vector2(R, 3.52), new Vector2(R * 0.88, 3.95), new Vector2(R * 0.62, 4.0), new Vector2(0.001, 4.0));
+  const body = new THREE.LatheGeometry(prof, 24);
+  body.rotateZ(-PI / 2);
+  g.add(new THREE.Mesh(body, MAT.missile));
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), MAT.missileNose); nose.position.set(0.02, 0, 0); g.add(nose);
+  const fin = finGeo(0.62, 0.30, 0.155, 0.30, 0.016), str = finGeo(1.95, 1.95, 0.022, 0, 0.014);
+  for (let i = 0; i < 4; i++) {
+    const a = i * PI / 2 + PI / 4;
+    const f = new THREE.Mesh(fin, MAT.missile); f.position.set(3.30, 0, 0); f.rotation.x = a;
+    f.geometry = fin; f.translateY(R * 0.9); g.add(f);
+    const s2 = new THREE.Mesh(str, MAT.missile); s2.position.set(1.30, 0, 0); s2.rotation.x = a; s2.translateY(R * 0.95); g.add(s2);
+  }
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.06, 20), MAT.missileNose);
+  band.rotation.z = PI / 2; band.position.set(1.05, 0, 0); g.add(band);
+  return g;
+}
+function buildPL10() {
+  const g = new THREE.Group(), R = 0.081;
+  const prof = [];
+  for (let i = 0; i <= 8; i++) { const t = i / 8; prof.push(new Vector2(Math.max(R * Math.sin(t * PI / 2), 0.004), t * 0.16)); }
+  prof.push(new Vector2(R, 2.80), new Vector2(R * 0.9, 3.0), new Vector2(0.001, 3.0));
+  const body = new THREE.LatheGeometry(prof, 22); body.rotateZ(-PI / 2);
+  g.add(new THREE.Mesh(body, MAT.missile));
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(R * 0.99, 16, 12, 0, TAU, 0, PI / 2), MAT.seeker);
+  dome.rotation.z = PI / 2; dome.position.set(0.16, 0, 0); g.add(dome);
+  const cn = finGeo(0.26, 0.14, 0.10, 0.10, 0.014), tf = finGeo(0.44, 0.20, 0.175, 0.24, 0.014);
+  for (let i = 0; i < 4; i++) {
+    const a = i * PI / 2 + PI / 4;
+    const c = new THREE.Mesh(cn, MAT.gear); c.position.set(0.62, 0, 0); c.rotation.x = a; c.translateY(R * 0.95); g.add(c);
+    const t2 = new THREE.Mesh(tf, MAT.missile); t2.position.set(2.34, 0, 0); t2.rotation.x = a; t2.translateY(R * 0.95); g.add(t2);
+  }
+  return g;
+}
+/* ---- 6.4 起落架 ---- */
+function wheel(r, w) {
+  const g = new THREE.Group();
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 26, 1), MAT.rubber);
+  t.rotation.x = PI / 2; g.add(t);
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.52, r * 0.52, w * 1.06, 20), MAT.hub);
+  h.rotation.x = PI / 2; g.add(h);
+  for (const s of [1, -1]) {
+    const d = new THREE.Mesh(new THREE.TorusGeometry(r * 0.72, r * 0.07, 8, 22), MAT.hub);
+    d.position.z = s * w * 0.52; g.add(d);
+  }
+  return g;
+}
+function buildStrut(topY, botY, r, wr, ww) {
+  const g = new THREE.Group();
+  const len = topY - botY;
+  const s1 = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.08, len * 0.62, 14), MAT.gear);
+  s1.position.y = topY - len * 0.31; g.add(s1);
+  const s2 = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.78, r * 0.78, len * 0.5, 14), MAT.hub);
+  s2.position.y = topY - len * 0.72; g.add(s2);
+  const ax = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.42, r * 0.42, ww * 2.2, 10), MAT.hub);
+  ax.rotation.x = PI / 2; ax.position.y = botY; g.add(ax);
+  const brace = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.42, r * 0.42, len * 0.72, 10), MAT.gear);
+  brace.position.set(len * 0.20, topY - len * 0.42, 0); brace.rotation.z = 0.52; g.add(brace);
+  const link = new THREE.Mesh(new THREE.BoxGeometry(len * 0.30, r * 1.1, r * 0.7), MAT.hub);
+  link.position.set(-len * 0.16, topY - len * 0.60, 0); link.rotation.z = 0.7; g.add(link);
+  const w = wheel(wr, ww); w.position.y = botY; g.add(w);
+  return g;
+}
+P.gear = [];
+{
+  // 前起落架（后收）
+  const nose = buildStrut(-0.58, -1.65, 0.062, 0.33, 0.14);
+  const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.07, 14), MAT.navW);
+  lamp.position.set(-0.10, -1.22, 0); lamp.rotation.y = -PI / 2; nose.add(lamp);
+  const ng = new THREE.Group(); ng.position.set(5.30, 0, 0); ng.add(nose);
+  ng.userData.axis = new Vector3(0, 0, 1); ng.userData.maxAng = -1.45;
+  airframe.add(ng); P.gear.push(ng);
+  // 主起落架（前收）
+  for (const side of [1, -1]) {
+    const m = buildStrut(-0.60, -1.54, 0.078, 0.44, 0.18);
+    const g = new THREE.Group(); g.position.set(11.85, 0, 1.58 * side); g.add(m);
+    g.userData.axis = new Vector3(0, 0, 1); g.userData.maxAng = 1.45;
+    airframe.add(g); P.gear.push(g);
+  }
+  // 舱门：前起落架双开门 + 主起落架门
+  const nH = HOLES.nlg, uA = nH.i0 / (NF - 1) + 0.0008, uB = nH.i1 / (NF - 1) - 0.0008;
+  for (const s of [1, -1]) {
+    const vH = s > 0 ? vk(10) - 0.0015 : vk(6) + 0.0015, vT = vk(8) + (s > 0 ? -0.0025 : 0.0025);
+    const g = surfacePanel(fuse, uA, uB, vH, vT, 0.03, 14, 5);
+    const p0 = fuse.vert(nH.i0, s > 0 ? 10 : 6).p, p1 = fuse.vert(nH.i1, s > 0 ? 10 : 6).p;
+    const ax = new Vector3().subVectors(p1, p0).normalize();
+    const hg = hinge(g, p0.x, p0.y, p0.z, ax);
+    hg.userData.sgn = -s; hg.userData.max = 1.4;
+    hg.add(new THREE.Mesh(g, MAT.skinC));
+    airframe.add(hg); P.gearDoors = P.gearDoors || []; P.gearDoors.push(hg);
+  }
+  airframe.add(new THREE.Mesh(surfaceWell(fuse, nH, 0.72, 0.02), MAT.bay));
+  for (const side of [1, -1]) {
+    const lo = P.trunk[side], H = THOLES.mlg;
+    airframe.add(new THREE.Mesh(surfaceWell(lo, H, 0.60, 0.02), MAT.bay));
+    const a0 = H.i0 / (NT - 1) + 0.001, a1 = H.i1 / (NT - 1) - 0.001;
+    const g = surfacePanel(lo, a0, a1, 7 / 37 - 0.002, 2 / 37 + 0.002, 0.03, 16, 6);
+    const p0 = lo.vert(H.i0, 7).p, p1 = lo.vert(H.i1, 7).p;
+    const ax = new Vector3().subVectors(p1, p0).normalize();
+    const hg = hinge(g, p0.x, p0.y, p0.z, ax);
+    hg.userData.sgn = -side; hg.userData.max = 1.45;
+    hg.add(new THREE.Mesh(g, MAT.skinC));
+    airframe.add(hg); P.gearDoors.push(hg);
+  }
+}
+
+/* =====================================================================
+   7. 渲染器 / 环境 / 灯光 / 交互
+   ===================================================================== */
+say('装配场景与光照…');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('stage').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.15, 900);
+scene.add(root);
+const ctl = new Orbit(camera, renderer.domElement);
+
+/* 座舱盖铰链（尾部上掀） */
+const canPivot = new THREE.Group();
+canPivot.position.set(8.16, 0.66, 0);
+airframe.remove(P.canopy); P.canopy.position.set(-8.16, -0.66, 0);
+canPivot.add(P.canopy); airframe.add(canPivot);
+
+/* 阴影投射设置 */
+airframe.traverse(o => {
+  if (!o.isMesh) return;
+  const m = o.material;
+  if (m === MAT.glass || m === MAT.flame || m.transparent && m.depthWrite === false) return;
+  o.castShadow = true; o.receiveShadow = true;
+});
+
+/* ---------- 环境贴图（程序化影棚 / 天空）---------- */
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+const envCache = {};
+function buildEnv(kind) {
+  if (envCache[kind]) return envCache[kind];
+  const s = new THREE.Scene();
+  const lit = (w, h, d, x, y, z, r, g, b, rx, ry) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial());
+    m.material.color.setRGB(r, g, b); m.position.set(x, y, z);
+    if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry;
+    s.add(m); return m;
+  };
+  const room = new THREE.Mesh(new THREE.BoxGeometry(120, 60, 120), new THREE.MeshBasicMaterial({ side: THREE.BackSide }));
+  s.add(room);
+  if (kind === 'sky') {
+    room.material.color.setRGB(0.34, 0.52, 0.86);
+    lit(120, 30, 120, 0, -30, 0, 0.10, 0.11, 0.12);       // 地面半球
+    lit(28, 0.4, 28, 22, 26, 14, 20, 18.5, 15.5);          // 太阳
+    lit(120, 3, 120, 0, 2, 0, 0.55, 0.62, 0.72);
+  } else if (kind === 'dusk') {
+    room.material.color.setRGB(0.045, 0.062, 0.12);
+    lit(120, 16, 120, 0, -22, 0, 0.05, 0.045, 0.05);
+    lit(120, 6, 6, 0, 1.5, -58, 2.6, 1.15, 0.45);          // 暖色地平线
+    lit(20, 4, 4, -30, 6, -56, 9.0, 3.4, 1.2);             // 落日
+    lit(60, 30, 60, 0, 34, 30, 0.24, 0.30, 0.52);
+  } else {
+    room.material.color.setRGB(0.020, 0.024, 0.030);
+    lit(46, 0.5, 46, 0, 24, 0, 5.4, 5.9, 6.6);             // 顶灯箱
+    lit(0.5, 22, 46, -34, 8, 6, 2.6, 2.35, 2.0);           // 左暖侧光
+    lit(0.5, 22, 40, 34, 10, -8, 1.1, 1.5, 2.3);           // 右冷侧光
+    lit(40, 16, 0.5, -6, 6, 40, 0.9, 0.95, 1.1);
+    lit(60, 0.4, 60, 0, -14, 0, 0.34, 0.36, 0.40);         // 地面反射
+  }
+  const rt = pmrem.fromScene(s, kind === 'studio' ? 0.02 : 0.04, 0.5, 200);
+  s.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+  envCache[kind] = rt.texture;
+  return rt.texture;
+}
+/* ---------- 天空背景 ---------- */
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  uniforms: {
+    cTop: { value: new Color(0x0a0f16) }, cMid: { value: new Color(0x141b24) }, cBot: { value: new Color(0x05070a) },
+    sunC: { value: new Color(0xffe6c0) }, sunDir: { value: new Vector3(0.5, 0.35, 0.7) }, haze: { value: 0.4 }
+  },
+  vertexShader: 'varying vec3 vW; void main(){ vW=(modelMatrix*vec4(position,1.0)).xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader: `varying vec3 vW; uniform vec3 cTop,cMid,cBot,sunC,sunDir; uniform float haze;
+  void main(){ vec3 d=normalize(vW); float h=d.y;
+    vec3 c = h>0.0 ? mix(cMid,cTop,pow(h,0.55)) : mix(cMid,cBot,pow(-h,0.45));
+    float s = max(dot(d,normalize(sunDir)),0.0);
+    c += sunC*(pow(s,300.0)*1.1 + pow(s,14.0)*0.16*haze);
+    gl_FragColor=vec4(c,1.0);
+  #include <colorspace_fragment>
+  }`
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 20), skyMat);
+scene.add(sky);
+
+/* ---------- 地面 ---------- */
+const floorGrp = new THREE.Group();
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x06090c, roughness: 0.36, metalness: 0.05, envMapIntensity: 0.65,
+  transparent: true, alphaMap: buildRadialAlpha(0.05, 0.52)
+});
+const floor = new THREE.Mesh(new THREE.CircleGeometry(70, 72), floorMat);
+floor.rotation.x = -PI / 2; floor.position.y = AC.floorY; floor.receiveShadow = true;
+floorGrp.add(floor);
+{ // 展台聚光池（柔和顶光落影）
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshBasicMaterial({
+    map: buildRadialAlpha(0.02, 0.99), color: 0x9fc4dc, transparent: true, opacity: 0.10,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+  }));
+  pool.rotation.x = -PI / 2; pool.position.y = AC.floorY + 0.008;
+  floorGrp.add(pool);
+}
+scene.add(floorGrp);
+/* 标尺 */
+const gridGrp = new THREE.Group(); gridGrp.visible = false; scene.add(gridGrp);
+{
+  const gh = new THREE.GridHelper(52, 52, 0x2c3b48, 0x18222b);
+  gh.position.y = AC.floorY + 0.004;
+  gh.material.transparent = true; gh.material.opacity = 0.5;
+  gridGrp.add(gh);
+  const label = (txt, x, y, z, w) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: buildTextTex(txt, { w: 512, h: 128, size: 84, color: 'rgba(120,205,255,0.95)' }),
+      transparent: true, depthWrite: false, depthTest: false, toneMapped: false
+    }));
+    sp.scale.set(w, w * 0.25, 1); sp.position.set(x, y, z); gridGrp.add(sp); return sp;
+  };
+  const dl = (a, b) => {
+    const g = new THREE.BufferGeometry().setFromPoints([a, b]);
+    gridGrp.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x3f9fd0, transparent: true, opacity: 0.6 })));
+  };
+  const y0 = AC.floorY + 0.01;
+  dl(new Vector3(-AC.cx, y0, -8.4), new Vector3(AC.L - AC.cx, y0, -8.4));
+  label('机长 20.4 m', 0, y0, -9.6, 5);
+  dl(new Vector3(3.6, y0, -6.505), new Vector3(3.6, y0, 6.505));
+  label('翼展 13.01 m', 5.4, y0, 0, 5);
+  dl(new Vector3(9.2, AC.floorY, 4.6), new Vector3(9.2, 2.48, 4.6));
+  label('机高 4.45 m', 9.2, 2.9, 4.6, 4.4);
+}
+
+/* ---------- 灯光 ---------- */
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.4);
+sun.position.set(16, 20, 12); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
+sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
+sun.shadow.camera.near = 2; sun.shadow.camera.far = 70;
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x9fc4ff, 0.55); fill.position.set(-18, 8, -12); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xd8e8ff, 1.05); rim.position.set(-8, 6, 20); scene.add(rim);
+const hemi = new THREE.HemisphereLight(0x8fb6ff, 0x14181e, 0.35); scene.add(hemi);
+
+const ENVP = {
+  studio: { exp: 1.05, sky: [0x0a0f16, 0x141b24, 0x05070a, 0xffe6c0, 0.35], sun: [0xfff2e0, 2.4, 16, 20, 12], fill: 0.55, rim: 1.05, floor: 1.0, env: 1.0 },
+  sky: { exp: 1.00, sky: [0x1f5ec9, 0x74a8e8, 0xbcd2ea, 0xfff4d8, 1.0], sun: [0xfff6e2, 3.1, 20, 24, 10], fill: 0.75, rim: 0.7, floor: 0.0, env: 1.15 },
+  dusk: { exp: 1.15, sky: [0x101a35, 0x3b3550, 0xc4713a, 0xffb066, 1.4], sun: [0xffb877, 2.2, -22, 7, -14], fill: 0.35, rim: 1.5, floor: 0.55, env: 0.95 }
+};
+function applyEnv(kind) {
+  const p = ENVP[kind] || ENVP.studio;
+  scene.environment = buildEnv(kind);
+  skyMat.uniforms.cTop.value.setHex(p.sky[0]);
+  skyMat.uniforms.cMid.value.setHex(p.sky[1]);
+  skyMat.uniforms.cBot.value.setHex(p.sky[2]);
+  skyMat.uniforms.sunC.value.setHex(p.sky[3]);
+  skyMat.uniforms.haze.value = p.sky[4];
+  sun.color.setHex(p.sun[0]); sun.intensity = p.sun[1];
+  sun.position.set(p.sun[2], p.sun[3], p.sun[4]);
+  skyMat.uniforms.sunDir.value.copy(sun.position).normalize();
+  fill.intensity = p.fill; rim.intensity = p.rim;
+  floorMat.opacity = p.floor; floor.visible = p.floor > 0.01;
+  for (const k of ['skin', 'skinB', 'skinC', 'hot', 'gear', 'hub', 'missile', 'dielectric']) MAT[k].envMapIntensity = p.env;
+  ST.exp = p.exp; document.getElementById('sExp').value = p.exp;
+  document.getElementById('vExp').textContent = p.exp.toFixed(2);
+}
+
+/* =====================================================================
+   8. 状态机 / 动画 / UI
+   ===================================================================== */
+const ST = { bays: 0, gear: 0, canopy: 0, ab: 1, anim: 0, lines: 1, marks: 1, rotate: 1, grid: 0, canard: 0, exp: 1.05, sheen: 0.42 };
+const AV = { bays: 0, gear: 0, canopy: 0, canard: 0 };
+function applyState(dt, time) {
+  for (const k of ['bays', 'gear', 'canopy']) AV[k] += (ST[k] - AV[k]) * Math.min(1, dt * 3.2);
+  AV.canard += (ST.canard - AV.canard) * Math.min(1, dt * 6);
+  // 弹舱
+  for (const d of P.bayDoors) d.userData.set(AV.bays * d.userData.max * d.userData.sgn);
+  for (const r of (P.sideRail || [])) r.userData.set(AV.bays * 0.95 * r.userData.sgn);
+  // 起落架
+  for (const g of P.gear) {
+    g.quaternion.setFromAxisAngle(g.userData.axis, (1 - AV.gear) * g.userData.maxAng);
+    g.visible = AV.gear > 0.02;
+  }
+  for (const d of (P.gearDoors || [])) d.userData.set(AV.gear * d.userData.max * d.userData.sgn);
+  // 座舱盖
+  canPivot.rotation.z = -0.60 * AV.canopy;
+  // 操纵面
+  const osc = ST.anim ? Math.sin(time * 0.9) : 0;
+  const canAng = (AV.canard * D2R) + osc * 9 * D2R;
+  for (const c of P.canard) c.userData.set(canAng * c.userData.sgn);
+  for (const v of P.vtail) v.userData.set((ST.anim ? Math.sin(time * 0.72 + 1.1) * 7 * D2R : 0) * v.userData.sgn);
+  // 加力
+  const on = ST.ab > 0.5;
+  for (const n of P.nozzles) {
+    n.flame.visible = on;
+    if (on) {
+      const f = 0.82 + Math.sin(time * 37) * 0.06 + Math.sin(time * 13.3) * 0.05;
+      n.flame.scale.set(f, 1, 1);
+      n.flame.children[2].material.opacity = 0.55 + Math.sin(time * 23) * 0.12;
+    }
+  }
+  P.panelLines.visible = !!ST.lines;
+  MARKS.visible = !!ST.marks;
+  gridGrp.visible = !!ST.grid;
+  ctl.auto = !!ST.rotate;
+  renderer.toneMappingExposure = ST.exp;
+  MAT.skin.clearcoat = ST.sheen; MAT.skinC.clearcoat = ST.sheen;
+  MAT.skin.iridescence = 0.05 + ST.sheen * 0.26;
+}
+/* ---------- 视角预设 ---------- */
+const VIEWS = {
+  hero: [-0.72, 1.24, 30, [0, 0.2, 0]],
+  front: [PI, 1.50, 25, [0, 0.2, 0]],
+  side: [PI / 2, 1.52, 31, [0, 0.3, 0]],
+  top: [-PI / 2, 0.06, 29, [0, 0, 0]],
+  bottom: [-PI / 2, PI - 0.06, 29, [0, 0, 0]],
+  rear: [0.06, 1.42, 24, [1.5, 0.2, 0]],
+  cockpit: [-1.05, 1.28, 7.4, [-4.6, 0.75, 0]]
+};
+function setView(v, instant) {
+  const p = VIEWS[v]; if (!p) return;
+  ctl.set(p[0], p[1], p[2], new Vector3(p[3][0], p[3][1], p[3][2]));
+  if (instant) ctl.snap();
+  document.querySelectorAll('#dock button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+}
+/* ---------- UI ---------- */
+document.querySelectorAll('.sw').forEach(el => {
+  const key = el.dataset.t;
+  el.addEventListener('click', () => {
+    const on = !el.classList.contains('on');
+    el.classList.toggle('on', on);
+    ST[key] = on ? 1 : 0;
+  });
+});
+document.getElementById('envSeg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-e]'); if (!b) return;
+  document.querySelectorAll('#envSeg button').forEach(x => x.classList.toggle('on', x === b));
+  applyEnv(b.dataset.e);
+});
+const bind = (id, vid, key, fmt) => {
+  const s = document.getElementById(id), v = document.getElementById(vid);
+  const upd = () => { ST[key] = parseFloat(s.value); v.textContent = fmt(ST[key]); };
+  s.addEventListener('input', upd); upd();
+};
+bind('sExp', 'vExp', 'exp', v => v.toFixed(2));
+bind('sCan', 'vCan', 'canard', v => v.toFixed(0) + '°');
+bind('sShe', 'vShe', 'sheen', v => v.toFixed(2));
+document.getElementById('dock').addEventListener('click', e => {
+  const b = e.target.closest('button[data-v]'); if (!b) return;
+  if (b.dataset.v === 'shot') return shot();
+  setView(b.dataset.v);
+});
+onUserInput = () => {
+  ST.rotate = 0;
+  document.querySelector('.sw[data-t="rotate"]').classList.remove('on');
+};
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'h') document.body.classList.toggle('nohud');
+  else if (k === ' ') { e.preventDefault(); ST.rotate = ST.rotate ? 0 : 1; document.querySelector('.sw[data-t="rotate"]').classList.toggle('on', !!ST.rotate); }
+  else if ('1234567'.includes(k)) setView(['hero', 'front', 'side', 'top', 'bottom', 'rear', 'cockpit'][+k - 1]);
+  else if (k === 'b' || k === 'g' || k === 'c') {
+    const key = k === 'b' ? 'bays' : k === 'g' ? 'gear' : 'canopy';
+    ST[key] = ST[key] ? 0 : 1;
+    document.querySelector('.sw[data-t="' + key + '"]').classList.toggle('on', !!ST[key]);
+  }
+});
+function shot() {
+  renderer.render(scene, camera);
+  const a = document.createElement('a');
+  a.download = 'J-20_' + Date.now() + '.png';
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.click();
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- URL 参数（自动化/演示用）---------- */
+const pv = q.get('view') || 'hero';
+if (q.get('ui') === '0') document.body.classList.add('nohud');
+if (q.get('env')) {
+  const e = q.get('env');
+  document.querySelectorAll('#envSeg button').forEach(x => x.classList.toggle('on', x.dataset.e === e));
+  applyEnv(e);
+} else applyEnv('studio');
+for (const k of ['bays', 'gear', 'canopy', 'anim', 'grid', 'lines', 'marks']) {
+  if (q.get(k) !== null) {
+    ST[k] = q.get(k) === '0' ? 0 : 1;
+    const el = document.querySelector('.sw[data-t="' + k + '"]');
+    if (el) el.classList.toggle('on', !!ST[k]);
+  }
+}
+if (q.get('rotate') === '0' || q.get('shot')) { ST.rotate = 0; document.querySelector('.sw[data-t="rotate"]').classList.remove('on'); }
+setView(pv, true);
+if (q.get('shot')) { AV.bays = ST.bays; AV.gear = ST.gear; AV.canopy = ST.canopy; }
+
+/* ---------- 主循环 ---------- */
+let last = performance.now(), fps = 0, frames = 0, fpsT = 0;
+function tick(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  const t = now / 1000;
+  applyState(dt, t);
+  ctl.update(dt);
+  renderer.render(scene, camera);
+  frames++; fpsT += dt;
+  if (fpsT > 0.5) { fps = frames / fpsT; frames = 0; fpsT = 0; document.getElementById('fps').textContent = fps.toFixed(0) + ' FPS'; }
+  requestAnimationFrame(tick);
+}
+/* ---------- 自检信息 ---------- */
+if (q.get('probe')) {                                   // 几何量测：平面形状 + 侧视轮廓
+  const bins = 44, x0 = -0.5, x1 = 21.5, w = (x1 - x0) / bins;
+  const mz = new Float32Array(bins), my = new Float32Array(bins).fill(-9), ny = new Float32Array(bins).fill(9);
+  const v = new Vector3();
+  airframe.updateMatrixWorld(true);
+  airframe.traverse(o => {
+    if (!o.isMesh || o.material === MAT.flame || !o.geometry.attributes || !o.geometry.attributes.position) return;
+    if (o.parent && o.parent.userData && o.parent.userData.axis && P.gear.includes(o.parent)) return;
+    const a = o.geometry.attributes.position;
+    for (let i = 0; i < a.count; i++) {
+      v.fromBufferAttribute(a, i).applyMatrix4(o.matrixWorld);
+      const xm = v.x + AC.cx;
+      const b = Math.floor((xm - x0) / w);
+      if (b < 0 || b >= bins) continue;
+      mz[b] = Math.max(mz[b], Math.abs(v.z));
+      my[b] = Math.max(my[b], v.y); ny[b] = Math.min(ny[b], v.y);
+    }
+  });
+  let tb = 'x(m)  halfSpan   yTop   yBot\n';
+  for (let b = 0; b < bins; b++) {
+    if (my[b] < -8) continue;
+    tb += (x0 + (b + .5) * w).toFixed(2).padStart(5) + '  ' + mz[b].toFixed(2).padStart(6) + '  ' + my[b].toFixed(2).padStart(6) + ' ' + ny[b].toFixed(2).padStart(6) + '\n';
+  }
+  fuse.geometry.computeBoundingBox();
+  const fb = fuse.geometry.boundingBox;
+  DIAG.push('fuse geo bbox min ' + fb.min.toArray().map(v2 => v2.toFixed(2)) + ' max ' + fb.max.toArray().map(v2 => v2.toFixed(2)));
+  // 座舱内饰是否穿出舱盖 / 甲板是否穿出舱盖
+  const canTop = (xm) => {
+    let best = null;
+    for (let i = 0; i < CAN_ST.length - 1; i++) {
+      if (xm >= CAN_ST[i].x && xm <= CAN_ST[i + 1].x) {
+        const t = (xm - CAN_ST[i].x) / (CAN_ST[i + 1].x - CAN_ST[i].x);
+        best = lerp(CAN_ST[i].yt, CAN_ST[i + 1].yt, t); break;
+      }
+    }
+    return best;
+  };
+  let worst = -9, worstAt = '';
+  for (const grp of [{ g: pit, n: 'pit' }, { g: null, n: 'deck' }]) {
+    if (grp.g) {
+      grp.g.traverse(o => {
+        if (!o.isMesh) return;
+        const a = o.geometry.attributes.position;
+        for (let i = 0; i < a.count; i++) {
+          v.fromBufferAttribute(a, i).applyMatrix4(o.matrixWorld);
+          const xm = v.x + AC.cx, ct = canTop(xm);
+          if (ct === null) continue;
+          if (v.y - ct > worst) { worst = v.y - ct; worstAt = grp.n + '@x' + xm.toFixed(2); }
+        }
+      });
+    }
+  }
+  let deckWorst = -9, deckAt = '';
+  for (let i = 0; i < NF; i++) {
+    const ct = canTop(fdense[i].x); if (ct === null) continue;
+    if (fdense[i].ytc - ct > deckWorst) { deckWorst = fdense[i].ytc - ct; deckAt = 'x' + fdense[i].x.toFixed(2); }
+  }
+  DIAG.push('clearance: pit-vs-canopy worst=' + worst.toFixed(3) + ' (' + worstAt + ')  deck-vs-canopy worst=' + deckWorst.toFixed(3) + ' (' + deckAt + ')');
+  DIAG.push('canvas=' + renderer.domElement.width + 'x' + renderer.domElement.height + ' css=' + innerWidth + 'x' + innerHeight);
+  DIAG.push('<<<PROBE>>>\n' + tb + '<<<END>>>');
+}
+{
+  const bad2 = [];
+  fdense.forEach((st, i) => { for (const kk in st) if (!Number.isFinite(st[kk])) bad2.push('st' + i + '.' + kk + '=' + st[kk]); });
+  DIAG.push('fdense bad: ' + (bad2.slice(0, 14).join(',') || 'none') + ' (total ' + bad2.length + ')');
+  const fa = fuse.geometry.attributes.position.array, hits = [];
+  for (let v = 0; v < fa.length / 3 && hits.length < 16; v++) {
+    for (let c = 0; c < 3; c++) if (!Number.isFinite(fa[v * 3 + c])) { hits.push('i' + (v / fuse.K | 0) + 'k' + (v % fuse.K) + 'c' + c + '=' + fa[v * 3 + c]); break; }
+  }
+  DIAG.push('fuse NaN at: ' + hits.join(' '));
+}
+{
+  const bb = new THREE.Box3().setFromObject(airframe);
+  const sz = new Vector3(); bb.getSize(sz);
+  let tris = 0, meshes = 0;
+  const bad = [];
+  airframe.traverse(o => {
+    if (o.isMesh && o.geometry.index) { tris += o.geometry.index.count / 3; meshes++; }
+    if (!o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
+    const a = o.geometry.attributes.position.array;
+    let n = 0, first = -1;
+    for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) { n++; if (first < 0) first = i; }
+    if (n) bad.push((o.name || o.type) + ' verts=' + (a.length / 3) + ' nan=' + n + ' first=' + (first / 3 | 0));
+  });
+  DIAG.push('three=' + THREE.REVISION + ' cdn=' + cdnUsed);
+  DIAG.push('bbox size  L=' + sz.x.toFixed(2) + ' H=' + sz.y.toFixed(2) + ' W=' + sz.z.toFixed(2));
+  DIAG.push('bbox min   ' + bb.min.toArray().map(v => v.toFixed(2)).join(',') + '  max ' + bb.max.toArray().map(v => v.toFixed(2)).join(','));
+  DIAG.push('meshes=' + meshes + ' triangles=' + Math.round(tris));
+  DIAG.push('NaN: ' + (bad.length ? bad.join(' | ') : 'none') + '   fuseK=' + fuse.K + ' fuseFlip=' + fuse.flip);
+  DIAG.push('gl=' + (renderer.getContext().getParameter(renderer.getContext().VERSION) || '?'));
+  document.getElementById('diag').textContent = DIAG.join('\n');
+}
+requestAnimationFrame(tick);
+renderer.render(scene, camera);
+/* ---------- 文本化视觉自检（?ascii=1[&silh=1][&views=top,side,front]）---------- */
+if (q.get('ascii')) {
+  const W = +(q.get('aw') || 160), H = +(q.get('ah') || 50);
+  applyState(1, 0);
+  if (q.get('silh')) {
+    scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    sky.visible = false; floorGrp.visible = false; gridGrp.visible = false;
+    P.panelLines.visible = false; MARKS.visible = false;
+    for (const n of P.nozzles) n.flame.visible = false;
+    renderer.setClearColor(0x000000, 1);
+  }
+  const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+  const g2 = c2.getContext('2d');
+  const ramp = ' .:-=+*#%@';
+  const grab = (name) => {
+    renderer.render(scene, camera);
+    g2.clearRect(0, 0, W, H);
+    g2.drawImage(renderer.domElement, 0, 0, W, H);
+    const d = g2.getImageData(0, 0, W, H).data;
+    let out = '', sum = 0, mx = 0;
+    for (let y = 0; y < H; y++) {
+      let ln = '';
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        const l = (0.2126 * d[o] + 0.7152 * d[o + 1] + 0.0722 * d[o + 2]) / 255;
+        sum += l; mx = Math.max(mx, l);
+        ln += ramp[clamp(Math.floor(Math.pow(l, 0.7) * 10), 0, 9)];
+      }
+      out += ln.replace(/\s+$/, '') + '\n';
+    }
+    // 逐行首末列（避免肉眼读图误差）
+    let ext = '';
+    const rows = out.split('\n');
+    for (let r = 0; r < rows.length; r++) {
+      const s = rows[r]; if (!s.trim()) continue;
+      let a = 0; while (s[a] === ' ') a++;
+      ext += r + ':' + a + '-' + (s.length - 1) + ' ';
+    }
+    DIAG.push('<<<ASCII ' + name + ' ' + W + 'x' + H + ' lum=' + (sum / (W * H)).toFixed(3) + '/' + mx.toFixed(3) + '>>>\n' + out + '<<<END>>>');
+    DIAG.push('rowspan[' + name + '] ' + ext);
+  };
+  const list = (q.get('views') || q.get('view') || 'hero').split(',');
+  for (const v of list) { if (VIEWS[v]) { setView(v, true); grab(v); } }
+  document.getElementById('diag').textContent = DIAG.join('\n');
+}
+document.getElementById('load').classList.add('gone');
+setTimeout(() => { const l = document.getElementById('load'); if (l) l.style.display = 'none'; }, 900);
+</script>
+</body>
+</html>

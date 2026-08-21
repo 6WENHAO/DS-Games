@@ -1,0 +1,59 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>建城自检</title></head><body>
+<script src="../js/gl.js"></script>
+<script src="../js/voxel.js"></script>
+<script src="../js/palette.js"></script>
+<script src="../js/arch.js"></script>
+<script src="../js/city.js"></script>
+<script src="../js/city_axis.js"></script>
+<script src="../js/city_wings.js"></script>
+<script src="../js/city_north.js"></script>
+<script>
+const log=[]; window.__log=log;
+try{
+  const t0=performance.now();
+  const vol=new Volume();
+  const ground=new Ground(FC.X0,FC.Z0,FC.X1,FC.Z1,2);
+  const idmap=new IdMap(FC.X0,FC.Z0,FC.X1,FC.Z1);
+  const A=buildCity(vol,ground,idmap,(p,name)=>{ log.push('  '+(p*100).toFixed(0)+'% '+name+' @'+(performance.now()-t0).toFixed(0)+'ms'); });
+  log.push('build total '+(performance.now()-t0).toFixed(0)+'ms voxels='+vol.total+' chunks='+vol.chunks.size+' mem='+vol.memoryMB().toFixed(1)+'MB labels='+A.labels.length);
+  log.push('bounds x['+vol.minX+','+vol.maxX+'] y['+vol.minY+','+vol.maxY+'] z['+vol.minZ+','+vol.maxZ+']');
+  const t1=performance.now();
+  const ms=new MeshSet(), water=new MeshSet();
+  const mesher=new Mesher(vol);
+  for(const key of Array.from(vol.chunks.keys())){
+    const cy=(key%64)-8; const rest=(key-(cy+8))/64; const cz=(rest%512)-256; const cx=(rest-(cz+256))/512-256;
+    mesher.meshChunk(cx,cy,cz,ms);
+  }
+  ground.build(ms,GROUND_MATS,water);
+  log.push('mesh '+(performance.now()-t1).toFixed(0)+'ms quads='+ms.totalQuads()+' water='+water.totalQuads()+' regions='+ms.regions.size);
+  window.__vol=vol; window.__A=A; window.__ground=ground;
+  // 平面图：取每个格子最高体素的颜色
+  window.__plan=(step,x0,z0,x1,z1)=>{
+    const rows=[];
+    for(let z=z0; z<z1; z+=step){
+      let line='';
+      for(let x=x0; x<x1; x+=step){
+        let top=-1, col=0;
+        for(let y=62;y>=0;y--){ const c=vol.get(x,y,z); if(c){top=y;col=c;break;} }
+        if(top<0){ const m=ground.matAt(x,z); line += m===5?'~':(m===4||m===9?',':(m===3?' ':(m===1?'.':(m===2?'-':(m===6||m===11?'+':(m===10?'#':' ')))))); continue; }
+        const n=Object.keys(C).find(k=>C[k]===col)||'?';
+        if(/^tile[AB]$|^tileC$|ridge/.test(n)) line += top>26?'@':(top>16?'H':'h');
+        else if(/tileG/.test(n)) line+='G';
+        else if(/tileK/.test(n)) line+='K';
+        else if(/wallRed|cityWall|plaster/.test(n)) line+='R';
+        else if(/marble|stone|brick|goldBrick/.test(n)) line+='=';
+        else if(/column|door|lattice|window|paint|gold/.test(n)) line+='o';
+        else if(/pine|leaf|grass/.test(n)) line+='T';
+        else if(/rock|soil/.test(n)) line+='^';
+        else if(/water/.test(n)) line+='~';
+        else if(/bronze|patina/.test(n)) line+='b';
+        else line+='?';
+      }
+      rows.push(line);
+    }
+    return rows.join('\n');
+  };
+  window.__labels=()=>A.labels.map(l=>l.name).join(' ');
+  window.__ok=true;
+}catch(e){ log.push('ERROR '+e.message+'\n'+e.stack); window.__ok=false; }
+</script></body></html>

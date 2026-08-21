@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>EUV 画质巡检 · QC Sweep</title>
+<link rel="stylesheet" href="../css/app.css">
+</head>
+<body class="tool-page">
+<h1>EUV 演示动画 · 画质巡检</h1>
+<p>
+  对应验收清单第 3 项「无穿模、闪烁、噪点或未渲染帧」。本工具在同源 iframe 中按帧号扫描全片，
+  对每个采样帧做像素级测量，并把「好看」拆成可复核的数字：
+  曝光区间、暗帧/白帧、高光削波、层次（标准差）、噪点（中值残差鲁棒标准差）、
+  相邻帧差分（闪烁）、主体占比、HUD 与字幕区能量（标注是否入帧）。
+</p>
+
+<div class="row">
+  <label>宽</label><input id="w" type="number" value="960">
+  <label>高</label><input id="h" type="number" value="540">
+  <label>采样步长（帧）</label><input id="step" type="number" value="15">
+  <label>质量档</label>
+  <select id="q"><option value="review">review</option><option value="preview">preview</option><option value="master">master</option></select>
+  <label>相邻帧对比</label>
+  <select id="pair"><option value="1">开（每个采样点额外渲染 t+1 帧）</option><option value="0">关</option></select>
+</div>
+<div class="row">
+  <button class="btn primary" id="btn-run">开始巡检</button>
+  <button class="btn" id="btn-fast">快速巡检（步长 30）</button>
+  <button class="btn" id="btn-stop">停止</button>
+  <button class="btn" id="btn-save">保存报告到 out/reports/</button>
+</div>
+<progress id="prog" value="0" max="1"></progress>
+
+<h2>判定阈值</h2>
+<table>
+  <tr><th>指标</th><th>阈值</th><th>依据</th></tr>
+  <tr><td>平均亮度 mean</td><td>0.045 – 0.62</td><td>过低=疑未渲染/空镜；过高=整体过曝</td></tr>
+  <tr><td>暗像素占比（L&lt;0.02）</td><td>≤ 82%</td><td>画面几乎无内容</td></tr>
+  <tr><td>高光削波占比（L&gt;0.995）</td><td>≤ 5%</td><td>高光细节丢失</td></tr>
+  <tr><td>亮度标准差 std</td><td>≥ 0.012</td><td>过低=纯色帧</td></tr>
+  <tr><td>噪点 noise</td><td>≤ 0.055</td><td>可见噪点</td></tr>
+  <tr><td>相邻帧差分 delta</td><td>≤ max(0.12, 中位数 × 9)</td><td>闪烁/跳帧（设计上的白闪与转场会被单独列出复核）</td></tr>
+  <tr><td>右上角标区能量</td><td>&gt; 0.0006</td><td>「示意 / Simulation」角标必须入帧（§1.2）</td></tr>
+</table>
+
+<h2>结果</h2>
+<div id="summary" style="margin:12px 0;padding:10px 14px;border:1px solid #1B2836">尚未运行</div>
+<div id="log">等待操作…</div>
+
+<iframe id="app" src="../index.html?q=review&amp;autoplay=0&amp;cap=1&amp;muted=1"
+        style="width:640px;height:360px;border:1px solid #1B2836;border-radius:3px;background:#05070b;margin-top:16px"></iframe>
+
+<script type="module">
+import { saveText } from '../src/capture.js';
+
+const logEl = document.getElementById('log');
+const sumEl = document.getElementById('summary');
+const prog = document.getElementById('prog');
+const lines = [];
+const log = (m, cls = '') => {
+  lines.push(cls ? `<span class="${cls}">${m}</span>` : m);
+  if (lines.length > 600) lines.shift();
+  logEl.innerHTML = lines.join('\n');
+  logEl.scrollTop = logEl.scrollHeight;
+};
+
+const iframe = document.getElementById('app');
+const stop = { flag: false };
+let report = null;
+
+function appWin() {
+  const w = iframe.contentWindow;
+  if (!w || !w.__EUV__ || !w.__EUV__.ready) throw new Error('播放器尚未就绪');
+  return w.__EUV__;
+}
+async function waitReady(timeout = 90000) {
+  const t0 = Date.now();
+  for (;;) {
+    try { return appWin(); } catch { /* retry */ }
+    if (Date.now() - t0 > timeout) throw new Error('播放器加载超时');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+function reloadApp() {
+  const q = document.getElementById('q').value;
+  const nonce = 'n' + Date.now().toString(36);
+  return new Promise((resolve, reject) => {
+    const onLoad = async () => {
+      iframe.removeEventListener('load', onLoad);
+      try {
+        const app = await waitReady();
+        const got = new URLSearchParams(iframe.contentWindow.location.search).get('nonce');
+        if (got !== nonce) return reject(new Error('播放器实例握手失败'));
+        resolve(app);
+      } catch (e) { reject(e); }
+    };
+    iframe.addEventListener('load', onLoad);
+    iframe.src = `../index.html?q=${q}&autoplay=0&cap=1&muted=1&nonce=${nonce}`;
+    setTimeout(() => reject(new Error('播放器重载超时')), 120000);
+  });
+}
+
+// ─── 像素测量 ───────────────────────────────────────────────────────
+const work = document.createElement('canvas');
+let wctx = null;
+function measure(srcCanvas, w, h) {
+  if (work.width !== w || work.height !== h) { work.width = w; work.height = h; wctx = work.getContext('2d'); }
+  wctx.clearRect(0, 0, w, h);
+  wctx.drawImage(srcCanvas, 0, 0, w, h);
+  const d = wctx.getImageData(0, 0, w, h).data;
+  const N = w * h;
+  const L = new Float32Array(N);
+  let sum = 0, dark = 0, clip = 0, high = 0, satSum = 0;
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+    const l = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    L[p] = l; sum += l;
+    if (l < 0.02) dark++;
+    if (l > 0.995) clip++;
+    if (l > 0.85) high++;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    satSum += mx > 1e-4 ? (mx - mn) / mx : 0;
+  }
+  const mean = sum / N;
+  let varAcc = 0;
+  for (let p = 0; p < N; p++) { const dd = L[p] - mean; varAcc += dd * dd; }
+  const std = Math.sqrt(varAcc / N);
+
+  // 噪点：3×3 中值残差的鲁棒标准差
+  const resid = [];
+  const nb = new Float32Array(9);
+  for (let y = 1; y < h - 1; y += 2) {
+    for (let x = 1; x < w - 1; x += 2) {
+      let k = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) nb[k++] = L[(y + j) * w + (x + i)];
+      const s = Array.prototype.slice.call(nb).sort((a, b) => a - b);
+      resid.push(Math.abs(L[y * w + x] - s[4]));
+    }
+  }
+  resid.sort((a, b) => a - b);
+  const noise = (resid[Math.floor(resid.length / 2)] || 0) * 1.4826;
+
+  // 层次结构：Laplacian 能量
+  let lap = 0, cnt = 0;
+  for (let y = 1; y < h - 1; y += 2) {
+    for (let x = 1; x < w - 1; x += 2) {
+      const c = L[y * w + x];
+      lap += Math.abs(4 * c - L[(y - 1) * w + x] - L[(y + 1) * w + x] - L[y * w + x - 1] - L[y * w + x + 1]);
+      cnt++;
+    }
+  }
+  const detail = lap / Math.max(1, cnt);
+
+  // 区域能量：右上角标 / 底部字幕 / 左侧图版
+  const regionEnergy = (x0, y0, x1, y1) => {
+    let acc = 0, n = 0;
+    for (let y = Math.max(1, y0); y < Math.min(h - 1, y1); y += 2) {
+      for (let x = Math.max(1, x0); x < Math.min(w - 1, x1); x += 2) {
+        const c = L[y * w + x];
+        acc += Math.abs(4 * c - L[(y - 1) * w + x] - L[(y + 1) * w + x] - L[y * w + x - 1] - L[y * w + x + 1]);
+        n++;
+      }
+    }
+    return n ? acc / n : 0;
+  };
+  const badge = regionEnergy(Math.floor(w * 0.62), 0, w, Math.floor(h * 0.13));
+  const caption = regionEnergy(0, Math.floor(h * 0.78), w, h);
+  const panel = regionEnergy(0, Math.floor(h * 0.12), Math.floor(w * 0.30), Math.floor(h * 0.92));
+
+  const bg = mean * 0.7;
+  let subject = 0;
+  for (let p = 0; p < N; p++) if (L[p] > bg + 0.06) subject++;
+
+  return {
+    mean: +mean.toFixed(4), std: +std.toFixed(4),
+    darkPct: +(dark / N * 100).toFixed(2), clipPct: +(clip / N * 100).toFixed(3),
+    highPct: +(high / N * 100).toFixed(2), subjectPct: +(subject / N * 100).toFixed(1),
+    noise: +noise.toFixed(5), detail: +detail.toFixed(5), sat: +(satSum / N).toFixed(4),
+    badge: +badge.toFixed(5), caption: +caption.toFixed(5), panel: +panel.toFixed(5),
+    _L: L,
+  };
+}
+function frameDelta(a, b) {
+  let acc = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) acc += Math.abs(a[i] - b[i]);
+  return acc / n;
+}
+
+// ─── 巡检主流程 ─────────────────────────────────────────────────────
+async function run(step) {
+  stop.flag = false;
+  const app = await reloadApp();
+  const w = parseInt(document.getElementById('w').value, 10);
+  const h = parseInt(document.getElementById('h').value, 10);
+  const doPair = document.getElementById('pair').value === '1';
+  const fps = app.TIMELINE.fps;
+  const total = app.TIMELINE.frames;
+
+  app.P.captureMode = true;
+  app.pause();
+  app.setRenderSize(w, h);
+
+  const rows = [];
+  const t0 = performance.now();
+  log(`开始巡检：${w}×${h}，步长 ${step} 帧，共 ${Math.ceil(total / step)} 个采样点${doPair ? '（含相邻帧对比）' : ''}`);
+
+  for (let f = 0; f < total; f += step) {
+    if (stop.flag) { log('已停止', 'warn'); break; }
+    const t = f / fps;
+    app.setTime(t); app.renderFrame();
+    const m = measure(app.canvas, w, h);
+    // 读取该帧的设计意图：黑场渐入/渐出与白闪是刻意为之，不得误判为未渲染帧
+    let intent = { fade: 0, flash: 0 };
+    try { const p = app.rig.pose(t); intent = { fade: p.fx.fade ?? 0, flash: p.fx.flash ?? 0 }; } catch { /* noop */ }
+    let delta = null;
+    if (doPair) {
+      const L0 = m._L.slice();
+      app.setTime((f + 1) / fps); app.renderFrame();
+      const m2 = measure(app.canvas, w, h);
+      delta = +frameDelta(L0, m2._L).toFixed(5);
+    }
+    const { shot, local } = (() => {
+      const s = app.TIMELINE.shots.find((x) => t >= x.start && t < x.end) || app.TIMELINE.shots.at(-1);
+      return { shot: s, local: (t - s.start) / s.dur };
+    })();
+    delete m._L;
+    rows.push({
+      frame: f, time: +t.toFixed(3), shot: shot.id, step: shot.step || null, local: +local.toFixed(3),
+      delta, fade: +intent.fade.toFixed(3), flash: +intent.flash.toFixed(3), ...m,
+    });
+    prog.value = (f + step) / total;
+    if (rows.length % 8 === 0) {
+      log(`  帧 ${f} (${shot.id}) mean=${m.mean} clip=${m.clipPct}% noise=${m.noise}${delta !== null ? ` Δ=${delta}` : ''}`);
+    }
+  }
+
+  app.P.captureMode = false;
+  app.restoreRenderSize();
+
+  // ─── 判定 ───
+  const issues = [];
+  const deltas = rows.map((r) => r.delta).filter((v) => v !== null).sort((a, b) => a - b);
+  const dMed = deltas.length ? deltas[Math.floor(deltas.length / 2)] : 0;
+  const dLimit = Math.max(0.12, dMed * 9);
+  for (const r of rows) {
+    const tag = `帧 ${r.frame} (${r.shot} @${r.time}s)`;
+    // 设计上的黑场（片头渐入 / 片尾渐出）与白闪（主脉冲命中）不是缺陷
+    const byDesign = r.fade > 0.45 || r.flash > 0.25;
+    if (byDesign) {
+      issues.push({ sev: '设计', tag, msg: `按设计为${r.fade > 0.45 ? `黑场 fade=${r.fade}` : `白闪 flash=${r.flash}`}，亮度检查已豁免（mean=${r.mean}）` });
+      if (r.step && r.badge < 0.0006 && r.fade < 0.9) {
+        issues.push({ sev: '重要', tag, msg: `右上「示意/Simulation」角标区无内容 (${r.badge})` });
+      }
+      continue;
+    }
+    if (r.mean < 0.045) issues.push({ sev: '严重', tag, msg: `平均亮度过低 ${r.mean}（疑未渲染或空镜）` });
+    if (r.mean > 0.62) issues.push({ sev: '重要', tag, msg: `整体过曝 mean=${r.mean}` });
+    if (r.darkPct > 82) issues.push({ sev: '重要', tag, msg: `暗像素占比 ${r.darkPct}%` });
+    if (r.clipPct > 5) issues.push({ sev: '重要', tag, msg: `高光削波 ${r.clipPct}%` });
+    if (r.std < 0.012) issues.push({ sev: '严重', tag, msg: `几乎无层次 std=${r.std}（疑纯色帧）` });
+    if (r.noise > 0.055) issues.push({ sev: '重要', tag, msg: `噪点偏高 ${r.noise}` });
+    if (r.delta !== null && r.delta > dLimit) issues.push({ sev: '待复核', tag, msg: `相邻帧差分 ${r.delta} > ${dLimit.toFixed(3)}` });
+    if (r.step && r.badge < 0.0006) issues.push({ sev: '严重', tag, msg: `右上「示意/Simulation」角标区无内容 (${r.badge})` });
+  }
+
+  const means = rows.map((r) => r.mean);
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    size: [w, h], step, samples: rows.length,
+    meanAvg: +(means.reduce((a, b) => a + b, 0) / means.length).toFixed(4),
+    meanMin: Math.min(...means), meanMax: Math.max(...means),
+    noiseMax: Math.max(...rows.map((r) => r.noise)),
+    clipMax: Math.max(...rows.map((r) => r.clipPct)),
+    deltaMedian: +dMed.toFixed(5), deltaLimit: +dLimit.toFixed(5),
+    darkFrames: rows.filter((r) => r.mean < 0.045 && r.fade <= 0.45).length,
+    flatFrames: rows.filter((r) => r.std < 0.012 && r.fade <= 0.45).length,
+    badgeMissing: rows.filter((r) => r.step && r.badge < 0.0006 && r.fade <= 0.45).length,
+    byDesign: issues.filter((i) => i.sev === '设计').length,
+    severe: issues.filter((i) => i.sev === '严重').length,
+    important: issues.filter((i) => i.sev === '重要').length,
+    review: issues.filter((i) => i.sev === '待复核').length,
+    elapsedSec: +((performance.now() - t0) / 1000).toFixed(1),
+  };
+  report = { summary, rows, issues };
+
+  const pass = summary.severe === 0 && summary.important === 0;
+  sumEl.innerHTML = `<b class="${pass ? 'ok' : 'bad'}">${pass ? 'PASS' : 'FAIL'}</b> — `
+    + `采样 ${summary.samples} 帧 · 平均亮度 ${summary.meanAvg}（${summary.meanMin}–${summary.meanMax}） · `
+    + `最大削波 ${summary.clipMax}% · 最大噪点 ${summary.noiseMax} · 帧间差分中位 ${summary.deltaMedian}<br>`
+    + `未渲染/暗帧 ${summary.darkFrames} · 纯色帧 ${summary.flatFrames} · 角标缺失 ${summary.badgeMissing} · `
+    + `<span class="bad">严重 ${summary.severe}</span> / <span class="warn">重要 ${summary.important}</span> / 待复核 ${summary.review} / 设计豁免 ${summary.byDesign} · `
+    + `耗时 ${summary.elapsedSec}s`;
+
+  log(`\n巡检完成：${pass ? 'PASS' : 'FAIL'}`, pass ? 'ok' : 'bad');
+  for (const i of issues.slice(0, 60)) {
+    log(`  [${i.sev}] ${i.tag} ${i.msg}`, i.sev === '严重' ? 'bad' : i.sev === '重要' ? 'warn' : i.sev === '设计' ? 'ok' : '');
+  }
+  if (issues.length > 60) log(`  …另有 ${issues.length - 60} 条`);
+}
+
+document.getElementById('btn-run').addEventListener('click', () => {
+  run(parseInt(document.getElementById('step').value, 10) || 15).catch((e) => log(e.message, 'bad'));
+});
+document.getElementById('btn-fast').addEventListener('click', () => {
+  document.getElementById('step').value = '30';
+  run(30).catch((e) => log(e.message, 'bad'));
+});
+document.getElementById('btn-stop').addEventListener('click', () => { stop.flag = true; log('已请求停止…', 'warn'); });
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!report) return log('尚未运行巡检', 'warn');
+  try {
+    await saveText('reports/qc_sweep.json', JSON.stringify(report, null, 1));
+    const s = report.summary;
+    const md = ['# 画质巡检报告（QC Sweep）', '',
+      `- 生成时间：${s.generatedAt}`,
+      `- 采样：${s.samples} 帧（步长 ${s.step}），分辨率 ${s.size[0]}×${s.size[1]}`,
+      `- 平均亮度：${s.meanAvg}（${s.meanMin} – ${s.meanMax}）`,
+      `- 最大高光削波：${s.clipMax}%`,
+      `- 最大噪点：${s.noiseMax}`,
+      `- 帧间差分中位数：${s.deltaMedian}，突变阈值 ${s.deltaLimit}`,
+      `- 未渲染/暗帧：${s.darkFrames}　纯色帧：${s.flatFrames}　示意角标缺失：${s.badgeMissing}`,
+      `- 问题计数：严重 ${s.severe} / 重要 ${s.important} / 待复核 ${s.review}`,
+      `- 耗时：${s.elapsedSec} s`, '',
+      `## 判定：${s.severe === 0 && s.important === 0 ? '通过' : '不通过'}`, ''];
+    if (report.issues.length) {
+      md.push('## 问题清单', '', '| 严重度 | 位置 | 说明 |', '| --- | --- | --- |');
+      for (const i of report.issues) md.push(`| ${i.sev} | ${i.tag} | ${i.msg} |`);
+      md.push('');
+    }
+    md.push('## 逐采样点数据', '', '| 帧 | 时间 | 镜头 | mean | std | dark% | clip% | noise | detail | subj% | Δ |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    for (const r of report.rows) {
+      md.push(`| ${r.frame} | ${r.time} | ${r.shot} | ${r.mean} | ${r.std} | ${r.darkPct} | ${r.clipPct} | ${r.noise} | ${r.detail} | ${r.subjectPct} | ${r.delta ?? '—'} |`);
+    }
+    await saveText('reports/qc_sweep.md', md.join('\n'));
+    log('报告已写入 out/reports/qc_sweep.json 与 qc_sweep.md', 'ok');
+  } catch (e) { log(e.message, 'bad'); }
+});
+
+waitReady().then((a) => log(`播放器就绪：${a.TIMELINE.frames} 帧 / ${a.TIMELINE.duration}s`, 'ok'))
+  .catch((e) => log(e.message, 'bad'));
+</script>
+</body>
+</html>

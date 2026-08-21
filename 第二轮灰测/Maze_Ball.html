@@ -1,0 +1,2507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#05070c" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>Perplexus 3D · 立体迷宫球</title>
+<style>
+/* ============================================================
+   基础 / 重置：禁止滚动、禁止手势缩放、深色背景
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{
+  margin:0;padding:0;width:100%;height:100%;
+  overflow:hidden;position:fixed;inset:0;
+  background:#05070c;color:#e6edf7;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:none;overscroll-behavior:none;
+  -webkit-text-size-adjust:100%;
+}
+#stage{position:fixed;inset:0;touch-action:none;
+  background:
+    radial-gradient(120% 90% at 50% 8%,#111a2b 0%,#080c15 45%,#04060b 100%);}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+
+:root{
+  --ink:#e6edf7; --dim:#93a3bd; --line:rgba(140,170,215,.18);
+  --panel:rgba(10,14,24,.74); --panel2:rgba(16,22,36,.9);
+  --accent:#4da3ff; --ok:#3ddc97; --warn:#ffc65c; --bad:#ff5f6d; --gold:#ffd479;
+  --pad:clamp(8px,1.6vmin,16px);
+  --r:14px;
+  --safeT:env(safe-area-inset-top,0px); --safeB:env(safe-area-inset-bottom,0px);
+  --safeL:env(safe-area-inset-left,0px); --safeR:env(safe-area-inset-right,0px);
+}
+
+/* ============================================================
+   通用组件
+   ============================================================ */
+.hidden{display:none !important}
+.panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 10px 34px rgba(0,0,0,.45);
+}
+button{
+  font:inherit;color:var(--ink);cursor:pointer;
+  background:rgba(30,42,66,.82);border:1px solid var(--line);
+  border-radius:12px;min-height:44px;min-width:44px;padding:0 14px;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:background .16s ease,border-color .16s ease,transform .1s ease;
+  touch-action:manipulation;
+}
+button:hover{background:rgba(46,64,98,.9);border-color:rgba(120,170,255,.45)}
+button:active{transform:translateY(1px)}
+button.primary{background:linear-gradient(180deg,#2c72c8,#1d4f92);border-color:rgba(120,180,255,.5);font-weight:600}
+button.primary:hover{background:linear-gradient(180deg,#3684e0,#2359a4)}
+button.ghost{background:rgba(255,255,255,.05)}
+button.on{border-color:var(--ok);color:#d6ffe9}
+button.off{opacity:.62}
+.iconbtn{width:46px;min-width:46px;height:46px;padding:0;font-size:18px;line-height:1}
+.kbd{display:inline-block;min-width:20px;padding:1px 6px;border-radius:6px;
+  background:rgba(140,175,225,.14);border:1px solid var(--line);font-size:.82em;color:#cfe0f8}
+
+/* ============================================================
+   顶部 HUD
+   ============================================================ */
+#hud{
+  position:fixed;left:calc(var(--pad) + var(--safeL));top:calc(var(--pad) + var(--safeT));
+  right:calc(var(--pad) + var(--safeR));
+  display:flex;gap:var(--pad);align-items:flex-start;pointer-events:none;flex-wrap:wrap;
+}
+#stats{display:flex;gap:0;padding:8px 4px;pointer-events:auto}
+.stat{padding:2px 12px;min-width:74px;border-right:1px solid var(--line);text-align:left}
+.stat:last-child{border-right:0}
+.stat b{display:block;font-size:clamp(14px,2.4vmin,20px);font-variant-numeric:tabular-nums;letter-spacing:.5px;line-height:1.25}
+.stat span{display:block;font-size:clamp(9px,1.4vmin,11px);color:var(--dim);letter-spacing:.12em;text-transform:uppercase}
+#objective{flex:1 1 220px;min-width:0;padding:10px 14px;pointer-events:auto}
+#objRow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+#objIdx{font-size:clamp(10px,1.6vmin,12px);color:var(--accent);font-weight:700;letter-spacing:.1em}
+#objName{font-size:clamp(13px,2.2vmin,17px);font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#objTier{font-size:clamp(9px,1.4vmin,11px);color:var(--warn);border:1px solid rgba(255,198,92,.35);
+  border-radius:999px;padding:1px 8px;white-space:nowrap}
+#objHint{font-size:clamp(10px,1.6vmin,12.5px);color:var(--dim);margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bar{height:5px;border-radius:3px;background:rgba(255,255,255,.09);margin-top:8px;overflow:hidden}
+#barFill{height:100%;width:0%;border-radius:3px;
+  background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .35s ease}
+
+/* ============================================================
+   节点列表（右侧 / 手机横条）
+   ============================================================ */
+#nodes{
+  position:fixed;right:calc(var(--pad) + var(--safeR));top:50%;transform:translateY(-50%);
+  width:min(210px,25vw);padding:8px 6px;display:flex;flex-direction:column;gap:1px;
+  max-height:min(78vh,660px);overflow-y:auto;overscroll-behavior:contain;pointer-events:auto;z-index:4;
+  scrollbar-width:thin;
+}
+#nodes::-webkit-scrollbar{width:5px}
+#nodes::-webkit-scrollbar-thumb{background:rgba(140,175,225,.3);border-radius:3px}
+.tierhead{font-size:9.5px;letter-spacing:.14em;color:#5f6f88;padding:7px 7px 3px;
+  text-transform:uppercase;border-top:1px solid rgba(140,170,215,.1);margin-top:3px;transition:color .3s}
+.tierhead:first-child{border-top:0;margin-top:0}
+.tierhead.on{color:var(--warn)}
+.nd{display:flex;align-items:center;gap:7px;padding:3px 7px;border-radius:8px;
+  font-size:clamp(10px,1.45vmin,12px);color:#7d8ca6;transition:all .25s ease;border:1px solid transparent}
+.nd i{width:18px;height:18px;flex:0 0 18px;border-radius:5px;display:grid;place-items:center;
+  font-size:9.5px;font-style:normal;font-weight:700;background:rgba(255,255,255,.06);color:#8fa0bb}
+.nd u{flex:1;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nd s{text-decoration:none;font-size:10px;opacity:.85}
+.nd.done{color:#8fe6c1}.nd.done i{background:rgba(61,220,151,.2);color:#3ddc97}
+.nd.done s{color:var(--ok)}
+.nd.active{color:#fff;background:rgba(77,163,255,.16);border-color:rgba(77,163,255,.5)}
+.nd.active i{background:var(--accent);color:#04101f}
+.nd.next{color:#a9bbd4}.nd.next i{background:rgba(77,163,255,.16);color:#9ec8ff}
+.nd.locked{opacity:.4}
+#nodes.compact{
+  right:auto;left:50%;top:auto;bottom:calc(var(--pad) + var(--safeB) + 58px);
+  transform:translateX(-50%);width:auto;max-width:calc(100vw - 2*var(--pad));max-height:none;
+  flex-direction:row;gap:4px;padding:6px 8px;justify-content:center;flex-wrap:wrap;overflow:visible;
+}
+#nodes.compact .nd{padding:0;background:none;border:0}
+#nodes.compact .nd u,#nodes.compact .nd s,#nodes.compact .tierhead{display:none}
+#nodes.compact .nd i{width:15px;height:15px;flex:0 0 15px;font-size:8px;border-radius:4px}
+#nodes.compact .nd.active i{box-shadow:0 0 0 2px rgba(77,163,255,.45)}
+button:disabled{opacity:.4;cursor:not-allowed}
+
+/* ============================================================
+   底部控制栏
+   ============================================================ */
+#dock{
+  position:fixed;right:calc(var(--pad) + var(--safeR));bottom:calc(var(--pad) + var(--safeB));
+  display:flex;gap:8px;padding:7px;z-index:6;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100vw - 2*var(--pad));
+}
+#help{
+  position:fixed;left:calc(var(--pad) + var(--safeL));bottom:calc(var(--pad) + var(--safeB));
+  padding:9px 13px;font-size:12px;color:var(--dim);line-height:1.75;max-width:min(330px,42vw);z-index:5
+}
+#help b{color:#cfe0f8;font-weight:600}
+
+/* ============================================================
+   设置面板
+   ============================================================ */
+#settings{
+  position:fixed;right:calc(var(--pad) + var(--safeR));bottom:calc(var(--pad) + var(--safeB) + 60px);
+  width:min(320px,calc(100vw - 2*var(--pad)));padding:16px;z-index:9;
+  max-height:min(76vh,540px);overflow-y:auto;overscroll-behavior:contain
+}
+#settings h3{margin:0 0 12px;font-size:14px;letter-spacing:.06em;color:#cfe0f8;display:flex;justify-content:space-between;align-items:center}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0;font-size:13px}
+.row .lbl{color:var(--dim)}
+.row.col{flex-direction:column;align-items:stretch;gap:7px}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent;margin:0
+}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:rgba(255,255,255,.14)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;
+  background:var(--accent);border:3px solid #0a1220;margin-top:-10px;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:rgba(255,255,255,.14)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border:3px solid #0a1220;border-radius:50%;background:var(--accent)}
+.hint{font-size:11px;color:#6f7f99;line-height:1.6}
+.sep{height:1px;background:var(--line);margin:14px 0}
+
+/* ============================================================
+   全屏覆盖层
+   ============================================================ */
+.overlay{
+  position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:calc(var(--pad) + 6px);
+  background:radial-gradient(90% 70% at 50% 45%,rgba(6,10,18,.72),rgba(3,5,9,.94));
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+}
+.card{width:min(560px,100%);max-height:calc(100vh - 2*var(--pad) - var(--safeT) - var(--safeB));
+  overflow-y:auto;overscroll-behavior:contain;padding:clamp(18px,3.4vmin,32px);text-align:center}
+.card h1{margin:0 0 4px;font-size:clamp(22px,4.6vmin,36px);letter-spacing:.02em;
+  background:linear-gradient(92deg,#8fc7ff,#ffffff 40%,#8ff0c8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.card h2{margin:0 0 10px;font-size:clamp(19px,4vmin,30px)}
+.card p{margin:8px 0;color:var(--dim);font-size:clamp(12px,2vmin,14px);line-height:1.7}
+.card .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.card .actions button{flex:1 1 150px;max-width:230px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:16px 0}
+.tile{padding:12px 8px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.tile b{display:block;font-size:clamp(17px,3.2vmin,25px);font-variant-numeric:tabular-nums;color:#fff}
+.tile span{font-size:10.5px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase}
+.tile.good b{color:var(--gold)}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:6px 14px;
+  text-align:left;margin:14px 0;font-size:12.5px;color:var(--dim)}
+.keys div{display:flex;gap:7px;align-items:center}
+
+/* 提示气泡 */
+#toast{
+  position:fixed;left:50%;top:calc(var(--safeT) + 20vh);transform:translate(-50%,-14px);
+  padding:12px 22px;border-radius:14px;z-index:15;pointer-events:none;text-align:center;
+  opacity:0;transition:opacity .22s ease,transform .22s ease;max-width:82vw
+}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast b{display:block;font-size:clamp(15px,2.8vmin,20px)}
+#toast small{color:var(--dim);font-size:12px}
+#toast.bad{border-color:rgba(255,95,109,.5);box-shadow:0 0 34px rgba(255,95,109,.22)}
+#toast.ok{border-color:rgba(61,220,151,.5);box-shadow:0 0 34px rgba(61,220,151,.22)}
+#toast.gold{border-color:rgba(255,212,121,.55);box-shadow:0 0 34px rgba(255,212,121,.25)}
+
+/* 闪屏效果 */
+#flash{position:fixed;inset:0;z-index:14;pointer-events:none;opacity:0;transition:opacity .4s ease}
+#flash.bad{background:radial-gradient(120% 120% at 50% 50%,transparent 35%,rgba(255,60,80,.42));opacity:1;transition:opacity .08s}
+#flash.ok{background:radial-gradient(120% 120% at 50% 50%,transparent 40%,rgba(61,220,151,.32));opacity:1;transition:opacity .08s}
+
+/* 加载 / 错误 */
+#boot{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:#05070c;text-align:center;padding:24px}
+#boot .ring{width:52px;height:52px;margin:0 auto 18px;border-radius:50%;
+  border:3px solid rgba(120,170,255,.2);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#bootMsg{color:var(--dim);font-size:13px;margin-top:8px}
+#fatal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:#080a10;padding:24px}
+#fatal .card{text-align:left;border-color:rgba(255,95,109,.4)}
+#fatal h2{color:var(--bad);text-align:center}
+#fatal pre{white-space:pre-wrap;word-break:break-all;font-size:11px;color:#8f9db5;
+  background:rgba(0,0,0,.45);padding:12px;border-radius:10px;max-height:34vh;overflow:auto;margin:12px 0 0}
+
+/* 竖屏 / 小屏适配 */
+@media (max-width:760px),(orientation:portrait) and (max-width:900px){
+  #help{display:none}
+  #objective{flex:1 1 100%;order:3}
+  #stats{order:1}
+  .stat{min-width:60px;padding:2px 9px}
+}
+@media (orientation:landscape) and (max-height:460px){
+  #help{display:none}
+  #objHint{display:none}
+  #nodes{max-height:82vh}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001s !important;transition-duration:.06s !important}
+  #boot .ring{animation:none;border-top-color:var(--accent)}
+}
+</style>
+</head>
+<body>
+
+<div id="stage" aria-label="3D 迷宫球场景"></div>
+
+<!-- 顶部 HUD -->
+<div id="hud">
+  <div id="stats" class="panel">
+    <div class="stat"><b id="sTime">00:00.0</b><span>时间</span></div>
+    <div class="stat"><b id="sDrop">0</b><span>掉落</span></div>
+    <div class="stat"><b id="sBest">--:--</b><span>最佳</span></div>
+  </div>
+  <div id="objective" class="panel">
+    <div id="objRow"><span id="objIdx">01/32</span><span id="objName">起点</span><span id="objTier">第一层 · 入门</span></div>
+    <div id="objHint">倾斜迷宫球，让钢珠滚出起点平台</div>
+    <div id="bar"><div id="barFill"></div></div>
+  </div>
+</div>
+
+<!-- 节点进度列表 -->
+<div id="nodes" class="panel"></div>
+
+<!-- 操作提示 -->
+<div id="help" class="panel">
+  <div><b>拖动</b> 旋转迷宫球 · <b>滚轮 / 双指</b> 缩放 · <b>WASD / 方向键</b> 倾斜</div>
+  <div><b>Q / E</b> 翻滚 · <b>空格</b> 暂停 · <b>R</b> 重置 · <b>Esc</b> 菜单 · <b>+ / -</b> 缩放</div>
+</div>
+
+<!-- 底部按钮 -->
+<div id="dock" class="panel">
+  <button id="bPause" class="iconbtn" title="暂停 / 继续 (空格)" aria-label="暂停">⏸</button>
+  <button id="bReset" class="iconbtn" title="重新开始 (R)" aria-label="重新开始">⟳</button>
+  <button id="bView"  class="iconbtn" title="重置视角" aria-label="重置视角">⌖</button>
+  <button id="bSound" class="iconbtn" title="声音开关" aria-label="声音">🔊</button>
+  <button id="bSet"   class="iconbtn" title="设置" aria-label="设置">⚙</button>
+</div>
+
+<!-- 设置 -->
+<div id="settings" class="panel hidden">
+  <h3><span>设置</span><button id="bSetClose" class="ghost" style="min-height:32px;height:32px;padding:0 10px">关闭</button></h3>
+  <div class="row col">
+    <div style="display:flex;justify-content:space-between"><span class="lbl">灵敏度</span><b id="vSens">1.00</b></div>
+    <input id="rSens" type="range" min="0.25" max="2.5" step="0.05" value="1" />
+  </div>
+  <div class="row">
+    <span class="lbl">声音</span>
+    <button id="bSound2" style="min-width:96px">开启</button>
+  </div>
+  <div class="row">
+    <span class="lbl">反转上下</span>
+    <button id="bInvert" style="min-width:96px">关闭</button>
+  </div>
+  <div class="sep"></div>
+  <div class="row">
+    <span class="lbl">手机体感控制</span>
+    <button id="bGyro" style="min-width:96px">开启</button>
+  </div>
+  <div class="hint" id="gyroHint">体感不可用时自动回退为触摸拖动。</div>
+  <div class="sep"></div>
+  <div class="row" style="gap:8px">
+    <button id="bView2" class="ghost" style="flex:1">重置视角</button>
+    <button id="bWipe" class="ghost" style="flex:1">清除存档</button>
+  </div>
+  <div class="hint" style="margin-top:10px">物理步长固定 1/120 秒，旋转速度受限以避免穿透与弹飞。</div>
+</div>
+
+<!-- 提示 -->
+<div id="toast" class="panel"><b id="toastT"></b><small id="toastS"></small></div>
+<div id="flash"></div>
+
+<!-- 开始 / 暂停 / 通关 -->
+<div id="intro" class="overlay hidden">
+  <div class="card panel">
+    <h1>PERPLEXUS 3D</h1>
+    <p>透明球壳内是 <b style="color:#cfe0f8">五层立体轨道</b>，上下交叠、还有通往死路的岔道。<b style="color:#cfe0f8">旋转整颗迷宫球</b>，让钢珠依靠真实重力依次通过 32 个挑战节点，抵达终点并稳定停留。</p>
+    <div class="grid2">
+      <div class="tile good"><b id="iBest">--:--</b><span>最佳时间</span></div>
+      <div class="tile good"><b id="iDrop">--</b><span>最少掉落</span></div>
+      <div class="tile"><b>32</b><span>挑战节点</span></div>
+      <div class="tile"><b>5</b><span>难度层级</span></div>
+    </div>
+    <div class="keys">
+      <div><span class="kbd">拖动</span> 旋转迷宫球</div>
+      <div><span class="kbd">滚轮</span><span class="kbd">双指</span> 缩放</div>
+      <div><span class="kbd">W A S D</span> 倾斜</div>
+      <div><span class="kbd">↑↓←→</span> 倾斜</div>
+      <div><span class="kbd">Q</span><span class="kbd">E</span> 左右翻滚</div>
+      <div><span class="kbd">空格</span> 暂停</div>
+      <div><span class="kbd">R</span> 重置 · <span class="kbd">Esc</span> 菜单</div>
+    </div>
+    <div class="actions">
+      <button id="bStart" class="primary">开始挑战</button>
+      <button id="bResume" class="hidden">从检查点继续</button>
+    </div>
+    <p class="hint" id="introGyro" style="margin-top:12px"></p>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="card panel">
+    <h2>已暂停</h2>
+    <p id="pauseWhy">游戏已暂停，随时继续。</p>
+    <div class="grid2">
+      <div class="tile"><b id="pTime">00:00.0</b><span>用时</span></div>
+      <div class="tile"><b id="pDrop">0</b><span>掉落</span></div>
+      <div class="tile"><b id="pNode">1/32</b><span>进度</span></div>
+    </div>
+    <div class="actions">
+      <button id="bResume2" class="primary">继续</button>
+      <button id="bRestart">重新开始</button>
+    </div>
+  </div>
+</div>
+
+<div id="win" class="overlay hidden">
+  <div class="card panel">
+    <h1>通 关</h1>
+    <p>钢珠已在终点稳定停留，15 个节点全部完成。</p>
+    <div class="grid2">
+      <div class="tile good"><b id="wTime">00:00.0</b><span>本次用时</span></div>
+      <div class="tile"><b id="wDrop">0</b><span>本次掉落</span></div>
+      <div class="tile"><b id="wBest">--:--</b><span>历史最佳</span></div>
+    </div>
+    <p id="wNew" class="hidden" style="color:var(--gold);font-weight:600">🏆 新纪录！</p>
+    <div class="actions"><button id="bAgain" class="primary">再来一次</button></div>
+  </div>
+</div>
+
+<!-- 加载 / 致命错误 -->
+<div id="boot">
+  <div>
+    <div class="ring"></div>
+    <div style="letter-spacing:.24em;font-size:12px;color:#8fb6ff">PERPLEXUS 3D</div>
+    <div id="bootMsg">正在检测 WebGL…</div>
+  </div>
+</div>
+
+<div id="fatal" class="hidden">
+  <div class="card panel">
+    <h2>无法启动游戏</h2>
+    <p id="fatalMsg"></p>
+    <pre id="fatalDetail"></pre>
+    <div class="actions"><button id="bRetry" class="primary">重新加载</button></div>
+  </div>
+</div>
+
+<script type="module">
+/* ==========================================================================
+   Perplexus 3D · 立体迷宫球
+   单文件实现，模块化分区：
+     00 工具       01 配置 CONFIG      02 轨道结构化数据    03 存档 Store
+     04 音效 Sound 05 依赖加载 Loader  06 场景 Stage        07 轨道生成 TrackFactory
+     08 轨道视图   09 物理 Physics     10 输入 Input        11 节点 NodeSystem
+     12 检查点     13 特效 FX          14 UI                15 状态机 Game
+     16 主循环     17 启动
+   ========================================================================== */
+
+let THREE = null, CANNON = null;
+
+/* ===================== 00 · 工具 ===================== */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const DEG = Math.PI / 180;
+const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function fmtTime(ms) {
+  if (ms == null || !isFinite(ms)) return '--:--';
+  const t = Math.max(0, ms) / 1000;
+  const m = Math.floor(t / 60), s = Math.floor(t % 60), d = Math.floor((t * 10) % 10);
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + d;
+}
+function fatal(msg, detail) {
+  $('boot').classList.add('hidden');
+  $('fatal').classList.remove('hidden');
+  $('fatalMsg').textContent = msg;
+  $('fatalDetail').textContent = detail || '';
+  if (detail) console.error(msg, detail);
+}
+
+/* ===================== 01 · 配置 CONFIG ===================== */
+const CONFIG = {
+  version: 4,
+  storageKey: 'perplexus3d.save.v4',
+
+  physics: {
+    fixedStep: 1 / 120,      // 固定物理步长，避免穿透与抖动
+    maxSubSteps: 6,
+    maxFrameDt: 1 / 20,      // 单帧最大时间，防止后台回来一次积分过大
+    gravity: -16,
+    iterations: 20,
+    tolerance: 0.001,
+  },
+  ball: {
+    radius: 0.22,
+    mass: 0.62,
+    friction: 0.42,
+    restitution: 0.13,
+    linearDamping: 0.02,
+    angularDamping: 0.16,
+    maxSpeed: 6.2,           // 最大速度：防止高速穿透 / 弹飞
+    maxSpin: 60,
+  },
+  maze: {
+    // 最大旋转角速度：必须让离心 ω²R 与科氏 2ωv 明显小于重力，
+    // 否则整球一转就会把钢珠甩飞（R≈6 时 0.9 rad/s ≈ 0.3g）
+    maxAngularSpeed: 0.9,
+    smoothing: 10,           // 朝目标姿态收敛速度
+    dragSensitivity: 0.0062, // rad / px
+    keySpeed: 1.25,          // rad / s
+    rollSpeed: 1.5,
+  },
+  gyro: {
+    deadzone: 2.2,           // 度
+    smoothing: 7,
+    gain: 0.9,               // 设备倾角 -> 迷宫倾角
+    maxTilt: 62 * DEG,
+    maxRate: 0.9,            // rad/s，与迷宫最大角速度一致
+  },
+  track: {
+    thickness: 0.17,
+    railHeight: 0.32,        // 护栏须高于球心，否则钢珠会翻越
+    railThickness: 0.1,
+    width: 0.95,
+    arcStep: 0.42,           // 弧线离散步长（视觉与碰撞共用）
+    sampleStep: 0.45,        // 中心线采样步长（脱轨判定用）
+  },
+  // 立体塔式布局：路径由「导引圆」自动收束；落差由统一坡度 grade 自动给出。
+  // grade 同时保证「同一导引圆绕第二圈时」与第一圈之间的垂直净空：
+  //   0.05 × 2π × 2.6 ≈ 0.82 > 球径 + 轨道厚度，于是交叠都是合法的立体交叉。
+  layout: {
+    startY: 4.6, startR: 3.6,
+    guideR: 3.2, guideK: 0.85, guideMaxTurn: 105,
+    grade: 0.05,
+  },
+  shell: { margin: 0.55, segments: 52 },
+  fail: {
+    offPath: 1.5,            // 离中心线过远 -> 脱轨
+    skipGrace: 0.34,         // 越级判定容忍时间
+    respawnDelay: 0.6,
+    hitSoundMinSpeed: 0.9,
+  },
+  finish: { holdTime: 1.5, radius: 1.2, maxSpeed: 0.62 },
+  camera: { fov: 46, fit: 1.02, height: 0.3, zoomMin: 0.45, zoomMax: 1.15 },
+};
+
+/* ===================== 02 · 轨道结构化数据 =====================
+   32 个按顺序挑战的节点，编成 5 层「立体塔」，难度层层递进：
+   每层轨道更窄、护栏更低、机制更刁钻。
+
+   落差不再逐段手写：ops 未指定 rise 时由 CONFIG.layout.grade 自动给出
+   统一坡度，于是「同一导引圆绕第二圈」必然落在第一圈下方足够净空处 ——
+   路线因此大量上下交叠，观感错综复杂，但每一处交叉都是合法的立体交叉。
+   guide.t 在 1.6 ~ 4.1 之间来回摆动，让路径在内圈/外圈之间穿插。
+
+   op 说明：
+     pad       平台（w 宽 / railH 边沿 / capBack 后挡板；默认水平）
+     straight  直段（len / rise / w / rails / railH）
+     arc       弧段（deg 角度，正为右转 / r 半径 / rise / channel 槽壁）
+     wave      波浪段（amp 振幅 / cycles 周期数）
+     serp      蛇形回廊（legs 折返段数 / len 段长 / r 折返半径）—— 密集折返
+     gap       断口（只推进游标，不生成轨道；rise 为落差）
+     fork      岔路（主线开缺口 + 一条通往死路的支线）—— 需要试错的分叉
+     guide     自动导引（把路径收束到半径 t 的导引圆）
+     endcap    末端挡板
+   ================================================================= */
+
+// 五层：宽度 / 护栏高度逐层收紧，构成难度梯度
+const TIERS = [
+  { name: '第一层 · 入门', width: 1.04, railH: 0.34 },
+  { name: '第二层 · 折返', width: 0.98, railH: 0.32 },
+  { name: '第三层 · 立体', width: 0.92, railH: 0.30 },
+  { name: '第四层 · 硬核', width: 0.86, railH: 0.28 },
+  { name: '第五层 · 终章', width: 0.80, railH: 0.25 },
+];
+
+const NODE_DEFS = [
+  /* ---------------- 第一层 · 入门：宽轨缓坡，学会配平 ---------------- */
+  { key: 'start', name: '起点', en: 'START', tier: 0, kind: 'start', checkpoint: true,
+    hint: '倾斜迷宫球，让钢珠滚出起点平台',
+    ops: [{ op: 'pad', len: 1.7, w: 1.7, capBack: true }, { op: 'straight', len: 0.7 },
+          { op: 'guide', r: 1.0, t: 3.15 }] },
+
+  { key: 'straight', name: '直轨', en: 'STRAIGHT', tier: 0, kind: 'normal',
+    hint: '沿直轨加速；侧面那条岔路是死路，别滚进去',
+    ops: [{ op: 'straight', len: 2.4 },
+          { op: 'fork', side: -1, deg: 94, len: 1.25, rise: -0.22, mouth: 0.45 },
+          { op: 'guide', r: 0.98, t: 3.15 }] },
+
+  { key: 'bend', name: '缓弯', en: 'EASY BEND', tier: 0, kind: 'normal',
+    hint: '长缓弯：提前给一点侧倾就能贴稳内侧',
+    ops: [{ op: 'arc', deg: 76, r: 1.7 }, { op: 'guide', r: 0.98, t: 3.15 }] },
+
+  { key: 'uphill', name: '上坡', en: 'UPHILL', tier: 0, kind: 'normal',
+    hint: '把球体倾得更陡，让重力帮钢珠爬上斜坡',
+    ops: [{ op: 'straight', len: 1.8, rise: 0.5 }, { op: 'straight', len: 0.8, rise: -0.5 },
+          { op: 'guide', r: 0.98, t: 3.15 }] },
+
+  { key: 'cp1', name: '检查点 I', en: 'CHECKPOINT 1', tier: 0, kind: 'checkpoint', checkpoint: true,
+    hint: '进入检查点存档，掉落后将从这里重生',
+    ops: [{ op: 'pad', len: 1.5, w: 1.5 }, { op: 'guide', r: 1.0, t: 2.6 }] },
+
+  { key: 'spiral', name: '螺旋下降', en: 'SPIRAL', tier: 0, kind: 'hard',
+    hint: '螺旋下降到第二层：控制速度，别冲出弯心',
+    ops: [{ op: 'arc', deg: 400, r: 1.3, rise: -1.2, w: 0.9 },
+          { op: 'guide', r: 1.0, t: 2.6 }] },
+
+  /* ---------------- 第二层 · 折返：密集折返与岔路 ---------------- */
+  { key: 'scurve', name: 'S 弯', en: 'S-CURVE', tier: 1, kind: 'normal',
+    hint: '连续反向弯道，小幅度修正比猛拖更快',
+    ops: [{ op: 'arc', deg: 80, r: 1.4 }, { op: 'arc', deg: -58, r: 1.4 },
+          { op: 'guide', r: 0.98, t: 2.6 }] },
+
+  { key: 'narrow', name: '窄桥', en: 'NARROW BRIDGE', tier: 1, kind: 'hard',
+    hint: '窄桥只有半个轨宽，保持钢珠走中线',
+    ops: [{ op: 'straight', len: 2.3, w: 0.66, railH: 0.28 },
+          { op: 'fork', side: -1, deg: 96, len: 1.3, rise: -0.22, mouth: 0.45 },
+          { op: 'guide', r: 1.0, t: 1.5, rise: -0.8 }] },
+
+  { key: 'serp1', name: '蛇形回廊', en: 'SERPENTINE', tier: 1, kind: 'hard',
+    hint: '三段折返：每次掉头前都要提前反向配平',
+    ops: [{ op: 'serp', legs: 3, len: 1.9, r: 0.92 },
+          { op: 'guide', r: 1.0, t: 2.6 }] },
+
+  { key: 'crossover', name: '交叉桥', en: 'CROSSOVER', tier: 1, kind: 'normal',
+    hint: '这段桥从上下层轨道之间穿过，别被视觉迷惑',
+    ops: [{ op: 'straight', len: 2.6 }, { op: 'guide', r: 0.98, t: 3.4 }] },
+
+  { key: 'cp2', name: '检查点 II', en: 'CHECKPOINT 2', tier: 1, kind: 'checkpoint', checkpoint: true,
+    hint: '第二层通过，前方进入多层交叠段',
+    ops: [{ op: 'pad', len: 1.5, w: 1.5 }, { op: 'guide', r: 1.0, t: 2.6 }] },
+
+  { key: 'coil', name: '陡坡回旋', en: 'RAMP COIL', tier: 1, kind: 'hard',
+    hint: '一整圈回旋坡下到第三层，出口很窄',
+    ops: [{ op: 'arc', deg: 366, r: 1.25, rise: -1.2, w: 0.88 },
+          { op: 'guide', r: 1.0, t: 2.95 }] },
+
+  /* ---------------- 第三层 · 立体：缺口、起伏、急折 ---------------- */
+  { key: 'broken', name: '断桥', en: 'BROKEN BRIDGE', tier: 2, kind: 'hard',
+    hint: '轨道断开：先加速，再靠惯性飞越缺口',
+    ops: [{ op: 'straight', len: 1.15 }, { op: 'gap', len: 0.6, rise: -0.5 },
+          { op: 'straight', len: 1.25 }, { op: 'guide', r: 0.98, t: 2.95 }] },
+
+  { key: 'uturn', name: 'U 弯', en: 'U-TURN', tier: 2, kind: 'normal',
+    hint: '180° 回头弯，进弯前先减速；外侧还有一条死路',
+    ops: [{ op: 'arc', deg: 188, r: 1.45 },
+          { op: 'fork', side: -1, deg: 96, len: 1.3, rise: -0.22, mouth: 0.45 },
+          { op: 'guide', r: 1.0, t: 2.9, rise: -0.5 }] },
+
+  { key: 'wave', name: '波浪轨', en: 'WAVE', tier: 2, kind: 'normal',
+    hint: '起伏波浪：利用下坡蓄力冲过波峰',
+    ops: [{ op: 'wave', len: 3.2, amp: 0.18, cycles: 2 },
+          { op: 'guide', r: 0.98, t: 3.55 }] },
+
+  { key: 'zigzag', name: '锯齿轨', en: 'ZIGZAG', tier: 2, kind: 'hard',
+    hint: '四连急折：节奏比幅度更重要',
+    ops: [{ op: 'arc', deg: 58, r: 0.95 }, { op: 'arc', deg: -58, r: 0.95 },
+          { op: 'arc', deg: 58, r: 0.95 }, { op: 'arc', deg: -58, r: 0.95 },
+          { op: 'guide', r: 0.98, t: 2.6 }] },
+
+  { key: 'longbridge', name: '长窄桥', en: 'LONG BRIDGE', tier: 2, kind: 'hard',
+    hint: '又长又窄，速度越快越难修正',
+    ops: [{ op: 'straight', len: 2.8, w: 0.72, railH: 0.28 },
+          { op: 'guide', r: 0.98, t: 2.95 }] },
+
+  { key: 'cp3', name: '检查点 III', en: 'CHECKPOINT 3', tier: 2, kind: 'checkpoint', checkpoint: true,
+    hint: '半程完成，后半段开始出现无护栏路段',
+    ops: [{ op: 'pad', len: 1.5, w: 1.5 }, { op: 'guide', r: 1.0, t: 2.6 }] },
+
+  { key: 'innercoil', name: '内旋下降', en: 'INNER COIL', tier: 2, kind: 'hard',
+    hint: '更紧的内圈螺旋，下到第四层',
+    ops: [{ op: 'arc', deg: 384, r: 1.18, rise: -1.2, w: 0.86 },
+          { op: 'guide', r: 1.0, t: 2.45 }] },
+
+  /* ---------------- 第四层 · 硬核：无护栏与连续跳跃 ---------------- */
+  { key: 'norail', name: '无护栏窄轨', en: 'NO RAIL', tier: 3, kind: 'hard',
+    hint: '没有护栏！保持极小的倾斜量',
+    ops: [{ op: 'straight', len: 1.75, w: 0.9, rails: false },
+          { op: 'guide', r: 0.98, t: 2.45 }] },
+
+  { key: 'halfring', name: '半环轨', en: 'HALF RING', tier: 3, kind: 'normal',
+    hint: '半环槽轨：贴着内侧滑行最稳',
+    ops: [{ op: 'arc', deg: 170, r: 1.5, w: 1.0, channel: true, rails: false },
+          { op: 'guide', r: 0.98, t: 2.45 }] },
+
+  { key: 'doublejump', name: '双跳台', en: 'DOUBLE JUMP', tier: 3, kind: 'hard',
+    hint: '连续两个缺口：第一跳落地就要立刻续速',
+    ops: [{ op: 'straight', len: 1.0 }, { op: 'gap', len: 0.48, rise: -0.55 },
+          { op: 'straight', len: 0.95 }, { op: 'gap', len: 0.44, rise: -0.5 },
+          { op: 'straight', len: 1.1 }, { op: 'guide', r: 0.98, t: 2.45 }] },
+
+  { key: 'stones', name: '悬空踏板', en: 'STEPPING STONES', tier: 3, kind: 'hard',
+    hint: '三块悬空踏板，一口气匀速通过',
+    ops: [{ op: 'straight', len: 0.62, w: 0.92 }, { op: 'gap', len: 0.32, rise: -0.3 },
+          { op: 'straight', len: 0.62, w: 0.92 }, { op: 'gap', len: 0.32, rise: -0.3 },
+          { op: 'straight', len: 0.62, w: 0.92 }, { op: 'gap', len: 0.32, rise: -0.3 },
+          { op: 'straight', len: 0.85, w: 0.92 },
+          { op: 'fork', side: -1, deg: 92, len: 1.15, rise: -0.22, mouth: 0.45 },
+          { op: 'guide', r: 0.98, t: 2.45 }] },
+
+  { key: 'cp4', name: '检查点 IV', en: 'CHECKPOINT 4', tier: 3, kind: 'checkpoint', checkpoint: true,
+    hint: '第四层通过，终章是最窄最陡的一段',
+    ops: [{ op: 'pad', len: 1.5, w: 1.5 }, { op: 'guide', r: 1.0, t: 2.45 }] },
+
+  { key: 'steepcoil', name: '陡降螺旋', en: 'STEEP COIL', tier: 3, kind: 'hard',
+    hint: '最紧最陡的螺旋，速度会一直往上叠',
+    ops: [{ op: 'arc', deg: 392, r: 1.14, rise: -1.2, w: 0.82 },
+          { op: 'guide', r: 1.0, t: 2.8 }] },
+
+  /* ---------------- 第五层 · 终章：最窄、最多无护栏 ---------------- */
+  { key: 'balance', name: '平衡段', en: 'BALANCE', tier: 4, kind: 'hard',
+    hint: '平衡窄梁：几乎放平，让钢珠慢慢滑过',
+    ops: [{ op: 'straight', len: 2.0, w: 0.92, rails: false },
+          { op: 'guide', r: 0.98, t: 2.8 }] },
+
+  { key: 'funnel', name: '漏斗弯', en: 'FUNNEL', tier: 4, kind: 'normal',
+    hint: '轨道越走越窄，出口只有一个球宽',
+    ops: [{ op: 'straight', len: 1.15, w: 1.15 }, { op: 'straight', len: 1.0, w: 0.88 },
+          { op: 'straight', len: 0.9, w: 0.64, railH: 0.26 },
+          { op: 'guide', r: 0.98, t: 1.6 }] },
+
+  { key: 'cp5', name: '检查点 V', en: 'CHECKPOINT 5', tier: 4, kind: 'checkpoint', checkpoint: true,
+    hint: '最后的存档点，冲刺前深呼吸',
+    ops: [{ op: 'pad', len: 1.5, w: 1.5 }, { op: 'guide', r: 1.0, t: 1.6 }] },
+
+  { key: 'serp2', name: '蛇形窄轨', en: 'NARROW SERPENTINE', tier: 4, kind: 'hard',
+    hint: '窄轨折返：幅度大一点就会翻出护栏',
+    ops: [{ op: 'serp', legs: 3, len: 1.5, r: 0.84, w: 0.74, railH: 0.26 },
+          { op: 'guide', r: 1.0, t: 2.6, rise: -0.55 }] },
+
+  { key: 'raillessu', name: '单边护栏弯', en: 'ONE-SIDED CURVE', tier: 4, kind: 'hard',
+    hint: '只有外侧有护栏，内侧完全敞开：侧倾过头就会掉进球心',
+    ops: [{ op: 'arc', deg: 158, r: 2.2, w: 1.06, railSkip: 1, railH: 0.3 },
+          { op: 'guide', r: 0.98, t: 2.05 }] },
+
+  { key: 'finalbridge', name: '终局窄桥', en: 'FINAL BRIDGE', tier: 4, kind: 'hard',
+    hint: '最后一段窄桥，尽头就是终点碗',
+    ops: [{ op: 'straight', len: 1.9, w: 0.66, railH: 0.26 },
+          { op: 'guide', r: 0.98, t: 1.0 }] },
+
+  { key: 'finish', name: '终点', en: 'FINISH', tier: 4, kind: 'finish',
+    hint: '让钢珠停在终点碗中，稳定停留 1.5 秒',
+    ops: [{ op: 'pad', len: 1.8, w: 1.9, railH: 0.42 }, { op: 'endcap' }] },
+];
+
+/* ===================== 03 · 存档 Store ===================== */
+const Store = {
+  data: {
+    bestTimeMs: null, leastDrops: null,
+    sound: true, sensitivity: 1, invertY: false, gyro: false,
+    progress: null, // { checkpoint, node, timeMs, drops }
+  },
+  load() {
+    try {
+      const raw = localStorage.getItem(CONFIG.storageKey);
+      if (raw) Object.assign(this.data, JSON.parse(raw) || {});
+    } catch (e) { console.warn('读取存档失败', e); }
+    this.data.sensitivity = clamp(+this.data.sensitivity || 1, 0.25, 2.5);
+    return this.data;
+  },
+  save() {
+    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.data)); }
+    catch (e) { console.warn('写入存档失败', e); }
+  },
+  set(patch) { Object.assign(this.data, patch); this.save(); },
+  recordRun(timeMs, drops) {
+    let rec = false;
+    if (this.data.bestTimeMs == null || timeMs < this.data.bestTimeMs) { this.data.bestTimeMs = timeMs; rec = true; }
+    if (this.data.leastDrops == null || drops < this.data.leastDrops) { this.data.leastDrops = drops; rec = true; }
+    this.data.progress = null;
+    this.save();
+    return rec;
+  },
+  wipe() {
+    try { localStorage.removeItem(CONFIG.storageKey); } catch (e) {}
+    this.data.bestTimeMs = null; this.data.leastDrops = null; this.data.progress = null;
+    this.save();
+  },
+};
+
+/* ===================== 04 · 音效 Sound (Web Audio) ===================== */
+const Sound = {
+  ctx: null, master: null, noiseBuf: null, enabled: true, lastHit: 0, ready: false,
+  init() {
+    if (this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.55;
+      this.master.connect(this.ctx.destination);
+      const len = Math.floor(this.ctx.sampleRate * 0.5);
+      this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      this.ready = true;
+    } catch (e) { console.warn('音频初始化失败', e); }
+  },
+  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); },
+  setEnabled(v) { this.enabled = !!v; if (this.master) this.master.gain.value = v ? 0.55 : 0; },
+  tone({ f = 440, f2, dur = 0.15, type = 'sine', gain = 0.2, delay = 0 }) {
+    if (!this.ready || !this.enabled) return;
+    const t = this.ctx.currentTime + delay;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.02, dur * 0.25));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.02);
+  },
+  burst({ dur = 0.12, gain = 0.2, f = 900, q = 1.1, type = 'bandpass', delay = 0 }) {
+    if (!this.ready || !this.enabled) return;
+    const t = this.ctx.currentTime + delay;
+    const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf;
+    const bp = this.ctx.createBiquadFilter(); bp.type = type; bp.frequency.value = f; bp.Q.value = q;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(bp); bp.connect(g); g.connect(this.master);
+    s.start(t); s.stop(t + dur + 0.02);
+  },
+  // 碰撞：强度相关的短促金属撞击
+  hit(strength) {
+    const now = performance.now();
+    if (now - this.lastHit < 55) return;
+    this.lastHit = now;
+    const s = clamp(strength, 0, 1);
+    this.burst({ dur: 0.05 + 0.05 * s, gain: 0.05 + 0.2 * s, f: 620 + 1500 * s, q: 0.9 });
+    this.tone({ f: 150 + 260 * s, f2: 70, dur: 0.07 + 0.06 * s, type: 'triangle', gain: 0.04 + 0.1 * s });
+  },
+  roll() {},
+  fall() {
+    this.tone({ f: 420, f2: 60, dur: 0.55, type: 'sawtooth', gain: 0.15 });
+    this.burst({ dur: 0.4, gain: 0.1, f: 320, q: 0.6, delay: 0.02 });
+  },
+  checkpoint() {
+    this.tone({ f: 660, dur: 0.13, type: 'sine', gain: 0.16 });
+    this.tone({ f: 990, dur: 0.2, type: 'sine', gain: 0.14, delay: 0.09 });
+  },
+  nodeDone() { this.tone({ f: 880, dur: 0.08, type: 'sine', gain: 0.08 }); },
+  button() { this.burst({ dur: 0.03, gain: 0.11, f: 2100, q: 1.6, type: 'highpass' }); },
+  win() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+      this.tone({ f, dur: 0.5, type: 'triangle', gain: 0.13, delay: i * 0.11 }));
+    this.tone({ f: 130.8, dur: 1.1, type: 'sine', gain: 0.1, delay: 0.1 });
+  },
+};
+
+/* ===================== 05 · 依赖加载 Loader ===================== */
+const CDN = {
+  three: [
+    'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js',
+    'https://unpkg.com/three@0.160.1/build/three.module.js',
+    'https://esm.sh/three@0.160.1',
+  ],
+  cannon: [
+    'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js',
+    'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js',
+    'https://esm.sh/cannon-es@0.20.0',
+  ],
+};
+async function loadFirst(urls, label, onTry) {
+  const errs = [];
+  for (const url of urls) {
+    try {
+      if (onTry) onTry(url);
+      const m = await import(url);
+      if (!m || typeof m !== 'object') throw new Error('模块内容为空');
+      return m;
+    } catch (e) {
+      const line = '· ' + url + '\n  ' + ((e && (e.message || e.name)) || String(e));
+      errs.push(line);
+      console.warn('[cdn] ' + label + ' 加载失败 ' + line);
+    }
+  }
+  // 用普通对象抛出，避免自定义属性在某些环境下丢失
+  throw { cdnFail: true, label, detail: label + ' 全部 CDN 均加载失败：\n' + errs.join('\n') };
+}
+function hasWebGL() {
+  try {
+    const c = document.createElement('canvas');
+    return !!(window.WebGLRenderingContext &&
+      (c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl')));
+  } catch (e) { return false; }
+}
+
+/* ===================== 06 · 场景 Stage ===================== */
+const Stage = {
+  renderer: null, scene: null, camera: null, mazeGroup: null, worldGroup: null,
+  ball: null, ballLight: null, shellR: 6, envRT: null, zoom: 1,
+
+  init() {
+    const el = $('stage');
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(el.clientWidth, el.clientHeight, false);
+    if ('outputColorSpace' in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.04;
+    el.appendChild(this.renderer.domElement);
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x05070c);
+    this.scene.fog = new THREE.Fog(0x05070c, 26, 74);
+
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.1, 200);
+
+    this.worldGroup = new THREE.Group();      // 不随迷宫旋转（特效等）
+    this.mazeGroup = new THREE.Group();       // 整颗迷宫球：轨道 + 球壳 + 标识
+    this.scene.add(this.worldGroup, this.mazeGroup);
+
+    this.buildEnv();
+    this.buildLights();
+    this.buildBackdrop();
+
+    window.addEventListener('resize', () => this.resize(), { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 220), { passive: true });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.resize(), { passive: true });
+  },
+
+  // 程序化环境贴图（金属反射用，无外部资源）
+  buildEnv() {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0.00, '#9dc2ff'); g.addColorStop(0.32, '#2a3d5c');
+    g.addColorStop(0.50, '#101827'); g.addColorStop(0.72, '#0a0f1a'); g.addColorStop(1, '#05070c');
+    x.fillStyle = g; x.fillRect(0, 0, 512, 256);
+    const blobs = [[110, 52, 70, 'rgba(190,225,255,.85)'], [360, 34, 46, 'rgba(255,240,210,.7)'],
+                   [250, 150, 90, 'rgba(60,120,200,.28)'], [460, 120, 60, 'rgba(120,255,210,.2)']];
+    for (const [bx, by, br, col] of blobs) {
+      const rg = x.createRadialGradient(bx, by, 0, bx, by, br);
+      rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = rg; x.fillRect(bx - br, by - br, br * 2, br * 2);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+    try {
+      const pm = new THREE.PMREMGenerator(this.renderer);
+      this.envRT = pm.fromEquirectangular(tex);
+      this.scene.environment = this.envRT.texture;
+      pm.dispose(); tex.dispose();
+    } catch (e) { this.scene.environment = tex; }
+  },
+
+  buildLights() {
+    this.scene.add(new THREE.AmbientLight(0x35486a, 0.85));
+    this.scene.add(new THREE.HemisphereLight(0x6e97d6, 0x0a0e16, 0.95));
+    const d1 = new THREE.DirectionalLight(0xffffff, 1.7); d1.position.set(7, 12, 6);
+    const d2 = new THREE.DirectionalLight(0x6fb4ff, 0.75); d2.position.set(-8, -3, -7);
+    const d3 = new THREE.DirectionalLight(0x7effc8, 0.35); d3.position.set(-4, 6, -9);
+    this.scene.add(d1, d2, d3);
+    this.ballLight = new THREE.PointLight(0xcfe6ff, 1.6, 8.5, 2);
+    this.scene.add(this.ballLight);
+  },
+
+  // 极简深色背景：稀疏星点
+  buildBackdrop() {
+    const N = 420, pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = 30 + Math.random() * 22;
+      const s = Math.sqrt(1 - u * u);
+      pos[i * 3] = Math.cos(a) * s * r; pos[i * 3 + 1] = u * r; pos[i * 3 + 2] = Math.sin(a) * s * r;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.stars = new THREE.Points(g, new THREE.PointsMaterial({
+      color: 0x8fb0e0, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.55, depthWrite: false,
+    }));
+    this.scene.add(this.stars);
+  },
+
+  // 透明球壳 + 经纬金属环（代码生成）
+  buildShell(R) {
+    this.shellR = R;
+    // 星空与雾按球体尺寸缩放（球壳半径由轨道自动决定，不能写死）
+    if (this.stars) this.stars.scale.setScalar(R / 6);
+    const grp = new THREE.Group();
+    const glass = new THREE.Mesh(
+      new THREE.SphereGeometry(R, CONFIG.shell.segments, Math.round(CONFIG.shell.segments * 0.66)),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x8fc4ff, transparent: true, opacity: 0.085, roughness: 0.08, metalness: 0,
+        side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.5,
+        clearcoat: 1, clearcoatRoughness: 0.06,
+      }));
+    grp.add(glass);
+    const inner = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 0.995, 30, 20),
+      new THREE.MeshBasicMaterial({ color: 0x244a78, wireframe: true, transparent: true, opacity: 0.055, depthWrite: false }));
+    grp.add(inner);
+
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x9fb6d4, metalness: 1, roughness: 0.28, envMapIntensity: 1.3 });
+    const rg = new THREE.TorusGeometry(R, 0.045, 8, 128);
+    const eq = new THREE.Mesh(rg, ringMat); eq.rotation.x = Math.PI / 2; grp.add(eq);
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(rg, ringMat); m.rotation.y = (i * Math.PI) / 3; grp.add(m);
+    }
+    // 极点铆钉
+    const capGeo = new THREE.SphereGeometry(0.13, 14, 10);
+    for (const s of [1, -1]) {
+      const cap = new THREE.Mesh(capGeo, ringMat); cap.position.set(0, s * R, 0); grp.add(cap);
+    }
+    this.mazeGroup.add(grp);
+    this.shellGroup = grp;
+  },
+
+  buildBall() {
+    const r = CONFIG.ball.radius;
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 32, 24),
+      new THREE.MeshStandardMaterial({ color: 0xdfe7f2, metalness: 1, roughness: 0.14, envMapIntensity: 1.6 }));
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 1.55, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x7fb6ff, transparent: true, opacity: 0.1, depthWrite: false }));
+    m.add(halo);
+    this.ball = m;
+    this.scene.add(m);
+  },
+
+  resize() {
+    const el = $('stage');
+    const w = Math.max(1, el.clientWidth), h = Math.max(1, el.clientHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    // 依据纵横比自动求出能完整装下球壳的相机距离，再乘以缩放系数
+    const vFov = CONFIG.camera.fov * DEG;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
+    const R = this.shellR * CONFIG.camera.fit * this.zoom;
+    const dist = Math.max(R / Math.sin(vFov / 2), R / Math.sin(hFov / 2));
+    const hy = dist * CONFIG.camera.height;
+    this.camera.position.set(0, hy, Math.sqrt(Math.max(0.01, dist * dist - hy * hy)));
+    this.camera.lookAt(0, 0, 0);
+    this.camera.far = dist + this.shellR * 9;
+    this.camera.updateProjectionMatrix();
+    Input.invalidateAxes && Input.invalidateAxes();
+    // 雾跟着相机距离走：给深度线索但不糊掉迷宫本体
+    if (this.scene.fog) {
+      this.scene.fog.near = Math.max(0.1, dist - this.shellR * 0.85);
+      this.scene.fog.far = dist + this.shellR * 2.6;
+    }
+  },
+
+  setZoom(z) {
+    const nz = clamp(z, CONFIG.camera.zoomMin, CONFIG.camera.zoomMax);
+    if (Math.abs(nz - this.zoom) < 1e-4) return;
+    this.zoom = nz;
+    this.resize();
+  },
+
+  render() { this.renderer.render(this.scene, this.camera); },
+};
+
+/* ===================== 07 · 轨道生成 TrackFactory =====================
+   输出 pieces：{ kind, style, node, pos[3], quat[4], size[3], solid }
+   —— 视觉 InstancedMesh 与 cannon-es 碰撞体使用同一份数据。
+
+   路径分两类：
+     path      主线中心线（决定节点顺序、弧长、脱轨判定）
+     sidePath  岔路中心线（属于有效区域，但不推进进度）
+   ===================================================================== */
+const TrackFactory = {
+  pieces: [], nodes: [], path: [], sidePath: [], boundR: 0, center: null,
+
+  build() {
+    const T = CONFIG.track, LY = CONFIG.layout;
+    const pieces = [], nodes = [], path = [], sidePath = [];
+    const UP = new THREE.Vector3(0, 1, 0);
+    const cur = { p: new THREE.Vector3(LY.startR, LY.startY, 0), yaw: Math.PI / 2 };
+    let ni = 0, arcLen = 0, sideMode = false, lastW = null, inTaper = false;
+
+    const tmpM = new THREE.Matrix4();
+    const basis = (seg) => {
+      const f = seg.clone().normalize();
+      let right = new THREE.Vector3().crossVectors(f, UP);
+      if (right.lengthSq() < 1e-9) right.set(1, 0, 0);
+      right.normalize();
+      const up = new THREE.Vector3().crossVectors(right, f).normalize();
+      tmpM.makeBasis(right, up, f.clone().negate());
+      return { q: new THREE.Quaternion().setFromRotationMatrix(tmpM), right, up, f };
+    };
+    const add = (kind, style, pos, quat, size, solid) => {
+      pieces.push({ kind, style, node: ni, side: sideMode, pos: [pos.x, pos.y, pos.z],
+        quat: [quat.x, quat.y, quat.z, quat.w], size, solid: solid !== false });
+    };
+    // 当前节点所属层的默认宽度 / 护栏高度 —— 难度层层递进的来源
+    const tierOf = () => TIERS[(NODE_DEFS[ni] && NODE_DEFS[ni].tier) || 0];
+    const lastSample = () => {
+      const arr = sideMode ? sidePath : path;
+      return arr[arr.length - 1];
+    };
+
+    // 一小段轨道：地板 + 护栏 / 槽壁
+    function segment(len, rise, o) {
+      const tier = tierOf();
+      const w = o.w != null ? o.w : tier.width;
+      const solid = o.solid !== false;
+      // 宽度突变会让窄轨护栏的端面正对钢珠，形成看不见的挡墙 ——
+      // 自动插入一小段过渡宽度，把台阶减半。
+      if (solid && !inTaper && !sideMode && lastW != null && Math.abs(w - lastW) > 0.13) {
+        inTaper = true;
+        segment(0.32, -LY.grade * 0.32, Object.assign({}, o, { w: (w + lastW) / 2 }));
+        inTaper = false;
+      }
+      const start = cur.p.clone();
+      const dir = new THREE.Vector3(Math.cos(cur.yaw), 0, Math.sin(cur.yaw));
+      const end = start.clone().addScaledVector(dir, len); end.y += rise;
+      const seg = end.clone().sub(start);
+      const L = seg.length();
+      if (L < 1e-6) return null;
+      const b = basis(seg);
+      const mid = start.clone().add(end).multiplyScalar(0.5);
+      const ov = o.overlap || 0;
+      // 接缝余量只向前延伸：若同时向后伸出，会在上一段末端形成一道迎着
+      // 钢珠的小台阶（实测可达 0.06），钢珠会被卡死在那里。
+      const bc = ov > 0 ? mid.clone().addScaledVector(b.f, ov / 2) : mid;
+
+      if (solid) {
+        add('box', o.style || 'floor', bc.clone().addScaledVector(b.up, -T.thickness / 2), b.q, [w, T.thickness, L + ov]);
+        if (o.rails !== false) {
+          const rh = o.railH != null ? o.railH : tier.railH;
+          for (const s of [-1, 1]) {
+            if (o.railSkip === s) continue;    // 岔路口：该侧开缺口
+            const c = bc.clone()
+              .addScaledVector(b.right, s * (w / 2 + T.railThickness / 2))
+              .addScaledVector(b.up, rh / 2 - T.thickness * 0.12);
+            add('box', 'rail', c, b.q, [T.railThickness, rh, L + ov]);
+          }
+        }
+        if (o.channel) {
+          const wh = 0.5, th = 0.72;
+          for (const s of [-1, 1]) {
+            const tilt = new THREE.Quaternion().setFromAxisAngle(b.f, s * th);
+            const q2 = tilt.clone().multiply(b.q);
+            const nUp = b.up.clone().multiplyScalar(Math.cos(th)).addScaledVector(b.right, s * Math.sin(th));
+            const c = bc.clone().addScaledVector(b.right, s * w / 2).addScaledVector(nUp, wh / 2 - T.thickness * 0.3);
+            add('box', 'rail', c, q2, [T.railThickness * 1.25, wh, L + ov]);
+          }
+        }
+      }
+      // 中心线按固定步长细分采样（几何仍是整段，只是判定用的折线更密）
+      const k = Math.max(1, Math.ceil(L / T.sampleStep));
+      const s0 = arcLen;
+      const arr = sideMode ? sidePath : path;
+      for (let i = 1; i <= k; i++) {
+        const tt = i / k;
+        arr.push({ p: start.clone().lerp(end, tt), up: b.up, right: b.right, f: b.f, q: b.q,
+          node: ni, w, solid, side: sideMode, s: sideMode ? s0 : s0 + L * tt });
+      }
+      if (!sideMode) { arcLen += L; if (solid) lastW = w; }
+      cur.p.copy(end);
+      return { start, end, mid, b, L, w };
+    }
+
+    const opRun = {
+      pad(o) {
+        const r = segment(o.len, o.rise || 0, { w: o.w, style: 'pad', railH: o.railH != null ? o.railH : 0.3 });
+        if (!r) return;
+        const nd = nodes[ni];
+        nd.pad = r.mid.clone().addScaledVector(r.b.up, 0.02);
+        nd.padUp = r.b.up.clone(); nd.padQ = r.b.q.clone(); nd.padW = r.w;
+        if (o.capBack) {   // 起点平台后挡板，避免开局直接倒退掉落
+          const c = r.start.clone().addScaledVector(r.b.f, -0.06).addScaledVector(r.b.up, 0.17);
+          add('box', 'rail', c, r.b.q, [r.w + 0.2, 0.44, 0.1]);
+        }
+        // 平台下方装饰立柱
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+          const c = r.mid.clone()
+            .addScaledVector(r.b.right, sx * r.w * 0.36)
+            .addScaledVector(r.b.f, sz * o.len * 0.32)
+            .addScaledVector(r.b.up, -0.3);
+          const q = new THREE.Quaternion().setFromUnitVectors(UP, r.b.up);
+          add('cyl', 'strut', c, q, [0.07, 0.46, 0.07], false);
+        }
+      },
+
+      // rise 缺省时由统一坡度 grade 自动给出（保证每绕一圈都有合法净空）
+      straight(o) { segment(o.len, o.rise != null ? o.rise : -LY.grade * o.len, o); },
+      gap(o) { segment(o.len, o.rise || 0, { w: o.w, solid: false }); },
+
+      arc(o) {
+        const total = o.deg * DEG;
+        const aLen = Math.abs(total) * o.r;
+        // 坡度保护：短弧配大落差会生成近乎垂直的台阶，钢珠会被卡住
+        const want = o.rise != null ? o.rise : -LY.grade * aLen;
+        const rise = clamp(want, -aLen * 0.45, aLen * 0.45);
+        const steps = Math.max(4, Math.ceil(aLen / T.arcStep));
+        const da = total / steps;
+        const chord = 2 * o.r * Math.sin(Math.abs(da) / 2);
+        for (let i = 0; i < steps; i++) {
+          cur.yaw += da / 2;
+          segment(chord, rise / steps, Object.assign({}, o, { overlap: 0.055, rise: 0 }));
+          cur.yaw += da / 2;
+        }
+      },
+
+      // 波浪：用 (1-cos) 型剖面，起止斜率为 0，与前后段自然相切，
+      // 不会在接缝处留下迎着钢珠的小台阶（正弦剖面会留 0.06 的坎）。
+      wave(o) {
+        const steps = Math.max(10, Math.ceil(o.len / 0.28));
+        const rise = o.rise != null ? o.rise : -LY.grade * o.len;
+        let prev = 0;
+        for (let i = 1; i <= steps; i++) {
+          const y = (o.amp / 2) * (1 - Math.cos(2 * Math.PI * o.cycles * (i / steps)));
+          segment(o.len / steps, (y - prev) + rise / steps,
+            Object.assign({}, o, { overlap: 0.05, rise: 0 }));
+          prev = y;
+        }
+      },
+
+      // 蛇形回廊：交替 180° 折返把长轨道折叠进极小的占地，观感最像迷宫
+      // （同向折返会绕成一个圆并与自身完全重合，必须交替）
+      serp(o) {
+        const legs = Math.max(2, o.legs || 3), r = o.r || 0.95;
+        const parts = legs + (legs - 1);
+        const total = o.rise != null ? o.rise : -LY.grade * (legs * o.len + (legs - 1) * Math.PI * r);
+        const per = total / parts;
+        let sign = o.dir || 1;
+        for (let i = 0; i < legs; i++) {
+          opRun.straight({ len: o.len, rise: per, w: o.w, railH: o.railH });
+          if (i < legs - 1) {
+            opRun.arc({ deg: sign * 180, r, rise: per, w: o.w, railH: o.railH });
+            sign = -sign;
+          }
+        }
+      },
+
+      // 岔路：真正的 Y 形分叉。
+      //   主线在 side 侧缺一段护栏（开口），支线从开口的外沿平行起步再分离，
+      //   末端是死路挡板。钢珠可以滚进去，必须自己倾斜爬出来。
+      fork(o) {
+        const side = o.side || 1;
+        const mouth = o.mouth || 0.85;
+        const bw = o.bw || 0.8;
+        const w = o.w != null ? o.w : tierOf().width;
+        // 支线：从主线外沿起步，先缓分离再急转，避免与主线地板重叠
+        const sp = cur.p.clone(), sy = cur.yaw;
+        const rx = -Math.sin(cur.yaw), rz = Math.cos(cur.yaw);
+        cur.p.x += rx * side * (w + bw) * 0.5;
+        cur.p.z += rz * side * (w + bw) * 0.5;
+        sideMode = true;
+        const dive = o.rise != null ? o.rise : -0.22;
+        opRun.arc({ deg: side * 40, r: 1.3, rise: dive * 0.25, w: bw });
+        opRun.arc({ deg: side * ((o.deg || 92) - 40), r: 0.82, rise: dive * 0.3, w: bw });
+        opRun.straight({ len: o.len || 1.1, rise: dive * 0.45, w: bw });
+        opRun.endcap({ dead: true });
+        sideMode = false;
+        cur.p.copy(sp); cur.yaw = sy;
+        // 主线开口段：该侧无护栏，正对支线起点
+        segment(mouth, -LY.grade * mouth, { w: o.w, railSkip: side });
+      },
+
+      // 自动导引：把路径收束到半径 t 的导引圆，形成层层下降的立体塔
+      guide(o) {
+        const t = o.t != null ? o.t : LY.guideR;
+        const dir = o.dir || 1;
+        const p = cur.p;
+        const rho = Math.hypot(p.x, p.z);
+        const phi = Math.atan2(p.z, p.x);
+        const err = clamp((rho - t) * (o.k != null ? o.k : LY.guideK), -0.95, 0.95);
+        // 切向（dir=+1 逆时针）叠加朝导引圆的径向修正
+        const tx = -Math.sin(phi) * dir - Math.cos(phi) * err;
+        const tz = Math.cos(phi) * dir - Math.sin(phi) * err;
+        let d = Math.atan2(tz, tx) - cur.yaw;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        const lim = (o.maxTurn || LY.guideMaxTurn) * DEG;
+        d = clamp(d, -lim, lim);
+        const r = o.r != null ? o.r : 1.15;
+        if (Math.abs(d) * r < 0.12) {
+          // 已经对准导引圆：只走一小段。长度必须跟着落差走，
+          // 否则「0.4 长 + 0.55 落差」会生成 54° 的悬崖，钢珠会卡死在崖底。
+          const want = o.rise != null ? o.rise : -LY.grade * 0.4;
+          segment(Math.max(0.4, Math.abs(want) / 0.42), want, { w: o.w, railH: o.railH });
+          return;
+        }
+        opRun.arc({ deg: d / DEG, r, rise: o.rise, w: o.w, railH: o.railH });
+      },
+
+      endcap(o) {
+        const last = lastSample();
+        if (!last) return;
+        const c = last.p.clone().addScaledVector(last.f, 0.07).addScaledVector(last.up, 0.19);
+        add('box', o && o.dead ? 'dead' : 'rail', c, last.q, [last.w + 0.2, 0.48, 0.1]);
+      },
+    };
+
+    // —— 逐节点展开 ——
+    path.push({ p: cur.p.clone(), up: UP.clone(), right: new THREE.Vector3(1, 0, 0),
+      f: new THREE.Vector3(0, 0, 1), q: new THREE.Quaternion(), node: 0, w: TIERS[0].width, solid: true, s: 0 });
+    for (ni = 0; ni < NODE_DEFS.length; ni++) {
+      const def = NODE_DEFS[ni];
+      const nd = { index: ni, def, tier: def.tier | 0, entry: cur.p.clone(), sIn: arcLen };
+      nodes[ni] = nd;
+      for (const o of def.ops) {
+        const fn = opRun[o.op];
+        if (fn) fn(o); else console.warn('未知 op', o.op);
+      }
+      nd.exit = cur.p.clone();
+      nd.sOut = arcLen;
+      const ex = path[path.length - 1];
+      nd.exitUp = ex.up.clone();
+      nd.exitQ = ex.q.clone();
+      nd.exitW = ex.w;
+      nd.trigger = nd.exit.clone();
+      nd.triggerR = Math.max(0.68, nd.exitW * 0.8);
+      if (!nd.pad) { nd.pad = nd.entry.clone(); nd.padUp = ex.up.clone(); nd.padQ = ex.q.clone(); }
+    }
+
+    // —— 居中：所有变换数据统一平移，视觉与物理同源 ——
+    const box = new THREE.Box3();
+    for (const p of path) box.expandByPoint(p.p);
+    for (const p of sidePath) box.expandByPoint(p.p);
+    for (const pc of pieces) box.expandByPoint(new THREE.Vector3(pc.pos[0], pc.pos[1], pc.pos[2]));
+    const c0 = box.getCenter(new THREE.Vector3());
+    for (const pc of pieces) { pc.pos[0] -= c0.x; pc.pos[1] -= c0.y; pc.pos[2] -= c0.z; }
+    for (const p of path) p.p.sub(c0);
+    for (const p of sidePath) p.p.sub(c0);
+    for (const nd of nodes) { nd.entry.sub(c0); nd.exit.sub(c0); nd.trigger.sub(c0); nd.pad.sub(c0); }
+
+    // 精确包围半径：取每个碰撞盒的 8 个角点
+    let R = 0;
+    const cq = new THREE.Quaternion(), cv = new THREE.Vector3(), cp = new THREE.Vector3();
+    for (const pc of pieces) {
+      cq.set(pc.quat[0], pc.quat[1], pc.quat[2], pc.quat[3]);
+      cp.set(pc.pos[0], pc.pos[1], pc.pos[2]);
+      const hx = pc.size[0] / 2, hy = pc.size[1] / 2, hz = pc.size[2] / 2;
+      for (let s = 0; s < 8; s++) {
+        cv.set(s & 1 ? hx : -hx, s & 2 ? hy : -hy, s & 4 ? hz : -hz).applyQuaternion(cq).add(cp);
+        R = Math.max(R, cv.length());
+      }
+    }
+    this.boundR = R;
+    const shellR = R + CONFIG.shell.margin;
+
+    // —— 支撑结构：由外侧轨道指向球壳的细支柱（纯视觉，不参与碰撞） ——
+    const all = path.concat(sidePath);
+    const strutPts = [];
+    for (let i = 2; i < path.length - 2; i += 7) {
+      const p = path[i];
+      if (!p.solid) continue;
+      const len = p.p.length();
+      if (len < shellR * 0.66) continue;
+      const dir = p.p.clone().normalize();
+      const from = p.p.clone().addScaledVector(p.up, -T.thickness);
+      const to = dir.clone().multiplyScalar(shellR - 0.06);
+      const L = to.distanceTo(from);
+      if (L < 0.25 || L > 2.6) continue;
+      let ok = true;
+      for (let t = 0.2; t <= 1.001 && ok; t += 0.2) {
+        const q = from.clone().lerp(to, t);
+        for (const o of all) {
+          if (!o.side && Math.abs(o.s - p.s) < 1.4) continue;
+          if (q.distanceTo(o.p) < o.w * 0.5 + 0.3) { ok = false; break; }
+        }
+      }
+      if (!ok) continue;
+      strutPts.push({ from, to, node: p.node, L });
+    }
+    ni = 0;
+    for (const s of strutPts) {
+      const mid = s.from.clone().add(s.to).multiplyScalar(0.5);
+      const q = new THREE.Quaternion().setFromUnitVectors(UP, s.to.clone().sub(s.from).normalize());
+      ni = s.node;
+      add('cyl', 'strut', mid, q, [0.055, s.L, 0.055], false);
+    }
+
+    this.pieces = pieces; this.nodes = nodes; this.path = path; this.sidePath = sidePath;
+    this.center = c0; this.shellR = shellR;
+
+    // —— 有效区域折线（主线 + 岔路）：点到线段距离，用于脱轨 / 越级判定 ——
+    const segs = [];
+    const push = (arr) => {
+      for (let i = 0; i < arr.length - 1; i++) {
+        const a = arr[i], b = arr[i + 1];
+        if (a.side !== b.side) continue;
+        segs.push({ a: a.p, b: b.p, node: b.node, s: b.s, side: !!b.side });
+      }
+    };
+    push(path);
+    // 岔路各自独立成段（每条岔路的采样在数组里是连续的，节点变化处断开）
+    for (let i = 0; i < sidePath.length - 1; i++) {
+      const a = sidePath[i], b = sidePath[i + 1];
+      if (a.node !== b.node) continue;
+      if (a.p.distanceTo(b.p) > 1.2) continue;   // 不同岔路之间的跳跃
+      segs.push({ a: a.p, b: b.p, node: b.node, s: b.s, side: true });
+    }
+    const n = segs.length;
+    this.segA = new Float32Array(n * 3);
+    this.segD = new Float32Array(n * 3);
+    this.segIL = new Float32Array(n);
+    this.segNode = new Int16Array(n);
+    this.segS = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const { a, b } = segs[i];
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      this.segA[i * 3] = a.x; this.segA[i * 3 + 1] = a.y; this.segA[i * 3 + 2] = a.z;
+      this.segD[i * 3] = dx; this.segD[i * 3 + 1] = dy; this.segD[i * 3 + 2] = dz;
+      const l2 = dx * dx + dy * dy + dz * dz;
+      this.segIL[i] = l2 > 1e-9 ? 1 / l2 : 0;
+      this.segNode[i] = segs[i].node;
+      this.segS[i] = segs[i].s;
+    }
+    this.totalLen = arcLen;
+    console.log('[track] nodes=' + nodes.length + ' pieces=' + pieces.length +
+      ' path=' + path.length + ' side=' + sidePath.length + ' segs=' + n +
+      ' len=' + arcLen.toFixed(1) + ' boundR=' + R.toFixed(2) + ' shellR=' + shellR.toFixed(2));
+    return this;
+  },
+
+  // 点到有效区域折线的最近距离 + 所属节点
+  nearest(p) {
+    const A = this.segA, D = this.segD, IL = this.segIL;
+    let best = Infinity, bi = 0;
+    for (let i = 0, n = IL.length; i < n; i++) {
+      const i3 = i * 3;
+      const px = p.x - A[i3], py = p.y - A[i3 + 1], pz = p.z - A[i3 + 2];
+      const dx = D[i3], dy = D[i3 + 1], dz = D[i3 + 2];
+      let t = (px * dx + py * dy + pz * dz) * IL[i];
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const qx = px - dx * t, qy = py - dy * t, qz = pz - dz * t;
+      const d = qx * qx + qy * qy + qz * qz;
+      if (d < best) { best = d; bi = i; }
+    }
+    return { dist: Math.sqrt(best), node: this.segNode[bi], index: bi, s: this.segS[bi] };
+  },
+};
+
+/* ===================== 08 · 轨道视图 TrackView ===================== */
+// 未解锁仍然要看得见结构（32 个节点里大部分时间都是未解锁状态），
+// 所以「降低亮度」是压暗而不是压黑。
+const STATE_STYLE = {
+  locked: { floor: 0x28313f, rail: 0x46536b, fem: 0x090c12, rem: 0x121a26 },
+  next:   { floor: 0x25364d, rail: 0x5e8cc4, fem: 0x0b1826, rem: 0x1c4670 },
+  active: { floor: 0x1d3c60, rail: 0x7cc0ff, fem: 0x0e2c50, rem: 0x2a86ea },
+  done:   { floor: 0x1a3d30, rail: 0x54e0a6, fem: 0x0b2c1f, rem: 0x16a96e },
+};
+const TrackView = {
+  group: null, floorMats: [], railMats: [], markerMats: [], sprites: [], markers: [],
+
+  build(tf) {
+    this.group = new THREE.Group();
+    Stage.mazeGroup.add(this.group);
+
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1);
+
+    // 分组：node + style -> InstancedMesh（死路端板单独一组）
+    const groups = new Map();
+    for (const pc of tf.pieces) {
+      const key = pc.style === 'strut' ? 'strut' : pc.style === 'dead' ? 'dead'
+        : pc.node + '|' + (pc.style === 'rail' ? 'rail' : 'floor');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(pc);
+    }
+    const strutMat = new THREE.MeshStandardMaterial({ color: 0x2b3546, metalness: .95, roughness: .45, envMapIntensity: .9 });
+    const deadMat = new THREE.MeshStandardMaterial({ color: 0x5a2630, emissive: new THREE.Color(0x2a0a10),
+      emissiveIntensity: 0.6, metalness: .7, roughness: .4 });
+    for (let i = 0; i < NODE_DEFS.length; i++) {
+      this.floorMats[i] = new THREE.MeshStandardMaterial({ color: 0x28313f, metalness: .35, roughness: .62, envMapIntensity: 1 });
+      this.railMats[i] = new THREE.MeshStandardMaterial({ color: 0x46536b, metalness: .9, roughness: .3, envMapIntensity: 1.25 });
+    }
+    const m4 = new THREE.Matrix4(), qv = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
+    for (const [key, list] of groups) {
+      let mat;
+      if (key === 'strut') mat = strutMat;
+      else if (key === 'dead') mat = deadMat;
+      else {
+        const [nodeStr, style] = key.split('|');
+        mat = style === 'rail' ? this.railMats[+nodeStr] : this.floorMats[+nodeStr];
+      }
+      // 同组内可能混有 box / cyl，拆分成两个 InstancedMesh
+      const byKind = { box: [], cyl: [] };
+      for (const pc of list) byKind[pc.kind].push(pc);
+      for (const kind of ['box', 'cyl']) {
+        const arr = byKind[kind];
+        if (!arr.length) continue;
+        const im = new THREE.InstancedMesh(kind === 'cyl' ? cylGeo : boxGeo, mat, arr.length);
+        im.frustumCulled = false;
+        for (let i = 0; i < arr.length; i++) {
+          const pc = arr[i];
+          pv.set(pc.pos[0], pc.pos[1], pc.pos[2]);
+          qv.set(pc.quat[0], pc.quat[1], pc.quat[2], pc.quat[3]);
+          sv.set(pc.size[0], pc.size[1], pc.size[2]);
+          m4.compose(pv, qv, sv);
+          im.setMatrixAt(i, m4);
+        }
+        im.instanceMatrix.needsUpdate = true;
+        this.group.add(im);
+      }
+    }
+
+    // —— 起点 / 检查点 / 终点标识 + 编号 ——
+    const ringGeo = new THREE.TorusGeometry(0.5, 0.055, 8, 40);
+    const discGeo = new THREE.CircleGeometry(0.5, 32);
+    for (let i = 0; i < tf.nodes.length; i++) {
+      const nd = tf.nodes[i], def = nd.def;
+      const up = nd.padUp || new THREE.Vector3(0, 1, 0);
+      const base = nd.pad.clone().addScaledVector(up, 0.03);
+      const isKey = def.kind === 'start' || def.kind === 'checkpoint' || def.kind === 'finish';
+      const col = def.kind === 'start' ? 0x3ddc97 : def.kind === 'finish' ? 0xffd479
+        : def.kind === 'checkpoint' ? 0x4de0ff : 0x3f5170;
+      const mat = new THREE.MeshStandardMaterial({
+        color: col, emissive: new THREE.Color(col), emissiveIntensity: isKey ? 0.9 : 0.25,
+        metalness: .6, roughness: .35, transparent: true, opacity: isKey ? 0.95 : 0.6,
+      });
+      this.markerMats[i] = mat;
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), up);
+      const scale = isKey ? (def.kind === 'finish' ? 1.5 : 1.15) : 0.7;
+      const ring = new THREE.Mesh(ringGeo, mat);
+      ring.position.copy(base); ring.quaternion.copy(q); ring.scale.set(scale, scale, scale);
+      this.group.add(ring);
+      this.markers[i] = ring;
+      if (isKey) {
+        const disc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({
+          color: col, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false }));
+        disc.position.copy(base).addScaledVector(up, 0.005);
+        disc.quaternion.copy(q); disc.scale.set(scale * 0.92, scale * 0.92, 1);
+        this.group.add(disc);
+        if (def.kind === 'finish') {
+          const halo = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+            color: 0xffd479, transparent: true, opacity: 0.35, depthWrite: false }));
+          halo.position.copy(base).addScaledVector(up, 0.55);
+          halo.quaternion.copy(q); halo.scale.setScalar(scale * 1.25);
+          this.group.add(halo); this.finishHalo = halo;
+        }
+      }
+      // 编号牌（Canvas 生成，无外部字体资源）
+      // 32 个节点全部常显会糊成一片：只显示关键节点与当前 / 下一目标
+      const sp = this.makeLabel(i + 1, def, col);
+      sp.position.copy(base).addScaledVector(up, isKey ? 0.62 : 0.42);
+      sp.userData.isKey = isKey;
+      this.group.add(sp);
+      this.sprites[i] = sp;
+    }
+    this.setStates(0, -1);
+    return this;
+  },
+
+  makeLabel(num, def, col) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+    const x = c.getContext('2d');
+    const hex = '#' + col.toString(16).padStart(6, '0');
+    x.clearRect(0, 0, 256, 128);
+    x.fillStyle = 'rgba(6,10,18,.78)';
+    x.strokeStyle = hex; x.lineWidth = 4;
+    const r = 22, w = 246, h = 76, ox = 5, oy = 26;
+    x.beginPath();
+    x.moveTo(ox + r, oy); x.lineTo(ox + w - r, oy); x.quadraticCurveTo(ox + w, oy, ox + w, oy + r);
+    x.lineTo(ox + w, oy + h - r); x.quadraticCurveTo(ox + w, oy + h, ox + w - r, oy + h);
+    x.lineTo(ox + r, oy + h); x.quadraticCurveTo(ox, oy + h, ox, oy + h - r);
+    x.lineTo(ox, oy + r); x.quadraticCurveTo(ox, oy, ox + r, oy);
+    x.closePath(); x.fill(); x.stroke();
+    x.fillStyle = hex;
+    x.font = 'bold 46px -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif';
+    x.textAlign = 'left'; x.textBaseline = 'middle';
+    x.fillText(String(num).padStart(2, '0'), 20, oy + h / 2 + 2);
+    x.fillStyle = '#e6edf7';
+    x.font = '600 32px -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif';
+    x.fillText(def.name, 84, oy + h / 2 + 3, 158);
+    const tex = new THREE.CanvasTexture(c);
+    if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    sp.scale.set(1.16, 0.58, 1);
+    sp.userData.baseOpacity = 1;
+    return sp;
+  },
+
+  // 当前目标高亮 / 下一目标预告 / 已完成 / 未解锁降低亮度
+  setStates(current, doneUpTo) {
+    for (let i = 0; i < NODE_DEFS.length; i++) {
+      const st = (i < current || i <= doneUpTo) ? 'done' : i === current ? 'active'
+        : i === current + 1 ? 'next' : 'locked';
+      const s = STATE_STYLE[st];
+      const fi = { active: 0.55, done: 0.3, next: 0.24, locked: 0.12 }[st];
+      const ri = { active: 0.9, done: 0.5, next: 0.34, locked: 0.14 }[st];
+      this.floorMats[i].color.setHex(s.floor);
+      this.floorMats[i].emissive.setHex(s.fem);
+      this.floorMats[i].emissiveIntensity = fi;
+      this.railMats[i].color.setHex(s.rail);
+      this.railMats[i].emissive.setHex(s.rem);
+      this.railMats[i].emissiveIntensity = ri;
+      const mm = this.markerMats[i];
+      if (mm) {
+        mm.emissiveIntensity = st === 'active' ? 1.5 : st === 'done' ? 0.8 : st === 'next' ? 0.5 : 0.1;
+        mm.opacity = st === 'locked' ? 0.3 : 0.95;
+      }
+      const sp = this.sprites[i];
+      if (sp) {
+        sp.visible = sp.userData.isKey || i === current || i === current + 1;
+        sp.material.opacity = st === 'active' ? 1 : st === 'locked' ? 0.42 : 0.8;
+      }
+      if (this.markers[i]) this.markers[i].userData.st = st;
+    }
+    this.current = current;
+  },
+
+  update(t, dt) {
+    if (REDUCED) return;
+    const i = this.current;
+    if (i != null && this.railMats[i]) {
+      const p = 0.72 + 0.42 * Math.sin(t * 4.2);
+      this.railMats[i].emissiveIntensity = p;
+      if (this.markerMats[i]) this.markerMats[i].emissiveIntensity = 1.1 + 0.7 * Math.sin(t * 4.2);
+      const mk = this.markers[i];
+      if (mk) { const s = (mk.userData.baseScale || (mk.userData.baseScale = mk.scale.x)) * (1 + 0.07 * Math.sin(t * 4.2)); mk.scale.setScalar(s); }
+    }
+    if (this.finishHalo) {
+      this.finishHalo.rotation.z = t * 0.7;
+      this.finishHalo.scale.setScalar(1.6 + 0.12 * Math.sin(t * 2.2));
+    }
+  },
+};
+
+/* ===================== 09 · 物理 Physics =====================
+   迷宫姿态只有一个真值：Physics.quat。
+   它同时写入所有迷宫刚体（按节点拆分以利于宽相剔除）与视觉根节点，
+   因此轨道网格与碰撞体在旋转时永远同步。
+   ============================================================ */
+const Physics = {
+  world: null, mazeBodies: [], ballBody: null,
+  quat: null, target: null, prevQuat: null, angVel: null, acc: 0,
+  onHit: null,
+
+  init(tf) {
+    const P = CONFIG.physics, B = CONFIG.ball;
+    this.world = new CANNON.World({ gravity: new CANNON.Vec3(0, P.gravity, 0) });
+    this.world.allowSleep = false;
+    this.world.solver.iterations = P.iterations;
+    this.world.solver.tolerance = P.tolerance;
+    this.world.defaultContactMaterial.contactEquationStiffness = 1e8;
+    this.world.defaultContactMaterial.contactEquationRelaxation = 3;
+
+    const trackMat = new CANNON.Material('track');
+    const ballMat = new CANNON.Material('ball');
+    this.world.addContactMaterial(new CANNON.ContactMaterial(trackMat, ballMat, {
+      friction: B.friction, restitution: B.restitution,
+      contactEquationStiffness: 1e8, contactEquationRelaxation: 3,
+      frictionEquationStiffness: 1e8, frictionEquationRelaxation: 3,
+    }));
+
+    // —— 迷宫刚体：与视觉 InstancedMesh 完全相同的 pos / quat / size ——
+    let total = 0;
+    for (let n = 0; n < NODE_DEFS.length; n++) {
+      const list = tf.pieces.filter((pc) => pc.node === n && pc.solid && pc.kind === 'box');
+      if (!list.length) continue;
+      // 以本节点几何中心为刚体原点，缩小包围球，提升宽相剔除效率
+      const c = new THREE.Vector3();
+      for (const pc of list) c.x += pc.pos[0], c.y += pc.pos[1], c.z += pc.pos[2];
+      c.multiplyScalar(1 / list.length);
+      const body = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC, material: trackMat });
+      for (const pc of list) {
+        body.addShape(
+          new CANNON.Box(new CANNON.Vec3(pc.size[0] / 2, pc.size[1] / 2, pc.size[2] / 2)),
+          new CANNON.Vec3(pc.pos[0] - c.x, pc.pos[1] - c.y, pc.pos[2] - c.z),
+          new CANNON.Quaternion(pc.quat[0], pc.quat[1], pc.quat[2], pc.quat[3]));
+        total++;
+      }
+      body.localCenter = new THREE.Vector3(c.x, c.y, c.z);
+      this.world.addBody(body);
+      this.mazeBodies.push(body);
+    }
+    console.log('[physics] bodies=' + this.mazeBodies.length + ' shapes=' + total);
+
+    const ball = new CANNON.Body({
+      mass: B.mass, material: ballMat, allowSleep: false,
+      linearDamping: B.linearDamping, angularDamping: B.angularDamping,
+      shape: new CANNON.Sphere(B.radius),
+    });
+    ball.addEventListener('collide', (e) => {
+      if (!this.onHit) return;
+      let v = 0;
+      try { v = Math.abs(e.contact.getImpactVelocityAlongNormal()); } catch (err) { v = 0; }
+      if (v > CONFIG.fail.hitSoundMinSpeed) this.onHit(v);
+    });
+    this.world.addBody(ball);
+    this.ballBody = ball;
+
+    this.quat = new THREE.Quaternion();
+    this.target = new THREE.Quaternion();
+    this.prevQuat = new THREE.Quaternion();
+    this.angVel = new THREE.Vector3();
+    this._rel = new THREE.Quaternion();
+    this._inv = new THREE.Quaternion();
+    this._v = new THREE.Vector3();
+    this._v2 = new THREE.Vector3();
+    this.writeBodies();
+    return this;
+  },
+
+  // 把唯一真值 quat / angVel 写进所有迷宫刚体
+  writeBodies() {
+    const q = this.quat, w = this.angVel;
+    for (const b of this.mazeBodies) {
+      b.quaternion.set(q.x, q.y, q.z, q.w);
+      const p = this._v.copy(b.localCenter).applyQuaternion(q);
+      b.position.set(p.x, p.y, p.z);
+      // 刚体中心线速度 = ω × p，使接触点相对速度正确（摩擦带动钢珠）
+      const v = this._v2.crossVectors(w, p);
+      b.velocity.set(v.x, v.y, v.z);
+      b.angularVelocity.set(w.x, w.y, w.z);
+      b.aabbNeedsUpdate = true;
+    }
+  },
+
+  resetOrientation() {
+    this.quat.identity(); this.target.identity(); this.prevQuat.identity();
+    this.angVel.set(0, 0, 0); this.acc = 0;
+    this.writeBodies();
+  },
+
+  // 朝目标姿态收敛：指数平滑 + 最大角速度限制（避免穿透、抖动、弹飞）
+  advanceOrientation(dt) {
+    const M = CONFIG.maze;
+    this.prevQuat.copy(this.quat);
+    const ang = this.quat.angleTo(this.target);
+    if (ang > 1e-5 && dt > 1e-6) {
+      const maxStep = M.maxAngularSpeed * dt;
+      let t = 1 - Math.exp(-M.smoothing * dt);
+      t = Math.min(t, maxStep / ang);
+      this.quat.slerp(this.target, clamp(t, 0, 1));
+      this.quat.normalize();
+    }
+    // 由「实际发生的姿态变化」反解角速度，交给求解器
+    const r = this._rel.copy(this.quat).multiply(this._inv.copy(this.prevQuat).invert()).normalize();
+    if (r.w < 0) { r.x = -r.x; r.y = -r.y; r.z = -r.z; r.w = -r.w; }
+    const s = Math.sqrt(Math.max(0, 1 - r.w * r.w));
+    if (s > 1e-7 && dt > 1e-6) {
+      const a = 2 * Math.acos(clamp(r.w, -1, 1));
+      this.angVel.set(r.x / s, r.y / s, r.z / s).multiplyScalar(a / dt);
+    } else this.angVel.set(0, 0, 0);
+    this.writeBodies();
+  },
+
+  clampBall() {
+    const B = CONFIG.ball, v = this.ballBody.velocity, w = this.ballBody.angularVelocity;
+    if (!isFinite(v.x + v.y + v.z)) { v.set(0, 0, 0); w.set(0, 0, 0); return; }
+    // 限速必须作用在「相对迷宫」的速度上：世界速度里含整球自转的牵连速度，
+    // 直接钳制世界速度会在旋转时把钢珠按住甚至倒拖。
+    const p = this.ballBody.position;
+    this._v.set(p.x, p.y, p.z);
+    this._v2.crossVectors(this.angVel, this._v);      // ω × r
+    const rx = v.x - this._v2.x, ry = v.y - this._v2.y, rz = v.z - this._v2.z;
+    const sp = Math.hypot(rx, ry, rz);
+    if (sp > B.maxSpeed) {
+      const k = B.maxSpeed / sp;
+      v.x = this._v2.x + rx * k; v.y = this._v2.y + ry * k; v.z = this._v2.z + rz * k;
+    }
+    const sw = Math.hypot(w.x, w.y, w.z);
+    if (sw > B.maxSpin) { const k = B.maxSpin / sw; w.x *= k; w.y *= k; w.z *= k; }
+  },
+
+  // 固定步长积分：每个子步都同步推进迷宫姿态，杜绝一帧内的大跨度扫掠
+  step(dt) {
+    const fixed = CONFIG.physics.fixedStep;
+    this.acc = Math.min(this.acc + dt, fixed * CONFIG.physics.maxSubSteps);
+    let n = 0;
+    while (this.acc >= fixed && n < CONFIG.physics.maxSubSteps) {
+      this.advanceOrientation(fixed);
+      this.world.step(fixed);
+      this.clampBall();
+      this.acc -= fixed; n++;
+    }
+    return n;
+  },
+
+  placeBall(local) {
+    const p = local.clone().applyQuaternion(this.quat);
+    this.ballBody.position.set(p.x, p.y, p.z);
+    this.ballBody.velocity.set(0, 0, 0);
+    this.ballBody.angularVelocity.set(0, 0, 0);
+    this.ballBody.force.set(0, 0, 0);
+    this.ballBody.torque.set(0, 0, 0);
+    this.ballBody.wakeUp();
+    this.acc = 0;
+  },
+
+  ballWorld(out) { const p = this.ballBody.position; return out.set(p.x, p.y, p.z); },
+
+  // 钢珠相对迷宫（旋转参考系）的速度 —— 判定“滚动快慢”必须用它，
+  // 否则整球自转带来的牵连速度会被误算成钢珠在动。
+  ballRelVelocity(out) {
+    const v = this.ballBody.velocity, p = this.ballBody.position;
+    this._v.set(p.x, p.y, p.z);
+    this._v2.crossVectors(this.angVel, this._v);          // ω × r
+    out.set(v.x - this._v2.x, v.y - this._v2.y, v.z - this._v2.z);
+    return out.applyQuaternion(this._inv.copy(this.quat).invert());
+  },
+};
+
+/* ===================== 10 · 输入 Input ===================== */
+const Input = {
+  enabled: true, sens: 1, invertY: false,
+  keys: Object.create(null),
+  dragging: false, lastX: 0, lastY: 0, pointerId: null,
+  gyroOn: false, gyroAvailable: 'DeviceOrientationEvent' in window, gyroActive: false,
+  gyroBase: null, gyroSm: { x: 0, z: 0 }, gyroRaw: { beta: 0, gamma: 0 }, gyroSeen: 0,
+  yawQ: null, tiltQ: null,
+
+  init() {
+    this.yawQ = new THREE.Quaternion();
+    this.tiltQ = new THREE.Quaternion();
+    this._q = new THREE.Quaternion();
+    this._qa = new THREE.Quaternion();
+    this._qb = new THREE.Quaternion();
+    this._ux = new THREE.Vector3(1, 0, 0);
+    this._uz = new THREE.Vector3(0, 0, 1);
+    this._axis = new THREE.Vector3();
+    const el = $('stage');
+    this.pointers = new Map();
+
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.enabled) return;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+      if (this.pointers.size === 1) {
+        this.pointerId = e.pointerId; this.dragging = true;
+        this.lastX = e.clientX; this.lastY = e.clientY;
+      } else if (this.pointers.size === 2) {
+        // 双指：改为缩放，暂停旋转
+        this.dragging = false;
+        this.pinchStart = this.pinchDist();
+        this.pinchZoom0 = Stage.zoom;
+      }
+      Game.onUserGesture();
+    });
+    el.addEventListener('pointermove', (e) => {
+      const p = this.pointers.get(e.pointerId);
+      if (p) { p.x = e.clientX; p.y = e.clientY; }
+      if (!this.enabled) return;
+      if (this.pointers.size >= 2) {
+        const d = this.pinchDist();
+        if (this.pinchStart > 8 && d > 8) Stage.setZoom(this.pinchZoom0 * (this.pinchStart / d));
+        return;
+      }
+      if (!this.dragging || e.pointerId !== this.pointerId) return;
+      const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
+      this.lastX = e.clientX; this.lastY = e.clientY;
+      this.applyDrag(dx, dy);
+    });
+    const end = (e) => {
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size === 1) {
+        // 双指松开一根：用剩下那根继续拖动，避免视角跳变
+        const [id, p] = [...this.pointers.entries()][0];
+        this.pointerId = id; this.lastX = p.x; this.lastY = p.y; this.dragging = true;
+      } else if (this.pointers.size === 0) {
+        this.dragging = false; this.pointerId = null;
+      }
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+    el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (!this.enabled) return;
+      Stage.setZoom(Stage.zoom * (1 + clamp(e.deltaY, -120, 120) * 0.0016));
+    }, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'spacebar'].includes(k)) e.preventDefault();
+      this.keys[k] = true;
+      if (k === ' ' || k === 'spacebar') { Game.togglePause(); Sound.button(); }
+      else if (k === 'escape') { Game.escape(); }
+      else if (k === 'r') { Game.restart(); Sound.button(); }
+      else if (k === '=' || k === '+') Stage.setZoom(Stage.zoom * 0.9);
+      else if (k === '-' || k === '_') Stage.setZoom(Stage.zoom * 1.11);
+      Game.onUserGesture();
+    });
+    window.addEventListener('keyup', (e) => { this.keys[e.key.toLowerCase()] = false; });
+    window.addEventListener('blur', () => {
+      this.keys = Object.create(null); this.dragging = false; this.pointerId = null; this.pointers.clear();
+    });
+  },
+
+  pinchDist() {
+    const a = [...this.pointers.values()];
+    if (a.length < 2) return 0;
+    return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  },
+  invalidateAxes() { this._ax = null; },
+
+  camAxes() {
+    // 相机是静止的，只在尺寸变化时需要重算
+    if (this._ax && this._axFrame === Stage.camera.matrixWorld.elements[14]) return this._ax;
+    const c = Stage.camera;
+    c.updateMatrixWorld();
+    const right = new THREE.Vector3().setFromMatrixColumn(c.matrixWorld, 0).normalize();
+    const fwd = new THREE.Vector3();
+    c.getWorldDirection(fwd);
+    this._ax = { right, up: new THREE.Vector3(0, 1, 0), fwd };
+    this._axFrame = c.matrixWorld.elements[14];
+    return this._ax;
+  },
+
+  rotate(axis, angle) {
+    if (!angle) return;
+    this._q.setFromAxisAngle(axis, angle);
+    // 世界系增量：左乘
+    this.yawQ.premultiply(this._q).normalize();
+  },
+
+  applyDrag(dx, dy) {
+    if (Game.state !== 'playing') return;   // 暂停 / 菜单时不累积姿态，避免恢复瞬间猛转
+    const s = CONFIG.maze.dragSensitivity * this.sens;
+    const ax = this.camAxes();
+    this.rotate(ax.up, dx * s);
+    this.rotate(ax.right, dy * s * (this.invertY ? -1 : 1));
+  },
+
+  update(dt) {
+    if (!this.enabled) return;
+    const K = this.keys, M = CONFIG.maze, ax = this.camAxes();
+    const ks = M.keySpeed * this.sens * dt;
+    let px = 0, py = 0, roll = 0;
+    if (K['w'] || K['arrowup']) py -= 1;
+    if (K['s'] || K['arrowdown']) py += 1;
+    if (K['a'] || K['arrowleft']) px -= 1;
+    if (K['d'] || K['arrowright']) px += 1;
+    if (K['q']) roll -= 1;
+    if (K['e']) roll += 1;
+    if (px) this.rotate(ax.up, px * ks);
+    if (py) this.rotate(ax.right, py * ks * (this.invertY ? -1 : 1));
+    if (roll) this.rotate(ax.fwd, roll * M.rollSpeed * this.sens * dt);
+
+    // 体感：绝对倾角叠加在拖动产生的偏航上
+    if (this.gyroActive) {
+      const G = CONFIG.gyro;
+      const dead = (v) => (Math.abs(v) < G.deadzone ? 0 : v - Math.sign(v) * G.deadzone);
+      const tx = clamp(dead(this.gyroRaw.beta) * DEG * G.gain, -G.maxTilt, G.maxTilt);
+      const tz = clamp(dead(this.gyroRaw.gamma) * DEG * G.gain, -G.maxTilt, G.maxTilt);
+      const k = 1 - Math.exp(-G.smoothing * dt);
+      const maxD = G.maxRate * dt;
+      this.gyroSm.x += clamp((tx - this.gyroSm.x) * k, -maxD, maxD);
+      this.gyroSm.z += clamp((tz - this.gyroSm.z) * k, -maxD, maxD);
+      this._qa.setFromAxisAngle(this._ux, this.gyroSm.x);
+      this._qb.setFromAxisAngle(this._uz, -this.gyroSm.z);
+      this.tiltQ.copy(this._qb).multiply(this._qa);
+    } else {
+      this.tiltQ.identity();
+    }
+    Physics.target.copy(this.tiltQ).multiply(this.yawQ).normalize();
+  },
+
+  resetView() {
+    this.yawQ.identity();
+    this.gyroBase = null;
+    this.gyroSm.x = this.gyroSm.z = 0;
+    Stage.setZoom(1);
+  },
+
+  onOrientation(e) {
+    if (e.beta == null && e.gamma == null) return;
+    this.gyroSeen = performance.now();
+    const portrait = Math.abs(window.orientation || 0) !== 90;
+    let beta = e.beta || 0, gamma = e.gamma || 0;
+    if (!portrait) {
+      const sgn = (window.orientation || 90) > 0 ? 1 : -1;
+      const b = beta; beta = -gamma * sgn; gamma = b * sgn;
+    }
+    if (!this.gyroBase) this.gyroBase = { beta, gamma };
+    this.gyroRaw.beta = clamp(beta - this.gyroBase.beta, -90, 90);
+    this.gyroRaw.gamma = clamp(gamma - this.gyroBase.gamma, -90, 90);
+    this.gyroActive = true;
+  },
+
+  async enableGyro() {
+    if (!this.gyroAvailable) return { ok: false, msg: '此设备不支持体感（DeviceOrientation），已回退为触摸拖动。' };
+    try {
+      const D = window.DeviceOrientationEvent;
+      if (D && typeof D.requestPermission === 'function') {
+        const res = await D.requestPermission();      // iOS 13+ 权限
+        if (res !== 'granted') return { ok: false, msg: '体感权限被拒绝，已回退为触摸拖动。' };
+      }
+      this._handler = this._handler || ((e) => this.onOrientation(e));
+      window.addEventListener('deviceorientation', this._handler, true);
+      this.gyroOn = true; this.gyroBase = null; this.gyroSeen = 0;
+      setTimeout(() => {
+        if (this.gyroOn && !this.gyroSeen) {
+          this.disableGyro();
+          UI.toast('体感不可用', '未收到设备方向数据，已回退为触摸拖动', 'bad');
+          UI.syncSettings();
+        }
+      }, 1600);
+      return { ok: true, msg: '体感已开启：倾斜手机即可旋转迷宫球（含死区与平滑）。' };
+    } catch (e) {
+      return { ok: false, msg: '体感开启失败：' + ((e && e.message) || e) + '，已回退为触摸拖动。' };
+    }
+  },
+  disableGyro() {
+    if (this._handler) window.removeEventListener('deviceorientation', this._handler, true);
+    this.gyroOn = false; this.gyroActive = false; this.gyroBase = null;
+    this.gyroSm.x = this.gyroSm.z = 0; this.tiltQ.identity();
+  },
+};
+
+/* ===================== 11 · 节点系统 NodeSystem ===================== */
+const NodeSystem = {
+  current: 0, doneUpTo: -1, finishHold: 0, skipTimer: 0,
+
+  reset(from) {
+    this.current = from != null ? from : 0;
+    this.doneUpTo = this.current - 1;
+    this.finishHold = 0; this.skipTimer = 0;
+    TrackView.setStates(this.current, this.doneUpTo);
+    UI.renderNodes();
+    UI.setObjective(this.current);
+  },
+
+  // 顺序触发：只检测当前目标节点，越级无效
+  update(dt, local, speed) {
+    const nd = TrackFactory.nodes[this.current];
+    if (!nd) return;
+    const d = local.distanceTo(nd.trigger);
+
+    if (nd.def.kind === 'finish') {
+      const dp = local.distanceTo(nd.pad);
+      if (dp < CONFIG.finish.radius && speed < CONFIG.finish.maxSpeed) {
+        this.finishHold += dt;
+        UI.setFinishHold(this.finishHold / CONFIG.finish.holdTime);
+        if (this.finishHold >= CONFIG.finish.holdTime) Game.win();
+      } else if (this.finishHold > 0) {
+        this.finishHold = Math.max(0, this.finishHold - dt * 1.6);
+        UI.setFinishHold(this.finishHold / CONFIG.finish.holdTime);
+      }
+      return;
+    }
+    if (d < nd.triggerR) this.complete();
+  },
+
+  complete() {
+    const nd = TrackFactory.nodes[this.current];
+    this.doneUpTo = this.current;
+    if (nd.def.checkpoint) Checkpoints.reach(this.current);
+    else Sound.nodeDone();
+    FX.nodeDone(nd);
+    this.current = Math.min(this.current + 1, NODE_DEFS.length - 1);
+    TrackView.setStates(this.current, this.doneUpTo);
+    UI.renderNodes();
+    UI.setObjective(this.current);
+    if (this.current < NODE_DEFS.length - 1 || TrackFactory.nodes[this.current].def.kind !== 'finish') {
+      if (!nd.def.checkpoint) UI.toast('节点完成 · ' + nd.def.name, '下一个：' + NODE_DEFS[this.current].name, 'ok', 1100);
+    } else {
+      UI.toast('抵达终点区域', '让钢珠停稳 ' + CONFIG.finish.holdTime.toFixed(1) + ' 秒即通关', 'gold', 1800);
+    }
+  },
+};
+
+/* ===================== 12 · 检查点 Checkpoints ===================== */
+const Checkpoints = {
+  last: 0,
+  reset() { this.last = 0; },
+  reach(i) {
+    if (i <= this.last && i !== 0) return;
+    this.last = i;
+    Sound.checkpoint();
+    FX.checkpoint(TrackFactory.nodes[i]);
+    UI.flash('ok');
+    UI.toast('检查点已记录', '掉落后将从「' + NODE_DEFS[i].name + '」重生', 'ok', 1500);
+    Store.set({ progress: { checkpoint: i, node: NodeSystem.current, timeMs: Game.timeMs, drops: Game.drops } });
+  },
+  respawnPoint() {
+    const nd = TrackFactory.nodes[this.last];
+    const up = nd.padUp || new THREE.Vector3(0, 1, 0);
+    return nd.pad.clone().addScaledVector(up, CONFIG.ball.radius + 0.06);
+  },
+};
+
+/* ===================== 13 · 特效 FX ===================== */
+const FX = {
+  pool: [], ripples: [],
+  init() {
+    const geo = new THREE.PlaneGeometry(1, 1);
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: 0xbfe4ff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+      m.visible = false; m.userData.life = 0;
+      Stage.worldGroup.add(m); this.pool.push(m);
+    }
+    const rg = new THREE.TorusGeometry(0.5, 0.03, 6, 32);
+    for (let i = 0; i < 5; i++) {
+      const m = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({
+        color: 0x4de0ff, transparent: true, opacity: 0, depthWrite: false }));
+      m.visible = false; m.userData.life = 0;
+      Stage.mazeGroup.add(m); this.ripples.push(m);
+    }
+  },
+  spark(worldPos, strength) {
+    if (REDUCED) return;
+    for (const m of this.pool) {
+      if (m.userData.life > 0) continue;
+      m.position.copy(worldPos);
+      m.userData.life = 0.26; m.userData.max = 0.26;
+      m.userData.size = 0.16 + 0.4 * clamp(strength, 0, 1);
+      m.visible = true; m.material.opacity = 0.85;
+      m.scale.setScalar(m.userData.size * 0.5);
+      return;
+    }
+  },
+  ring(localPos, up, color, big) {
+    if (REDUCED) return;
+    for (const m of this.ripples) {
+      if (m.userData.life > 0) continue;
+      m.position.copy(localPos);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), up || new THREE.Vector3(0, 1, 0));
+      m.material.color.setHex(color);
+      m.userData.life = 0.75; m.userData.max = 0.75; m.userData.big = big ? 4.2 : 2.4;
+      m.visible = true; m.material.opacity = 0.9; m.scale.setScalar(0.4);
+      return;
+    }
+  },
+  nodeDone(nd) { this.ring(nd.trigger, nd.exitUp, 0x4da3ff, false); },
+  checkpoint(nd) { this.ring(nd.pad, nd.padUp, 0x4de0ff, true); },
+  win(nd) {
+    this.ring(nd.pad, nd.padUp, 0xffd479, true);
+    for (let i = 0; i < 6; i++) setTimeout(() => this.ring(nd.pad, nd.padUp, 0xffd479, i % 2 === 0), i * 120);
+  },
+  update(dt) {
+    for (const m of this.pool) {
+      if (m.userData.life <= 0) continue;
+      m.userData.life -= dt;
+      const k = clamp(m.userData.life / m.userData.max, 0, 1);
+      m.material.opacity = k * 0.85;
+      m.scale.setScalar(m.userData.size * (0.4 + (1 - k) * 1.6));
+      m.lookAt(Stage.camera.position);
+      if (m.userData.life <= 0) { m.visible = false; m.material.opacity = 0; }
+    }
+    for (const m of this.ripples) {
+      if (m.userData.life <= 0) continue;
+      m.userData.life -= dt;
+      const k = clamp(m.userData.life / m.userData.max, 0, 1);
+      m.material.opacity = k * 0.9;
+      m.scale.setScalar(0.4 + (1 - k) * m.userData.big);
+      if (m.userData.life <= 0) { m.visible = false; m.material.opacity = 0; }
+    }
+  },
+};
+
+/* ===================== 14 · UI ===================== */
+const UI = {
+  toastTimer: 0, flashTimer: 0,
+  init() {
+    // 底部按钮
+    $('bPause').onclick = () => { Sound.button(); Game.togglePause(); };
+    $('bReset').onclick = () => { Sound.button(); Game.restart(); };
+    $('bView').onclick = () => { Sound.button(); Input.resetView(); this.toast('视角已重置', '', 'ok', 900); };
+    $('bView2').onclick = () => { Sound.button(); Input.resetView(); };
+    $('bSound').onclick = () => { Sound.button(); this.setSound(!Store.data.sound); };
+    $('bSound2').onclick = () => { Sound.button(); this.setSound(!Store.data.sound); };
+    $('bSet').onclick = () => { Sound.button(); $('settings').classList.toggle('hidden'); };
+    $('bSetClose').onclick = () => { Sound.button(); $('settings').classList.add('hidden'); };
+    $('bInvert').onclick = () => {
+      Sound.button();
+      Store.set({ invertY: !Store.data.invertY }); Input.invertY = Store.data.invertY; this.syncSettings();
+    };
+    $('bWipe').onclick = () => { Sound.button(); Store.wipe(); this.syncStats(); this.toast('存档已清除', '', 'bad', 1200); };
+    $('bGyro').onclick = async () => {
+      Sound.button();
+      if (Input.gyroOn) { Input.disableGyro(); Store.set({ gyro: false }); this.toast('体感已关闭', '使用触摸 / 鼠标拖动', 'ok', 1300); }
+      else {
+        const r = await Input.enableGyro();
+        Store.set({ gyro: !!r.ok });
+        this.toast(r.ok ? '体感已开启' : '体感不可用', r.msg, r.ok ? 'ok' : 'bad', 2600);
+      }
+      this.syncSettings();
+    };
+    const sens = $('rSens');
+    sens.oninput = () => {
+      const v = +sens.value;
+      Input.sens = v; $('vSens').textContent = v.toFixed(2);
+      Store.set({ sensitivity: v });
+    };
+    // 覆盖层
+    $('bStart').onclick = () => { Sound.button(); Game.start(false); };
+    $('bResume').onclick = () => { Sound.button(); Game.start(true); };
+    $('bResume2').onclick = () => { Sound.button(); Game.resume(); };
+    $('bRestart').onclick = () => { Sound.button(); Game.restart(); };
+    $('bAgain').onclick = () => { Sound.button(); Game.restart(); };
+    $('bRetry').onclick = () => location.reload();
+
+    this.renderNodes();
+    this.layout();
+    // 任何一次指针按下都尽早创建 AudioContext（浏览器要求用户手势）
+    window.addEventListener('pointerdown', () => Game.onUserGesture(), { passive: true });
+    window.addEventListener('resize', () => this.layout(), { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 220), { passive: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) Game.pause('页面切到后台，已自动暂停。'); });
+  },
+
+  layout() {
+    const compact = window.innerWidth < 780 || window.innerHeight < 580;
+    $('nodes').classList.toggle('compact', compact);
+  },
+
+  syncSettings() {
+    const d = Store.data;
+    $('rSens').value = d.sensitivity; $('vSens').textContent = (+d.sensitivity).toFixed(2);
+    const s = $('bSound2'); s.textContent = d.sound ? '开启' : '关闭';
+    s.className = d.sound ? 'on' : 'off';
+    $('bSound').textContent = d.sound ? '🔊' : '🔇';
+    const iv = $('bInvert'); iv.textContent = d.invertY ? '开启' : '关闭'; iv.className = d.invertY ? 'on' : 'off';
+    const g = $('bGyro');
+    g.textContent = Input.gyroOn ? '已开启' : (Input.gyroAvailable ? '开启' : '不支持');
+    g.className = Input.gyroOn ? 'on' : 'off';
+    g.disabled = !Input.gyroAvailable;
+    $('gyroHint').textContent = Input.gyroAvailable
+      ? '含 iOS 权限申请、死区 ' + CONFIG.gyro.deadzone + '°、平滑与最大旋转速度限制；不可用时自动回退触摸。'
+      : '当前设备 / 浏览器不提供 DeviceOrientation，已使用触摸拖动。';
+    $('introGyro').textContent = Input.gyroAvailable
+      ? '手机提示：可在 ⚙ 设置中开启「体感控制」，iOS 需授权动作与方向权限。'
+      : '';
+  },
+
+  setSound(on) {
+    Store.set({ sound: on });
+    Sound.setEnabled(on);
+    this.syncSettings();
+  },
+
+  syncStats() {
+    $('sBest').textContent = fmtTime(Store.data.bestTimeMs);
+    $('iBest').textContent = fmtTime(Store.data.bestTimeMs);
+    $('iDrop').textContent = Store.data.leastDrops == null ? '--' : Store.data.leastDrops;
+    $('wBest').textContent = fmtTime(Store.data.bestTimeMs);
+  },
+
+  renderNodes() {
+    const box = $('nodes');
+    if (!this._built) {
+      let html = '';
+      let lastTier = -1;
+      NODE_DEFS.forEach((d, i) => {
+        const t = d.tier | 0;
+        if (t !== lastTier) { html += '<div class="tierhead" data-t="' + t + '">' + TIERS[t].name + '</div>'; lastTier = t; }
+        html += '<div class="nd" data-i="' + i + '"><i>' + String(i + 1).padStart(2, '0') + '</i>' +
+          '<u>' + d.name + '</u><s></s></div>';
+      });
+      box.innerHTML = html;
+      this._built = true;
+      this._els = Array.from(box.querySelectorAll('.nd'));
+      this._heads = Array.from(box.querySelectorAll('.tierhead'));
+    }
+    const cur = NodeSystem.current;
+    for (let i = 0; i < this._els.length; i++) {
+      const st = i < cur ? 'done' : i === cur ? 'active' : i === cur + 1 ? 'next' : 'locked';
+      const el = this._els[i];
+      el.className = 'nd ' + st;
+      el.lastChild.textContent = st === 'done' ? '✓' : st === 'active' ? '▶' : '';
+      el.title = (i + 1) + '. ' + NODE_DEFS[i].name + ' · ' +
+        { done: '已完成', active: '当前目标', next: '下一个', locked: '未解锁' }[st];
+    }
+    const curTier = NODE_DEFS[cur].tier | 0;
+    for (const h of this._heads) h.classList.toggle('on', +h.dataset.t === curTier);
+    // 竖排列表滚动跟随当前目标
+    const act = this._els[cur];
+    if (act && box.scrollHeight > box.clientHeight + 4) {
+      const target = act.offsetTop - box.clientHeight / 2 + act.offsetHeight / 2;
+      box.scrollTop = Math.max(0, target);
+    }
+  },
+
+  setObjective(i) {
+    const d = NODE_DEFS[i] || NODE_DEFS[0];
+    $('objIdx').textContent = String(i + 1).padStart(2, '0') + '/' + String(NODE_DEFS.length).padStart(2, '0');
+    $('objName').textContent = d.name + ' · ' + d.en;
+    $('objTier').textContent = TIERS[d.tier | 0].name;
+    $('objHint').textContent = d.hint;
+    const pct = (NodeSystem.doneUpTo + 1) / NODE_DEFS.length * 100;
+    $('barFill').style.width = pct.toFixed(1) + '%';
+  },
+  setFinishHold(k) {
+    if (k <= 0) { this.setObjective(NodeSystem.current); return; }
+    $('objHint').textContent = '稳定停留中… ' + Math.round(clamp(k, 0, 1) * 100) + '%';
+    $('barFill').style.width = (((NODE_DEFS.length - 1) + clamp(k, 0, 1)) / NODE_DEFS.length * 100).toFixed(1) + '%';
+  },
+
+  tick(dt) {
+    $('sTime').textContent = fmtTime(Game.timeMs);
+    $('sDrop').textContent = Game.drops;
+    if (this.toastTimer > 0) {
+      this.toastTimer -= dt * 1000;
+      if (this.toastTimer <= 0) $('toast').classList.remove('show');
+    }
+  },
+
+  toast(title, sub, kind, ms) {
+    const t = $('toast');
+    $('toastT').textContent = title;
+    $('toastS').textContent = sub || '';
+    t.className = 'panel show ' + (kind || '');
+    this.toastTimer = ms || 1600;
+  },
+  flash(kind) {
+    const f = $('flash');
+    f.className = kind;
+    clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => { f.className = ''; }, kind === 'bad' ? 170 : 130);
+  },
+  overlay(id, show) { $(id).classList.toggle('hidden', !show); },
+};
+
+/* ===================== 15 · 状态机 Game ===================== */
+const Game = {
+  state: 'intro',    // intro | playing | paused | dying | won
+  timeMs: 0, drops: 0, dieTimer: 0, offTimer: 0, gestured: false,
+  _wp: null, _lp: null,
+
+  init() {
+    this._wp = new THREE.Vector3(); this._lp = new THREE.Vector3();
+    this._vp = new THREE.Vector3(); this._inv = new THREE.Quaternion();
+    const hitPos = new THREE.Vector3();
+    Physics.onHit = (v) => {
+      const s = clamp((v - CONFIG.fail.hitSoundMinSpeed) / 4, 0, 1);
+      Sound.hit(s);
+      if (s > 0.12) FX.spark(Physics.ballWorld(hitPos), s);
+    };
+    UI.overlay('intro', true);
+    const p = Store.data.progress;
+    if (p && p.checkpoint > 0) {
+      $('bResume').classList.remove('hidden');
+      $('bResume').textContent = '从检查点继续（' + NODE_DEFS[p.checkpoint].name + '）';
+    }
+  },
+
+  onUserGesture() {
+    if (!this.gestured) { this.gestured = true; Sound.init(); Sound.setEnabled(Store.data.sound); }
+    Sound.resume();
+  },
+
+  start(fromProgress) {
+    this.onUserGesture();
+    const p = Store.data.progress;
+    const cp = fromProgress && p ? clamp(p.checkpoint | 0, 0, NODE_DEFS.length - 1) : 0;
+    this.timeMs = fromProgress && p ? (p.timeMs || 0) : 0;
+    this.drops = fromProgress && p ? (p.drops || 0) : 0;
+    Checkpoints.last = cp;
+    Input.resetView();
+    Physics.resetOrientation();
+    NodeSystem.reset(cp === 0 ? 0 : cp + 1);
+    if (cp > 0) { NodeSystem.doneUpTo = cp; TrackView.setStates(NodeSystem.current, cp); UI.renderNodes(); }
+    Physics.placeBall(Checkpoints.respawnPoint());
+    this.offTimer = 0; this.dieTimer = 0;
+    this.state = 'playing';
+    UI.overlay('intro', false); UI.overlay('pause', false); UI.overlay('win', false);
+    UI.syncStats(); UI.setObjective(NodeSystem.current);
+    $('bPause').textContent = '⏸';
+  },
+
+  restart() { Store.set({ progress: null }); $('bResume').classList.add('hidden'); this.start(false); },
+
+  pause(why) {
+    if (this.state !== 'playing' && this.state !== 'dying') return;
+    this.state = 'paused';
+    $('pauseWhy').textContent = why || '游戏已暂停，随时继续。';
+    $('pTime').textContent = fmtTime(this.timeMs);
+    $('pDrop').textContent = this.drops;
+    $('pNode').textContent = (NodeSystem.current + 1) + '/' + NODE_DEFS.length;
+    UI.overlay('pause', true);
+    $('bPause').textContent = '▶';
+  },
+  resume() {
+    if (this.state !== 'paused') return;
+    this.state = 'playing';
+    Physics.acc = 0;
+    UI.overlay('pause', false);
+    $('bPause').textContent = '⏸';
+    this.onUserGesture();
+  },
+  togglePause() {
+    if (this.state === 'playing' || this.state === 'dying') this.pause();
+    else if (this.state === 'paused') this.resume();
+    else if (this.state === 'intro') this.start(false);
+  },
+  escape() {
+    if (!$('settings').classList.contains('hidden')) { $('settings').classList.add('hidden'); return; }
+    if (this.state === 'paused') this.resume(); else this.pause();
+  },
+
+  fail(reason, sub) {
+    if (this.state !== 'playing') return;
+    this.state = 'dying';
+    this.drops++;
+    this.dieTimer = CONFIG.fail.respawnDelay;
+    // 冻结钢珠：避免失败后继续飞出球壳外
+    Physics.ballBody.velocity.set(0, 0, 0);
+    Physics.ballBody.angularVelocity.set(0, 0, 0);
+    Sound.fall();
+    UI.flash('bad');
+    UI.toast(reason, sub || ('从「' + NODE_DEFS[Checkpoints.last].name + '」重生 · 掉落 ' + this.drops), 'bad', 1500);
+    Store.set({ progress: { checkpoint: Checkpoints.last, node: NodeSystem.current, timeMs: this.timeMs, drops: this.drops } });
+  },
+
+  respawn() {
+    Physics.placeBall(Checkpoints.respawnPoint());
+    NodeSystem.reset(Checkpoints.last === 0 ? 0 : Checkpoints.last + 1);
+    if (Checkpoints.last > 0) {
+      NodeSystem.doneUpTo = Checkpoints.last;
+      TrackView.setStates(NodeSystem.current, Checkpoints.last);
+      UI.renderNodes(); UI.setObjective(NodeSystem.current);
+    }
+    this.offTimer = 0;
+    this.state = 'playing';
+  },
+
+  win() {
+    if (this.state !== 'playing') return;
+    this.state = 'won';
+    Sound.win();
+    FX.win(TrackFactory.nodes[NODE_DEFS.length - 1]);
+    UI.flash('ok');
+    const rec = Store.recordRun(this.timeMs, this.drops);
+    $('wTime').textContent = fmtTime(this.timeMs);
+    $('wDrop').textContent = this.drops;
+    UI.syncStats();
+    $('wNew').classList.toggle('hidden', !rec);
+    UI.overlay('win', true);
+    $('bResume').classList.add('hidden');
+  },
+
+  // 有效范围 / 脱轨 / 越级 判定
+  checkBounds(dt, local, worldLen) {
+    if (worldLen > Stage.shellR - CONFIG.ball.radius - 0.015) {
+      this.fail('掉出迷宫球', null); return true;
+    }
+    const near = TrackFactory.nearest(local);
+    if (near.dist > CONFIG.fail.offPath) {
+      this.fail('钢珠脱离轨道', null); return true;
+    }
+    if (near.node > NodeSystem.current + 1) {
+      this.offTimer += dt;
+      if (this.offTimer > CONFIG.fail.skipGrace) { this.fail('越级无效', '必须按顺序完成节点，已退回检查点'); return true; }
+    } else this.offTimer = Math.max(0, this.offTimer - dt * 2);
+    return false;
+  },
+
+  update(dt, t) {
+    if (this.state === 'dying') {
+      this.dieTimer -= dt;
+      if (this.dieTimer <= 0) this.respawn();
+    }
+    if (this.state === 'playing') this.timeMs += dt * 1000;
+  },
+};
+
+/* ===================== 16 · 主循环 Loop ===================== */
+const Loop = {
+  last: 0, t: 0,
+  start() { this.last = performance.now(); requestAnimationFrame((n) => this.frame(n)); },
+  frame(now) {
+    requestAnimationFrame((n) => this.frame(n));
+    let dt = (now - this.last) / 1000;
+    this.last = now;
+    if (!isFinite(dt) || dt <= 0) return;
+    dt = Math.min(dt, CONFIG.physics.maxFrameDt);
+    this.t += dt;
+
+    // 失败硬直期间冻结物理，钢珠停在掉落处
+    const live = Game.state === 'playing';
+
+    if (live) {
+      Input.update(dt);
+      Physics.step(dt);
+    }
+
+    // 视觉姿态直接取自迷宫刚体的四元数 —— 与碰撞体同一套变换数据
+    const bq = Physics.mazeBodies[0].quaternion;
+    Stage.mazeGroup.quaternion.set(bq.x, bq.y, bq.z, bq.w);
+
+    const bp = Physics.ballBody.position, bqq = Physics.ballBody.quaternion;
+    Stage.ball.position.set(bp.x, bp.y, bp.z);
+    Stage.ball.quaternion.set(bqq.x, bqq.y, bqq.z, bqq.w);
+    Stage.ballLight.position.copy(Stage.ball.position);
+
+    if (Game.state === 'playing') {
+      const world = Game._wp.set(bp.x, bp.y, bp.z);
+      const wl = world.length();
+      Game._inv.copy(Physics.quat).invert();
+      const local = Game._lp.copy(world).applyQuaternion(Game._inv);
+      // 相对迷宫的滚动速度（剔除整球自转的牵连速度）
+      const speed = Physics.ballRelVelocity(Game._vp).length();
+      if (!Game.checkBounds(dt, local, wl)) NodeSystem.update(dt, local, speed);
+    }
+
+    Game.update(dt, this.t);
+    TrackView.update(this.t, dt);
+    FX.update(dt);
+    if (!REDUCED && Stage.stars) Stage.stars.rotation.y += dt * 0.006;
+    UI.tick(dt);
+    Stage.render();
+  },
+};
+
+/* ===================== 17 · 启动 ===================== */
+async function boot() {
+  const msg = $('bootMsg');
+  try {
+    if (!hasWebGL()) {
+      fatal('未检测到可用的 WebGL。', '请更新浏览器、开启硬件加速（chrome://settings/system），或换用支持 WebGL 的设备。');
+      return;
+    }
+    msg.textContent = '正在加载 three.js …';
+    THREE = await loadFirst(CDN.three, 'three.js', (u) => { msg.textContent = '加载 three.js：' + new URL(u).host; });
+    msg.textContent = '正在加载 cannon-es …';
+    CANNON = await loadFirst(CDN.cannon, 'cannon-es', (u) => { msg.textContent = '加载 cannon-es：' + new URL(u).host; });
+    if (!THREE || !THREE.WebGLRenderer) throw { detail: 'three.js 模块内容异常（缺少 WebGLRenderer）。', message: 'BAD_THREE' };
+    if (!CANNON || !CANNON.World) throw { detail: 'cannon-es 模块内容异常（缺少 World）。', message: 'BAD_CANNON' };
+
+    msg.textContent = '正在构建场景 …';
+    Store.load();
+    Stage.init();
+
+    msg.textContent = '正在生成立体轨道 …';
+    TrackFactory.build();
+    Stage.buildShell(TrackFactory.shellR);
+    Stage.buildBall();
+    TrackView.build(TrackFactory);
+    FX.init();
+    Stage.resize();
+
+    msg.textContent = '正在初始化物理 …';
+    Physics.init(TrackFactory);
+
+    Input.init();
+    Input.sens = Store.data.sensitivity;
+    Input.invertY = !!Store.data.invertY;
+    UI.init();
+    UI.syncSettings();
+    UI.syncStats();
+    Sound.setEnabled(Store.data.sound);
+
+    NodeSystem.reset(0);
+    Physics.placeBall(Checkpoints.respawnPoint());
+    Game.init();
+
+    if (Store.data.gyro && Input.gyroAvailable) {
+      // 需要用户手势才能申请权限：仅在支持且无需授权时自动开启
+      const D = window.DeviceOrientationEvent;
+      if (!(D && typeof D.requestPermission === 'function')) {
+        const r = await Input.enableGyro();
+        if (!r.ok) Store.set({ gyro: false });
+        UI.syncSettings();
+      }
+    }
+
+    $('boot').classList.add('hidden');
+    Loop.start();
+    window.addEventListener('error', (e) => console.error(e.message));
+  } catch (e) {
+    console.error('[boot] 启动失败', e);
+    if (e && e.cdnFail) {
+      fatal('依赖库加载失败：请检查网络连接后重试（游戏通过 CDN 加载 three.js 与 cannon-es）。',
+        (e.detail || '') + '\n\n若长期无法联网，可把 three.module.js 与 cannon-es.js 下载到同目录后，把脚本顶部 CDN 列表改为本地相对路径。');
+    } else {
+      fatal('初始化时发生错误：' + ((e && e.message) || e),
+        (e && (e.detail || e.stack)) || String(e));
+    }
+  }
+}
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GREENFALL E2E</title>
+<link rel="stylesheet" href="../style.css">
+<style>#report{position:fixed;left:0;top:0;z-index:99999;background:#000;color:#0f0;font:11px monospace;
+  white-space:pre-wrap;max-width:100%;max-height:100%;overflow:auto;padding:8px}</style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="ui"></div>
+  <pre id="report">RUNNING</pre>
+
+  <script>
+    // ---------- 错误收集 ----------
+    window.__err = [];
+    window.onerror = (m, s, l, c, e) => { window.__err.push('onerror: ' + m + ' @' + (s || '').split('/').pop() + ':' + l + (e && e.stack ? '\n' + e.stack.split('\n').slice(0, 3).join('\n') : '')); };
+    window.addEventListener('unhandledrejection', (e) => window.__err.push('reject: ' + e.reason));
+    const _ce = console.error, _cw = console.warn;
+    console.error = (...a) => { window.__err.push('console.error: ' + a.map(String).join(' ')); _ce.apply(console, a); };
+    window.__warn = [];
+    console.warn = (...a) => { window.__warn.push(a.map(String).join(' ')); _cw.apply(console, a); };
+  </script>
+
+  <script src="../src/core.js"></script>
+  <script src="../src/blocks.js"></script>
+  <script src="../src/items.js"></script>
+  <script src="../src/recipes.js"></script>
+  <script src="../src/atlas.js"></script>
+  <script src="../src/worldgen.js"></script>
+  <script src="../src/structures.js"></script>
+  <script src="../src/world.js"></script>
+  <script src="../src/render.js"></script>
+  <script src="../src/entities.js"></script>
+  <script src="../src/survival.js"></script>
+  <script src="../src/quests.js"></script>
+  <script src="../src/audio.js"></script>
+  <script src="../src/ui.js"></script>
+  <script src="../src/game.js"></script>
+  <script src="../mods/example-mod.js"></script>
+
+  <script>
+  (function () {
+    const R = [];
+    const out = () => { document.getElementById('report').textContent = R.join('\n'); };
+    const ok = (n, v) => { R.push('PASS  ' + n + (v ? '  — ' + v : '')); out(); };
+    const bad = (n, v) => { R.push('FAIL  ' + n + (v ? '  — ' + v : '')); out(); };
+    const step = (n, fn) => { try { const v = fn(); ok(n, v); return true; } catch (e) { bad(n, e.message + (e.stack ? ' | ' + e.stack.split('\n')[1] : '')); return false; } };
+
+    // WebGL 可用性
+    const cv = document.getElementById('gl');
+    const gl = cv.getContext('webgl2');
+    R.push('=== GREENFALL 端到端（真实浏览器） ===');
+    R.push('WebGL2: ' + (gl ? 'YES  ' + gl.getParameter(gl.VERSION) + ' | ' + gl.getParameter(gl.RENDERER) : 'NO'));
+    out();
+    if (!gl) { R.push('\n无法继续：没有 WebGL2'); out(); return; }
+
+    step('GF.boot()', () => { GF.boot(); return '方块 ' + GF.Blocks.count() + ' / 物品 ' + GF.Items.count() + ' / 配方 ' + GF.Recipes.count(); });
+    const g = GF.game;
+    if (!g) { bad('取得 game 实例'); return; }
+    // 若有旧存档，boot 会等按钮；这里直接强制新游戏
+    try { localStorage.removeItem('greenfall.save.v1'); } catch (e) { }
+    const lb = document.getElementById('lnew');
+    if (lb) lb.click(); else requestAnimationFrame((t) => g.loop(t));
+
+    let frames0 = 0;
+    const t0 = Date.now();
+    // 等出生完成
+    const waitSpawn = () => new Promise((res) => {
+      const tick = () => {
+        if (g.world && !g.spawning && g.world.getChunk(0, 0) && g.world.getChunk(0, 0).ready) return res();
+        if (Date.now() - t0 > 60000) return res('timeout');
+        setTimeout(tick, 30);
+      };
+      tick();
+    });
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const frames = (n) => new Promise((res) => { let i = 0; const f = () => { if (++i >= n) return res(); requestAnimationFrame(f); }; requestAnimationFrame(f); });
+
+    (async () => {
+      const to = await waitSpawn();
+      if (to) { bad('世界生成', '超时'); out(); return; }
+      ok('世界生成完成', `${g.world.stats.generated} 区块，玩家 (${g.player.x.toFixed(1)}, ${g.player.y.toFixed(1)}, ${g.player.z.toFixed(1)})`);
+
+      await frames(90);
+      step('渲染循环运行', () => {
+        const t = g.renderer.tris;
+        if (!t || t < 500) throw new Error('三角形数太少: ' + t);
+        return `${t | 0} 三角形 / ${g.world.stats.meshed} 区块已网格化 / fps≈${g.fps}`;
+      });
+      step('图集与图标已生成', () => {
+        const a = GF.Atlas.build();
+        if (!a.canvas || a.canvas.width !== 512) throw new Error('图集尺寸异常');
+        if (!GF.IconSheet.canvas) throw new Error('图标表未生成');
+        if (GF.IconSheet.errors.length) throw new Error('图标错误 ' + GF.IconSheet.errors.length);
+        return `图集 ${a.canvas.width}² · 图标表 ${GF.IconSheet.canvas.width}×${GF.IconSheet.canvas.height}`;
+      });
+      step('HUD 元素齐全', () => {
+        const need = ['crosshair', 'hotbar', 'statusbars', 'topbar', 'minor', 'clock'];
+        const miss = need.filter((i) => !document.getElementById(i));
+        if (miss.length) throw new Error('缺少 ' + miss.join(','));
+        const slots = document.querySelectorAll('#hotbar .slot').length;
+        if (slots !== 9) throw new Error('快捷栏格数 ' + slots);
+        const icons = Array.from(document.querySelectorAll('#hotbar .icon')).filter((e) => e.style.backgroundImage).length;
+        return `9 格快捷栏，${icons} 格有图标，负重显示「${document.querySelector('#minor .mi:last-child').textContent}」`;
+      });
+
+      // ---------- 面板逐个渲染 ----------
+      for (const p of ['inventory', 'craft', 'map', 'journal', 'settings', 'help']) {
+        step('打开面板 ' + p, () => {
+          g.ui.openPanel(p);
+          const el = document.querySelector('#modal .panel');
+          if (!el) throw new Error('没有渲染出面板');
+          const n = el.querySelectorAll('*').length;
+          if (n < 5) throw new Error('面板内容过少 ' + n);
+          const extra = p === 'craft' ? document.querySelectorAll('.recipe').length + ' 条配方'
+            : p === 'inventory' ? document.querySelectorAll('#modal .slot').length + ' 个格子'
+              : p === 'map' ? (document.getElementById('mapcv') ? '地图画布 OK' : '无画布')
+                : p === 'journal' ? document.querySelectorAll('.jq').length + ' 个任务'
+                  : n + ' 个节点';
+          g.ui.closePanel();
+          return extra;
+        });
+      }
+
+      // ---------- 交互：挖掘 ----------
+      step('挖掘（徒手采草 / 需要工具的提示）', () => {
+        // 找到脚下的草并对准
+        const p = g.player;
+        p.pitch = 1.2;                       // 向下看
+        g.raycastTarget();
+        if (!g.target) throw new Error('没有瞄到方块');
+        const name = g.target.block.name;
+        const before = g.sv.stats.blocksMined;
+        // 直接触发一次完整破坏（绕过计时）
+        g.breakBlock(g.target.x, g.target.y, g.target.z);
+        if (g.sv.stats.blocksMined !== before + 1) throw new Error('没有计入挖掘统计');
+        return `破坏了 ${name}，背包 ${g.inv.slots.filter((s) => s).length} 格有物品`;
+      });
+      step('工具门槛提示（徒手挖石头被拒绝）', () => {
+        const info = GF.Blocks.breakInfo(GF.Blocks.byKey.stone, null);
+        if (info.ok) throw new Error('徒手竟然能挖石头');
+        return info.why;
+      });
+
+      // ---------- 交互：放置 ----------
+      step('放置方块', () => {
+        g.inv.add('plank', 4);
+        const i = g.inv.slots.findIndex((s) => s && s.item === 'plank');
+        g.inv.sel = i < 9 ? i : 0;
+        if (i >= 9) { g.inv.swap(i, 0); }
+        g.player.pitch = 1.2;
+        g.raycastTarget();
+        if (!g.target) throw new Error('没有目标面');
+        const before = g.inv.count('plank');
+        g.onSecondary();
+        if (g.inv.count('plank') >= before) throw new Error('木板没有被消耗（可能被支撑检查拒绝）');
+        return '木板 ' + before + ' → ' + g.inv.count('plank');
+      });
+
+      // ---------- 交互：合成 ----------
+      step('合成（纤维 → 纤维绳）', () => {
+        g.inv.add('fiber', 6);
+        const r = GF.Recipes.all.find((x) => x.out === 'cord');
+        const before = g.inv.count('cord');
+        if (!g.craft(r.id)) throw new Error('craft() 返回 false');
+        if (g.inv.count('cord') !== before + 1) throw new Error('没有产出');
+        return '纤维绳 ' + before + ' → ' + g.inv.count('cord') + '；已制作 ' + g.sv.stats.itemsCrafted + ' 次';
+      });
+      step('合成被工作站正确拦截', () => {
+        const r = GF.Recipes.all.find((x) => x.out === 'iron_ingot');
+        g.inv.add('iron_ore_chunk', 4); g.inv.add('charcoal', 2);
+        if (g.craft(r.id)) throw new Error('没有锻炉也能炼铁');
+        return '缺少锻炉 → 已拒绝';
+      });
+
+      // ---------- 交互：使用物品 ----------
+      step('进食与饮水', () => {
+        g.inv.add('berries', 3);
+        const i = g.inv.slots.findIndex((s) => s && s.item === 'berries');
+        const h0 = g.sv.hunger;
+        g.useItemSlot(i);
+        if (g.sv.hunger <= h0) throw new Error('饱食度没有增加');
+        g.inv.add('water_dirty_bottle', 1);
+        const j = g.inv.slots.findIndex((s) => s && s.item === 'water_dirty_bottle');
+        const t0b = g.sv.thirst;
+        g.useItemSlot(j);
+        if (g.sv.thirst <= t0b) throw new Error('水分没有增加');
+        return `饱食 ${h0.toFixed(0)}→${g.sv.hunger.toFixed(0)}，水分 ${t0b.toFixed(0)}→${g.sv.thirst.toFixed(0)}`;
+      });
+      step('装备护具（扩容 + 护甲）', () => {
+        g.inv.add('backpack_hiking', 1);
+        const n0 = g.inv.slots.length;
+        g.inv.equipFrom(g.inv.slots.findIndex((s) => s && s.item === 'backpack_hiking'));
+        if (g.inv.slots.length !== n0 + 16) throw new Error('格数没变 ' + n0 + '→' + g.inv.slots.length);
+        return `${n0} → ${g.inv.slots.length} 格，负重上限 ${g.inv.maxWeight()}kg`;
+      });
+
+      // ---------- 容器 ----------
+      step('容器：放箱子 → 搜刮 → 界面渲染', () => {
+        const p = g.player;
+        const x = Math.floor(p.x) + 2, z = Math.floor(p.z);
+        let y = Math.floor(p.y);
+        for (let k = 0; k < 6; k++) if (g.world.getBlock(x, y, z) === 0) break; else y++;
+        g.world.setBlock(x, y, z, GF.Blocks.ID.crate_supply);
+        g.world.containers.set(GF.util.posKey(x, y, z), { table: 'supply', guarantee: ['axe_iron'], items: null, opened: false });
+        g.openContainer(x, y, z);
+        const slots = document.querySelectorAll('#modal .slot.cont').length;
+        const items = (g.ui.container.data.items || []).filter((s) => s).length;
+        g.takeAll();
+        const hasAxe = g.inv.count('axe_iron') > 0;
+        g.ui.closePanel();
+        if (!items) throw new Error('容器是空的');
+        if (!hasAxe) throw new Error('保底物品没有拿到');
+        return `${slots} 格界面，${items} 件战利品，已全部取出（含铁斧）`;
+      });
+
+      // ---------- 战斗 ----------
+      step('战斗：生成僵尸 → 近战击杀', () => {
+        const p = g.player;
+        const z = g.ents.add('zombie', p.x + 1.2, p.y, p.z);
+        if (!z) throw new Error('生成失败');
+        g.inv.add('machete', 1);
+        g.inv.swap(g.inv.slots.findIndex((s) => s && s.item === 'machete'), 0);
+        g.inv.sel = 0;
+        p.pitch = 0; p.yaw = Math.atan2(z.x - p.x, z.z - p.z);
+        let n = 0;
+        for (let i = 0; i < 40 && g.ents.list.includes(z); i++) { g.onPrimary(); n++; }
+        if (g.ents.list.includes(z)) throw new Error('40 次挥砍没打死（剩余 hp ' + z.hp.toFixed(0) + '）');
+        return `${n} 刀击杀，粒子 ${g.particles.length} 个，击杀数 ${g.sv.stats.kills}`;
+      });
+      step('受击：掉血 / 流血 / 感染', () => {
+        const hp0 = g.player.hp;
+        GF.bus.emit('player:hit', { dmg: 25, infect: 1, bleed: 1 });
+        if (g.player.hp >= hp0) throw new Error('没有掉血');
+        if (g.sv.infection <= 0) throw new Error('没有感染');
+        return `HP ${hp0.toFixed(0)}→${g.player.hp.toFixed(0)}，感染 ${g.sv.infection.toFixed(0)}%，流血 ${g.sv.bleed.toFixed(2)}`;
+      });
+
+      // ---------- 时间 / 天气 / 粒子 ----------
+      step('时间推进与夜晚渲染', () => {
+        g.world.time = 0.95;                 // 深夜
+        g.dayLength = 60;
+        return '切到深夜 sun=' + g.world.sunLevel().toFixed(3);
+      });
+      await frames(30);
+      step('夜间仍在渲染', () => {
+        if (!g.renderer.tris) throw new Error('夜间三角形为 0');
+        return (g.renderer.tris | 0) + ' 三角形';
+      });
+      step('降雨粒子', () => {
+        g.world.weather.kind = 'storm'; g.world.weather.rain = 1;
+        g.spawnRain(0.2);
+        if (g.particles.filter((p) => p.rain).length < 5) throw new Error('没有雨粒子');
+        return g.particles.length + ' 个粒子在场';
+      });
+      await frames(20);
+
+      // ---------- 存档 ----------
+      step('保存 / 读取往返', () => {
+        g.inv.add('quartz', 7);
+        const before = g.inv.count('quartz');
+        const day = g.world.day;
+        if (!g.save()) throw new Error('保存失败');
+        const raw = localStorage.getItem('greenfall.save.v1');
+        g.inv.remove('quartz', before);
+        if (!g.load()) throw new Error('读取失败');
+        if (g.inv.count('quartz') !== before) throw new Error('物品没还原 ' + g.inv.count('quartz'));
+        if (g.world.day !== day) throw new Error('天数没还原');
+        return `存档 ${(raw.length / 1024).toFixed(1)} KB，石英 ${before} 已还原`;
+      });
+      await frames(40);
+      step('读档后继续渲染', () => {
+        if (!g.renderer.tris) throw new Error('读档后三角形为 0');
+        return (g.renderer.tris | 0) + ' 三角形 / ' + g.world.stats.generated + ' 区块';
+      });
+
+      // ---------- 死亡与重生 ----------
+      step('死亡界面与重生', () => {
+        g.player.hp = 0.5;
+        g.sv.tick(1, {});
+        if (g.sv.alive) throw new Error('没有触发死亡');
+        const panel = document.querySelector('#modal .death');
+        if (!panel) throw new Error('死亡界面没渲染');
+        document.getElementById('respawn').click();
+        if (!g.sv.alive) throw new Error('没有复活');
+        return '死因「' + (g.sv.deathCause || '—') + '」→ 已复活 HP ' + g.player.hp.toFixed(0);
+      });
+
+      // ---------- MOD ----------
+      step('MOD 内容在真实运行中生效', () => {
+        if (!GF.Blocks.byKey.mod_beacon) throw new Error('mod 方块缺失');
+        const uv = GF.Atlas.uvOf('beacon_top');
+        if (!uv || uv[0] <= 0) throw new Error('mod 贴图未进图集');
+        if (!GF.IconSheet.style('mod_beacon_item')) throw new Error('mod 物品无图标');
+        return 'mod 方块/贴图/图标/地标 全部就位';
+      });
+
+      // ---------- WebGL 错误码 ----------
+      step('WebGL 无错误码', () => {
+        const e = gl.getError();
+        if (e !== 0) throw new Error('gl.getError() = 0x' + e.toString(16));
+        return 'GL_NO_ERROR';
+      });
+
+      await frames(30);
+      const errs = window.__err.filter((e) => !/AudioContext|autoplay|favicon/i.test(e));
+      const warns = window.__warn.filter((w) => !/AudioContext|autoplay/i.test(w));
+      R.push('');
+      R.push('运行帧数≈' + g._frames + '  fps≈' + g.fps + '  实体 ' + g.ents.list.length + '  粒子 ' + g.particles.length);
+      R.push('区块 生成 ' + g.world.stats.generated + ' / 网格化 ' + g.world.stats.meshed + ' / 常驻 ' + g.world.chunks.size);
+      if (warns.length) R.push('警告 ' + warns.length + ' 条: ' + warns.slice(0, 5).join(' | '));
+      if (errs.length) { R.push('!! 运行时错误 ' + errs.length + ' 条:'); errs.slice(0, 8).forEach((e) => R.push('   ' + e)); }
+      else R.push('运行时无 JS 错误');
+      const failed = R.filter((l) => l.startsWith('FAIL')).length;
+      const passed = R.filter((l) => l.startsWith('PASS')).length;
+      R.push('');
+      R.push('E2E-RESULT ' + (failed === 0 && errs.length === 0 ? 'ALL-GREEN' : 'HAS-FAILURES') + ' pass=' + passed + ' fail=' + failed + ' errors=' + errs.length);
+      out();
+      document.title = 'E2E ' + (failed === 0 && errs.length === 0 ? 'OK' : 'FAIL');
+    })();
+  })();
+  </script>
+</body>
+</html>

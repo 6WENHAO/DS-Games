@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsv4p max stantard imdoing — 帧级视频播放器</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ================= 顶栏 ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span class="brand-name">dsv4p<em>max stantard imdoing</em></span>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="btn-open" class="btn btn-primary" title="打开本地视频 (O)">打开视频</button>
+    <input id="file-input" type="file" accept="video/*,.mp4,.m4v,.mov,.webm,.mkv,.ogv" hidden>
+    <button id="btn-demo" class="btn" title="加载随包演示片">演示片</button>
+    <button id="btn-url" class="btn" title="从 URL 打开">URL…</button>
+  </div>
+
+  <div class="media-info">
+    <span id="media-name" class="media-name">未加载媒体</span>
+    <span class="badges" id="media-badges"></span>
+  </div>
+
+  <div class="topbar-right">
+    <button id="btn-selftest" class="btn btn-ghost" title="编译所有滤镜并检查环境">自检</button>
+    <button id="btn-help" class="btn btn-ghost" title="快捷键 (?)">快捷键</button>
+    <button id="btn-fullscreen" class="btn btn-ghost" title="全屏 (F)">全屏</button>
+  </div>
+</header>
+
+<!-- ================= 主体 ================= -->
+<main class="workspace">
+
+  <!-- ---------- 左侧：滤镜 ---------- -->
+  <aside class="panel panel-left">
+    <div class="tabs" data-tabs="left">
+      <button class="tab is-active" data-tab="chain">滤镜链</button>
+      <button class="tab" data-tab="presets">风格预设</button>
+      <button class="tab" data-tab="resources">资源</button>
+    </div>
+
+    <div class="tabpanes">
+      <!-- 滤镜链 -->
+      <section class="tabpane is-active" data-pane="chain">
+        <div class="row row-add">
+          <select id="filter-picker" class="select" title="选择要添加的滤镜"></select>
+          <button id="btn-add-filter" class="btn btn-small btn-primary">添加</button>
+        </div>
+        <div class="hint">拖动条目可调整顺序；顺序会影响最终效果（例如先像素化再调色板）。</div>
+        <div id="chain-list" class="chain-list"></div>
+        <div class="row row-chain-actions">
+          <button id="btn-chain-clear" class="btn btn-small">清空链</button>
+          <button id="btn-chain-bypass" class="btn btn-small" title="临时全部旁通 (B)">全部旁通</button>
+        </div>
+      </section>
+
+      <!-- 预设 -->
+      <section class="tabpane" data-pane="presets">
+        <div class="hint">点击套用预设（会替换当前滤镜链）。</div>
+        <div id="preset-list" class="preset-list"></div>
+        <div class="divider"></div>
+        <div class="row">
+          <input id="preset-name" class="input" type="text" placeholder="自定义预设名称">
+          <button id="btn-preset-save" class="btn btn-small">保存当前链</button>
+        </div>
+        <div id="user-preset-list" class="preset-list preset-list-user"></div>
+      </section>
+
+      <!-- 资源 -->
+      <section class="tabpane" data-pane="resources">
+        <div class="field">
+          <label for="palette-select">调色板（供「调色板量化」滤镜使用）</label>
+          <select id="palette-select" class="select"></select>
+          <div id="palette-swatches" class="swatches"></div>
+        </div>
+        <div class="field" id="palette-custom-field" hidden>
+          <label for="palette-custom">自定义颜色（每行一个 #rrggbb，最多 32 个）</label>
+          <textarea id="palette-custom" class="textarea" rows="6" spellcheck="false"></textarea>
+          <button id="btn-palette-apply" class="btn btn-small">应用颜色</button>
+        </div>
+        <div class="field">
+          <label for="glyph-select">字符集（供「字符画」滤镜使用）</label>
+          <select id="glyph-select" class="select"></select>
+          <div id="glyph-preview" class="glyph-preview"></div>
+        </div>
+        <div class="field">
+          <label for="render-scale">处理分辨率倍率 <output id="render-scale-out">100%</output></label>
+          <input id="render-scale" class="range" type="range" min="0.25" max="1" step="0.05" value="1">
+          <div class="hint">降低倍率可在老显卡上提高帧率；显示分辨率不变。</div>
+        </div>
+        <div class="field">
+          <label>GPU / 上下文</label>
+          <div id="gl-info" class="mono small"></div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- ---------- 中间：画面 + 时间轴 ---------- -->
+  <section class="stage">
+    <div id="stage-view" class="stage-view">
+      <canvas id="gl-canvas" class="gl-canvas"></canvas>
+      <video id="video" class="hidden-video" playsinline preload="auto"></video>
+
+      <div id="drop-hint" class="drop-hint">
+        <div class="drop-hint-inner">
+          <strong>把视频拖到这里</strong>
+          <span>或点击左上角「打开视频」／「演示片」</span>
+          <span class="mono small">支持浏览器可解码的容器：MP4 / MOV / WebM / MKV(部分)</span>
+        </div>
+      </div>
+
+      <div id="hud" class="hud"></div>
+      <div id="magnifier" class="magnifier" hidden>
+        <canvas id="magnifier-canvas" width="132" height="132"></canvas>
+        <div id="magnifier-readout" class="magnifier-readout mono"></div>
+      </div>
+      <div id="toast-stack" class="toast-stack"></div>
+      <div id="blocker" class="blocker" hidden>
+        <div class="blocker-box">
+          <h3 id="blocker-title">提示</h3>
+          <p id="blocker-body"></p>
+          <button id="blocker-close" class="btn btn-small">知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 时间轴 -->
+    <div class="timeline-wrap">
+      <canvas id="timeline" class="timeline"></canvas>
+      <div class="timeline-tools">
+        <button id="btn-tl-zoom-out" class="btn btn-icon" title="时间轴缩小 (-)">–</button>
+        <button id="btn-tl-zoom-in" class="btn btn-icon" title="时间轴放大 (+)">+</button>
+        <button id="btn-tl-fit" class="btn btn-icon" title="显示全部">⤢</button>
+        <span id="tl-scale-label" class="mono small"></span>
+        <label class="check"><input id="chk-tl-keyframes" type="checkbox" checked> 关键帧</label>
+        <label class="check"><input id="chk-tl-cache" type="checkbox" checked> 缓存区间</label>
+      </div>
+    </div>
+
+    <!-- 播放控制 -->
+    <div class="transport">
+      <div class="transport-row">
+        <button id="btn-key-prev" class="btn btn-icon" title="上一个关键帧 (Shift+←)">⇤</button>
+        <button id="btn-back-10" class="btn btn-icon" title="后退 10 帧 (Shift+J)">⟪</button>
+        <button id="btn-back-1" class="btn btn-icon" title="后退 1 帧 (← / ,)">◀|</button>
+        <button id="btn-play" class="btn btn-play" title="播放/暂停 (空格 / K)">▶</button>
+        <button id="btn-fwd-1" class="btn btn-icon" title="前进 1 帧 (→ / .)">|▶</button>
+        <button id="btn-fwd-10" class="btn btn-icon" title="前进 10 帧 (Shift+L)">⟫</button>
+        <button id="btn-key-next" class="btn btn-icon" title="下一个关键帧 (Shift+→)">⇥</button>
+
+        <span class="sep"></span>
+
+        <button id="btn-reverse" class="btn btn-icon" title="逐帧倒放 (J)">◀◀</button>
+        <button id="btn-stopmotion" class="btn btn-icon" title="定格动画播放（按步进帧率）">⏯</button>
+
+        <span class="sep"></span>
+
+        <div class="tc-block">
+          <input id="tc-input" class="input input-tc mono" type="text" spellcheck="false"
+                 title="支持 12.5 / 1:23.456 / 00:00:12:07 / #375 / 1500ms 回车跳转">
+          <span class="tc-sub mono" id="tc-sub"></span>
+        </div>
+        <div class="tc-block">
+          <input id="frame-input" class="input input-frame mono" type="number" min="0" step="1" title="帧号，回车跳转">
+          <span class="tc-sub mono" id="frame-sub"></span>
+        </div>
+      </div>
+
+      <div class="transport-row transport-row-2">
+        <label class="field-inline">
+          速度
+          <select id="rate-select" class="select select-small">
+            <option value="0.125">0.125×</option>
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+            <option value="8">8×</option>
+          </select>
+        </label>
+
+        <label class="field-inline">
+          步进帧率
+          <input id="step-fps" class="input input-num mono" type="number" min="0.25" max="120" step="0.25" value="12">
+        </label>
+
+        <span class="sep"></span>
+
+        <label class="field-inline">
+          帧率
+          <select id="fps-select" class="select select-small" title="容器索引可用时以索引为准；此处用于无索引文件或强制覆盖"></select>
+        </label>
+
+        <span class="sep"></span>
+
+        <label class="check"><input id="chk-mute" type="checkbox"> 静音</label>
+        <input id="volume" class="range range-vol" type="range" min="0" max="1" step="0.01" value="1" title="音量">
+
+        <span class="sep"></span>
+
+        <label class="field-inline">
+          对比
+          <select id="split-mode" class="select select-small">
+            <option value="0">仅滤镜结果</option>
+            <option value="1">左右对比</option>
+            <option value="2">差异图</option>
+            <option value="3">仅原片</option>
+          </select>
+        </label>
+        <input id="split-pos" class="range range-split" type="range" min="0" max="1" step="0.005" value="0.5" title="对比分割线位置">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- 右侧：帧 / 循环 / 导出 / 检查 ---------- -->
+  <aside class="panel panel-right">
+    <div class="tabs" data-tabs="right">
+      <button class="tab is-active" data-tab="frame">帧与循环</button>
+      <button class="tab" data-tab="export">导出</button>
+      <button class="tab" data-tab="view">视图/检查</button>
+    </div>
+
+    <div class="tabpanes">
+      <!-- 帧与循环 -->
+      <section class="tabpane is-active" data-pane="frame">
+        <div class="card">
+          <h4>当前帧</h4>
+          <div id="frame-readout" class="readout mono"></div>
+        </div>
+
+        <div class="card">
+          <h4>精确定位</h4>
+          <div class="row">
+            <input id="seek-input" class="input mono" type="text" placeholder="00:00:03:12 或 #99 或 3.75">
+            <button id="btn-seek-go" class="btn btn-small btn-primary">跳转</button>
+          </div>
+          <div class="row row-wrap">
+            <button class="btn btn-small" data-nudge="-10">−10 帧</button>
+            <button class="btn btn-small" data-nudge="-5">−5</button>
+            <button class="btn btn-small" data-nudge="-1">−1</button>
+            <button class="btn btn-small" data-nudge="1">+1</button>
+            <button class="btn btn-small" data-nudge="5">+5</button>
+            <button class="btn btn-small" data-nudge="10">+10 帧</button>
+          </div>
+          <div class="hint" id="seek-verify-hint"></div>
+        </div>
+
+        <div class="card">
+          <h4>循环区间</h4>
+          <div class="row">
+            <button id="btn-loop-in" class="btn btn-small" title="以当前帧为入点 (I)">设入点 I</button>
+            <button id="btn-loop-out" class="btn btn-small" title="以当前帧为出点 (O)">设出点 O</button>
+            <button id="btn-loop-clear" class="btn btn-small">清除</button>
+          </div>
+          <div class="row row-loop-fields">
+            <label class="field-inline">入 <input id="loop-in" class="input input-num mono" type="number" min="0" step="1"></label>
+            <label class="field-inline">出 <input id="loop-out" class="input input-num mono" type="number" min="0" step="1"></label>
+          </div>
+          <div class="row">
+            <label class="check"><input id="chk-loop" type="checkbox"> 启用循环 (L)</label>
+            <select id="loop-mode" class="select select-small">
+              <option value="loop">正向循环</option>
+              <option value="pingpong">乒乓往复</option>
+              <option value="once">播完停在出点</option>
+            </select>
+          </div>
+          <div class="row">
+            <label class="field-inline">次数 <input id="loop-count" class="input input-num mono" type="number" min="0" step="1" value="0" title="0 = 无限"></label>
+            <span id="loop-readout" class="mono small"></span>
+          </div>
+          <div class="row row-wrap">
+            <button class="btn btn-small" data-loopnudge="in:-1">入 −1</button>
+            <button class="btn btn-small" data-loopnudge="in:1">入 +1</button>
+            <button class="btn btn-small" data-loopnudge="out:-1">出 −1</button>
+            <button class="btn btn-small" data-loopnudge="out:1">出 +1</button>
+            <button id="btn-loop-goto-in" class="btn btn-small">跳到入点</button>
+            <button id="btn-loop-goto-out" class="btn btn-small">跳到出点</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>帧缓存（帧精确循环 / 倒放）</h4>
+          <div class="hint">把循环区间逐帧解成位图，之后循环、倒放、乒乓都不再依赖 seek，完全帧精确。</div>
+          <div class="row">
+            <label class="field-inline">缓存倍率
+              <select id="cache-scale" class="select select-small">
+                <option value="1">100%</option>
+                <option value="0.5">50%</option>
+                <option value="0.25">25%</option>
+              </select>
+            </label>
+            <button id="btn-cache-build" class="btn btn-small btn-primary">构建缓存</button>
+            <button id="btn-cache-clear" class="btn btn-small">清除</button>
+          </div>
+          <div class="row">
+            <button id="btn-cache-play" class="btn btn-small">缓存播放</button>
+            <label class="field-inline">播放帧率 <input id="cache-fps" class="input input-num mono" type="number" min="0.25" max="120" step="0.25" value="24"></label>
+          </div>
+          <div class="progress"><div id="cache-progress" class="progress-bar"></div></div>
+          <div id="cache-readout" class="mono small"></div>
+        </div>
+
+        <div class="card">
+          <h4>标记</h4>
+          <div class="row">
+            <button id="btn-marker-add" class="btn btn-small" title="在当前帧打标记 (M)">打标记 M</button>
+            <button id="btn-marker-prev" class="btn btn-small">上一个</button>
+            <button id="btn-marker-next" class="btn btn-small">下一个</button>
+            <button id="btn-marker-clear" class="btn btn-small">清空</button>
+          </div>
+          <div class="row">
+            <button id="btn-marker-loop" class="btn btn-small">用相邻标记设循环</button>
+          </div>
+          <div id="marker-list" class="marker-list"></div>
+        </div>
+      </section>
+
+      <!-- 导出 -->
+      <section class="tabpane" data-pane="export">
+        <div class="card">
+          <h4>当前帧 PNG</h4>
+          <div class="row">
+            <label class="check"><input id="chk-still-filtered" type="checkbox" checked> 带滤镜</label>
+            <label class="field-inline">倍率
+              <select id="still-scale" class="select select-small">
+                <option value="1">100%</option>
+                <option value="2">200%</option>
+                <option value="3">300%</option>
+                <option value="4">400%</option>
+              </select>
+            </label>
+            <button id="btn-still" class="btn btn-small btn-primary">导出 PNG (S)</button>
+          </div>
+          <div class="hint">倍率使用「最近邻」放大，适合像素风截图。</div>
+        </div>
+
+        <div class="card">
+          <h4>帧序列 ZIP</h4>
+          <div class="row">
+            <label class="field-inline">起 <input id="seq-from" class="input input-num mono" type="number" min="0" step="1"></label>
+            <label class="field-inline">止 <input id="seq-to" class="input input-num mono" type="number" min="0" step="1"></label>
+            <label class="field-inline">步长 <input id="seq-step" class="input input-num mono" type="number" min="1" step="1" value="1"></label>
+          </div>
+          <div class="row">
+            <button id="btn-seq-loop" class="btn btn-small">用循环区间</button>
+            <label class="check"><input id="chk-seq-filtered" type="checkbox" checked> 带滤镜</label>
+            <button id="btn-seq-export" class="btn btn-small btn-primary">导出序列</button>
+            <button id="btn-seq-cancel" class="btn btn-small" hidden>取消</button>
+          </div>
+          <div class="progress"><div id="seq-progress" class="progress-bar"></div></div>
+          <div id="seq-readout" class="mono small"></div>
+        </div>
+
+        <div class="card">
+          <h4>录制 WebM（带滤镜）</h4>
+          <div class="row">
+            <label class="field-inline">码率
+              <select id="rec-bitrate" class="select select-small">
+                <option value="4000000">4 Mbps</option>
+                <option value="8000000" selected>8 Mbps</option>
+                <option value="16000000">16 Mbps</option>
+                <option value="30000000">30 Mbps</option>
+              </select>
+            </label>
+            <label class="check"><input id="chk-rec-audio" type="checkbox"> 含音轨</label>
+            <button id="btn-rec" class="btn btn-small btn-primary">开始录制</button>
+          </div>
+          <div class="hint">录制的是画布实时输出，因此速度、循环、倒放都会被录进去。</div>
+          <div id="rec-readout" class="mono small"></div>
+        </div>
+
+        <div class="card">
+          <h4>工程文件</h4>
+          <div class="row">
+            <button id="btn-project-save" class="btn btn-small">保存 .dsv4p.json</button>
+            <button id="btn-project-load" class="btn btn-small">载入工程</button>
+            <input id="project-input" type="file" accept=".json,.dsv4p.json,application/json" hidden>
+          </div>
+          <div class="hint">保存滤镜链、循环、标记、视图与帧率设置（不含视频本体）。</div>
+        </div>
+      </section>
+
+      <!-- 视图 / 检查 -->
+      <section class="tabpane" data-pane="view">
+        <div class="card">
+          <h4>缩放与适配</h4>
+          <div class="row row-wrap">
+            <button class="btn btn-small" data-fit="contain">适应窗口</button>
+            <button class="btn btn-small" data-fit="actual">100%</button>
+            <button class="btn btn-small" data-fit="integer">整数倍</button>
+            <button id="btn-view-reset" class="btn btn-small">复位</button>
+          </div>
+          <div class="field">
+            <label for="zoom-range">缩放 <output id="zoom-out">100%</output></label>
+            <input id="zoom-range" class="range" type="range" min="0.1" max="16" step="0.05" value="1">
+          </div>
+          <div class="row">
+            <label class="check"><input id="chk-nearest" type="checkbox" checked> 最近邻显示（像素锐利）</label>
+          </div>
+          <div class="row">
+            <label class="check"><input id="chk-checker" type="checkbox" checked> 棋盘背景</label>
+            <label class="field-inline">像素网格
+              <input id="grid-overlay" class="input input-num mono" type="number" min="0" max="128" step="1" value="0" title="0 = 关闭">
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>像素检查器</h4>
+          <div class="row">
+            <label class="check"><input id="chk-magnifier" type="checkbox"> 开启放大镜（鼠标移入画面）</label>
+          </div>
+          <div id="pixel-readout" class="readout mono"></div>
+          <div class="hint">读取的是最终渲染结果（含滤镜）。</div>
+        </div>
+
+        <div class="card">
+          <h4>性能与统计</h4>
+          <div id="stats-readout" class="readout mono"></div>
+        </div>
+
+        <div class="card">
+          <h4>容器索引</h4>
+          <div id="index-readout" class="readout mono"></div>
+        </div>
+      </section>
+    </div>
+  </aside>
+</main>
+
+<!-- ================= 状态栏 ================= -->
+<footer class="statusbar">
+  <span id="status-msg" class="status-msg">就绪</span>
+  <span class="status-spacer"></span>
+  <span id="status-gl" class="mono small"></span>
+  <span id="status-perf" class="mono small"></span>
+</footer>
+
+<!-- ================= 快捷键弹窗 ================= -->
+<div id="modal-help" class="modal" hidden>
+  <div class="modal-box">
+    <header class="modal-head">
+      <h3>快捷键 / 使用要点</h3>
+      <button id="btn-help-close" class="btn btn-small">关闭</button>
+    </header>
+    <div class="modal-body" id="help-body"></div>
+  </div>
+</div>
+
+<!-- ================= 自检弹窗 ================= -->
+<div id="modal-selftest" class="modal" hidden>
+  <div class="modal-box">
+    <header class="modal-head">
+      <h3>自检结果</h3>
+      <button id="btn-selftest-close" class="btn btn-small">关闭</button>
+    </header>
+    <div class="modal-body" id="selftest-body"></div>
+  </div>
+</div>
+
+<!-- ================= 脚本（经典脚本，file:// 直接可用） ================= -->
+<script src="src/core/ns.js"></script>
+<script src="src/core/timecode.js"></script>
+<script src="src/core/mp4index.js"></script>
+<script src="src/core/frameclock.js"></script>
+<script src="src/core/player.js"></script>
+<script src="src/core/framecache.js"></script>
+<script src="src/core/markers.js"></script>
+<script src="src/core/zip.js"></script>
+
+<script src="src/gl/shaderlib.js"></script>
+<script src="src/gl/gl.js"></script>
+<script src="src/gl/resources.js"></script>
+<script src="src/gl/filters/pixel.js"></script>
+<script src="src/gl/filters/style.js"></script>
+<script src="src/gl/filters/optics.js"></script>
+<script src="src/gl/filters/color.js"></script>
+<script src="src/gl/filters/custom.js"></script>
+<script src="src/gl/presets.js"></script>
+<script src="src/gl/pipeline.js"></script>
+
+<script src="src/export/stills.js"></script>
+<script src="src/export/recorder.js"></script>
+
+<script src="src/ui/widgets.js"></script>
+<script src="src/ui/filters-ui.js"></script>
+<script src="src/ui/timeline.js"></script>
+<script src="src/ui/panels.js"></script>
+<script src="src/ui/shortcuts.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>

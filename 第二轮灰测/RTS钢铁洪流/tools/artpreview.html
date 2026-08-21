@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>钢铁洪流 · art.js 预览</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0c1013; }
+  canvas { display: block; image-rendering: pixelated; }
+  #stats { position: absolute; left: -9999px; top: 0; white-space: pre; }
+</style>
+</head>
+<body>
+<canvas id="cv" width="1560" height="3200"></canvas>
+<pre id="stats"></pre>
+<script src="../js/util.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/art.js"></script>
+<script>
+(function () {
+  'use strict';
+  const R = window.R;
+  const t0 = performance.now();
+  const okInit = R.Art.init();
+  const initMs = performance.now() - t0;
+
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  // 底：深色 + 淡格线，便于看边缘留白
+  ctx.fillStyle = '#0e1317';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = 'rgba(120,150,170,0.08)';
+  for (let x = 0; x < cv.width; x += 24) { ctx.beginPath(); ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, cv.height); ctx.stroke(); }
+  for (let y = 0; y < cv.height; y += 24) { ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(cv.width, y + .5); ctx.stroke(); }
+
+  const T = R.TILE;
+  const PAD = 10;
+  let cy = 8;                                  // 当前行顶
+  const LEFT = 8;
+  const SECT = [];                             // 各分区起始 y（供裁剪查看）
+
+  function head(txt) {
+    cy += 6;
+    SECT.push(txt.slice(0, 18) + '@y=' + cy);
+    ctx.fillStyle = '#7fe0ff';
+    ctx.font = 'bold 14px Consolas, monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillText('■ ' + txt, LEFT, cy);
+    cy += 19;
+  }
+  function tag(txt, x, y, col) {
+    ctx.fillStyle = col || '#b9c7d2';
+    ctx.font = '10px Consolas, monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillText(txt, x, y);
+  }
+  function blit(src, x, y, s) {
+    if (!src) return;
+    ctx.drawImage(src, 0, 0, src.width, src.height, x, y, src.width * s, src.height * s);
+  }
+
+  /* ================= 统计（供 --dump-dom 读取） ================= */
+  const mc = document.createElement('canvas');
+  mc.width = 160; mc.height = 160;
+  const mctx = mc.getContext('2d');
+  const lines = [];
+  function stat(name, src) {
+    if (!src) { lines.push(pad(name, 26) + ' NULL'); return; }
+    mctx.clearRect(0, 0, mc.width, mc.height);
+    mctx.drawImage(src, 0, 0);
+    const d = mctx.getImageData(0, 0, src.width, src.height).data;
+    let ink = 0, r = 0, g = 0, b = 0, lmin = 999, lmax = -1;
+    for (let i = 0; i < src.width * src.height; i++) {
+      const a = d[i * 4 + 3];
+      if (a > 8) {
+        ink++; r += d[i * 4]; g += d[i * 4 + 1]; b += d[i * 4 + 2];
+        const lum = (d[i * 4] * .299 + d[i * 4 + 1] * .587 + d[i * 4 + 2] * .114);
+        if (lum < lmin) lmin = lum; if (lum > lmax) lmax = lum;
+      }
+    }
+    const n = Math.max(1, ink);
+    lines.push(pad(name, 26) + ' ' + pad(src.width + 'x' + src.height, 8) +
+      ' ink=' + pad((ink / (src.width * src.height) * 100).toFixed(1) + '%', 7) +
+      ' rgb=' + pad((r / n | 0) + ',' + (g / n | 0) + ',' + (b / n | 0), 12) +
+      ' lum=' + (lmin === 999 ? '-' : (lmin | 0) + '..' + (lmax | 0)));
+  }
+  function pad(s, n) { s = String(s); while (s.length < n) s += ' '; return s; }
+
+  /* ================= 1. 地形 ================= */
+  head('地形 tile(kind, variant) — 每种 4 花色，×3');
+  let x = LEFT;
+  const KINDS = ['grass', 'dirt', 'rock', 'water', 'shore'];
+  KINDS.forEach(function (k) {
+    for (let v = 0; v < 4; v++) {
+      blit(R.Art.tile(k, v), x, cy + 12, 3);
+      tag(k + v, x, cy, '#8fa6b6');
+      stat('tile.' + k + '.' + v, R.Art.tile(k, v));
+      x += T * 3 + 4;
+    }
+    x += 10;
+  });
+  cy += T * 3 + 22;
+
+  head('拼接检查：同 kind 混花色 6×6（×2），不应出现接缝或规律感');
+  x = LEFT;
+  KINDS.forEach(function (k) {
+    const rnd = R.rng(4242);
+    for (let ty = 0; ty < 6; ty++) for (let tx = 0; tx < 6; tx++) {
+      blit(R.Art.tile(k, rnd.int(0, 3)), x + tx * T * 2, cy + 12 + ty * T * 2, 2);
+    }
+    tag(k + ' 6x6', x, cy, '#8fa6b6');
+    x += T * 12 + 14;
+  });
+  cy += T * 12 + 24;
+
+  head('矿脉 ore(1..4)：上=草地，下=土地（×3）');
+  x = LEFT;
+  for (let l = 1; l <= 4; l++) {
+    blit(R.Art.tile('grass', l), x, cy + 12, 3);
+    blit(R.Art.ore(l), x, cy + 12, 3);
+    blit(R.Art.tile('dirt', l), x, cy + 12 + T * 3 + 3, 3);
+    blit(R.Art.ore(l), x, cy + 12 + T * 3 + 3, 3);
+    tag('ore' + l, x, cy, '#ffd98a');
+    stat('ore.' + l, R.Art.ore(l));
+    x += T * 3 + 8;
+  }
+  cy += T * 6 + 30;
+
+  /* ================= 2. 步兵 ================= */
+  head('步兵 unit(art, faction, dir 0..7, frame 0..3) ×2 — 左卫队(蓝) 右铁流(红)');
+  const INFS = ['rifleman', 'rocketeer', 'engineer', 'sniper', 'flamer'];
+  let bx = LEFT, by = cy, rowH = 0;
+  INFS.forEach(function (art) {
+    ['guard', 'steel'].forEach(function (f) {
+      tag(art + '/' + f, bx, by, f === 'guard' ? '#9fd0ff' : '#ffb3a0');
+      for (let fr = 0; fr < 4; fr++) for (let d = 0; d < 8; d++) {
+        blit(R.Art.unit(art, f, d, fr), bx + d * 34, by + 12 + fr * 34, 2);
+      }
+      stat('inf.' + art + '.' + f, R.Art.unit(art, f, 2, 0));
+      bx += 8 * 34 + 12;
+      rowH = Math.max(rowH, 12 + 4 * 34);
+      if (bx > cv.width - 290) { bx = LEFT; by += rowH + 14; rowH = 0; }
+    });
+  });
+  cy = by + rowH + 20;
+
+  /* ================= 3. 载具（1x = 游戏内实际大小） ================= */
+  head('载具/空中 16 向 @1x（游戏内真实尺寸）：每行 左16=卫队 右16=铁流，含炮塔合成');
+  const VEHS = ['harvester', 'scout', 'lightTank', 'grizzly', 'rhino', 'flakTrack', 'artillery', 'apoc', 'mcv', 'gunship'];
+  function drawUnitFull(art, f, d, x, y, s) {
+    const body = R.Art.unit(art, f, d, 0);
+    if (!body) return 0;
+    blit(body, x, y, s);
+    const tur = R.Art.turretSprite(art, f, d);
+    if (tur) {
+      // 与 render.js 完全一致：turretOffset 是不随车体旋转的屏幕像素偏移
+      const o = R.Art.turretOffset(art);
+      const cxp = x + body.width * s / 2 + o.x * s;
+      const cyp = y + body.height * s / 2 + o.y * s;
+      ctx.drawImage(tur, 0, 0, tur.width, tur.height,
+        Math.round(cxp - tur.width * s / 2), Math.round(cyp - tur.height * s / 2), tur.width * s, tur.height * s);
+    }
+    return body.width * s;
+  }
+  VEHS.forEach(function (art) {
+    tag(art, LEFT, cy, '#cfe2ee');
+    let px = LEFT + 62;
+    ['guard', 'steel'].forEach(function (f) {
+      for (let d = 0; d < 16; d++) { drawUnitFull(art, f, d, px, cy - 2, 1); px += 46; }
+      px += 10;
+      stat('veh.' + art + '.' + f, R.Art.unit(art, f, 0, 0));
+    });
+    cy += 48;
+  });
+  cy += 8;
+
+  head('载具细节 ×3（dir=2 东南）+ 步兵 ×4（dir=2）');
+  x = LEFT;
+  VEHS.forEach(function (art) {
+    drawUnitFull(art, 'guard', 2, x, cy + 12, 3);
+    tag(art, x, cy, '#cfe2ee');
+    x += 132;
+  });
+  cy += 140;
+  x = LEFT;
+  INFS.forEach(function (art) {
+    blit(R.Art.unit(art, 'steel', 2, 1), x, cy + 12, 4);
+    tag(art, x, cy, '#ffb3a0');
+    x += 76;
+  });
+  cy += 92;
+
+  /* ================= 4. 炮塔 ================= */
+  head('炮塔 turretSprite(art, faction, dir 0..15) @2x（旋转中心 = 画布中心）');
+  const TURS = ['lightTank', 'grizzly', 'rhino', 'flakTrack', 'artillery', 'apoc', 'pillbox', 'turret', 'aa'];
+  TURS.forEach(function (art, i) {
+    const yy = cy + Math.floor(i / 3) * 96;
+    const xx = LEFT + (i % 3) * 500;
+    tag(art, xx, yy, '#cfe2ee');
+    for (let d = 0; d < 16; d++) {
+      const t = R.Art.turretSprite(art, d < 8 ? 'guard' : 'steel', d);
+      blit(t, xx + 56 + (d % 8) * 52, yy + (d < 8 ? 0 : 44) - 6, 2);
+    }
+    stat('tur.' + art, R.Art.turretSprite(art, 'guard', 0));
+  });
+  cy += 3 * 96 + 10;
+
+  /* ================= 5. 建筑 ================= */
+  head('建筑 building / buildingDamaged @2x：卫队 · 卫队受损 · 铁流（防御建筑已合成炮塔）');
+  let px2 = LEFT, py = cy, rh = 0;
+  Object.keys(R.BUILDINGS).forEach(function (id) {
+    const def = R.BUILDINGS[id];
+    const variants = [['guard', 0], ['guard', 1], ['steel', 0]];
+    variants.forEach(function (vr) {
+      const src = vr[1] ? R.Art.buildingDamaged(def.art, vr[0]) : R.Art.building(def.art, vr[0]);
+      const w = src.width * 2, h = src.height * 2;
+      if (px2 + w > cv.width - 8) { px2 = LEFT; py += rh + 20; rh = 0; }
+      blit(src, px2, py + 12, 2);
+      const tur = R.Art.turretSprite(def.art, vr[0], 3);
+      if (tur) blit(tur, px2 + w / 2 - tur.width, py + 12 + h / 2 - tur.height, 2);
+      tag(id + (vr[1] ? '×' : '') + '/' + vr[0].slice(0, 2), px2, py, vr[1] ? '#ff9c88' : (vr[0] === 'guard' ? '#9fd0ff' : '#ffb3a0'));
+      px2 += w + 10;
+      rh = Math.max(rh, h + 12);
+    });
+    stat('bld.' + id, R.Art.building(def.art, 'guard'));
+    stat('dmg.' + id, R.Art.buildingDamaged(def.art, 'guard'));
+  });
+  cy = py + rh + 26;
+
+  /* ================= 6. 残骸 + 图标 ================= */
+  head('残骸 wreck @2x');
+  x = LEFT;
+  VEHS.forEach(function (art) {
+    const w = R.Art.wreck(art);
+    blit(w, x, cy + 12, 2);
+    tag(art, x, cy, '#9aa4ae');
+    stat('wreck.' + art, w);
+    x += (w ? w.width * 2 : 40) + 8;
+  });
+  cy += 100;
+
+  head('图标 icon(defId) 56×46 @1x');
+  x = LEFT;
+  const ids = Object.keys(R.BUILDINGS).concat(Object.keys(R.UNITS));
+  ids.forEach(function (id) {
+    if (x + 60 > cv.width - 8) { x = LEFT; cy += 74; }
+    blit(R.Art.icon(id), x, cy + 12, 1);
+    tag(id.slice(0, 9), x, cy, '#c8d4de');
+    stat('icon.' + id, R.Art.icon(id));
+    x += 60;
+  });
+  cy += 74;
+
+  /* ================= 汇总 ================= */
+  const st = R.Art.stats();
+  ctx.fillStyle = '#0a0e11';
+  ctx.fillRect(0, cy, cv.width, 40);
+  ctx.fillStyle = '#7fe0ff';
+  ctx.font = 'bold 14px Consolas, monospace';
+  ctx.fillText('init() = ' + okInit + '   ' + initMs.toFixed(1) + ' ms   缓存: ' + JSON.stringify(st) +
+    '   used height=' + (cy + 40), LEFT, cy + 12);
+  cy += 44;
+
+  lines.unshift('INIT ok=' + okInit + ' ms=' + initMs.toFixed(1) + ' usedHeight=' + cy +
+    ' cache=' + JSON.stringify(st));
+  lines.unshift('SECTIONS: ' + SECT.join(' | '));
+  document.getElementById('stats').textContent = lines.join('\n');
+  document.title = 'art.js ok=' + okInit + ' ms=' + initMs.toFixed(1) + ' h=' + cy;
+
+  /* ===== 裁剪放大查看器：?crop=x,y,w,h&z=2 （配合 --window-size=w*z,h*z） ===== */
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('crop')) {
+    const p = qs.get('crop').split(',').map(Number);
+    const z = Number(qs.get('z') || 2);
+    const vw = Math.round(p[2] * z), vh = Math.round(p[3] * z);
+    const view = document.createElement('canvas');
+    view.width = vw; view.height = vh;
+    const vc = view.getContext('2d');
+    vc.imageSmoothingEnabled = false;
+    vc.fillStyle = '#0e1317'; vc.fillRect(0, 0, vw, vh);
+    vc.drawImage(cv, p[0], p[1], p[2], p[3], 0, 0, vw, vh);
+    cv.style.display = 'none';
+    document.body.insertBefore(view, cv);
+  }
+
+  /* ===== 单件查看器：?only=类型:参数...&z=1
+     bld:repair[:steel] / dmg:repair[:guard] / unit:grizzly:guard:2:0 /
+     full:grizzly:guard:2 (车体+炮塔) / tur:grizzly:guard:3 /
+     tile:rock:0 / ore:4 / icon:refinery / wreck:apoc
+     窗口尺寸设为 sprite×z，再用 pngstat <png> (2*宽) 得到 1 字符≈1 像素的预览 ===== */
+  if (qs.has('only')) {
+    const a = qs.get('only').split(':');
+    const z = Number(qs.get('z') || 1);
+    let src = null, over = null, ox = 0, oy = 0;
+    const k = a[0];
+    if (k === 'bld') src = R.Art.building(a[1], a[2] || 'guard');
+    else if (k === 'dmg') src = R.Art.buildingDamaged(a[1], a[2] || 'guard');
+    else if (k === 'unit') src = R.Art.unit(a[1], a[2] || 'guard', +(a[3] || 0), +(a[4] || 0));
+    else if (k === 'full') {
+      src = R.Art.unit(a[1], a[2] || 'guard', +(a[3] || 0), 0);
+      over = R.Art.turretSprite(a[1], a[2] || 'guard', +(a[3] || 0));
+      if (over) {
+        const o = R.Art.turretOffset(a[1]);
+        ox = src.width / 2 + o.x - over.width / 2;
+        oy = src.height / 2 + o.y - over.height / 2;
+      }
+    }
+    else if (k === 'tur') src = R.Art.turretSprite(a[1], a[2] || 'guard', +(a[3] || 0));
+    else if (k === 'tile') src = R.Art.tile(a[1], +(a[2] || 0));
+    else if (k === 'ore') src = R.Art.ore(+(a[1] || 1));
+    else if (k === 'icon') src = R.Art.icon(a[1]);
+    else if (k === 'wreck') src = R.Art.wreck(a[1]);
+    if (src) {
+      const view = document.createElement('canvas');
+      const pad = over ? Math.max(0, Math.ceil((over.width - src.width) / 2)) : 0;
+      view.width = Math.round((src.width + pad * 2) * z);
+      view.height = Math.round((src.height + pad * 2) * z);
+      const vc = view.getContext('2d');
+      vc.imageSmoothingEnabled = false;
+      // 深灰底，便于看透明区与描边
+      vc.fillStyle = '#0a0d10'; vc.fillRect(0, 0, view.width, view.height);
+      vc.setTransform(z, 0, 0, z, pad * z, pad * z);
+      vc.drawImage(src, 0, 0);
+      if (over) vc.drawImage(over, Math.round(ox), Math.round(oy));
+      cv.style.display = 'none';
+      document.body.insertBefore(view, cv);
+      document.title = 'only ' + qs.get('only') + ' ' + view.width + 'x' + view.height;
+    }
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>核爆 3D 物理效果 · WebGL2 实时仿真</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:rgba(10,14,20,.82); --line:rgba(120,160,200,.16);
+    --txt:#cdd9e5; --dim:#7c8b9c; --hot:#ffb257; --acc:#4ea8ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:13px/1.45 "PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    overflow:hidden;-webkit-font-smoothing:antialiased}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #gl:active{cursor:grabbing}
+
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;backdrop-filter:blur(9px);box-shadow:0 6px 28px rgba(0,0,0,.45)}
+  #ctl{left:12px;top:12px;width:286px;max-height:calc(100% - 96px);overflow-y:auto;padding:12px 13px 14px}
+  #hudbox{right:12px;top:12px;width:308px;max-height:calc(100% - 96px);overflow-y:auto;padding:11px 13px}
+  #bar{left:50%;transform:translateX(-50%);bottom:12px;width:min(880px,calc(100% - 24px));
+    padding:9px 14px 11px;display:flex;flex-direction:column;gap:7px}
+
+  h1{margin:0 0 2px;font-size:14px;letter-spacing:.4px;color:#eaf2fb;font-weight:600}
+  .sub{color:var(--dim);font-size:11px;margin-bottom:9px;line-height:1.5}
+  h2{margin:13px 0 6px;font-size:11px;color:var(--acc);letter-spacing:1.2px;
+    text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--line);padding-bottom:4px}
+  h2:first-of-type{margin-top:6px}
+
+  label.f{display:block;margin:8px 0 2px}
+  label.f>span{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:11.5px;color:var(--dim);margin-bottom:3px}
+  label.f>span b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;height:16px;-webkit-appearance:none;appearance:none;background:transparent;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;background:rgba(140,175,210,.26);border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--acc);margin-top:-5px;border:2px solid #0b0f14;box-shadow:0 0 0 1px rgba(78,168,255,.5)}
+  input[type=range]::-moz-range-track{height:3px;background:rgba(140,175,210,.26);border-radius:2px}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--acc);border:2px solid #0b0f14}
+  select{width:100%;background:#0d1218;color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:5px 7px;font:inherit;font-size:12px}
+  .chk{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:7px}
+  .chk label{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dim);cursor:pointer}
+  .chk input{accent-color:var(--acc);margin:0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+  button{background:#131b25;color:var(--txt);border:1px solid var(--line);border-radius:6px;
+    padding:6px 11px;font:inherit;font-size:12px;cursor:pointer;transition:.12s}
+  button:hover{background:#1b2734;border-color:rgba(78,168,255,.45)}
+  button.pri{background:#153048;border-color:rgba(78,168,255,.5)}
+  #jumps{display:flex;flex-wrap:wrap;gap:5px}
+  button.jump{padding:4px 8px;font-size:11px;color:var(--dim)}
+  button.jump:hover{color:var(--txt)}
+
+  #hud .row{display:flex;justify-content:space-between;gap:10px;padding:1.5px 0;font-size:11.5px}
+  #hud .row span{color:var(--dim);white-space:nowrap}
+  #hud .row b{color:#e8f1fa;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+  #hud .sep{margin:7px 0 3px;font-size:10.5px;color:var(--hot);letter-spacing:1px;
+    border-bottom:1px solid var(--line);padding-bottom:3px}
+
+  #timerow{display:flex;align-items:center;gap:10px}
+  #time{flex:1}
+  #notes{position:fixed;left:12px;bottom:12px;font-size:10px;color:#4a5563;max-width:270px;line-height:1.4}
+  #err{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);max-width:70%;
+    background:#2a0e10;border:1px solid #6d2b30;color:#ffd9d9;padding:16px 20px;
+    border-radius:10px;display:none;font-size:12.5px;line-height:1.7;z-index:99}
+  .tick{display:flex;justify-content:space-between;font-size:9.5px;color:#4d5a68;
+    font-variant-numeric:tabular-nums;padding:0 1px}
+  /* 必须用 ID 选择器：#bar 自带 display:flex，优先级(0,1,0,0)高于
+     body.hide-ui .panel 的 (0,0,2,1)，否则播放条不会被隐藏 */
+  body.hide-ui #ctl,body.hide-ui #hudbox,body.hide-ui #bar,body.hide-ui #notes{display:none}
+  #ctl::-webkit-scrollbar,#hudbox::-webkit-scrollbar{width:7px}
+  #ctl::-webkit-scrollbar-thumb,#hudbox::-webkit-scrollbar-thumb{background:rgba(120,160,200,.22);border-radius:4px}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ─────────── 控制面板 ─────────── -->
+<div class="panel" id="ctl">
+  <h1>核爆 3D 物理效果</h1>
+  <div class="sub">
+    实时流体/刚体仿真 · 原生 WebGL2 · 零外部依赖<br>
+    拖拽旋转 · 滚轮缩放 · 空格暂停<br>V 切换视角 · H 隐藏全部界面
+  </div>
+
+  <h2>装置</h2>
+  <label class="f"><span>预设场景</span></label>
+  <select id="preset"></select>
+
+  <label class="f"><span>当量 W<b id="yieldV">—</b></span>
+    <input type="range" id="yield" min="0" max="1" step="0.001" value="0.5"></label>
+  <label class="f"><span>爆高 HOB<b id="hobV">—</b></span>
+    <input type="range" id="hob" min="0" max="5000" step="5" value="300"></label>
+
+  <h2>大气</h2>
+  <label class="f"><span>相对湿度（决定潜热与凝结云）<b id="humidityV">—</b></span>
+    <input type="range" id="humidity" min="0" max="1" step="0.01" value="0.6"></label>
+  <label class="f"><span>地面风速<b id="windV">—</b></span>
+    <input type="range" id="wind" min="0" max="30" step="0.5" value="6"></label>
+  <label class="f"><span>风切变<b id="shearV">—</b></span>
+    <input type="range" id="shear" min="0" max="8" step="0.1" value="1.6"></label>
+  <label class="f"><span>能见度（热辐射衰减）<b id="visV">—</b></span>
+    <input type="range" id="vis" min="4" max="60" step="1" value="20"></label>
+  <label class="f"><span>地面尘土耦合<b id="dirtV">—</b></span>
+    <input type="range" id="dirt" min="0" max="1.5" step="0.05" value="1"></label>
+
+  <h2>城市</h2>
+  <label class="f"><span>城区规模<b id="cityScaleV">—</b></span>
+    <input type="range" id="cityScale" min="0.25" max="2" step="0.05" value="1"></label>
+  <label class="f"><span>建造年代（决定抗力与毁伤半径）</span>
+    <select id="era">
+      <option value="0">1945 木构为主 · 3–5 psi 全毁</option>
+      <option value="1">战后砖混 · 4–7 psi</option>
+      <option value="2">现代钢混/钢框架 · 8–16 psi</option>
+    </select></label>
+
+  <h2>镜头</h2>
+  <label class="f"><span>视角（V 键循环）</span>
+    <select id="camMode">
+      <option value="auto">自动 · 毁伤期看城市，随后跟云</option>
+      <option value="city">城市 · 低角横扫毁伤区</option>
+      <option value="street">街面 · 贴地 12 m 视高</option>
+      <option value="top">俯视 · 同心毁伤环</option>
+      <option value="cloud">云 · 只跟蘑菇云</option>
+    </select></label>
+
+  <h2>渲染</h2>
+  <div class="two">
+    <label class="f"><span>粒子数</span>
+      <select id="quality">
+        <option value="12000">1.2 万（省电）</option>
+        <option value="32000" selected>3.2 万（默认）</option>
+        <option value="50000">5 万</option>
+        <option value="90000">9 万（高配）</option>
+      </select></label>
+    <label class="f"><span>分辨率</span>
+      <select id="resscale">
+        <option value="0.6">60%</option>
+        <option value="0.8">80%</option>
+        <option value="1" selected>100%</option>
+        <option value="1.25">125%</option>
+      </select></label>
+  </div>
+  <label class="f"><span>曝光偏置<b id="expoV">—</b></span>
+    <input type="range" id="expo" min="0.15" max="4" step="0.05" value="1"></label>
+  <label class="f"><span>泛光强度<b id="bloomV">—</b></span>
+    <input type="range" id="bloom" min="0" max="2.5" step="0.05" value="0.85"></label>
+  <label class="f"><span>粒子不透明度<b id="opacityV">—</b></span>
+    <input type="range" id="opacity" min="0.2" max="2" step="0.05" value="1"></label>
+  <label class="f"><span>粒子尺寸<b id="psizeV">—</b></span>
+    <input type="range" id="psize" min="0.5" max="2" step="0.05" value="1"></label>
+  <label class="f"><span>黑体发光强度<b id="emissiveV">—</b></span>
+    <input type="range" id="emissive" min="0.002" max="0.09" step="0.002" value="0.02"></label>
+  <div class="chk">
+    <label><input type="checkbox" id="showShock" checked>激波面</label>
+    <label><input type="checkbox" id="showWilson" checked>凝结云</label>
+    <label><input type="checkbox" id="showCity" checked>城市</label>
+    <label><input type="checkbox" id="fires" checked>火灾/浓烟</label>
+    <label><input type="checkbox" id="showGrid" checked>参考网格</label>
+    <label><input type="checkbox" id="autoFrame" checked>自动构图</label>
+    <label><input type="checkbox" id="night">夜间</label>
+  </div>
+</div>
+
+<!-- ─────────── 读数面板 ─────────── -->
+<div class="panel" id="hudbox"><div id="hud"></div></div>
+
+<!-- ─────────── 时间轴 ─────────── -->
+<div class="panel" id="bar">
+  <div id="timerow">
+    <button id="play" class="pri">⏸ 暂停</button>
+    <button id="replay">↻ 重放</button>
+    <input type="range" id="time" min="0" max="1.02" step="0.0005" value="0">
+    <div style="min-width:118px">
+      <label class="f" style="margin:0"><span style="margin:0">速度<b id="speedV">1.00×</b></span>
+        <input type="range" id="speed" min="0.1" max="4" step="0.05" value="1.4"></label>
+    </div>
+  </div>
+  <div class="tick"><span>0.3 ms</span><span>10 ms</span><span>0.3 s</span><span>10 s</span><span>1 min</span><span>稳定</span></div>
+  <div id="jumps"></div>
+</div>
+
+<div id="notes"></div>
+<div id="err"></div>
+
+<script src="src/util.js"></script>
+<script src="src/physics.js"></script>
+<script src="src/sim.js"></script>
+<script src="src/shaders.js"></script>
+<script src="src/renderer.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

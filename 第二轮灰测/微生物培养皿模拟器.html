@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微生物培养皿模拟器 · Petri Dish Simulator</title>
+<style>
+  :root{
+    --bg:#0b0f14;
+    --panel:rgba(18,25,33,.82);
+    --line:rgba(120,190,210,.16);
+    --txt:#d8e6ee;
+    --dim:#7d95a4;
+    --acc:#4fd1c5;
+    --acc2:#f6c456;
+    --warn:#ff7b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:
+      radial-gradient(1200px 700px at 78% -10%,rgba(79,209,197,.10),transparent 60%),
+      radial-gradient(900px 600px at 8% 110%,rgba(246,196,86,.07),transparent 60%),
+      var(--bg);
+    color:var(--txt);
+    font:14px/1.5 "Segoe UI","Microsoft YaHei",-apple-system,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:grid;grid-template-columns:308px minmax(0,1fr) 268px;gap:16px;padding:16px;max-width:1500px;margin:0 auto;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;backdrop-filter:blur(8px);box-shadow:0 18px 40px -24px #000}
+  .panel+.panel{margin-top:14px}
+  h1{font-size:17px;margin:0 0 2px;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:11.5px;letter-spacing:1.4px;text-transform:uppercase}
+  h2{font-size:12px;margin:0 0 10px;color:var(--acc);letter-spacing:1.6px;text-transform:uppercase;font-weight:600;
+     display:flex;align-items:center;gap:8px}
+  h2::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+
+  .stage{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .dishwrap{position:relative;width:100%;max-width:728px}
+  canvas#dish{width:100%;height:auto;display:block;border-radius:50%;cursor:crosshair;touch-action:none}
+  .hint{color:var(--dim);font-size:12px;text-align:center;min-height:18px}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  button{
+    background:rgba(255,255,255,.04);color:var(--txt);border:1px solid var(--line);
+    padding:8px 11px;border-radius:9px;cursor:pointer;font-size:12.5px;font-family:inherit;transition:.15s;
+  }
+  button:hover{background:rgba(79,209,197,.13);border-color:rgba(79,209,197,.45)}
+  button.on{background:rgba(79,209,197,.2);border-color:var(--acc);color:#eafffb}
+  button.wide{flex:1}
+  button.danger:hover{background:rgba(255,123,107,.16);border-color:rgba(255,123,107,.5)}
+
+  .chip{display:flex;align-items:center;gap:9px;width:100%;text-align:left;margin-bottom:6px}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 9px currentColor}
+  .chip .nm{font-size:12.5px}
+  .chip .lt{color:var(--dim);font-size:10.5px;font-style:italic}
+
+  label.f{display:block;margin:11px 0 4px;font-size:11.5px;color:var(--dim);display:flex;justify-content:space-between}
+  label.f b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:3px;background:rgba(255,255,255,.12);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:var(--acc);cursor:pointer;box-shadow:0 0 10px rgba(79,209,197,.6)}
+  select{width:100%;background:rgba(255,255,255,.05);color:var(--txt);border:1px solid var(--line);
+    border-radius:8px;padding:7px;font-family:inherit;font-size:12.5px}
+  .ck{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);margin-top:8px;cursor:pointer}
+  .ck input{accent-color:var(--acc)}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .st{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 9px}
+  .st .k{font-size:10.5px;color:var(--dim);letter-spacing:.4px}
+  .st .v{font-size:17px;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+  .st .v small{font-size:10.5px;color:var(--dim);margin-left:2px}
+  canvas#plot{width:100%;height:66px;display:block;margin-top:10px;border-radius:8px;background:rgba(0,0,0,.25)}
+
+  #log{list-style:none;margin:0;padding:0;max-height:216px;overflow:auto;font-size:11.5px}
+  #log li{padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06);color:#b9cbd6;display:flex;gap:7px}
+  #log li i{color:var(--dim);font-style:normal;font-variant-numeric:tabular-nums;flex:none}
+  #log::-webkit-scrollbar{width:5px}
+  #log::-webkit-scrollbar-thumb{background:rgba(79,209,197,.3);border-radius:3px}
+  .foot{color:var(--dim);font-size:11px;text-align:center;padding:2px 0 18px}
+  kbd{background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:10.5px}
+  @media (max-width:1180px){.app{grid-template-columns:1fr;max-width:760px}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== 左：操作台 ===== -->
+  <div>
+    <div class="panel">
+      <h1>微生物培养皿模拟器</h1>
+      <div class="sub">Petri Dish · Agar Plate Simulation</div>
+    </div>
+
+    <div class="panel">
+      <h2>工具</h2>
+      <div class="row">
+        <button class="wide on" data-tool="seed">🧫 接种</button>
+        <button class="wide" data-tool="drug">💊 药敏纸片</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="wide" data-tool="feed">💧 滴加营养</button>
+        <button class="wide" data-tool="kill">🔥 灭菌擦拭</button>
+      </div>
+      <label class="f"><span>抗生素种类</span></label>
+      <select id="drug"></select>
+    </div>
+
+    <div class="panel">
+      <h2>菌种</h2>
+      <div id="species"></div>
+    </div>
+
+    <div class="panel">
+      <h2>培养条件</h2>
+      <label class="f"><span>温度</span><b id="vT">37 °C</b></label>
+      <input type="range" id="temp" min="20" max="45" step="1" value="37">
+      <label class="f"><span>培养基营养浓度</span><b id="vN">1.00×</b></label>
+      <input type="range" id="nut" min="0.4" max="1.6" step="0.05" value="1">
+      <label class="f"><span>模拟速度</span><b id="vS">1×</b></label>
+      <input type="range" id="spd" min="1" max="4" step="1" value="1">
+      <label class="ck"><input type="checkbox" id="showNut" checked>显示营养 / 药物扩散场</label>
+      <label class="ck"><input type="checkbox" id="showCell" checked>高亮活跃菌体</label>
+    </div>
+
+    <div class="panel">
+      <h2>操作</h2>
+      <div class="row">
+        <button class="wide" id="play">⏸ 暂停</button>
+        <button class="wide" id="rand">🎲 随机接种</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="wide" id="uv">☢ 紫外照射</button>
+        <button class="wide danger" id="reset">↺ 更换培养皿</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 中：培养皿 ===== -->
+  <div class="stage">
+    <div class="dishwrap"><canvas id="dish"></canvas></div>
+    <div class="hint" id="hint">在培养皿上点击即可接种菌落 · 拖动可划线接种</div>
+  </div>
+
+  <!-- ===== 右：数据 ===== -->
+  <div>
+    <div class="panel">
+      <h2>监测数据</h2>
+      <div class="stats">
+        <div class="st"><div class="k">活跃菌体</div><div class="v" id="sPop">0</div></div>
+        <div class="st"><div class="k">菌落数</div><div class="v" id="sCol">0</div></div>
+        <div class="st"><div class="k">覆盖率</div><div class="v" id="sCov">0<small>%</small></div></div>
+        <div class="st"><div class="k">营养剩余</div><div class="v" id="sNut">100<small>%</small></div></div>
+        <div class="st"><div class="k">培养时间</div><div class="v" id="sTime">0<small>h</small></div></div>
+        <div class="st"><div class="k">平均耐药性</div><div class="v" id="sRes">0.00</div></div>
+      </div>
+      <canvas id="plot"></canvas>
+    </div>
+    <div class="panel">
+      <h2>实验记录</h2>
+      <ul id="log"></ul>
+    </div>
+    <div class="panel" style="font-size:11.5px;color:var(--dim)">
+      快捷键：<kbd>空格</kbd> 暂停 · <kbd>1</kbd>-<kbd>5</kbd> 选菌种 · <kbd>R</kbd> 换皿 · <kbd>U</kbd> 紫外
+    </div>
+  </div>
+</div>
+<div class="foot">营养扩散 + 接触抑制 + 抗生素抑菌圈 + 突变选择的格点—个体混合模型（教学演示，非科研用途）</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ============ 基本尺寸 ============ */
+var R = 330, D = R*2, PAD = 34, W = D + PAD*2;   // 培养皿半径 / 画布尺寸
+var GS = 4, N = D/GS;                            // 格点边长 / 格点数
+var CX = PAD + R, CY = PAD + R;                  // 皿心（画布坐标）
+
+/* ============ 菌种 & 药物 ============ */
+/* mot = 琼脂内位移能力（菌体基本固着，靠分裂向外推进）；jit = 方向随机性 */
+var SPECIES = [
+  {name:'大肠杆菌',        latin:'E. coli',        col:[238,216,150], grow:1.15, mot:0.08, jit:0.90, dmax:7, res:0.10},
+  {name:'枯草芽孢杆菌',    latin:'B. subtilis',    col:[238,234,222], grow:1.00, mot:0.05, jit:0.60, dmax:6, res:0.20},
+  {name:'铜绿假单胞菌',    latin:'P. aeruginosa',  col:[110,214,192], grow:0.92, mot:0.11, jit:0.85, dmax:6, res:0.44},
+  {name:'金黄色葡萄球菌',  latin:'S. aureus',      col:[246,192,80],  grow:0.96, mot:0.03, jit:0.45, dmax:9, res:0.26},
+  {name:'黑曲霉',          latin:'A. niger',       col:[132,144,158], grow:0.60, mot:0.17, jit:0.10, dmax:3, res:0.58}
+];
+var DRUGS = [
+  {name:'青霉素 Penicillin',    tag:'P', pot:0.55},
+  {name:'庆大霉素 Gentamicin',  tag:'G', pot:0.80},
+  {name:'万古霉素 Vancomycin',  tag:'V', pot:1.05},
+  {name:'环丙沙星 Ciprofloxacin',tag:'C', pot:0.72}
+];
+
+/* ============ 画布 ============ */
+var cv = document.getElementById('dish'), ctx = cv.getContext('2d');
+var dpr = Math.min(window.devicePixelRatio||1, 2);
+cv.width = W*dpr; cv.height = W*dpr;
+ctx.setTransform(dpr,0,0,dpr,0,0);
+
+var bio = document.createElement('canvas'); bio.width = D; bio.height = D;
+var bctx = bio.getContext('2d');                       // 菌落生物量图层
+var fld = document.createElement('canvas'); fld.width = N; fld.height = N;
+var fctx = fld.getContext('2d');                       // 低分辨率扩散场
+var img = fctx.createImageData(N,N);
+var noise = makeNoise();                               // 琼脂颗粒纹理
+var sprite = SPECIES.map(function(s){ return makeSprite(s.col); });
+var fieldReady = false;
+var paths = [], hasPath = [];
+var cellFill = SPECIES.map(function(s){
+  var c=s.col;
+  return 'rgba('+Math.min(255,c[0]+30)+','+Math.min(255,c[1]+30)+','+Math.min(255,c[2]+30)+',.75)';
+});
+
+/* ============ 场 ============ */
+var mask = new Uint8Array(N*N);        // 皿内
+var nutr = new Float32Array(N*N);      // 营养
+var anti = new Float32Array(N*N);      // 抗生素
+var mass = new Float32Array(N*N);      // 累积生物量
+var dens = new Uint16Array(N*N);       // 当帧菌体密度
+var inside = 0;
+for(var y=0;y<N;y++)for(var x=0;x<N;x++){
+  var dx=(x+0.5)*GS-R, dy=(y+0.5)*GS-R;
+  if(dx*dx+dy*dy < (R-3)*(R-3)){ mask[y*N+x]=1; inside++; }
+}
+/* 预建皿内格点表与邻居表 → 扩散内循环无分支 */
+var cells = new Int32Array(inside), nb4 = new Int32Array(inside*4), nbc = new Uint8Array(inside);
+var buf = new Float32Array(inside);
+(function(){
+  var k=0;
+  for(var i=0;i<N*N;i++) if(mask[i]) cells[k++]=i;
+  for(k=0;k<inside;k++){
+    var i=cells[k], c=0, b=k*4, gx=i%N;
+    if(gx>0   && mask[i-1]) nb4[b+c++]=i-1;
+    if(gx<N-1 && mask[i+1]) nb4[b+c++]=i+1;
+    if(i>=N   && mask[i-N]) nb4[b+c++]=i-N;
+    if(i+N<N*N&& mask[i+N]) nb4[b+c++]=i+N;
+    nbc[k]=c;
+  }
+})();
+
+/* ============ 个体（结构化数组） ============ */
+/* 只把「活跃菌体」当个体模拟：菌落内部因营养耗尽转为静止期，
+   从个体列表移出、仅留下 mass 生物量。个体数 ∝ 菌落周长而非面积。 */
+var CAP = 9000;
+var ax=new Float32Array(CAP), ay=new Float32Array(CAP), ad=new Float32Array(CAP),
+    ae=new Float32Array(CAP), ar=new Float32Array(CAP), asp=new Uint8Array(CAP);
+var pop = 0;
+
+/* ============ 状态 ============ */
+var disks = [], hist = [], running = true, tool='seed', sel=0, drugIdx=1;
+var simT = 0, frame = 0, uvT = 0, colonies = 0, cover = 0, avgRes = 0, nutLeft = 1;
+var dormant = 0, flags = {}, antiOn = false;
+var richness = 1, temp = 37, speed = 1, showNut = true, showCell = true;
+
+/* ============ 工具函数 ============ */
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function gauss(){ return (Math.random()+Math.random()+Math.random()+Math.random()-2)*0.7; }
+function gi(x,y){ // 画布坐标 -> 格点索引
+  var gx=((x-PAD)/GS)|0, gy=((y-PAD)/GS)|0;
+  if(gx<0||gy<0||gx>=N||gy>=N) return -1;
+  return gy*N+gx;
+}
+function makeNoise(){
+  var c=document.createElement('canvas'); c.width=c.height=D; var g=c.getContext('2d');
+  for(var i=0;i<26000;i++){
+    var a=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*R;
+    g.fillStyle='rgba('+(Math.random()<.5?'255,255,240,':'40,50,30,')+(0.02+Math.random()*0.05)+')';
+    g.fillRect(R+Math.cos(a)*r, R+Math.sin(a)*r, 1+Math.random()*1.6, 1+Math.random()*1.6);
+  }
+  return c;
+}
+function makeSprite(c){
+  var s=document.createElement('canvas'); s.width=s.height=18; var g=s.getContext('2d');
+  var gr=g.createRadialGradient(9,9,0,9,9,9);
+  gr.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+',1)');
+  gr.addColorStop(.45,'rgba('+c[0]+','+c[1]+','+c[2]+',.55)');
+  gr.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+  g.fillStyle=gr; g.fillRect(0,0,18,18);
+  return s;
+}
+
+/* ============ 生命周期 ============ */
+function resetPlate(quiet){
+  pop=0; disks.length=0; hist.length=0; simT=0; uvT=0; colonies=0; cover=0; avgRes=0;
+  dormant=0; flags={}; nutLeft=1; antiOn=false;
+  for(var i=0;i<N*N;i++){ nutr[i]=mask[i]?richness:0; anti[i]=0; mass[i]=0; }
+  bctx.clearRect(0,0,D,D);
+  if(!quiet) log('更换新培养皿：营养 '+richness.toFixed(2)+'× · '+temp+' °C');
+}
+function seed(x,y,sp,n,spread){
+  var added=0;
+  for(var k=0;k<n;k++){
+    if(pop>=CAP) break;
+    var a=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*(spread||7);
+    var px=x+Math.cos(a)*r, py=y+Math.sin(a)*r;
+    var ddx=px-CX, ddy=py-CY;
+    if(ddx*ddx+ddy*ddy > (R-8)*(R-8)) continue;
+    ax[pop]=px; ay[pop]=py; ad[pop]=Math.random()*Math.PI*2;
+    ae[pop]=rnd(.15,.45); asp[pop]=sp;
+    ar[pop]=Math.max(0, SPECIES[sp].res + gauss()*0.05);
+    pop++; added++;
+  }
+  return added;
+}
+function placeDisk(x,y){
+  var ddx=x-CX, ddy=y-CY;
+  if(Math.sqrt(ddx*ddx+ddy*ddy) > R-26) return false;
+  disks.push({x:x, y:y, r:21, d:drugIdx});
+  log('放置药敏纸片：'+DRUGS[drugIdx].name.split(' ')[0]);
+  return true;
+}
+function feed(x,y,rad){
+  var g0=gi(x,y); if(g0<0) return;
+  var cx=((x-PAD)/GS)|0, cy=((y-PAD)/GS)|0, cr=Math.ceil(rad/GS);
+  for(var j=-cr;j<=cr;j++)for(var i=-cr;i<=cr;i++){
+    var gx=cx+i, gy=cy+j; if(gx<0||gy<0||gx>=N||gy>=N) continue;
+    var id=gy*N+gx; if(!mask[id]) continue;
+    var d=Math.sqrt(i*i+j*j)/cr; if(d>1) continue;
+    nutr[id]=Math.min(2.4, nutr[id] + richness*0.9*(1-d*d));
+  }
+}
+function sterilize(x,y,rad){
+  for(var i=pop-1;i>=0;i--){
+    var dx=ax[i]-x, dy=ay[i]-y;
+    if(dx*dx+dy*dy < rad*rad) kill(i);
+  }
+  var cx=((x-PAD)/GS)|0, cy=((y-PAD)/GS)|0, cr=Math.ceil(rad/GS);
+  for(var j=-cr;j<=cr;j++)for(var k=-cr;k<=cr;k++){
+    var gx=cx+k, gy=cy+j; if(gx<0||gy<0||gx>=N||gy>=N) continue;
+    if(k*k+j*j<=cr*cr) mass[gy*N+gx]=0;
+  }
+  bctx.save(); bctx.globalCompositeOperation='destination-out';
+  bctx.beginPath(); bctx.arc(x-PAD,y-PAD,rad,0,7); bctx.fill(); bctx.restore();
+  for(var q=disks.length-1;q>=0;q--){
+    var ex=disks[q].x-x, ey=disks[q].y-y;
+    if(ex*ex+ey*ey < rad*rad) disks.splice(q,1);
+  }
+}
+function kill(i){
+  pop--;
+  ax[i]=ax[pop]; ay[i]=ay[pop]; ad[i]=ad[pop];
+  ae[i]=ae[pop]; ar[i]=ar[pop]; asp[i]=asp[pop];
+}
+
+/* ============ 扩散 ============ */
+function diffuse(f, rate){
+  var k, i, c, b, m, s;
+  for(k=0;k<inside;k++){
+    i=cells[k]; c=nbc[k];
+    if(!c){ buf[k]=f[i]; continue; }
+    b=k*4; s=0;
+    for(m=0;m<c;m++) s+=f[nb4[b+m]];
+    buf[k] = f[i] + rate*(s/c - f[i]);
+  }
+  for(k=0;k<inside;k++) f[cells[k]]=buf[k];
+}
+
+/* ============ 单步演化 ============ */
+function step(){
+  var tf = Math.max(0.04, Math.exp(-Math.pow((temp-37)/9.2, 2)));   // 温度响应
+  if(temp>42) tf *= 0.55;
+
+  diffuse(nutr, 0.035);   // 琼脂中营养扩散很慢 → 菌落周围形成局部耗尽圈
+
+  /* 药物释放 + 扩散 + 降解（无药片且药物已清空时整段跳过） */
+  if(disks.length){
+    antiOn = true;
+    for(var q=0;q<disks.length;q++){
+      var dk=disks[q], cx=((dk.x-PAD)/GS)|0, cy=((dk.y-PAD)/GS)|0, cr=Math.ceil(dk.r/GS);
+      for(var j=-cr;j<=cr;j++)for(var k=-cr;k<=cr;k++){
+        if(k*k+j*j>cr*cr) continue;
+        var gx=cx+k, gy=cy+j; if(gx<0||gy<0||gx>=N||gy>=N) continue;
+        var id=gy*N+gx; if(mask[id]) anti[id]=Math.max(anti[id], DRUGS[dk.d].pot);
+      }
+    }
+  }
+  if(antiOn){
+    /* 格点扩散系数 D = rate/4（单位：格²/步），衰减 k=1-0.9982
+       → 衰减长度 L=√(D/k)≈7.9 格≈32 px，抑菌圈直径落在真实的 15~35 mm 区间 */
+    diffuse(anti, 0.45);
+    var mx=0;
+    for(var c2=0;c2<inside;c2++){
+      var ii=cells[c2], v=anti[ii]*0.9982;
+      anti[ii] = v>1e-4 ? v : 0;
+      if(v>mx) mx=v;
+    }
+    if(!disks.length && mx<=1e-4) antiOn=false;
+  }
+
+  /* 密度统计 */
+  dens.fill(0);
+  for(var a=0;a<pop;a++){ var g=gi(ax[a],ay[a]); if(g>=0) dens[g]++; }
+
+  /* 个体 */
+  var mut = uvT>0 ? 0.16 : 0.022, resSum=0;
+  for(var p=pop-1;p>=0;p--){
+    var sp=SPECIES[asp[p]], g=gi(ax[p],ay[p]);
+    if(g<0 || !mask[g]){ kill(p); continue; }
+
+    /* 运动：随机游走 + 逃离拥挤 */
+    ad[p] += gauss()*sp.jit*0.5;
+    var v = sp.mot*(0.35+0.65*Math.min(1,ae[p]*2));
+    var nx = ax[p]+Math.cos(ad[p])*v, ny = ay[p]+Math.sin(ad[p])*v;
+    var gn = gi(nx,ny);
+    if(gn>=0 && mask[gn] && mass[gn] <= mass[g]+1.2){ ax[p]=nx; ay[p]=ny; g=gn; }
+    else ad[p] += rnd(1.6,4.7);
+
+    /* 抗生素杀伤：杀伤速率需明显快于分裂速率，抑菌圈边界才清晰 */
+    var dose = anti[g];
+    if(dose > ar[p]){
+      if(Math.random() < (dose-ar[p])*0.30){ kill(p); continue; }
+      ae[p] -= 0.006;
+    }
+
+    /* 摄取营养（生长速率按真实菌落尺度标定：可见菌落约需十余小时） */
+    var up = Math.min(nutr[g], 0.0046*sp.grow*tf);
+    nutr[g] -= up;
+    ae[p] += up*2.0;
+    mass[g] = Math.min(7, mass[g]+0.05);
+
+    /* 饥饿：菌落内部转入静止期（移出个体列表，生物量保留） */
+    if(up < 0.0004){
+      if(mass[g] > 3.0){ dormant++; kill(p); continue; }
+      ae[p] -= 0.0022;
+      if(ae[p] < -0.35){ kill(p); continue; }
+    }
+    if(uvT>0 && Math.random()<0.0018){ kill(p); continue; }
+
+    /* 分裂：只能向「有空位」的相邻位点推进 → 菌落以边缘生长的方式扩张 */
+    if(ae[p] >= 1 && pop < CAP-2){
+      var an;
+      if(g>N && g<N*N-N){                       // 沿生物量梯度朝外（低密度方向）
+        var vx=mass[g-1]-mass[g+1], vy=mass[g-N]-mass[g+N];
+        an = (vx*vx+vy*vy > 1e-6) ? Math.atan2(vy,vx)+gauss()*0.55 : Math.random()*Math.PI*2;
+      } else an = Math.random()*Math.PI*2;
+      var tx=ax[p]+Math.cos(an)*3.2, ty=ay[p]+Math.sin(an)*3.2, gt=gi(tx,ty);
+      if(gt>=0 && mask[gt] && dens[gt]<sp.dmax && mass[gt]<3.2){
+        ae[p]=0.42;
+        ax[pop]=tx; ay[pop]=ty; ad[pop]=Math.random()*Math.PI*2; ae[pop]=0.42; asp[pop]=asp[p];
+        ar[pop]=Math.max(0, Math.min(1.35, ar[p] + gauss()*mut));   // 突变 → 耐药性演化
+        dens[gt]++; pop++;
+      } else if(ae[p] > 1.6) ae[p]=1.6;         // 无空位：停止积累（接触抑制）
+    }
+    resSum += ar[p];
+  }
+  avgRes = pop ? resSum/pop : 0;
+  if(uvT>0) uvT--;
+  simT += 0.0062*speed;
+}
+
+/* ============ 统计 ============ */
+var visited = new Uint8Array(N*N), queue = new Int32Array(N*N);
+function analyse(){
+  visited.fill(0);
+  var occ=0, cnt=0, i, TH=0.9;
+  for(i=0;i<N*N;i++) if(mask[i] && mass[i]>TH) occ++;
+  for(var s=0;s<N*N;s++){
+    if(visited[s] || !mask[s] || mass[s]<=TH) continue;
+    var h=0, t=0, size=0; queue[t++]=s; visited[s]=1;
+    while(h<t){
+      var c=queue[h++]; size++;
+      var cx=c%N, cy=(c/N)|0;
+      for(var oy=-1;oy<=1;oy++){
+        var ny=cy+oy; if(ny<0||ny>=N) continue;
+        for(var ox=-1;ox<=1;ox++){
+          if(ox===0&&oy===0) continue;
+          var nx=cx+ox; if(nx<0||nx>=N) continue;
+          var j=ny*N+nx;
+          if(visited[j]||!mask[j]||mass[j]<=TH) continue;
+          visited[j]=1; queue[t++]=j;
+        }
+      }
+    }
+    if(size>=6) cnt++;
+  }
+  colonies = cnt;
+  cover = occ/inside;
+  var tot=0; for(var q=0;q<N*N;q++) if(mask[q]) tot+=nutr[q];
+  nutLeft = tot/(inside*richness);
+  milestones();
+}
+/* 关键事件自动记录 */
+function milestones(){
+  if(!flags.grow && cover>0.02){ flags.grow=1; log('镜下可见菌落形成，进入对数生长期'); }
+  if(!flags.halo && disks.length && cover>0.06){ flags.halo=1; log('药敏纸片周围出现抑菌圈'); }
+  if(!flags.res && avgRes>0.62 && disks.length){ flags.res=1; log('警告：筛选出耐药突变株，抑菌圈内长出散在菌落'); }
+  if(!flags.lawn && cover>0.72){ flags.lawn=1; log('菌落融合成菌膜（lawn），已无法计数单菌落'); }
+  if(!flags.starve && nutLeft<0.15){ flags.starve=1; log('培养基营养接近耗尽，菌群转入静止期'); }
+}
+
+/* ============ 渲染 ============ */
+function render(){
+  ctx.clearRect(0,0,W,W);
+
+  /* 皿体阴影 */
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,.75)'; ctx.shadowBlur=34; ctx.shadowOffsetY=12;
+  ctx.fillStyle='#0d1319'; ctx.beginPath(); ctx.arc(CX,CY,R+16,0,7); ctx.fill();
+  ctx.restore();
+
+  /* 皿壁 */
+  var rim=ctx.createRadialGradient(CX-R*.4,CY-R*.5,R*.5,CX,CY,R+18);
+  rim.addColorStop(0,'rgba(190,225,235,.10)');
+  rim.addColorStop(.82,'rgba(150,200,215,.16)');
+  rim.addColorStop(.94,'rgba(220,245,250,.34)');
+  rim.addColorStop(1,'rgba(90,130,145,.10)');
+  ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(CX,CY,R+16,0,7); ctx.fill();
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,7); ctx.clip();
+
+  /* 琼脂基底 */
+  var ag=ctx.createRadialGradient(CX-R*.3,CY-R*.35,R*.15,CX,CY,R*1.05);
+  ag.addColorStop(0,'#d9d3a4'); ag.addColorStop(.55,'#c8c191'); ag.addColorStop(1,'#a49c70');
+  ctx.fillStyle=ag; ctx.fillRect(PAD,PAD,D,D);
+  ctx.globalAlpha=.5; ctx.drawImage(noise,PAD,PAD); ctx.globalAlpha=1;
+
+  /* 营养 / 药物场（变化缓慢：每 3 帧重算一次低分辨率贴图） */
+  if(showNut){
+    if(frame%3===0 || !fieldReady){
+      fieldReady=true;
+      var dt=img.data;
+      for(var i=0;i<N*N;i++){
+        var o=i*4;
+        if(!mask[i]){ dt[o+3]=0; continue; }
+        var dep=Math.max(0, 1-nutr[i]/Math.max(.35,richness));
+        var a1=dep*dep*0.5;
+        var a2=Math.min(1,anti[i]*1.15)*0.42;
+        var oa=a1+a2*(1-a1);
+        if(oa<0.004){ dt[o+3]=0; continue; }
+        var w1=a1/oa, w2=1-w1;
+        dt[o  ]=(48*w1 + 176*w2)|0;
+        dt[o+1]=(52*w1 + 224*w2)|0;
+        dt[o+2]=(38*w1 + 240*w2)|0;
+        dt[o+3]=(oa*255)|0;
+      }
+      fctx.putImageData(img,0,0);
+    }
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(fld,PAD,PAD,D,D);
+  }
+
+  /* 菌落生物量 */
+  ctx.drawImage(bio,PAD,PAD);
+
+  /* 活跃菌体：一次遍历分菌种批量填充 */
+  if(showCell && pop){
+    for(var s=0;s<SPECIES.length;s++){ paths[s]=new Path2D(); hasPath[s]=false; }
+    for(var p=0;p<pop;p++){
+      if(ae[p]<0.2) continue;
+      paths[asp[p]].rect(ax[p]-0.75, ay[p]-0.75, 1.5, 1.5); hasPath[asp[p]]=true;
+    }
+    for(s=0;s<SPECIES.length;s++) if(hasPath[s]){ ctx.fillStyle=cellFill[s]; ctx.fill(paths[s]); }
+  }
+
+  /* 药敏纸片 */
+  for(var q=0;q<disks.length;q++){
+    var dk=disks[q];
+    ctx.save();
+    ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=9; ctx.shadowOffsetY=3;
+    var dg=ctx.createRadialGradient(dk.x-6,dk.y-7,2,dk.x,dk.y,dk.r);
+    dg.addColorStop(0,'#fdfdf8'); dg.addColorStop(.75,'#eceade'); dg.addColorStop(1,'#c9c6b6');
+    ctx.fillStyle=dg; ctx.beginPath(); ctx.arc(dk.x,dk.y,dk.r,0,7); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle='#5c6470'; ctx.font='700 13px "Segoe UI",sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(DRUGS[dk.d].tag, dk.x, dk.y+.5);
+  }
+
+  /* 紫外照射 */
+  if(uvT>0){
+    ctx.fillStyle='rgba(150,110,255,'+(0.10+0.06*Math.sin(frame*0.4))+')';
+    ctx.fillRect(PAD,PAD,D,D);
+  }
+  ctx.restore();
+
+  /* 玻璃盖反光 */
+  ctx.save();
+  ctx.beginPath(); ctx.arc(CX,CY,R+15,0,7); ctx.clip();
+  var sh=ctx.createLinearGradient(CX-R,CY-R,CX+R*.4,CY+R*.9);
+  sh.addColorStop(0,'rgba(255,255,255,.16)');
+  sh.addColorStop(.28,'rgba(255,255,255,.03)');
+  sh.addColorStop(.52,'rgba(255,255,255,0)');
+  ctx.fillStyle=sh; ctx.fillRect(0,0,W,W);
+  ctx.globalAlpha=.16; ctx.strokeStyle='#fff'; ctx.lineWidth=12;
+  ctx.beginPath(); ctx.arc(CX,CY,R*1.28,-2.5,-1.75); ctx.stroke();
+  ctx.lineWidth=5;
+  ctx.beginPath(); ctx.arc(CX,CY,R*1.24,-1.62,-1.42); ctx.stroke();
+  ctx.restore();
+
+  ctx.strokeStyle='rgba(215,240,248,.30)'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.arc(CX,CY,R+15.5,0,7); ctx.stroke();
+  ctx.strokeStyle='rgba(180,215,225,.14)';
+  ctx.beginPath(); ctx.arc(CX,CY,R+.5,0,7); ctx.stroke();
+
+  ctx.fillStyle='rgba(226,244,250,.30)';
+  ctx.font='600 10.5px "Segoe UI",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.fillText('Ø 90 mm · NUTRIENT AGAR', PAD+8, PAD+D+22);
+  ctx.textAlign='right';
+  ctx.fillText((running?'INCUBATING':'PAUSED')+' · '+temp+'°C', PAD+D-8, PAD+D+22);
+}
+
+/* 生物量图层增量绘制（每帧有上限，用轮转采样保证公平覆盖） */
+var bioOff = 0;
+function paintBio(){
+  if(!pop) return;
+  var budget = Math.min(pop, 850), stride = Math.max(1, Math.round(pop/budget));
+  bctx.globalAlpha = Math.min(0.09, 0.022*stride);
+  for(var n=0;n<budget;n++){
+    var p = (bioOff + n*stride) % pop;
+    bctx.drawImage(sprite[asp[p]], ax[p]-PAD-9, ay[p]-PAD-9);
+  }
+  bctx.globalAlpha=1;
+  bioOff = (bioOff+1) % Math.max(1,stride);
+}
+
+/* 折线图 */
+var pcv=document.getElementById('plot'), pct=pcv.getContext('2d');
+function plot(){
+  var w=pcv.clientWidth||240, h=66;
+  if(pcv.width!==w*dpr){ pcv.width=w*dpr; pcv.height=h*dpr; }
+  pct.setTransform(dpr,0,0,dpr,0,0);
+  pct.clearRect(0,0,w,h);
+  pct.strokeStyle='rgba(255,255,255,.07)'; pct.lineWidth=1;
+  for(var k=1;k<4;k++){ pct.beginPath(); pct.moveTo(0,h*k/4); pct.lineTo(w,h*k/4); pct.stroke(); }
+  if(hist.length<2) return;
+  var mx=1; for(var i=0;i<hist.length;i++) if(hist[i].p>mx) mx=hist[i].p;
+  var X=function(i){ return i/(hist.length-1)*w; };
+  /* 营养曲线 */
+  pct.strokeStyle='rgba(246,196,86,.5)'; pct.beginPath();
+  for(i=0;i<hist.length;i++){ var yy=h-hist[i].n*h*0.94-2; i?pct.lineTo(X(i),yy):pct.moveTo(X(i),yy); }
+  pct.stroke();
+  /* 菌量曲线 */
+  var gd=pct.createLinearGradient(0,0,0,h);
+  gd.addColorStop(0,'rgba(79,209,197,.42)'); gd.addColorStop(1,'rgba(79,209,197,0)');
+  pct.beginPath();
+  for(i=0;i<hist.length;i++){ var y2=h-hist[i].p/mx*h*0.9-2; i?pct.lineTo(X(i),y2):pct.moveTo(X(i),y2); }
+  pct.strokeStyle='#4fd1c5'; pct.lineWidth=1.6; pct.stroke();
+  pct.lineTo(w,h); pct.lineTo(0,h); pct.closePath(); pct.fillStyle=gd; pct.fill();
+  pct.fillStyle='rgba(216,230,238,.5)'; pct.font='9.5px "Segoe UI",sans-serif';
+  pct.fillText('活跃峰值 '+mx+' · 静止期 '+(dormant>=1000?(dormant/1000).toFixed(1)+'k':dormant), 5, 11);
+}
+
+/* ============ 主循环 ============ */
+function loop(){
+  if(running){
+    for(var s=0;s<speed;s++) step();
+    paintBio();
+    frame++;
+    if(frame%40===0){
+      analyse();
+      hist.push({p:pop, n:Math.max(0,Math.min(1,nutLeft))});
+      if(hist.length>300) hist.shift();
+      plot();
+    }
+    if(frame%10===0) stats();
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+/* ============ 界面 ============ */
+function $(id){ return document.getElementById(id); }
+function stats(){
+  $('sPop').textContent = pop>=1000 ? (pop/1000).toFixed(1)+'k' : pop;
+  $('sCol').textContent = colonies;
+  $('sCov').innerHTML = (cover*100).toFixed(1)+'<small>%</small>';
+  $('sNut').innerHTML = Math.max(0,nutLeft*100).toFixed(0)+'<small>%</small>';
+  $('sTime').innerHTML = simT.toFixed(1)+'<small>h</small>';
+  $('sRes').textContent = avgRes.toFixed(2);
+}
+function log(msg){
+  var li=document.createElement('li');
+  li.innerHTML='<i>'+simT.toFixed(1)+'h</i><span>'+msg+'</span>';
+  var L=$('log'); L.insertBefore(li,L.firstChild);
+  while(L.children.length>60) L.removeChild(L.lastChild);
+}
+
+/* 菌种列表 */
+SPECIES.forEach(function(s,i){
+  var b=document.createElement('button');
+  b.className='chip'+(i===0?' on':'');
+  b.innerHTML='<span class="dot" style="background:rgb('+s.col+');color:rgb('+s.col+')"></span>'+
+              '<span><span class="nm">'+s.name+'</span><br><span class="lt">'+s.latin+
+              ' · 耐药 '+s.res.toFixed(2)+'</span></span>';
+  b.onclick=function(){ sel=i; refreshSpecies(); };
+  $('species').appendChild(b);
+});
+function refreshSpecies(){
+  var bs=$('species').children;
+  for(var i=0;i<bs.length;i++) bs[i].classList.toggle('on', i===sel);
+}
+/* 药物列表 */
+DRUGS.forEach(function(d,i){
+  var o=document.createElement('option'); o.value=i; o.textContent=d.tag+' · '+d.name+'（强度 '+d.pot.toFixed(2)+'）';
+  $('drug').appendChild(o);
+});
+$('drug').value=drugIdx;
+$('drug').onchange=function(){ drugIdx=+this.value; };
+
+/* 工具 */
+var HINTS={ seed:'点击 / 拖动培养皿即可接种所选菌种', drug:'点击放置药敏纸片，观察抑菌圈的形成',
+            feed:'点击滴加营养液，可延长菌落生长期', kill:'按住并拖动可灭菌擦除该区域的菌体' };
+document.querySelectorAll('[data-tool]').forEach(function(b){
+  b.onclick=function(){
+    tool=b.dataset.tool;
+    document.querySelectorAll('[data-tool]').forEach(function(o){ o.classList.toggle('on', o===b); });
+    $('hint').textContent=HINTS[tool];
+  };
+});
+
+/* 滑块 */
+$('temp').oninput=function(){ temp=+this.value; $('vT').textContent=temp+' °C'; };
+$('nut').oninput =function(){ richness=+this.value; $('vN').textContent=richness.toFixed(2)+'×'; };
+$('spd').oninput =function(){ speed=+this.value; $('vS').textContent=speed+'×'; };
+$('showNut').onchange=function(){ showNut=this.checked; };
+$('showCell').onchange=function(){ showCell=this.checked; };
+
+/* 按钮 */
+$('play').onclick=function(){ running=!running; this.textContent=running?'⏸ 暂停':'▶ 培养'; };
+$('reset').onclick=function(){ resetPlate(); stats(); plot(); };
+$('rand').onclick=function(){
+  var placed=[], tries=0;
+  while(placed.length<5 && tries<500){
+    tries++;
+    var a=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*(R-80);
+    var x=CX+Math.cos(a)*r, y=CY+Math.sin(a)*r, ok=true;
+    for(var i=0;i<placed.length;i++){
+      var dx=placed[i][0]-x, dy=placed[i][1]-y;
+      if(dx*dx+dy*dy < 130*130){ ok=false; break; }   // 保持菌落间距，便于单菌落计数
+    }
+    if(!ok) continue;
+    placed.push([x,y]);
+    seed(x, y, (Math.random()*SPECIES.length)|0, 26, 6);
+  }
+  log('随机接种 '+placed.length+' 处菌液（混合菌种）');
+};
+$('uv').onclick=function(){ uvT=170; log('紫外线照射：部分菌体死亡，突变率升高'); };
+
+/* 鼠标 / 触摸 */
+var drag=false, lastSeed=0;
+function pos(e){
+  var r=cv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*W };
+}
+function act(p, first){
+  if(tool==='seed'){
+    var now=performance.now();
+    if(first || now-lastSeed>45){
+      lastSeed=now;
+      var n=seed(p.x,p.y,sel,first?24:6,first?7:4);
+      if(first && n) log('接种 '+SPECIES[sel].name+' ×'+n);
+    }
+  } else if(tool==='feed') feed(p.x,p.y,58);
+  else if(tool==='kill') sterilize(p.x,p.y,34);
+  else if(tool==='drug' && first) placeDisk(p.x,p.y);
+}
+cv.addEventListener('pointerdown',function(e){
+  drag=true; cv.setPointerCapture(e.pointerId); act(pos(e),true);
+});
+cv.addEventListener('pointermove',function(e){ if(drag) act(pos(e),false); });
+cv.addEventListener('pointerup',  function(){ drag=false; });
+cv.addEventListener('pointercancel',function(){ drag=false; });
+
+/* 键盘 */
+window.addEventListener('keydown',function(e){
+  if(e.code==='Space'){ e.preventDefault(); $('play').click(); }
+  else if(e.key>='1'&&e.key<='5'){ sel=+e.key-1; refreshSpecies(); }
+  else if(e.key==='r'||e.key==='R') $('reset').click();
+  else if(e.key==='u'||e.key==='U') $('uv').click();
+});
+window.addEventListener('resize', plot);
+
+/* ============ 启动 ============ */
+resetPlate(true);
+seed(CX-160, CY-92,  0, 24, 7);
+seed(CX+160, CY-92,  3, 24, 7);
+seed(CX,     CY+185, 2, 24, 7);
+log('培养皿就绪：已接种 3 处菌落，37 °C 恒温培养中');
+stats(); plot(); loop();
+
+})();
+</script>
+</body>
+</html>

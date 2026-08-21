@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>audio 离线渲染自检</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d1117; color: #e6edf3;
+    font-family: Consolas, "Courier New", monospace; }
+  #banner { font-size: 50px; font-weight: 700; padding: 16px 20px; letter-spacing: 2px;
+    background: #6e7681; color: #000; }
+  #banner.pass { background: #2ea043; color: #000; }
+  #banner.fail { background: #f0483e; color: #fff; }
+  #sub { font-size: 24px; padding: 10px 20px 4px; color: #9fb4c7; }
+  #live { font-size: 30px; font-weight: 700; padding: 10px 20px; background: #16351f; color: #7ee787; }
+  #live.bad { background: #4a1512; color: #ff8f88; }
+  #grid { display: flex; flex-wrap: wrap; padding: 6px 10px 20px; }
+  .cell { width: 384px; height: 86px; box-sizing: border-box; margin: 3px;
+    border: 2px solid #30363d; display: flex; align-items: center; }
+  .blk { width: 60px; height: 100%; flex: 0 0 60px; }
+  .ok .blk { background: #2ea043; }
+  .bad .blk { background: #f0483e; }
+  .txt { padding-left: 10px; }
+  .nm { font-size: 23px; font-weight: 700; }
+  .ok .nm { color: #7ee787; }
+  .bad .nm { color: #ff8f88; }
+  .dt { font-size: 18px; color: #c9d1d9; }
+</style>
+</head>
+<body>
+  <div id="banner">RENDERING...</div>
+  <div id="live">REALTIME: ...</div>
+  <div id="sub">OfflineAudioContext 渲染每个音效 2.0s，判定 峰值 &gt; 0.001 且 NaN = 0</div>
+  <div id="grid"></div>
+
+  <script src="../js/util.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/audio.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var R = window.R;
+    var grid = document.getElementById('grid');
+    var banner = document.getElementById('banner');
+    var sub = document.getElementById('sub');
+    var SR = 44100, DUR = 2.0;
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext || null;
+
+    /* 无头浏览器用 --virtual-time-budget 时，虚拟时钟会跑得比音频线程快，
+       所以这里不能用 setTimeout/Date.now 等待：改成"烧 CPU"占住主线程
+       （主线程被占住 → 虚拟时间冻结 → 截图也不会提前发生），
+       每轮再让出一次事件循环，收割已经渲染完的离线上下文。 */
+    function burn(iters) {
+      var s = 0;
+      for (var i = 0; i < iters; i++) s += Math.sqrt(i % 1024);
+      return s;
+    }
+    function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
+    function cell(name, ok, detail) {
+      var d = document.createElement('div');
+      d.className = 'cell ' + (ok ? 'ok' : 'bad');
+      d.innerHTML = '<div class="blk"></div><div class="txt">' +
+        '<div class="nm">' + (ok ? '' : '[X] ') + name + '</div>' +
+        '<div class="dt">' + detail + '</div></div>';
+      grid.appendChild(d);
+    }
+
+    function analyse(buf) {
+      var peak = 0, sum = 0, n = 0, nan = 0, lastLoud = -1;
+      for (var c = 0; c < buf.numberOfChannels; c++) {
+        var d = buf.getChannelData(c);
+        for (var i = 0; i < d.length; i++) {
+          var v = d[i];
+          if (!isFinite(v)) { nan++; continue; }
+          var a = v < 0 ? -v : v;
+          if (a > peak) peak = a;
+          if (a > 0.0005 && i > lastLoud) lastLoud = i;
+          sum += v * v; n++;
+        }
+      }
+      return {
+        peak: peak, rms: n ? Math.sqrt(sum / n) : 0, nan: nan,
+        dur: lastLoud >= 0 ? (lastLoud + 1) / buf.sampleRate : 0,
+      };
+    }
+
+    /** 用同一份合成代码（R.Audio.render 接受目标 ctx）离线渲染一个音效 */
+    function renderOne(name) {
+      return new Promise(function (resolve) {
+        var octx;
+        try { octx = new OAC(2, Math.floor(SR * DUR), SR); }
+        catch (e) { resolve({ err: 'ctx: ' + e.message }); return; }
+        var declared;
+        try { declared = R.Audio.render(octx, name, 0, { vol: 1 }); }
+        catch (e) { resolve({ err: 'render 抛异常: ' + e.message }); return; }
+        if (declared == null) { resolve({ err: 'render 返回 null（无实现）' }); return; }
+        var p;
+        try { p = octx.startRendering(); }
+        catch (e) { resolve({ err: 'startRendering: ' + e.message }); return; }
+        if (!p || !p.then) { resolve({ err: 'startRendering 无 Promise' }); return; }
+        p.then(function (buf) {
+          var a;
+          try { a = analyse(buf); } catch (e) { resolve({ err: 'analyse: ' + e.message }); return; }
+          a.declared = declared;
+          resolve(a);
+        }, function (e) { resolve({ err: 'rendering: ' + (e && e.message || e) }); });
+      });
+    }
+
+    function fmt(v, n) { var k = Math.pow(10, n); return (Math.round(v * k) / k).toFixed(n); }
+
+    (async function main() {
+      /* ---- 先验证真实 AudioContext 路径（实时母线 + 全部音效调用不报错） ---- */
+      var liveEl = document.getElementById('live');
+      var liveTxt = '', liveOk = true;
+      try {
+        var okInit = R.Audio.init();
+        R.Audio.setVolume(0.9, 0.9, 1.0);
+        R.Audio.update(0.016, 0, 0, 1);
+        R.Audio.names().forEach(function (n) { R.Audio.play(n, 40, 30); R.Audio.ui(n); });
+        R.Audio.voNames().forEach(function (n) { R.Audio.vo(n); });
+        R.Audio.update(0.016, 4000, 4000, 0.75);
+        R.Audio.names().forEach(function (n) { R.Audio.play(n, -9000, 9000); });
+        R.Audio.muted = true; R.Audio.muted = false;
+        liveTxt = 'REALTIME OK: init()=' + okInit + '  ready=' + R.Audio.ready +
+          '  state=' + (R.Audio.ctx ? R.Audio.ctx.state : 'n/a') +
+          '  sr=' + (R.Audio.ctx ? R.Audio.ctx.sampleRate : '-') +
+          '  活跃源=' + R.Audio.activeVoices;
+        liveOk = (okInit === true && R.Audio.ready === true);
+      } catch (e) {
+        liveOk = false;
+        liveTxt = 'REALTIME FAIL: ' + (e && e.message || e);
+      }
+      liveEl.textContent = liveTxt;
+      if (!liveOk) liveEl.className = 'bad';
+
+      if (!OAC) {
+        banner.className = 'fail';
+        banner.textContent = 'FAIL: 本环境没有 OfflineAudioContext';
+        document.title = 'FAIL no-OfflineAudioContext';
+        return;
+      }
+      var all = [];
+      R.Audio.names().forEach(function (n) { all.push({ n: n, tag: 'sfx' }); });
+      R.Audio.voNames().forEach(function (n) { all.push({ n: n, tag: 'vo' }); });
+
+      var N = all.length;
+      var res = new Array(N);
+      var left = N;
+      for (var i = 0; i < N; i++) {
+        (function (idx) {
+          renderOne(all[idx].n).then(function (r) { res[idx] = r; left--; });
+        })(i);
+      }
+
+      /* 收割：最多 240 轮，每轮烧一小段真实 CPU 时间再让出一次 */
+      for (var g = 0; g < 240 && left > 0; g++) {
+        burn(1500000);
+        document.title = 'WAIT ' + (N - left) + '/' + N;
+        await tick();
+      }
+
+      var pass = 0, fails = [], lines = [];
+      for (i = 0; i < N; i++) {
+        var it = all[i], r = res[i];
+        var good, detail;
+        if (!r) { good = false; detail = '超时：离线渲染未在预算内完成'; }
+        else if (r.err) { good = false; detail = r.err; }
+        else {
+          good = (r.nan === 0 && r.peak > 0.001);
+          detail = 'peak ' + fmt(r.peak, 4) + '   rms ' + fmt(r.rms, 5) +
+            '   len ' + fmt(r.dur, 3) + 's   NaN ' + r.nan;
+        }
+        cell((it.tag === 'vo' ? 'vo:' : '') + it.n, good, detail);
+        lines.push((good ? 'PASS' : 'FAIL') + ' ' + it.tag + ':' + it.n + ' | ' + detail);
+        if (good) pass++; else fails.push(it.n);
+      }
+
+      var allOk = fails.length === 0;
+      banner.className = allOk ? 'pass' : 'fail';
+      banner.textContent = (allOk ? 'ALL PASS  ' : 'FAIL  ') + pass + ' / ' + N +
+        (allOk ? '   peak>0.001 & NaN=0' : '   BAD: ' + fails.join(','));
+      sub.textContent = '音效 ' + R.Audio.names().length + ' 个 + 播报 ' + R.Audio.voNames().length +
+        ' 个，各离线渲染 ' + DUR + 's @ ' + SR + 'Hz（与实时播放共用 _render 合成代码）';
+      document.title = (allOk && liveOk ? 'ALLPASS' : 'FAIL') + ' ' + pass + '/' + N;
+      window.__AUDIO_REPORT__ = liveTxt + '\n' + lines.join('\n');
+      var pre = document.createElement('pre');
+      pre.style.cssText = 'font-size:12px;color:#8b949e;padding:0 14px;line-height:1.25;';
+      pre.textContent = liveTxt + '\n' + lines.join('\n');
+      document.body.appendChild(pre);
+    })();
+  })();
+  </script>
+</body>
+</html>

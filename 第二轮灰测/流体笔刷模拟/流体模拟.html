@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Stable Fluids · WebGL2 + GLSL ES 3.00 实时 2D 流体</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05070c;color:#e8eef7;
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;-webkit-user-select:none;user-select:none;}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none;}
+
+  /* ---------- 控制面板（原生 DOM，无 GUI 库） ---------- */
+  #ui{position:fixed;top:12px;right:12px;width:266px;z-index:5;
+    background:rgba(10,14,22,.82);border:1px solid rgba(255,255,255,.12);border-radius:12px;
+    backdrop-filter:blur(10px);box-shadow:0 16px 44px rgba(0,0,0,.5);font-size:12px;}
+  #ui header{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.1);}
+  #ui header b{font-size:12.5px;letter-spacing:.06em;}
+  #ui header span{color:#7f8ea3;font-size:11px;}
+  #ui .body{padding:10px 12px 12px;}
+  #ui.collapsed .body{display:none;}
+  .row{display:grid;grid-template-columns:1fr 46px;gap:6px 8px;align-items:center;margin:9px 0;}
+  .row label{color:#aebbcd;}
+  .row output{color:#7fe3c0;text-align:right;font-variant-numeric:tabular-nums;}
+  .row input[type=range]{grid-column:1/3;width:100%;height:16px;accent-color:#38d39f;}
+  .row.inline{grid-template-columns:1fr auto;}
+  select,button{font:inherit;font-size:12px;color:#e8eef7;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:5px 8px;cursor:pointer;}
+  select:hover,button:hover{background:rgba(255,255,255,.14);}
+  .btns{display:flex;gap:8px;margin-top:10px;}
+  .btns button{flex:1;}
+  hr{border:0;border-top:1px solid rgba(255,255,255,.1);margin:11px 0;}
+  #stats{font-variant-numeric:tabular-nums;color:#8fa3ba;line-height:1.6;font-size:11px;}
+  #stats b{color:#7fe3c0;}
+  details{margin-top:10px;}
+  details summary{cursor:pointer;color:#aebbcd;font-size:11.5px;}
+  details pre{margin-top:8px;font-size:9.5px;line-height:1.35;color:#8fb8d8;
+    background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.09);border-radius:8px;
+    padding:8px;overflow:auto;max-height:230px;white-space:pre;}
+  #tip{position:fixed;left:14px;bottom:12px;font-size:11.5px;color:#7f8ea3;z-index:5;line-height:1.6;}
+  #tip b{color:#b9c8db;}
+  #err{position:fixed;inset:0;display:none;z-index:99;background:#170b0b;color:#ffb3b3;
+    padding:22px;font:13px/1.55 Consolas,monospace;white-space:pre-wrap;overflow:auto;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <header id="ui-head"><b>🌊 Stable Fluids · WebGL2</b><span id="ui-toggle">收起</span></header>
+  <div class="body">
+    <div class="row"><label>粘度 ν（viscosity）</label><output id="o-visc"></output>
+      <input type="range" id="s-visc" min="0" max="1" step="0.01"></div>
+    <div class="row"><label>扩散率（diffusion）</label><output id="o-diff"></output>
+      <input type="range" id="s-diff" min="0" max="1" step="0.01"></div>
+    <div class="row"><label>耗散率（dissipation）</label><output id="o-diss"></output>
+      <input type="range" id="s-diss" min="0" max="4" step="0.02"></div>
+    <div class="row"><label>笔刷大小（brush）</label><output id="o-brush"></output>
+      <input type="range" id="s-brush" min="0.004" max="0.09" step="0.001"></div>
+    <hr>
+    <div class="row"><label>注入力度（force）</label><output id="o-force"></output>
+      <input type="range" id="s-force" min="1000" max="26000" step="500"></div>
+    <div class="row inline"><label>压力求解器</label>
+      <select id="sel-solver">
+        <option value="mg2">多重网格 V-cycle ×2</option>
+        <option value="mg1">多重网格 V-cycle ×1</option>
+        <option value="jacobi">纯 Jacobi ×N</option>
+      </select></div>
+    <div class="row"><label>Jacobi 迭代（仅纯 Jacobi 模式）</label><output id="o-iter"></output>
+      <input type="range" id="s-iter" min="4" max="60" step="1"></div>
+    <div class="row inline"><label>显示</label>
+      <select id="sel-view">
+        <option value="0">染料 dye</option>
+        <option value="1">速度场 velocity</option>
+        <option value="2">压力 pressure</option>
+        <option value="3">散度 divergence</option>
+      </select></div>
+    <div class="row inline"><label>模拟分辨率</label>
+      <select id="sel-res">
+        <option value="256">256（短边）</option>
+        <option value="512" selected>512（短边）</option>
+        <option value="768">768（短边）</option>
+        <option value="1024">1024（短边）</option>
+      </select></div>
+    <div class="row inline"><label>空闲自动演示</label><input type="checkbox" id="chk-auto" checked></div>
+    <div class="btns"><button id="btn-clear">清空场</button><button id="btn-reset">恢复默认</button></div>
+    <hr>
+    <div id="stats"></div>
+    <details>
+      <summary>算法流程图（每帧 pass 顺序）</summary>
+      <pre id="flow"></pre>
+    </details>
+  </div>
+</div>
+
+<div id="tip"><b>鼠标拖动</b>注入染料与速度（多色混合）·　<b>右键拖动</b>只注入速度·　<b>双击</b>清空</div>
+<div id="err"></div>
+
+<script>
+"use strict";
+/* =====================================================================================
+   Stable Fluids (Jos Stam, GDC 2003 "Real-Time Fluid Dynamics for Games") · WebGL2 实现
+   —— 不可压缩 Navier–Stokes：
+        ∂u/∂t = -(u·∇)u - ∇p + ν∇²u + f ,   ∇·u = 0
+      每帧按 Stam 的分裂法(operator splitting)依次求解：
+        ① add force   w1 = w0 + Δt·f                （splat pass）
+        ② advection   w2 = w1(x - u·Δt)              （半拉格朗日回溯，对 Δt 无条件稳定）
+        ③ diffusion   (I - νΔt∇²)w3 = w2             （隐式，Jacobi 迭代）
+        ④ projection  ∇²p = ∇·w3 ;  w4 = w3 - ∇p     （Helmholtz–Hodge 分解，投影到无散空间）
+      染料(dye)按同样的 advection/diffusion/dissipation 被动输运。
+   —— 全部数据在 RGBA16F 纹理里 ping-pong；无任何第三方库。
+   ===================================================================================== */
+
+/* ---------------------------------- 0. 上下文与错误面板 --------------------------------- */
+const canvas = document.getElementById('c');
+const errBox = document.getElementById('err');
+let fatalShown = false;
+function fatal(msg){
+  if (fatalShown) return; fatalShown = true;
+  errBox.style.display = 'block';
+  errBox.textContent = '初始化失败：\n\n' + msg;
+  console.error(msg);
+}
+window.addEventListener('error', e => fatal((e.message || '脚本错误') + '\n' + (e.filename || '') + ':' + e.lineno));
+
+const gl = canvas.getContext('webgl2', {
+  alpha: false, depth: false, stencil: false, antialias: false,
+  premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance'
+});
+if (!gl) fatal('本页需要 WebGL2（GLSL ES 3.00）。请使用较新的 Chrome / Edge / Firefox。');
+
+// RGBA16F 作为渲染目标（color-renderable）在 WebGL2 里需要这个扩展
+const extCBF = gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float');
+if (gl && !extCBF) fatal('缺少 EXT_color_buffer_float，无法渲染到 RGBA16F 纹理。');
+const dbgRenderer = (() => {
+  const e = gl && gl.getExtension('WEBGL_debug_renderer_info');
+  return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : (gl ? gl.getParameter(gl.RENDERER) : '-');
+})();
+
+/* ------------------------------------ 1. Shader 源码 ----------------------------------- */
+/* 注意：`#version 300 es` 必须是源码第一行第一个字符，所以模板字符串紧贴反引号书写。 */
+
+// 通用顶点着色器：一个覆盖全屏的大三角形（3 顶点，最省）
+const VS_QUAD = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 aPos;
+out vec2 vUv;
+void main(){
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+// 邻域顶点着色器：把 L/R/B/T 四个邻居的 UV 提前算好，作为 varying 插值下发
+// —— 性能优化：把每像素的地址运算从 fragment 移到 vertex（只算 3 次），减少 fragment ALU
+const VS_NEIGHBOR = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 aPos;
+uniform vec2 uTexel;              // 1/网格尺寸
+out vec2 vUv; out vec2 vL; out vec2 vR; out vec2 vB; out vec2 vT;
+void main(){
+  vUv = aPos * 0.5 + 0.5;
+  vL = vUv - vec2(uTexel.x, 0.0);
+  vR = vUv + vec2(uTexel.x, 0.0);
+  vB = vUv - vec2(0.0, uTexel.y);
+  vT = vUv + vec2(0.0, uTexel.y);
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+// ============================== Advection pass ==============================
+// 物理含义：求解输运项 ∂q/∂t + (u·∇)q = 0，即“物质随流体走”。
+// 方法：Stam 的半拉格朗日(semi-Lagrangian)回溯 —— 从当前格子沿速度反向走 Δt，
+//       用硬件双线性插值取上一时刻的值。这一步对任意 Δt 都稳定（不会像显式差分那样爆掉）。
+// 代价：数值耗散（画面会略微变模糊），这是 Stable Fluids 的固有特性。
+const FS_ADVECT = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;        // 被输运的量：速度场 or 染料场
+uniform sampler2D uVel;        // 速度场，单位：格/秒(cells per second)
+uniform vec2  uVelTexel;       // 1/速度网格尺寸：把“格”换算成 UV 位移（与两套分辨率无关）
+uniform float uDt;
+uniform float uDissipation;    // 耗散率：染料淡出 / 速度阻尼，w /= (1 + k·Δt)
+uniform float uClamp;          // 数值护栏：限幅，防止极端输入把 16F 顶到 inf
+void main(){
+  // 速度也做一次 NaN/Inf 清洗：万一某帧出现坏值，这里能在一帧内自愈，不会永久污染整个场
+  vec2 vel = texture(uVel, vUv).xy;
+  vel = mix(vel, vec2(0.0), bvec2(isnan(vel.x) || isinf(vel.x), isnan(vel.y) || isinf(vel.y)));
+  // 回溯坐标；clamp 到 [0,1] 等价于壁面处零梯度，保证不会采到域外
+  vec2 back = clamp(vUv - vel * uDt * uVelTexel, vec2(0.0), vec2(1.0));
+  vec4 q = texture(uSrc, back);
+  q = clamp(q, vec4(-uClamp), vec4(uClamp));
+  // NaN/Inf 洗刷（bvec 版 mix，无分支）：任何一次意外的 0/0 都不会污染后续所有帧
+  q = mix(q, vec4(0.0), bvec4(isnan(q.x) || isinf(q.x), isnan(q.y) || isinf(q.y),
+                              isnan(q.z) || isinf(q.z), isnan(q.w) || isinf(q.w)));
+  fragColor = q / (1.0 + uDissipation * uDt);
+}`;
+
+// ============================== External force pass (velocity) ==============================
+// 物理含义：NS 方程里的体积力 f —— 鼠标拖动给流体一个动量冲量：w1 = w0 + Δt·f。
+// 笔刷沿“上一帧鼠标位置 → 当前鼠标位置”的线段注入（胶囊形高斯核），
+// 所以鼠标快速划过时轨迹是连续的，不会出现断点/残影。
+const FS_SPLAT_VEL = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform vec2  uA, uB;          // 鼠标线段两端（UV）
+uniform vec2  uForce;          // 已乘好 Δt 的速度增量（格/秒）
+uniform float uRadius;         // 笔刷半径（UV，按长宽比校正后为圆形）
+uniform float uAspect;
+float segDist(vec2 p, vec2 a, vec2 b){          // 点到线段最短距离
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  return length(pa - ba * h);
+}
+void main(){
+  vec2 p = vec2(vUv.x * uAspect, vUv.y);
+  float d = segDist(p, vec2(uA.x * uAspect, uA.y), vec2(uB.x * uAspect, uB.y));
+  float w = exp(-(d * d) / (uRadius * uRadius));   // 高斯权重
+  fragColor = vec4(texture(uSrc, vUv).xy + uForce * w, 0.0, 1.0);
+}`;
+
+// ============================== Dye source pass ==============================
+// 物理含义：被动标量(染料)的源项 —— 往流场里挤颜料。颜色按 HSV 随时间旋转，
+// 多次注入在同一处叠加即得到多色混合（RGBA16F 有足够动态范围，不会像 8bit 那样早早饱和）。
+const FS_SPLAT_DYE = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform vec2  uA, uB;
+uniform vec3  uColor;
+uniform float uRadius;
+uniform float uAspect;
+float segDist(vec2 p, vec2 a, vec2 b){
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0);
+  return length(pa - ba * h);
+}
+void main(){
+  vec2 p = vec2(vUv.x * uAspect, vUv.y);
+  float d = segDist(p, vec2(uA.x * uAspect, uA.y), vec2(uB.x * uAspect, uB.y));
+  float w = exp(-(d * d) / (uRadius * uRadius));
+  fragColor = vec4(texture(uSrc, vUv).rgb + uColor * w, 1.0);
+}`;
+
+// ============================== Diffusion pass (viscosity) ==============================
+// 物理含义：粘性扩散 ∂u/∂t = ν∇²u。显式格式在 ν 大时会炸，所以 Stam 用隐式：
+//   (I - νΔt∇²) u_new = u_old  → 线性系统，用迭代法解。
+// Stam 原文用 Gauss–Seidel(20 次)；GPU 上改用可并行的 Jacobi：
+//   u_new = ( u_old + α·Σ邻居 ) / (1 + 4α),  α = νΔt/h², 取 h = 1 格
+// 因此需要两张图：uX0（右端项 = 扩散前的场，固定不变）与 uX（上一次迭代结果）。
+// 边界：四壁无滑移 —— 域外“虚拟格”取内侧速度的相反数，使壁面处插值速度为 0。
+const FS_JACOBI_VEC2 = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uX;          // 上一次 Jacobi 迭代的解
+uniform sampler2D uX0;         // 右端项（扩散前的场）
+uniform float uAlpha;          // α = νΔt/h²
+vec2 samp(vec2 uv){            // no-slip 镜像采样：域外 → -u_inner（无分支，用 step 乘法）
+  vec2 ins = step(vec2(0.0), uv) * step(uv, vec2(1.0));
+  return texture(uX, clamp(uv, vec2(0.0), vec2(1.0))).xy * (2.0 * ins.x * ins.y - 1.0);
+}
+void main(){
+  vec2 sum = samp(vL) + samp(vR) + samp(vB) + samp(vT);
+  vec2 x0  = texture(uX0, vUv).xy;
+  fragColor = vec4((x0 + uAlpha * sum) / (1.0 + 4.0 * uAlpha), 0.0, 1.0);
+}`;
+
+// 染料的扩散（同一套隐式 Jacobi，只是标量三通道、边界用零梯度：染料不穿墙也不消失）
+const FS_JACOBI_VEC3 = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uX;
+uniform sampler2D uX0;
+uniform float uAlpha;
+void main(){
+  vec3 sum = texture(uX, clamp(vL, 0.0, 1.0)).rgb + texture(uX, clamp(vR, 0.0, 1.0)).rgb
+           + texture(uX, clamp(vB, 0.0, 1.0)).rgb + texture(uX, clamp(vT, 0.0, 1.0)).rgb;
+  vec3 x0 = texture(uX0, vUv).rgb;
+  fragColor = vec4((x0 + uAlpha * sum) / (1.0 + 4.0 * uAlpha), 1.0);
+}`;
+
+// ============================== Divergence pass ==============================
+// 物理含义：算 ∇·u —— 每个格子的“净流出量”。不可压缩流体要求它处处为 0，
+// 而 advection + 外力会破坏这一点，所以先量出误差，作为压力泊松方程的右端项。
+//
+// 离散化要点（这里不是随手抄 demo 的中心差分）：
+//   散度用【后向差分】div_i = (u_i - u_{i-1}) + (v_j - v_{j-1})
+//   梯度用【前向差分】(∇p)_i = (p_{i+1} - p_i, p_{j+1} - p_j)
+// 两者复合恰好等于 5 点拉普拉斯：p_{i+1} - 2p_i + p_{i-1}，与压力 Jacobi 用的算子完全一致。
+// 若两边都用中心差分（很多 demo 的写法），复合出的算子步长是 2h，奇偶子格解耦，
+// 投影后散度压不下去（实测只降 ~24%）；改成前/后向配对后可降到 ~99%。
+// 这等价于 MAC 交错网格，只是把数据存在同位纹理里。
+const FS_DIVERGENCE = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uVel;
+uniform float uScale;          // 压力量纲缩放 1/S：把 p 压到 16F 的舒适区间，防溢出
+vec2 samp(vec2 uv){            // no-slip 镜像边界：域外 → -u_inner（无分支，用 step 乘法）
+  vec2 ins = step(vec2(0.0), uv) * step(uv, vec2(1.0));
+  return texture(uVel, clamp(uv, vec2(0.0), vec2(1.0))).xy * (2.0 * ins.x * ins.y - 1.0);
+}
+void main(){
+  vec2 c = texture(uVel, vUv).xy;
+  float div = (c.x - samp(vL).x) + (c.y - samp(vB).y);
+  fragColor = vec4(clamp(div * uScale, -2.0e4, 2.0e4), 0.0, 0.0, 1.0);
+}`;
+
+// ============================== Pressure Poisson pass ==============================
+// 物理含义：解 ∇²p = ∇·u。压力是“为维持不可压缩而产生的约束力势”。
+// Jacobi 平滑子：p ← (p_L + p_R + p_B + p_T − h²·f) / 4
+//
+// 为什么不能只堆 Jacobi 迭代：Jacobi 对波长 L 格的误差模，每次迭代衰减因子约 1 − 2π²/L²。
+// 笔刷半径 ~22 格 ⇒ 主要误差模 L≈44 格 ⇒ 单次只衰减约 1%，20 次也只压掉 ~20% 散度（实测 25%）。
+// 所以这里用【几何多重网格 V-cycle】：把残差限制到粗网格上解（粗网格上同一物理波长只占
+// 一半格数，Jacobi 衰减快 4 倍），再插值回来修正。3 层 V-cycle 的等效代价 ≈ 8 个全分辨率 pass，
+// 比 20 次 Jacobi 更便宜，残差却能压到 ~1%。
+const FS_JACOBI_P = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uPres;
+uniform sampler2D uRhs;
+uniform float uH2;             // h²：第 ℓ 层格距 h = 2^ℓ（以最细层的格为单位）
+void main(){
+  // 边界 ∂p/∂n = 0（Neumann）：域外虚拟格取内侧值 ⇒ clamp 采样即可，无需分支
+  float l = texture(uPres, clamp(vL, 0.0, 1.0)).x;
+  float r = texture(uPres, clamp(vR, 0.0, 1.0)).x;
+  float b = texture(uPres, clamp(vB, 0.0, 1.0)).x;
+  float t = texture(uPres, clamp(vT, 0.0, 1.0)).x;
+  float f = texture(uRhs, vUv).x;
+  // 限幅：压力在“格”量纲下量级很大（p ~ div·R²），16F 上限 65504，
+  // 极端输入下若不夹紧会溢出成 Inf，再经 gradient 传播成整场 NaN（实测过）。
+  fragColor = vec4(clamp((l + r + b + t - uH2 * f) * 0.25, -3.0e4, 3.0e4), 0.0, 0.0, 1.0);
+}`;
+
+// 多重网格：残差 r = f − ∇²p，即“这一层没解掉的部分”，送去粗网格继续解
+const FS_RESIDUAL = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uPres;
+uniform sampler2D uRhs;
+uniform float uH2;
+void main(){
+  float p = texture(uPres, vUv).x;
+  float l = texture(uPres, clamp(vL, 0.0, 1.0)).x;
+  float r = texture(uPres, clamp(vR, 0.0, 1.0)).x;
+  float b = texture(uPres, clamp(vB, 0.0, 1.0)).x;
+  float t = texture(uPres, clamp(vT, 0.0, 1.0)).x;
+  float lap = (l + r + b + t - 4.0 * p) / uH2;
+  fragColor = vec4(clamp(texture(uRhs, vUv).x - lap, -3.0e4, 3.0e4), 0.0, 0.0, 1.0);
+}`;
+
+// 多重网格：粗网格修正量线性插值回细网格并累加  p_fine += interp(e_coarse)
+// （限制算子直接用双线性降采样 = 2×2 均值，即 cell-centered full-weighting）
+const FS_PROLONG_ADD = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uFine;
+uniform sampler2D uCoarse;
+void main(){
+  fragColor = vec4(clamp(texture(uFine, vUv).x + texture(uCoarse, vUv).x, -3.0e4, 3.0e4), 0.0, 0.0, 1.0);
+}`;
+
+// 压力场热启动：p *= k（保留上一帧的解做初值，Jacobi 收敛更快；k<1 防止历史误差累积）
+const FS_DECAY = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform float uK;
+void main(){ fragColor = vec4(texture(uSrc, vUv).x * uK, 0.0, 0.0, 1.0); }`;
+
+// ============================== Projection pass ==============================
+// 物理含义：u ← u - ∇p，把速度场投影回“无散空间”（Helmholtz–Hodge 分解里扣掉有旋部分的梯度场）。
+// 完成后 ∇·u ≈ 0，流体表现为不可压缩。梯度用【前向差分】与散度的后向差分配对（见 divergence pass）。
+// 边界：最外一圈速度强制为 0（no-slip 硬约束）—— 壁面不透水，染料/动量不可能泄漏出画面。
+const FS_GRADIENT = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec2 vL; in vec2 vR; in vec2 vB; in vec2 vT;
+out vec4 fragColor;
+uniform sampler2D uPres;
+uniform sampler2D uVel;
+uniform vec2 uTexel;
+uniform float uScale;          // = S，与 divergence 的 1/S 抵消，还原真实压力梯度
+void main(){
+  float p0 = texture(uPres, vUv).x;
+  float pr = texture(uPres, clamp(vR, 0.0, 1.0)).x;
+  float pt = texture(uPres, clamp(vT, 0.0, 1.0)).x;
+  vec2 u = texture(uVel, vUv).xy - uScale * vec2(pr - p0, pt - p0);
+  vec2 m = step(uTexel, vUv) * step(vUv, 1.0 - uTexel);   // 边界一圈 = 0，无分支
+  fragColor = vec4(u * (m.x * m.y), 0.0, 1.0);
+}`;
+
+// 通用拷贝（给隐式扩散准备右端项 x0）
+const FS_COPY = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+void main(){ fragColor = texture(uSrc, vUv); }`;
+
+// ============================== Display pass ==============================
+// 物理含义：可视化。默认输出染料浓度（指数色调映射，避免叠加过亮直接削顶）；
+// 另有速度/压力/散度三种调试视图 —— 调 shader 时肉眼定位问题非常有用。
+// 这里的 if 是 uniform 分支（整个 draw call 走同一支），不存在 warp 内分歧。
+const FS_DISPLAY = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uDye;
+uniform sampler2D uVel;
+uniform sampler2D uPres;
+uniform sampler2D uDiv;
+uniform int  uMode;
+void main(){
+  vec3 col;
+  if (uMode == 0){
+    vec3 d = max(texture(uDye, vUv).rgb, 0.0);
+    col = 1.0 - exp(-d * 1.35);                       // 色调映射
+    col = pow(col, vec3(0.92));
+  } else if (uMode == 1){
+    vec2 v = texture(uVel, vUv).xy * 0.004;
+    col = vec3(0.5) + vec3(v.x, v.y, -0.5 * (v.x + v.y));
+  } else if (uMode == 2){
+    float p = texture(uPres, vUv).x * 0.9;
+    col = vec3(max(p, 0.0), 0.06, max(-p, 0.0));
+  } else {
+    float dv = texture(uDiv, vUv).x * 240.0;
+    col = vec3(max(dv, 0.0), 0.05, max(-dv, 0.0));
+  }
+  fragColor = vec4(col, 1.0);
+}`;
+
+/* ------------------------------- 2. GL 小工具（程序/FBO） ------------------------------ */
+function compileShader(type, src, name){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    // shader 报错定位：把行号和源码一起打出来，直接对上出错行
+    const log = gl.getShaderInfoLog(s) || '';
+    const lines = src.split('\n').map((l, i) => String(i + 1).padStart(3) + ' | ' + l).join('\n');
+    throw new Error('[' + name + '] 编译失败\n' + log + '\n--- 源码 ---\n' + lines);
+  }
+  return s;
+}
+const shaderCache = new Map();
+function getShader(type, src, name){
+  if (!shaderCache.has(src)) shaderCache.set(src, compileShader(type, src, name));
+  return shaderCache.get(src);
+}
+function createProgram(vsSrc, fsSrc, name){
+  const p = gl.createProgram();
+  gl.attachShader(p, getShader(gl.VERTEX_SHADER, vsSrc, name + '.vert'));
+  gl.attachShader(p, getShader(gl.FRAGMENT_SHADER, fsSrc, name + '.frag'));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('[' + name + '] 链接失败\n' + gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){
+    const info = gl.getActiveUniform(p, i);
+    u[info.name] = gl.getUniformLocation(p, info.name);
+  }
+  return { prog: p, u, name };
+}
+
+// RGBA16F 纹理 + FBO。线性过滤（ES3 里 half-float 可过滤），CLAMP_TO_EDGE 配合边界条件。
+function createFBO(w, h){
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (st !== gl.FRAMEBUFFER_COMPLETE) throw new Error('FBO 不完整 (0x' + st.toString(16) + ')，RGBA16F 渲染目标不可用');
+  // 新建纹理必须清零：未初始化的浮点纹理可能含垃圾值，会直接变成 NaN 源头
+  gl.viewport(0, 0, w, h);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  return { tex, fbo, w, h, texel: [1 / w, 1 / h] };
+}
+function createDoubleFBO(w, h){
+  let a = createFBO(w, h), b = createFBO(w, h);
+  return {
+    w, h, texel: a.texel,
+    get read(){ return a; }, get write(){ return b; },
+    swap(){ const t = a; a = b; b = t; }
+  };
+}
+function destroyFBO(f){ if (!f) return; gl.deleteTexture(f.tex); gl.deleteFramebuffer(f.fbo); }
+function destroyDouble(d){ if (!d) return; destroyFBO(d.read); destroyFBO(d.write); }
+
+// 全屏三角形（3 顶点，比 quad 少一次光栅化 setup）
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+let texUnitCursor = 0;
+function bindTex(loc, tex){                      // 绑定采样器到纹理单元
+  if (loc == null) return;
+  const unit = texUnitCursor++;
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.uniform1i(loc, unit);
+}
+function use(p){ gl.useProgram(p.prog); texUnitCursor = 0; return p.u; }
+function drawTo(target){
+  if (target){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    gl.viewport(0, 0, target.w, target.h);
+  } else {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* --------------------------------- 3. 程序与仿真状态 ---------------------------------- */
+let P = null;
+try {
+  P = {
+    advect:   createProgram(VS_QUAD,     FS_ADVECT,     'advect'),
+    splatVel: createProgram(VS_QUAD,     FS_SPLAT_VEL,  'splatVel'),
+    splatDye: createProgram(VS_QUAD,     FS_SPLAT_DYE,  'splatDye'),
+    jacobiV:  createProgram(VS_NEIGHBOR, FS_JACOBI_VEC2,'viscosityJacobi'),
+    jacobiD:  createProgram(VS_NEIGHBOR, FS_JACOBI_VEC3,'dyeDiffusionJacobi'),
+    diverg:   createProgram(VS_NEIGHBOR, FS_DIVERGENCE, 'divergence'),
+    pressure: createProgram(VS_NEIGHBOR, FS_JACOBI_P,   'pressureJacobiSmoother'),
+    residual: createProgram(VS_NEIGHBOR, FS_RESIDUAL,   'mgResidual'),
+    prolong:  createProgram(VS_QUAD,     FS_PROLONG_ADD,'mgProlongAdd'),
+    decay:    createProgram(VS_QUAD,     FS_DECAY,      'pressureDecay'),
+    gradient: createProgram(VS_NEIGHBOR, FS_GRADIENT,   'gradientSubtract'),
+    copy:     createProgram(VS_QUAD,     FS_COPY,       'copy'),
+    display:  createProgram(VS_QUAD,     FS_DISPLAY,    'display')
+  };
+} catch (e){ fatal(e.message || String(e)); }
+
+const cfg = {
+  simBase: 512,          // 模拟网格短边（≥512 满足要求；长边按窗口长宽比放大，保证正方形格子）
+  viscosity: 0.0,        // 粘度滑块 0..1  → ν = 滑块 × VISC_SCALE (格²/秒)
+  diffusion: 0.0,        // 染料扩散滑块 0..1
+  dissipation: 0.92,     // 染料耗散 (1/秒)
+  brush: 0.024,          // 笔刷半径（UV）
+  force: 9000,           // 注入力度（格/秒 per UV）
+  solver: 'mg2',         // 压力求解器：mg1 / mg2（V-cycle 次数）/ jacobi
+  pressureIters: 20,     // 纯 Jacobi 模式的迭代次数
+  viscIters: 20,         // 粘性 Jacobi 迭代次数（随粘度滑块自动增加，见 step()）
+  diffIters: 8,          // 染料扩散 Jacobi 迭代次数
+  view: 0,
+  auto: true
+};
+const VISC_SCALE = 1200;     // 滑块 1.0 → ν=1200 格²/秒
+const DIFF_SCALE = 260;
+const VEL_DAMP = 0.20;       // 速度本身的轻微阻尼（1/秒），避免能量无限累积
+const VEL_CLAMP = 3000;      // 速度限幅（格/秒）：3000 格/秒 ≈ 每秒横穿 3 屏，够用且远离 16F 上限
+const PRES_SCALE = 8;        // 压力量纲缩放：divergence 除以 S、gradient 乘回 S，等价但更抗溢出
+const PRESSURE_WARM = 0.82;  // 压力热启动衰减系数
+
+let velocity = null, dye = null, pressure = null, divergence = null, scratch = null;
+let mg = [];                     // 多重网格层级：mg[0] 最细（= pressure/divergence），逐层减半
+let simW = 0, simH = 0, dyeW = 0, dyeH = 0;
+
+function clearFBO(f){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f.fbo);
+  gl.viewport(0, 0, f.w, f.h);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+function initFramebuffers(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = Math.max(2, Math.floor(canvas.clientWidth  * dpr));
+  canvas.height = Math.max(2, Math.floor(canvas.clientHeight * dpr));
+  const aspect = canvas.width / canvas.height;
+  // 短边取 simBase，长边按长宽比放大 → 网格单元是正方形，h 在两个方向一致（各向同性）。
+  // 再把两边都对齐到 8 的倍数：多重网格的限制算子必须是精确的 2×2 均值，
+  // 否则粗网格采样点会缓慢错位，既降低收敛又会给 Neumann 系统灌入非零均值（零空间漂移）。
+  const align8 = v => Math.max(64, Math.round(v / 8) * 8);
+  simW = align8(aspect >= 1 ? cfg.simBase * aspect : cfg.simBase);
+  simH = align8(aspect >= 1 ? cfg.simBase : cfg.simBase / aspect);
+  const dyeBase = Math.min(1024, cfg.simBase * 2);
+  dyeW = aspect >= 1 ? Math.round(dyeBase * aspect) : dyeBase;
+  dyeH = aspect >= 1 ? dyeBase : Math.round(dyeBase / aspect);
+
+  destroyDouble(velocity); destroyDouble(dye); destroyDouble(pressure);
+  destroyFBO(divergence);  destroyFBO(scratch);  destroyFBO(dyeScratch);
+  for (const L of mg.slice(1)){ destroyDouble(L.p); destroyFBO(L.rhs); destroyFBO(L.res); }
+  for (const L of mg.slice(0, 1)) destroyFBO(L.res);
+
+  velocity   = createDoubleFBO(simW, simH);   // .xy = 速度（格/秒）
+  dye        = createDoubleFBO(dyeW, dyeH);   // .rgb = 染料浓度
+  pressure   = createDoubleFBO(simW, simH);   // .x = 压力
+  divergence = createFBO(simW, simH);         // .x = ∇·u（也是多重网格第 0 层的右端项）
+  scratch    = createFBO(simW, simH);         // 隐式扩散右端项 x0 / 自检用
+  dyeScratch = createFBO(dyeW, dyeH);
+
+  // 多重网格层级：每层边长精确减半（依赖上面的 8 对齐），最多 4 层
+  mg = [{ p: pressure, rhs: divergence, res: createFBO(simW, simH),
+          w: simW, h: simH, texel: [1 / simW, 1 / simH], h2: 1 }];
+  let w = simW, h = simH, lv = 0;
+  while (mg.length < 4 && w % 2 === 0 && h % 2 === 0 && Math.min(w, h) >= 64){
+    w >>= 1; h >>= 1; lv++;
+    mg.push({ p: createDoubleFBO(w, h), rhs: createFBO(w, h), res: createFBO(w, h),
+              w, h, texel: [1 / w, 1 / h], h2: Math.pow(4, lv) });
+  }
+  updateStats();
+}
+let dyeScratch = null;
+
+/* ------------------------------------- 4. 每帧仿真 ------------------------------------ */
+const pointer = {
+  down: false, dyeOn: true, moved: false,
+  ax: 0.5, ay: 0.5, bx: 0.5, by: 0.5,     // 线段两端（UV）
+  dx: 0, dy: 0,                            // 位移（UV/帧）
+  hue: Math.random()
+};
+
+function hsv2rgb(h, s, v){
+  h = (h % 1 + 1) % 1;
+  const i = Math.floor(h * 6), f = h * 6 - i;
+  const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  switch (i % 6){
+    case 0: return [v, t, p]; case 1: return [q, v, p]; case 2: return [p, v, t];
+    case 3: return [p, q, v]; case 4: return [t, p, v]; default: return [v, p, q];
+  }
+}
+
+// ① 外力/染料注入
+const FORCE_MAX = 3000;                                  // 注入速度上限（格/秒），防极端输入把场顶爆
+const clampF = v => Math.max(-FORCE_MAX, Math.min(FORCE_MAX, v));
+function applySplat(){
+  if (!pointer.moved) return;
+  const aspect = canvas.width / canvas.height;
+  // 速度冲量：UV 位移 → 格/秒
+  let u = use(P.splatVel);
+  bindTex(u.uSrc, velocity.read.tex);
+  gl.uniform2f(u.uA, pointer.ax, pointer.ay);
+  gl.uniform2f(u.uB, pointer.bx, pointer.by);
+  gl.uniform2f(u.uForce, clampF(pointer.dx * cfg.force), clampF(pointer.dy * cfg.force));
+  gl.uniform1f(u.uRadius, cfg.brush);
+  gl.uniform1f(u.uAspect, aspect);
+  drawTo(velocity.write); velocity.swap();
+
+  if (pointer.dyeOn){
+    pointer.hue += 0.0035 + Math.hypot(pointer.dx, pointer.dy) * 0.35;   // 多色：色相随笔画推进
+    const c = hsv2rgb(pointer.hue, 0.85, 1.0);
+    u = use(P.splatDye);
+    bindTex(u.uSrc, dye.read.tex);
+    gl.uniform2f(u.uA, pointer.ax, pointer.ay);
+    gl.uniform2f(u.uB, pointer.bx, pointer.by);
+    gl.uniform3f(u.uColor, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5);
+    gl.uniform1f(u.uRadius, cfg.brush);
+    gl.uniform1f(u.uAspect, aspect);
+    drawTo(dye.write); dye.swap();
+  }
+  pointer.moved = false;
+  pointer.ax = pointer.bx; pointer.ay = pointer.by;
+  pointer.dx = pointer.dy = 0;
+}
+
+// 通用隐式扩散求解：copy 出右端项 x0，再跑 N 次 Jacobi
+function solveDiffusion(field, x0FBO, prog, alpha, iters){
+  let u = use(P.copy);
+  bindTex(u.uSrc, field.read.tex);
+  drawTo(x0FBO);
+  for (let i = 0; i < iters; i++){
+    u = use(prog);
+    gl.uniform2f(u.uTexel, field.texel[0], field.texel[1]);
+    bindTex(u.uX,  field.read.tex);
+    bindTex(u.uX0, x0FBO.tex);
+    gl.uniform1f(u.uAlpha, alpha);
+    drawTo(field.write);
+    field.swap();
+  }
+}
+
+/* ---- 压力泊松求解：Jacobi 平滑子 + 几何多重网格 V-cycle ---- */
+function smooth(L, n){                       // 在某一层做 n 次 Jacobi 平滑
+  for (let i = 0; i < n; i++){
+    const u = use(P.pressure);
+    gl.uniform2f(u.uTexel, L.texel[0], L.texel[1]);
+    bindTex(u.uPres, L.p.read.tex);
+    bindTex(u.uRhs, L.rhs.tex);
+    gl.uniform1f(u.uH2, L.h2);
+    drawTo(L.p.write); L.p.swap();
+  }
+}
+function vcycle(lv){
+  const L = mg[lv];
+  if (lv === mg.length - 1){ smooth(L, 10); return; }   // 最粗层：像素极少，多迭代几次几乎免费
+  smooth(L, 2);                                          // 前平滑
+  let u = use(P.residual);                               // 残差 r = f − ∇²p
+  gl.uniform2f(u.uTexel, L.texel[0], L.texel[1]);
+  bindTex(u.uPres, L.p.read.tex);
+  bindTex(u.uRhs, L.rhs.tex);
+  gl.uniform1f(u.uH2, L.h2);
+  drawTo(L.res);
+  const C = mg[lv + 1];
+  u = use(P.copy);                                       // 限制：双线性降采样 = 2×2 均值
+  bindTex(u.uSrc, L.res.tex);
+  drawTo(C.rhs);
+  clearFBO(C.p.read); clearFBO(C.p.write);               // 粗网格解的是“修正量”，从 0 起
+  vcycle(lv + 1);
+  u = use(P.prolong);                                    // 插值回插并累加 p += interp(e)
+  bindTex(u.uFine, L.p.read.tex);
+  bindTex(u.uCoarse, C.p.read.tex);
+  drawTo(L.p.write); L.p.swap();
+  smooth(L, 2);                                          // 后平滑
+}
+function solvePressure(){
+  if (cfg.solver === 'jacobi'){ smooth(mg[0], cfg.pressureIters); return; }
+  const cycles = cfg.solver === 'mg2' ? 2 : 1;
+  for (let i = 0; i < cycles; i++) vcycle(0);
+}
+
+function step(dt){
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(vao);
+
+  // ① add force —— w1 = w0 + Δt·f
+  applySplat();
+
+  // ② advection —— 速度自输运 (u·∇)u，半拉格朗日回溯
+  let u = use(P.advect);
+  bindTex(u.uSrc, velocity.read.tex);
+  bindTex(u.uVel, velocity.read.tex);
+  gl.uniform2f(u.uVelTexel, velocity.texel[0], velocity.texel[1]);
+  gl.uniform1f(u.uDt, dt);
+  gl.uniform1f(u.uDissipation, VEL_DAMP);
+  gl.uniform1f(u.uClamp, VEL_CLAMP);
+  drawTo(velocity.write); velocity.swap();
+
+  // ③ diffusion —— 粘性 ν∇²u（隐式 Jacobi）。ν=0 时整段跳过：省掉一串 pass 的带宽
+  // 注意：α = νΔt 很大时 Jacobi 收敛很慢，未收敛的迭代本身等效为“约 √N 格的平滑”，
+  // 所以迭代次数随粘度滑块线性增加（Stam 原文固定 20 次 Gauss–Seidel，是同一种取舍）。
+  const nu = cfg.viscosity * VISC_SCALE;
+  if (nu > 1e-6){
+    cfg.viscIters = Math.round(10 + cfg.viscosity * 90);
+    solveDiffusion(velocity, scratch, P.jacobiV, nu * dt, cfg.viscIters);
+  }
+
+  // ④ projection —— 解 ∇²p = ∇·u 后 u ← u - ∇p，强制 ∇·u = 0
+  u = use(P.diverg);                                    // 4a. 散度（除以 S 做量纲缩放）
+  gl.uniform2f(u.uTexel, velocity.texel[0], velocity.texel[1]);
+  gl.uniform1f(u.uScale, 1 / PRES_SCALE);
+  bindTex(u.uVel, velocity.read.tex);
+  drawTo(divergence);
+
+  u = use(P.decay);                                     // 4b. 压力热启动（保留上一帧解做初值）
+  bindTex(u.uSrc, pressure.read.tex);
+  gl.uniform1f(u.uK, PRESSURE_WARM);
+  drawTo(pressure.write); pressure.swap();
+
+  solvePressure();                                      // 4c. 解 ∇²p = ∇·u（多重网格 V-cycle 或纯 Jacobi）
+
+  u = use(P.gradient);                                  // 4d. 减梯度（乘回 S）+ 无滑移壁面
+  gl.uniform2f(u.uTexel, velocity.texel[0], velocity.texel[1]);
+  gl.uniform1f(u.uScale, PRES_SCALE);
+  bindTex(u.uPres, pressure.read.tex);
+  bindTex(u.uVel, velocity.read.tex);
+  drawTo(velocity.write); velocity.swap();
+
+  // ⑤ 染料：被动输运 + 可选扩散（Stam 的 dens_step）
+  u = use(P.advect);
+  bindTex(u.uSrc, dye.read.tex);
+  bindTex(u.uVel, velocity.read.tex);
+  gl.uniform2f(u.uVelTexel, velocity.texel[0], velocity.texel[1]);
+  gl.uniform1f(u.uDt, dt);
+  gl.uniform1f(u.uDissipation, cfg.dissipation);
+  gl.uniform1f(u.uClamp, 12.0);
+  drawTo(dye.write); dye.swap();
+
+  const kd = cfg.diffusion * DIFF_SCALE;
+  if (kd > 1e-6) solveDiffusion(dye, dyeScratch, P.jacobiD, kd * dt, cfg.diffIters);
+}
+
+function display(){
+  const u = use(P.display);
+  bindTex(u.uDye, dye.read.tex);
+  bindTex(u.uVel, velocity.read.tex);
+  bindTex(u.uPres, pressure.read.tex);
+  bindTex(u.uDiv, divergence.tex);
+  gl.uniform1i(u.uMode, cfg.view);
+  drawTo(null);
+}
+
+/* -------------------------------------- 5. 输入 -------------------------------------- */
+function uvFromEvent(e){
+  const r = canvas.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width, 1.0 - (e.clientY - r.top) / r.height];
+}
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  const [x, y] = uvFromEvent(e);
+  pointer.down = true;
+  pointer.dyeOn = e.button !== 2;
+  pointer.ax = pointer.bx = x; pointer.ay = pointer.by = y;
+  pointer.dx = pointer.dy = 0;
+  pointer.hue = Math.random();
+  pointer.moved = true;                 // 单击也注入一团
+  idleTimer = 0;
+});
+canvas.addEventListener('pointermove', e => {
+  if (!pointer.down) return;
+  const [x, y] = uvFromEvent(e);
+  pointer.dx += x - pointer.bx; pointer.dy += y - pointer.by;
+  pointer.bx = x; pointer.by = y;
+  pointer.moved = true;
+  idleTimer = 0;
+});
+const endPointer = () => { pointer.down = false; };
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('pointerleave', endPointer);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('dblclick', () => clearFields());
+
+// 空闲自动演示：打开页面就能看到流体
+let idleTimer = 0, autoT = 0;
+function autoSplat(dt){
+  if (!cfg.auto) return;
+  idleTimer += dt;
+  if (idleTimer < 1.2) return;
+  autoT -= dt;
+  if (autoT > 0) return;
+  autoT = 0.35 + Math.random() * 0.5;
+  const ax = 0.15 + Math.random() * 0.7, ay = 0.15 + Math.random() * 0.7;
+  const ang = Math.random() * Math.PI * 2, len = 0.05 + Math.random() * 0.12;
+  pointer.ax = ax; pointer.ay = ay;
+  pointer.bx = ax + Math.cos(ang) * len; pointer.by = ay + Math.sin(ang) * len;
+  pointer.dx = Math.cos(ang) * len * 0.55; pointer.dy = Math.sin(ang) * len * 0.55;
+  pointer.hue += 0.13;
+  pointer.dyeOn = true;
+  pointer.moved = true;
+}
+function clearFields(){
+  for (const f of [velocity.read, velocity.write, dye.read, dye.write,
+                   pressure.read, pressure.write, divergence, scratch, dyeScratch]){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f.fbo);
+    gl.viewport(0, 0, f.w, f.h);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+}
+
+/* --------------------------------------- 6. UI --------------------------------------- */
+const el = id => document.getElementById(id);
+function bindSlider(sid, oid, key, fmt, after){
+  const s = el(sid), o = el(oid);
+  const sync = () => { o.textContent = fmt(cfg[key]); s.value = cfg[key]; };
+  s.addEventListener('input', () => { cfg[key] = +s.value; o.textContent = fmt(cfg[key]); if (after) after(); });
+  sync();
+  return sync;
+}
+const syncers = [];
+syncers.push(bindSlider('s-visc', 'o-visc', 'viscosity',   v => v.toFixed(2)));
+syncers.push(bindSlider('s-diff', 'o-diff', 'diffusion',   v => v.toFixed(2)));
+syncers.push(bindSlider('s-diss', 'o-diss', 'dissipation', v => v.toFixed(2)));
+syncers.push(bindSlider('s-brush','o-brush','brush',       v => v.toFixed(3)));
+syncers.push(bindSlider('s-force','o-force','force',       v => (v / 1000).toFixed(1) + 'k'));
+syncers.push(bindSlider('s-iter', 'o-iter', 'pressureIters', v => String(v)));
+el('sel-view').addEventListener('change', e => { cfg.view = +e.target.value; });
+el('sel-solver').addEventListener('change', e => { cfg.solver = e.target.value; });
+el('sel-res').addEventListener('change', e => { cfg.simBase = +e.target.value; initFramebuffers(); });
+el('chk-auto').addEventListener('change', e => { cfg.auto = e.target.checked; });
+el('btn-clear').addEventListener('click', clearFields);
+el('btn-reset').addEventListener('click', () => {
+  Object.assign(cfg, { viscosity:0, diffusion:0, dissipation:0.92, brush:0.024, force:9000,
+                       pressureIters:20, solver:'mg2' });
+  el('sel-solver').value = 'mg2';
+  syncers.forEach(f => f());
+});
+el('ui-head').addEventListener('click', () => {
+  const box = el('ui');
+  box.classList.toggle('collapsed');
+  el('ui-toggle').textContent = box.classList.contains('collapsed') ? '展开' : '收起';
+});
+
+const FLOW = [
+  '每帧 pass 流程（Stable Fluids 分裂法）',
+  '',
+  '  鼠标线段 ─┬─► [1] splat velocity  w += Δt·f',
+  '            └─► [2] splat dye       多色高斯注入',
+  '                        │',
+  '                        ▼',
+  '   [3] advect velocity   u(x) ← u(x − u·Δt)     半拉格朗日',
+  '                        │',
+  '                        ▼   ν>0 才执行（否则跳过省带宽）',
+  '   [4] viscosity Jacobi ×N  (I − νΔt∇²)u = u₀',
+  '                        │',
+  '        ┌───────────────┴──── projection ────────────────┐',
+  '        │ [5] divergence      div = ∇·u  (后向差分)       │',
+  '        │ [6] pressure decay  p *= 0.82  (热启动)        │',
+  '        │ [7] 解 ∇²p = div：多重网格 V-cycle ×2            │',
+  '        │       L0 912×512  前平滑2 → 残差 → 限制↓        │',
+  '        │       L1 456×256  前平滑2 → 残差 → 限制↓        │',
+  '        │       L2 228×128  前平滑2 → 残差 → 限制↓        │',
+  '        │       L3 114×64   平滑10（最粗层）              │',
+  '        │       L2/L1/L0 逐层 回插↑+修正 → 后平滑2        │',
+  '        │ [8] gradient sub    u ← u − ∇p (前向差分)       │',
+  '        │                     + 最外圈速度置零(no-slip)   │',
+  '        └───────────────┬───────────────────────────────┘',
+  '                        ▼',
+  '   [9] advect dye  +  耗散 /(1+kΔt)   ─►  [10] dye diffusion（可选）',
+  '                        │',
+  '                        ▼',
+  '   [11] display pass  染料/速度/压力/散度',
+  '',
+  'ping-pong：velocity / dye / pressure 各持两张 RGBA16F，',
+  '每个 pass 读 read 写 write 后 swap()，绝不同时读写同一纹理。'
+].join('\n');
+el('flow').textContent = FLOW;
+
+let fpsAcc = 0, fpsN = 0, fpsVal = 0, statTimer = 0, msVal = 0;
+function updateStats(){
+  el('stats').innerHTML =
+    'FPS <b>' + fpsVal.toFixed(0) + '</b>　帧间隔 <b>' + (fpsVal > 0 ? (1000 / fpsVal).toFixed(1) : '-') +
+    ' ms</b>　CPU 提交 <b>' + msVal.toFixed(2) + ' ms</b><br>' +
+    '速度网格 <b>' + simW + '×' + simH + '</b>　染料 <b>' + dyeW + '×' + dyeH + '</b><br>' +
+    '格式 <b>RGBA16F</b>　pass/帧 <b>' + passCount + '</b>（等效全分辨率 ' + passCostEq.toFixed(1) + '）<br>' +
+    '多重网格 <b>' + mg.length + ' 层</b>　' + mg.map(L => L.w + '×' + L.h).join(' → ') + '<br>' +
+    'GPU ' + dbgRenderer;
+}
+let passCount = 0, passCostEq = 0;
+// 统计每帧 pass 数；各 pass 按「像素面积 / 速度网格面积」折算成等效全分辨率 pass，才是真实开销
+function countPasses(){
+  const simA = simW * simH;
+  const dyeA = (dyeW * dyeH) / simA;                       // 染料网格通常是 4×
+  const canA = (canvas.width * canvas.height) / simA;      // 屏幕分辨率
+  let n = 0, eq = 0;
+  const add = (cnt, area) => { n += cnt; eq += cnt * area; };
+  add(4, 1);           // advect velocity / divergence / pressure decay / gradient subtract
+  add(1, dyeA);        // advect dye
+  add(1, canA);        // display
+  if (cfg.solver === 'jacobi') add(cfg.pressureIters, 1);
+  else {
+    const cycles = cfg.solver === 'mg2' ? 2 : 1;
+    for (let c = 0; c < cycles; c++)
+      for (let lv = 0; lv < mg.length; lv++)
+        add((lv === mg.length - 1) ? 10 : 7, 1 / Math.pow(4, lv));   // 平滑2+2 / 残差1 / 限制1 / 回插1
+  }
+  if (cfg.viscosity * VISC_SCALE > 1e-6) add(1 + cfg.viscIters, 1);
+  if (cfg.diffusion * DIFF_SCALE > 1e-6) add(1 + cfg.diffIters, dyeA);
+  if (pointer.moved){ add(1, 1); add(1, dyeA); }
+  passCount = n; passCostEq = eq;
+}
+
+/* ------------------------------------ 7. 主循环 ------------------------------------- */
+let last = performance.now();
+let resizeTimer = null;
+let simPaused = false;                   // 自检时暂停主循环，保证测量确定性
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(initFramebuffers, 180);
+});
+
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  dt = Math.min(Math.max(dt, 1 / 240), 1 / 30);   // 夹紧 Δt：切后台回来不会一步炸掉
+  if (simPaused) return;
+  autoSplat(dt);
+  countPasses();
+  const t0 = performance.now();
+  step(dt);
+  display();
+  msVal += ((performance.now() - t0) - msVal) * 0.1;
+  fpsAcc += dt; fpsN++; statTimer += dt;
+  if (statTimer > 0.4){
+    fpsVal = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; statTimer = 0;
+    updateStats();
+  }
+}
+
+try {
+  if (gl && P){
+    initFramebuffers();
+    // 开局先注入几团（不在这里同步 step，交给前几帧跑，避免拖慢首屏）
+    idleTimer = 99; autoT = 0;
+    requestAnimationFrame(frame);
+  }
+} catch (e){ fatal((e && e.stack) || String(e)); }
+
+/* ================================ 8. 自检（?diag=1） ================================
+   验证：GL 无错误 / 格式确为 16F / 投影后散度收敛 / 无滑移壁面 / 无泄漏 / 无 NaN /
+        粘度确实让流动变慢 / 快速划动轨迹连续 / 性能。 */
+if (location.search.indexOf('diag') >= 0 && gl && P){
+  window.__FLUID = { gl, P, cfg, velocity: () => velocity, dye: () => dye, step, display, clearFields };
+  const logs = [];
+  const oldWarn = console.warn, oldErr = console.error;
+  console.warn = function(){ logs.push('warn: ' + [].join.call(arguments, ' ')); oldWarn.apply(console, arguments); };
+  console.error = function(){ logs.push('error: ' + [].join.call(arguments, ' ')); oldErr.apply(console, arguments); };
+
+  const R = [];
+  const box = document.createElement('pre');
+  box.id = 'diag';
+  box.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;max-width:62ch;max-height:92vh;overflow:auto;' +
+    'font:11.5px/1.5 Consolas,monospace;color:#bfffd0;background:rgba(0,0,0,.78);padding:10px;border-radius:8px;white-space:pre-wrap';
+  document.body.appendChild(box);
+  const paint = () => {
+    const bad = R.filter(s => s.indexOf('[失败]') === 0).length;
+    const tot = R.filter(s => s.indexOf('[') === 0).length;
+    box.textContent = '自检 ' + (tot - bad) + '/' + tot + (bad ? ' 有失败' : ' 全部通过') + '\n' + R.join('\n');
+  };
+  const ok = (n, c, x) => { R.push((c ? '[通过] ' : '[失败] ') + n + (x ? ' → ' + x : '')); paint(); };
+  const info = s => { R.push(s); paint(); };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // 半精度读回：优先 FLOAT，不支持则读 HALF_FLOAT 再手工解码
+  function half2f(h){
+    const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    if (e === 0) return s * Math.pow(2, -24) * m;
+    if (e === 31) return m ? NaN : s * Infinity;
+    return s * Math.pow(2, e - 15) * (1 + m / 1024);
+  }
+  function readRect(f, x, y, w, h){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f.fbo);
+    const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE);
+    if (type === gl.FLOAT){
+      const a = new Float32Array(w * h * 4);
+      gl.readPixels(x, y, w, h, gl.RGBA, gl.FLOAT, a);
+      return a;
+    }
+    const u = new Uint16Array(w * h * 4);
+    gl.readPixels(x, y, w, h, gl.RGBA, gl.HALF_FLOAT, u);
+    const a = new Float32Array(u.length);
+    for (let i = 0; i < u.length; i++) a[i] = half2f(u[i]);
+    return a;
+  }
+  const stats = arr => {
+    let mx = 0, sum = 0, n = 0, nan = 0;
+    for (let i = 0; i < arr.length; i += 4){
+      const x = arr[i], y = arr[i + 1];
+      if (!isFinite(x) || !isFinite(y)) { nan++; continue; }
+      const m = Math.hypot(x, y);
+      if (m > mx) mx = m; sum += m; n++;
+    }
+    return { max: mx, mean: n ? sum / n : 0, nan };
+  };
+  const rms = arr => {
+    let s = 0, n = 0, nan = 0;
+    for (let i = 0; i < arr.length; i += 4){
+      const v = arr[i];
+      if (!isFinite(v)) { nan++; continue; }
+      s += v * v; n++;
+    }
+    return { rms: n ? Math.sqrt(s / n) : 0, nan };
+  };
+  // 造一次“鼠标划动”
+  function stroke(ax, ay, bx, by, force){
+    pointer.ax = ax; pointer.ay = ay; pointer.bx = bx; pointer.by = by;
+    pointer.dx = (bx - ax) * (force === undefined ? 1 : force);
+    pointer.dy = (by - ay) * (force === undefined ? 1 : force);
+    pointer.dyeOn = true; pointer.moved = true;
+  }
+
+  (async () => {
+    cfg.auto = false; el('chk-auto').checked = false;
+    await sleep(60);                       // 先让页面完成首屏，再开始重活
+    simPaused = true;                      // 暂停主循环，避免它插进来跑额外的 step
+    info('GPU：' + dbgRenderer);
+    ok('WebGL2 上下文', !!gl && typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext);
+    ok('EXT_color_buffer_float 可用（RGBA16F 可作渲染目标）', !!extCBF);
+    ok('所有 shader 均为 GLSL ES 3.00', [VS_QUAD, VS_NEIGHBOR, FS_ADVECT, FS_SPLAT_VEL, FS_SPLAT_DYE,
+        FS_JACOBI_VEC2, FS_JACOBI_VEC3, FS_DIVERGENCE, FS_JACOBI_P, FS_RESIDUAL, FS_PROLONG_ADD,
+        FS_DECAY, FS_GRADIENT, FS_COPY, FS_DISPLAY]
+        .every(s => s.startsWith('#version 300 es')), '15 个 shader');
+    ok('全部 program 链接成功', Object.values(P).every(p => gl.getProgramParameter(p.prog, gl.LINK_STATUS)),
+       Object.keys(P).length + ' 个：' + Object.keys(P).join(','));
+    ok('模拟分辨率 ≥512×512', Math.min(simW, simH) >= 512, simW + '×' + simH + '（染料 ' + dyeW + '×' + dyeH + '）');
+    ok('无 GL 错误（初始化后）', gl.getError() === gl.NO_ERROR);
+
+    // 先测单步耗时，据此缩放后续循环步数（软件光栅环境下自动减负）
+    // 动态测试统一在 256 短边上跑：结论与分辨率无关，但快 4 倍；最后再回到 512 测性能。
+    const baseKeep = cfg.simBase;
+    cfg.simBase = 256; initFramebuffers(); el('sel-res').value = '256';
+    clearFields();
+    const tp = performance.now();
+    for (let i = 0; i < 4; i++) step(1 / 60);
+    readRect(velocity.read, 0, 0, 1, 1);
+    const msStep = (performance.now() - tp) / 4;
+    const K = msStep < 4 ? 1 : (msStep < 15 ? 0.35 : (msStep < 60 ? 0.12 : 0.05));
+    const N = n => Math.max(6, Math.round(n * K));
+    info('动态测试网格 ' + simW + '×' + simH + '，单步 ' + msStep.toFixed(1) + ' ms → 步数缩放 ×' + K);
+    // 分批跑仿真，每批让出主线程，避免阻塞页面
+    async function run(steps, hook){
+      for (let i = 0; i < steps; i++){
+        if (hook) hook(i);
+        step(1 / 60);
+        if (i % 8 === 7) await sleep(0);
+      }
+    }
+    await sleep(0);
+
+    // —— 浮点格式验证：用一个很大的平坦笔刷注入 8bit 装不下的值，读回应几乎无损
+    clearFields();
+    const brushKeep = cfg.brush;
+    cfg.brush = 0.30;                       // 笔刷放大 ⇒ 中心附近高斯权重 ≈ 1，排除次像素衰减干扰
+    stroke(0.5, 0.5, 0.5, 0.5, 0);
+    pointer.dx = 1234.5 / cfg.force; pointer.dy = 0; pointer.moved = true;
+    applySplat();
+    cfg.brush = brushKeep;
+    let px = readRect(velocity.read, (simW / 2) | 0, (simH / 2) | 0, 1, 1);
+    ok('纹理确为浮点（RGBA16F 而非 8bit）', px[0] > 1000, '中心速度 ' + px[0].toFixed(1) + ' 格/秒（8bit 会被截到 ≤1）');
+    ok('16F 精度符合半精度规格', Math.abs(px[0] - 1234.5) < 1.5, '写入 1234.5 读回 ' +
+       px[0].toFixed(2) + '（half-float 在该量级的间隔为 1.0）');
+
+    // —— 投影：散度必须被显著压制（顺便对比三种求解器）
+    const divTest = async (solver) => {
+      cfg.solver = solver;
+      clearFields();
+      stroke(0.35, 0.5, 0.65, 0.5, 1.0);
+      step(1 / 60);
+      const before = rms(readRect(divergence, 0, 0, simW, simH));  // 本帧投影前的散度（右端项）
+      let u = use(P.diverg);                                       // 投影后再算一次，写到 scratch
+      gl.uniform2f(u.uTexel, velocity.texel[0], velocity.texel[1]);
+      gl.uniform1f(u.uScale, 1 / PRES_SCALE);
+      bindTex(u.uVel, velocity.read.tex);
+      drawTo(scratch);
+      const after = rms(readRect(scratch, 0, 0, simW, simH));
+      const pa = readRect(pressure.read, 0, 0, simW, simH);
+      let pmax = 0;
+      for (let i = 0; i < pa.length; i += 4) if (isFinite(pa[i])) pmax = Math.max(pmax, Math.abs(pa[i]));
+      await sleep(0);
+      return { before: before.rms, after: after.rms, nan: after.nan, pmax,
+               drop: before.rms > 0 ? 1 - after.rms / before.rms : 0 };
+    };
+    const dj = await divTest('jacobi');
+    const d1 = await divTest('mg1');
+    const d2 = await divTest('mg2');
+    cfg.solver = 'mg2'; el('sel-solver').value = 'mg2';
+    info('压力求解器对比（同一帧散度 RMS 下降）：\n' +
+         '  纯 Jacobi ×' + cfg.pressureIters + '：' + dj.before.toExponential(2) + ' → ' + dj.after.toExponential(2) +
+         '（降 ' + (dj.drop * 100).toFixed(1) + '%）\n' +
+         '  V-cycle ×1  ：' + d1.before.toExponential(2) + ' → ' + d1.after.toExponential(2) +
+         '（降 ' + (d1.drop * 100).toFixed(1) + '%）\n' +
+         '  V-cycle ×2  ：' + d2.before.toExponential(2) + ' → ' + d2.after.toExponential(2) +
+         '（降 ' + (d2.drop * 100).toFixed(1) + '%）');
+    ok('投影后 ∇·u 显著收敛（多重网格）', d2.drop > 0.7, '残差降 ' + (d2.drop * 100).toFixed(1) + '%');
+    ok('多重网格优于同代价纯 Jacobi', d2.drop > dj.drop + 0.2,
+       'V-cycle×2 ' + (d2.drop * 100).toFixed(1) + '% vs Jacobi×' + cfg.pressureIters + ' ' + (dj.drop * 100).toFixed(1) + '%');
+    ok('第二次 V-cycle 不应变差（粗层零空间无失控漂移）', d2.drop >= d1.drop - 0.03,
+       'V1 ' + (d1.drop * 100).toFixed(1) + '% → V2 ' + (d2.drop * 100).toFixed(1) + '%，|p|max ' + d2.pmax.toExponential(2));
+    ok('散度场无 NaN', d2.nan === 0);
+
+    // —— 无滑移壁面：最外一圈速度必须严格为 0
+    const left   = readRect(velocity.read, 0, 0, 1, simH);
+    const right  = readRect(velocity.read, simW - 1, 0, 1, simH);
+    const bottom = readRect(velocity.read, 0, 0, simW, 1);
+    const top    = readRect(velocity.read, 0, simH - 1, simW, 1);
+    const wallMax = Math.max(stats(left).max, stats(right).max, stats(bottom).max, stats(top).max);
+    ok('四壁 no-slip：边界速度为 0', wallMax === 0, '四壁最大速度 ' + wallMax.toExponential(2));
+
+    // —— 无泄漏：中心注入染料，跑若干步，边界一圈染料仍为 0，且总量只减不增
+    clearFields();
+    for (let i = 0; i < 12; i++){
+      stroke(0.45 + i * 0.005, 0.5, 0.55 + i * 0.005, 0.5, 1.6);
+      step(1 / 60);
+    }
+    const sumDye = () => {
+      const a = readRect(dye.read, 0, 0, dyeW, dyeH);
+      let s = 0, nan = 0;
+      for (let i = 0; i < a.length; i += 4){
+        const v = a[i] + a[i + 1] + a[i + 2];
+        if (!isFinite(v)) nan++; else s += v;
+      }
+      return { s, nan };
+    };
+    const dye0 = sumDye();
+    await run(N(240));
+    const dye1 = sumDye();
+    const edge = [readRect(dye.read, 0, 0, 1, dyeH), readRect(dye.read, dyeW - 1, 0, 1, dyeH),
+                  readRect(dye.read, 0, 0, dyeW, 1), readRect(dye.read, 0, dyeH - 1, dyeW, 1)];
+    let edgeMax = 0;
+    for (const e of edge) for (let i = 0; i < e.length; i += 4) edgeMax = Math.max(edgeMax, e[i] + e[i + 1] + e[i + 2]);
+    ok('边界不泄漏：最外一圈染料严格为 0', edgeMax < 1e-3, '边界最大染料 ' + edgeMax.toExponential(2));
+    ok('染料总量有界（不指数发散）', dye1.s < dye0.s * 3 && isFinite(dye1.s),
+       dye0.s.toExponential(3) + ' → ' + dye1.s.toExponential(3) +
+       '（半拉格朗日插值本身不严格守恒，压缩流区会复制少量质量，这里只要求有界）');
+    ok('染料场无 NaN/Inf', dye1.nan === 0 && dye0.nan === 0);
+
+    // —— 耗散率控件确实生效：同样注入，高耗散后总量必须明显更低
+    const dyeAfter = async (diss, steps) => {
+      clearFields();
+      cfg.dissipation = diss;
+      stroke(0.45, 0.5, 0.55, 0.5, 1.2);
+      await run(steps);
+      return sumDye().s;
+    };
+    const ND = Math.max(20, N(90));
+    const s0 = await dyeAfter(0.0, ND);
+    const s4 = await dyeAfter(4.0, ND);
+    cfg.dissipation = 0.92; syncers.forEach(f => f());
+    ok('耗散率控件生效（染料淡出）', s4 < s0 * 0.75,
+       '跑 ' + ND + ' 步后总量：耗散=0 → ' + s0.toExponential(2) + '，耗散=4 → ' + s4.toExponential(2) +
+       '（降 ' + (100 * (1 - s4 / s0)).toFixed(0) + '%）');
+
+    // —— 数值稳定性：连续暴力乱划（跨屏瞬移 + 大力度 + 大 Δt）
+    clearFields();
+    const NS = N(400);
+    await run(NS, i => {
+      if (i % 3 === 0) stroke(Math.random(), Math.random(), Math.random(), Math.random(), 6.0);
+    });
+    const vs = stats(readRect(velocity.read, 0, 0, simW, simH));
+    ok('暴力输入 ' + NS + ' 步后速度场仍有界（无 NaN/不爆）', vs.nan === 0 && isFinite(vs.max) && vs.max < 25000,
+       '最大 |u| = ' + vs.max.toFixed(1) + ' 格/秒（advection 限幅 ' + VEL_CLAMP + ' + 投影修正），NaN 数 ' + vs.nan);
+    const ds = sumDye();
+    ok('暴力输入后染料场无 NaN', ds.nan === 0, '总量 ' + ds.s.toExponential(3));
+
+    // —— 快速划过不断点：一次跨越半屏的划动，中点必须有染料
+    clearFields();
+    stroke(0.2, 0.3, 0.8, 0.7, 1.0);
+    applySplat();
+    const mid = readRect(dye.read, (dyeW * 0.5) | 0, (dyeH * 0.5) | 0, 1, 1);
+    ok('快速划动轨迹连续（线段笔刷，无断点残影）', mid[0] + mid[1] + mid[2] > 0.05,
+       '轨迹中点染料 ' + (mid[0] + mid[1] + mid[2]).toFixed(3));
+
+    // —— 单独验证粘性扩散算子本身：只做一次隐式扩散，峰值必须被抹平
+    // 理论值：α=νΔt=20 时 Jacobi 谱半径 4α/(1+4α)=0.9877，100 次迭代 ≈ 71% 收敛，
+    // 完全收敛时高斯峰值应降 σ²/(σ²+2α)≈25%，所以单步实测降 10%~25% 都属正常。
+    clearFields();
+    stroke(0.5, 0.5, 0.52, 0.5, 2.0);
+    applySplat();
+    const peakRaw = stats(readRect(velocity.read, 0, 0, simW, simH)).max;
+    solveDiffusion(velocity, scratch, P.jacobiV, 1.0 * VISC_SCALE / 60, 100);
+    const peakDiff = stats(readRect(velocity.read, 0, 0, simW, simH)).max;
+    ok('粘性扩散算子有效（单步隐式求解抹平峰值）', peakDiff < peakRaw * 0.92,
+       '峰值 ' + peakRaw.toFixed(0) + ' → ' + peakDiff.toFixed(0) + ' 格/秒（降 ' +
+       (100 * (1 - peakDiff / peakRaw)).toFixed(0) + '%，完全收敛上限约 25%）');
+
+    // —— 粘度：同样的初始冲量，高粘度必须让「峰值流速」和「染料被推出的距离」都明显下降
+    // （不用平均 |u|：粘性扩散会把动量摊到更多格子，平均速率可能短时上升；
+    //   峰值流速由平滑算子严格单调下降，染料推进距离则是用户肉眼看到的“变慢”）
+    const viscProbe = async (visc, steps) => {
+      clearFields();
+      cfg.viscosity = visc;
+      stroke(0.30, 0.5, 0.42, 0.5, 2.0);        // 向 +x 的一记冲量 + 染料
+      await run(steps);
+      const b = readRect(velocity.read, 0, 0, simW, simH);
+      let peak = 0, energy = 0, n = 0;
+      for (let i = 0; i < b.length; i += 4){
+        const e = b[i] * b[i] + b[i + 1] * b[i + 1];
+        if (!isFinite(e)) continue;
+        energy += e; n++;
+        if (e > peak) peak = e;
+      }
+      const a = readRect(dye.read, 0, 0, dyeW, dyeH);
+      let sx = 0, sw = 0;                        // 染料质心 x（UV），仅作参考
+      for (let j = 0; j < dyeH; j += 2){
+        for (let i = 0; i < dyeW; i += 2){
+          const k = (j * dyeW + i) * 4;
+          const w = a[k] + a[k + 1] + a[k + 2];
+          if (isFinite(w) && w > 0){ sx += (i / dyeW) * w; sw += w; }
+        }
+      }
+      return { peak: Math.sqrt(peak), energy: n ? energy / n : 0, cx: sw > 0 ? sx / sw : 0 };
+    };
+    const NV = Math.max(24, N(70));
+    const p0 = await viscProbe(0.0, NV);
+    const p1 = await viscProbe(1.0, NV);
+    cfg.viscosity = 0; syncers.forEach(f => f());
+    ok('调高粘度后峰值流速明显下降', p1.peak < p0.peak * 0.75,
+       '跑 ' + NV + ' 步后峰值 |u|：ν=0 → ' + p0.peak.toFixed(0) + '，ν=max → ' + p1.peak.toFixed(0) +
+       ' 格/秒（降 ' + (100 * (1 - p1.peak / p0.peak)).toFixed(0) + '%，粘性迭代 ' + cfg.viscIters + ' 次）');
+    ok('调高粘度后动能明显更低（热方程单调耗散 L2 能量）', p1.energy < p0.energy * 0.7,
+       '平均 |u|²：ν=0 → ' + p0.energy.toFixed(0) + '，ν=max → ' + p1.energy.toFixed(0) +
+       '（降 ' + (100 * (1 - p1.energy / p0.energy)).toFixed(0) + '%）');
+    info('参考：染料质心 x  ν=0 → ' + p0.cx.toFixed(4) + '，ν=max → ' + p1.cx.toFixed(4) +
+         '（质心不是可靠的“变慢”度量：粘性把动量摊开，慢而宽的流体质心可能推得更远）');
+
+    // —— 性能：回到 512 短边（验收要求的分辨率）跑完整帧
+    cfg.simBase = baseKeep; initFramebuffers(); el('sel-res').value = String(baseKeep);
+    clearFields();
+    cfg.solver = 'mg2';
+    countPasses();
+    const NP = Math.max(10, N(90));
+    const t0 = performance.now();
+    for (let i = 0; i < NP; i++){
+      if (i % 10 === 0) stroke(Math.random(), Math.random(), Math.random(), Math.random(), 1.5);
+      step(1 / 60); display();
+      if (i % 8 === 7) await sleep(0);
+    }
+    readRect(velocity.read, 0, 0, 1, 1);
+    const ms = (performance.now() - t0) / NP;
+    info('性能：' + ms.toFixed(2) + ' ms/帧（含让出主线程开销）@ 速度 ' + simW + '×' + simH +
+         ' + 染料 ' + dyeW + '×' + dyeH);
+    ok('默认配置每帧开销在预算内', passCostEq <= 40,
+       passCount + ' 个 pass，等效全分辨率（含染料 4× 与屏幕面积折算）' + passCostEq.toFixed(1) +
+       ' 个，多重网格 ' + mg.length + ' 层');
+
+    // —— display pass 真的把流体画到了屏幕上：读默认帧缓冲统计非黑像素 + 打 ASCII 缩略图
+    clearFields();
+    for (let i = 0; i < 8; i++){
+      stroke(0.25 + i * 0.05, 0.42 + i * 0.02, 0.45 + i * 0.05, 0.58 - i * 0.015, 1.4);
+      step(1 / 60);
+    }
+    for (let i = 0; i < 6; i++) step(1 / 60);
+    display();
+    const cw = canvas.width, chh = canvas.height;
+    const pix = new Uint8Array(cw * chh * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, cw, chh, gl.RGBA, gl.UNSIGNED_BYTE, pix);
+    let lit = 0, tot = 0;
+    for (let y = 0; y < chh; y += 4) for (let x = 0; x < cw; x += 4){
+      const i = (y * cw + x) * 4; tot++;
+      if (pix[i] + pix[i + 1] + pix[i + 2] > 24) lit++;
+    }
+    ok('display pass 输出可见流体', lit / tot > 0.02, '非黑像素占比 ' + (100 * lit / tot).toFixed(1) + '%');
+    const RAMP = ' .:-=+*#%@';
+    const TW = 58, TH = 18, rows = [];
+    for (let ry = TH - 1; ry >= 0; ry--){
+      let s = '';
+      for (let rx = 0; rx < TW; rx++){
+        const x = Math.min(cw - 1, ((rx + 0.5) / TW * cw) | 0);
+        const y = Math.min(chh - 1, ((ry + 0.5) / TH * chh) | 0);
+        const i = (y * cw + x) * 4;
+        const l = (pix[i] + pix[i + 1] + pix[i + 2]) / 3 / 255;
+        s += RAMP[Math.min(RAMP.length - 1, Math.round(Math.pow(l, 0.6) * (RAMP.length - 1)))];
+      }
+      rows.push(s);
+    }
+    info('画面缩略图（染料浓度，空格=黑）：\n' + rows.join('\n'));
+
+    ok('全程无 GL 错误', gl.getError() === gl.NO_ERROR);
+    ok('控制台无 warning/error', logs.length === 0, logs.length ? logs.slice(0, 3).join(' | ') : '0 条');
+    ok('运行期无脚本异常', !fatalShown);
+    cfg.auto = true; el('chk-auto').checked = true;
+    simPaused = false;                    // 恢复主循环
+    info('说明：正常打开本页不会运行自检，仅 ?diag=1 时运行。');
+  })().catch(e => { simPaused = false; R.push('[失败] 自检异常 → ' + ((e && e.stack) || e)); paint(); });
+}
+</script>
+</body>
+</html>

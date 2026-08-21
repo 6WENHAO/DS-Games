@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>菌株监测可视化平台 · StrainLab</title>
+<style>
+:root{--bg:#0d1220;--panel:#141a2a;--panel2:#1a2236;--line:#2a3550;
+ --fg:#dbe6f4;--fg2:#9fb2c9;--fg3:#6c7f99;--acc:#4ea8de;--good:#4fbf8b;
+ --warn:#e0a03a;--bad:#e2564a}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);
+ font:13px/1.55 system-ui,"Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+.topbar{flex:0 0 48px;display:flex;align-items:center;gap:14px;padding:0 14px;
+ background:linear-gradient(180deg,#182133,#101625);border-bottom:1px solid var(--line)}
+.logo{font-size:17px;font-weight:700;letter-spacing:1px;
+ background:linear-gradient(90deg,#7fd6f0,#4ea8de);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:11px;color:var(--fg3)}
+.topstat{margin-left:auto;font:11px ui-monospace,Consolas,monospace;color:var(--fg2)}
+.main{flex:1;display:flex;min-height:0}
+.side{width:250px;flex:0 0 250px;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto}
+.nav{display:flex;flex-direction:column;padding:8px}
+.nav button{text-align:left;padding:10px 12px;margin:2px 0;border:1px solid transparent;border-radius:6px;
+ background:transparent;color:var(--fg2);font-size:13px;cursor:pointer;transition:.12s}
+.nav button:hover{background:var(--panel2)}
+.nav button.on{background:#1d2a42;border-color:#2f5f86;color:#a8e2ff;font-weight:600}
+.safety{margin:12px;padding:10px;font-size:11px;line-height:1.6;color:#e8c9a0;
+ background:#241d10;border:1px solid #54431f;border-radius:6px}
+.content{flex:1;overflow-y:auto;padding:16px 18px 60px}
+.pane{display:none}
+.pane.on{display:block}
+h2{font-size:15px;margin-bottom:10px;color:#cfe4f5}
+h3{font-size:13px;margin:14px 0 6px;color:#bcd6ea}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.col{flex:1;min-width:320px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:1100px){.grid2{grid-template-columns:1fr}}
+canvas.chart{width:100%;height:260px;background:#0e1522;border:1px solid var(--line);border-radius:6px;display:block}
+canvas.wide{height:300px}
+.ctl{margin:8px 0}
+.ctl label{display:flex;justify-content:space-between;font-size:12px;color:var(--fg2)}
+.ctl output{font-family:ui-monospace,monospace;color:var(--acc)}
+.ctl input[type=range]{width:100%;margin-top:3px;accent-color:var(--acc)}
+select,input[type=number],input[type=file]{background:var(--panel2);border:1px solid var(--line);
+ color:var(--fg);border-radius:4px;padding:5px 8px;font-size:12px;width:100%;margin:4px 0}
+button{font-size:12px;padding:7px 13px;border-radius:5px;border:1px solid #2c4257;background:#18242f;
+ color:#c6ddf0;cursor:pointer;transition:.12s;margin:2px}
+button:hover{background:#203143}
+button.primary{background:#1c4a68;border-color:#2f7ba8;color:#d8f0ff;font-weight:600}
+button.bad{background:#3a1f1c;border-color:#6b3129;color:#f2a99f}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;border-bottom:1px dashed #1e2939}
+.kv b{font-family:ui-monospace,monospace;color:#cfe3f4;text-align:right}
+.note{font-size:11.5px;color:var(--fg3);line-height:1.7;background:#101823;border-left:2px solid #2c4457;
+ padding:6px 10px;margin:8px 0;border-radius:0 4px 4px 0}
+.warnbox{font-size:11.5px;color:#f0c7a8;background:#2a1f16;border-left:2px solid var(--warn);
+ padding:6px 10px;margin:8px 0;border-radius:0 4px 4px 0;line-height:1.7}
+table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
+th{background:#16212d;color:#9fbdd6;text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
+td{padding:4px 8px;border-bottom:1px solid #182430;color:var(--fg2);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.ok{color:var(--good)} .bad{color:var(--bad)} .dim{color:var(--fg3)}
+.mono{font-family:ui-monospace,Consolas,monospace}
+.statusdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--fg3);margin-right:6px;vertical-align:middle}
+.statusdot.run{background:var(--good);box-shadow:0 0 8px var(--good);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.4}}
+.heat-cell-label{font-size:9px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <span class="logo">StrainLab 菌株监测可视化平台</span>
+    <span class="sub">非致病模式生物 · 培养监测 · 诱变教学仿真</span>
+    <span class="topstat" id="conn"></span>
+  </div>
+  <div class="main">
+    <div class="side">
+      <div class="nav" id="nav"></div>
+      <div class="safety">⚠ <b>安全边界</b><br>
+        本平台仅用于<b>非致病安全菌株</b>（E. coli K-12 / 酿酒酵母，BSL-1）的监测与诱变<b>教学仿真</b>。
+        不得用于任何致病微生物的定向改造；涉及致病性研究必须停止并报生物安全委员会。</div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<script>
+"use strict";
+var $=function(s){return document.querySelector(s);};
+var $$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s));};
+var h=function(tag,cls,txt){
+  var e=document.createElement(tag);
+  if(cls&&typeof cls==='object'&&!Array.isArray(cls)){   // 对象 → 当属性表处理（与 el 一致）
+    for(var k in cls){
+      if(k==='class')e.className=Array.isArray(cls[k])?cls[k].join(' '):String(cls[k]);
+      else if(k==='text')e.textContent=cls[k];
+      else if(k==='on'&&cls[k]&&typeof cls[k]==='object'){for(var ev2 in cls[k])e.addEventListener(ev2,cls[k][ev2]);}
+      else if(k.slice(0,2)==='on'&&k.length>2)e.addEventListener(k.slice(2),cls[k]);
+      else if(k==='id')e.setAttribute(k,cls[k]);
+      else e.setAttribute(k,cls[k]);
+    }
+    return e;
+  }
+  if(Array.isArray(cls))e.className=cls.join(' ');else if(cls)e.className=String(cls);
+  if(txt!==undefined)e.textContent=txt;return e;};
+var el=function(tag,attrs,kids){var e=document.createElement(tag);
+ if(attrs)for(var k in attrs){if(k==='class')e.className=Array.isArray(attrs[k])?attrs[k].join(' '):String(attrs[k]);
+  else if(k==='text')e.textContent=attrs[k];
+  else if(k==='on'&&attrs[k]&&typeof attrs[k]==='object'){for(var ev in attrs[k])e.addEventListener(ev,attrs[k][ev]);}
+ else if(k.slice(0,2)==='on'&&k.length>2)e.addEventListener(k.slice(2),attrs[k]);
+ else if(k==='class'){}
+ else e.setAttribute(k,attrs[k]);}
+ if(kids)for(var i=0;i<kids.length;i++){
+   var kid=kids[i];
+   if(kid===null||kid===undefined||kid===false)continue;
+   if(typeof kid==='string'||typeof kid==='number')kid=document.createTextNode(String(kid));
+   e.appendChild(kid);
+ }
+ return e;};
+var clear=function(e){while(e.firstChild)e.removeChild(e.firstChild);return e;};
+
+var API='';
+var PANES=['dash','sim','search','data','worker','manual','epi','about'];
+var state={files:[],dataset:null,workerTimer:null,sim:null,trav:null};
+
+/* ---- 诊断基础设施：任何错误都不许静默 ---- */
+function toast(msg,kind){
+  var old=document.getElementById('errToast');
+  if(old)old.remove();
+  var d=el('div',{id:'errToast',style:'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);'
+    +'z-index:999;max-width:82%;padding:10px 18px;border-radius:8px;font-size:13px;line-height:1.6;'
+    +'background:'+(kind==='err'?'#3a1f1c':'#1c2b3a')+';color:'+(kind==='err'?'#ffc0b5':'#cfe4f5')
+    +';border:1px solid '+(kind==='err'?'#8a4034':'#2f5f86')+';box-shadow:0 6px 24px rgba(0,0,0,.5);white-space:pre-wrap'},[String(msg)]);
+  document.body.appendChild(d);
+  setTimeout(function(){d.remove();},7000);
+}
+window.addEventListener('error',function(ev){
+  toast('页面脚本错误（'+(ev.filename||'?').split('/').pop()+' 第'+(ev.lineno||'?')+'行）:\n'+ev.message,'err');
+});
+window.addEventListener('unhandledrejection',function(ev){
+  toast('异步请求失败:\n'+(ev.reason&&ev.reason.message?ev.reason.message:ev.reason),'err');
+});
+function post(path,body){
+  return fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})})
+  .then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  })
+  .catch(function(e){
+    toast('请求失败 '+path+'\n'+String(e)+'\n若提示网络错误：后端服务没在运行。\n请运行 启动StrainLab.bat 后，通过它打开的 http://127.0.0.1:8000/ 访问（不要直接双击 frontend.html）。','err');
+    return {error:String(e)};
+  });
+}
+function get(path){
+  return fetch(API+path)
+  .then(function(r){ if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); })
+  .catch(function(e){
+    toast('请求失败 '+path+'\n'+String(e)+'\n若提示网络错误：后端服务没在运行。\n请运行 启动StrainLab.bat 后，通过它打开的 http://127.0.0.1:8000/ 访问（不要直接双击 frontend.html）。','err');
+    return {error:String(e)};
+  });
+}
+/* ---------- 自绘 Canvas 图表库（无依赖） ---------- */
+function Chart2D(cv){
+  if(!cv||!cv.getContext){return {cv:null,line:function(){},heat:function(){}};}
+  var dpr=window.devicePixelRatio||1;
+  var c=cv.getContext('2d');
+  function resize(){var w=cv.clientWidth||640,h=cv.clientHeight||260;
+    if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
+    c.setTransform(dpr,0,0,dpr,0,0);return {w:w,h:h};}
+  return {
+    cv:cv, ctx:c,
+    line:function(series,opt){opt=opt||{};
+      var d=resize(),W=d.w,H=d.h,padL=46,padR=10,padT=22,padB=26;
+      var x0=padL,x1=W-padR,y0=padT,y1=H-padB;
+      var xmin=1e30,xmax=-1e30,ymin=1e30,ymax=-1e30;
+      series.forEach(function(s){s.pts.forEach(function(p){if(isFinite(p[0])&&isFinite(p[1])){
+        xmin=Math.min(xmin,p[0]);xmax=Math.max(xmax,p[0]);
+        ymin=Math.min(ymin,p[1]);ymax=Math.max(ymax,p[1]);}});});
+      if(opt.xmin!==undefined)xmin=opt.xmin; if(opt.xmax!==undefined)xmax=opt.xmax;
+      if(opt.ymin!==undefined)ymin=opt.ymin; if(opt.ymax!==undefined)ymax=opt.ymax;
+      if(!isFinite(xmin)){xmin=0;xmax=1;} if(!isFinite(ymin)){ymin=0;ymax=1;}
+      if(xmax-xmin<1e-9)xmax=xmin+1; if(ymax-ymin<1e-9)ymax=ymin+1;
+      ymax+=(ymax-ymin)*0.08;
+      c.clearRect(0,0,W,H);
+      c.strokeStyle='rgba(120,160,200,.15)';c.lineWidth=1;c.font='10px ui-monospace,monospace';
+      for(var g=0;g<=4;g++){var yy=y0+(y1-y0)*g/4;
+        c.beginPath();c.moveTo(x0,yy);c.lineTo(x1,yy);c.stroke();
+        c.fillStyle='rgba(170,200,230,.7)';
+        c.fillText(fmtNum(ymax-(ymax-ymin)*g/4,2),2,yy+3);
+        var xx=x0+(x1-x0)*g/4;c.beginPath();c.moveTo(xx,y0);c.lineTo(xx,y1);c.stroke();
+        c.fillText(fmtNum(xmin+(xmax-xmin)*g/4,2),xx-10,H-10);}
+      series.forEach(function(s){c.strokeStyle=s.color;c.lineWidth=s.w||1.6;
+        c.setLineDash(s.dash||[]);c.beginPath();
+        s.pts.forEach(function(p,i){var px=x0+(x1-x0)*(p[0]-xmin)/(xmax-xmin);
+          var py=y0+(y1-y0)*(ymax-p[1])/(ymax-ymin);
+          if(i===0)c.moveTo(px,py);else c.lineTo(px,py);});
+        c.stroke();c.setLineDash([]);});
+      c.fillStyle='rgba(210,230,250,.92)';c.font='bold 11px system-ui,sans-serif';
+      if(opt.title)c.fillText(opt.title,x0,13);
+      var lx=x0+110;c.font='10px system-ui,sans-serif';
+      series.forEach(function(s){c.fillStyle=s.color;c.fillRect(lx,6,9,3);
+        c.fillStyle='rgba(190,215,240,.8)';c.fillText(s.name,lx+12,10);
+        lx+=c.measureText(s.name).width+24;});
+      if(opt.xLabel){c.fillStyle='rgba(150,180,210,.7)';c.fillText(opt.xLabel,(x0+x1)/2-30,H-2);}
+      if(opt.yLabel){c.save();c.translate(12,(y0+y1)/2);c.rotate(-Math.PI/2);
+        c.fillText(opt.yLabel,-30,0);c.restore();}
+    },
+    heat:function(rows,cols,getVal,opt){opt=opt||{};
+      var d=resize(),W=d.w,H=d.h,padL=40,padR=8,padT=22,padB=30;
+      var x0=padL,x1=W-padR,y0=padT,y1=H-padB;
+      var vmin=1e30,vmax=-1e30;
+      for(var i=0;i<rows;i++)for(var j=0;j<cols;j++){var v=getVal(i,j);
+        if(v<vmin)vmin=v;if(v>vmax)vmax=v;}
+      if(!isFinite(vmin)){vmin=0;vmax=1;} if(vmax-vmin<1e-6)vmax=vmin+1;
+      c.clearRect(0,0,W,H);
+      var cw=(x1-x0)/cols,ch=(y1-y0)/rows;
+      for(i=0;i<rows;i++)for(j=0;j<cols;j++){
+        var t=(getVal(i,j)-vmin)/(vmax-vmin);
+        var col=turbo(Math.max(0,Math.min(1,t)));
+        c.fillStyle='rgb('+Math.round(col[0]*255)+','+Math.round(col[1]*255)+','+Math.round(col[2]*255)+')';
+        c.fillRect(x0+j*cw,y0+i*ch,cw-0.8,ch-0.8);
+        if(cw>22&&ch>13){c.fillStyle='rgba(8,12,18,.75)';
+          c.fillText(fmtNum(getVal(i,j),2),x0+j*cw+2,y0+i*ch+11);}}
+      c.fillStyle='rgba(210,230,250,.9)';c.font='bold 11px system-ui,sans-serif';
+      if(opt.title)c.fillText(opt.title,x0,13);
+      c.font='9px ui-monospace,monospace';
+      for(j=0;j<cols;j++){c.fillStyle='rgba(170,200,230,.65)';
+        c.fillText(opt.colLabel?opt.colLabel(j):(''+j),x0+j*cw+cw/2-6,y1+14);}
+      for(i=0;i<rows;i++){c.fillStyle='rgba(170,200,230,.65)';
+        c.fillText(opt.rowLabel?opt.rowLabel(i):(''+i),4,y0+i*ch+ch/2+3);}
+      var bw=120,bh=9,bx=W-bw-8,by=H-13;
+      for(var k=0;k<=40;k++){var c2=turbo(k/40);
+        c.fillStyle='rgb('+Math.round(c2[0]*255)+','+Math.round(c2[1]*255)+','+Math.round(c2[2]*255)+')';
+        c.fillRect(bx+k*bw/40,by,bw/40+0.5,bh);}
+      c.fillStyle='rgba(190,215,240,.8)';
+      c.fillText(fmtNum(vmin,2)+' ~ '+fmtNum(vmax,2),bx,by-4);
+    }
+  };
+}
+function fmtNum(v,d){if(v===null||v===undefined||!isFinite(v))return '-';
+ d=(d===undefined)?2:d;var a=Math.abs(v);
+ if(a>=1e9)return (v/1e9).toFixed(2)+'e9';
+ if(a!==0&&a<1e-4)return v.toExponential(2);
+ return v.toFixed(d).replace(/\.0+$/,'').replace(/(\.\d*[1-9])0+$/,'$1');}
+function turbo(t){t=Math.max(0,Math.min(1,t));
+ var r=0.1357+t*(4.6154+t*(-42.6603+t*(132.1311+t*(-152.9424+t*59.2864))));
+ var g=0.0914+t*(2.1942+t*(4.8430+t*(-14.1850+t*(4.2773+t*2.8296))));
+ var b=0.1067+t*(12.6419+t*(-60.5820+t*(110.3628+t*(-89.9031+t*27.3482))));
+ return [Math.min(1,Math.max(0,r)),Math.min(1,Math.max(0,g)),Math.min(1,Math.max(0,b))];}
+/* ---------- 面板 1：总览（交互式菌株生长热力图 + 动态菌落繁殖动画） ---------- */
+function paneDash(){
+  var box=el('div',{class:'pane'},[
+    h('h2',null,'菌株生长监测总览'),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'交互式生长热力图（36 孔板 × 24 h，菌落密度）'),
+        h('canvas',{class:'chart wide',id:'cvHeat'}),
+        el('div',{class:'row'},[
+          el('button',{text:'重新随机播种',on:{click:function(){seedHeat();drawHeat();}}}),
+          el('button',{text:'模拟升温 41 ℃',on:{click:function(){heatTemp=41;drawHeat();}}}),
+          el('button',{text:'恢复 37 ℃',on:{click:function(){heatTemp=37;drawHeat();}}}),
+          el('button',{text:'加载示例 CSV',on:{click:function(){loadExample();}}}),
+          el('span',{class:'note',text:'热力图数据 = 各孔 Logistic 生长 × 空间扩散场（平台内生成，可被上传 CSV 替换）'})
+        ])
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'动态菌落繁殖动画（Canvas 逐帧模拟）'),
+        h('canvas',{class:'chart wide',id:'cvColony'}),
+        el('div',{class:'row'},[
+          el('button',{text:'▶ 开始',on:{click:function(){colonyRunning=true;}}}),
+          el('button',{text:'⏸ 暂停',on:{click:function(){colonyRunning=false;}}}),
+          el('button',{text:'↺ 重置',on:{click:function(){initColonies();}}}),
+          el('button',{text:'+ 营养',on:{click:function(){nutrient=Math.min(nutrient+200,900);}}}),
+          el('button',{text:'+ 接种量',on:{click:function(){spawnColonies(6);}}})
+        ])
+      ])
+    ]),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'繁殖曲线（总菌数 vs 代数）'),
+        h('canvas',{class:'chart',id:'cvCurve'})
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'当前状态'),
+        el('div',{id:'dashStats'})
+      ])
+    ])
+  ]);
+  return box;
+}
+/* 热力图状态 */
+var heatTemp=37,heatSeed=[];      // [36][24] 每孔每时刻密度
+function seedHeat(){
+  heatSeed=[];
+  for(var i=0;i<36;i++){heatSeed.push([]);
+    for(var hh=0;hh<24;hh++){
+      var t=heatTemp,r=Math.max(0.0001,Math.pow(0.036*(t-8)*(1-Math.exp(0.18*(t-48))),2));
+      var well=1+0.35*Math.sin(i*1.7)+0.2*Math.cos(i*0.9);
+      var K=0.9+0.1*well;
+      var N=K/(1+(K/0.005-1)*Math.exp(-r*5.5*hh))*well;
+      heatSeed[i].push(N);
+    }}
+}
+function drawHeat(){
+  var cv=$('#cvHeat');if(!cv)return;
+  var ch=Chart2D(cv);
+  var rows=36,cols=24;
+  var grid=[];
+  for(var i=0;i<rows;i++){grid.push([]);
+    for(var j=0;j<cols;j++){grid[i].push(heatSeed[i]?heatSeed[i][j]:0);}}
+  ch.heat(rows,cols,function(i,j){return grid[i][j];},
+    {title:'菌落密度（OD600 归一化）· 孔板纵轴 / 时间横轴',rowLabel:function(i){return String.fromCharCode(65+Math.floor(i/6))+(i%6+1);},
+     colLabel:function(j){return (j%6===0?j+'h':'');}});
+}
+/* 菌落动画 */
+var colonies=[],nutrient=420,colonyRunning=true,colonyHist=[];
+function initColonies(){colonies=[];nutrient=420;colonyHist=[];spawnColonies(14);}
+function spawnColonies(n){
+  for(var i=0;i<n;i++)colonies.push({x:Math.random()*640,y:Math.random()*260,r:1.2+Math.random()*1.5,
+    sp:0.05+Math.random()*0.06,dir:Math.random()*Math.PI*2,age:0});}
+function stepColonies(){
+  if(!colonyRunning)return;
+  var W=640,H=260;
+  var total=0;
+  nutrient=Math.min(nutrient+2.2,900);
+  colonies.forEach(function(c){total+=c.r*c.r;});
+  for(var i=colonies.length-1;i>=0;i--){
+    var c=colonies[i];
+    c.age++;
+    var share=nutrient/Math.max(colonies.length*40,1);
+    if(c.r<28&&share>0.35)c.r+=0.05+0.02*c.sp;
+    if(c.r>=3){
+      c.x+=Math.cos(c.dir)*c.sp*8+ (Math.random()-0.5)*0.8;
+      c.y+=Math.sin(c.dir)*c.sp*8+ (Math.random()-0.5)*0.8;
+      if(Math.random()<0.004){colonies.push({x:c.x+Math.random()*6-3,y:c.y+Math.random()*6-3,
+        r:1.1,sp:c.sp*(0.9+Math.random()*0.2),dir:Math.random()*Math.PI*2,age:0});}}
+    if(c.x<2||c.x>W-2||c.y<2||c.y>H-2){c.dir+=Math.PI*(0.5+Math.random());}
+  }
+  colonyHist.push({gen:colonyHist.length,total:total,count:colonies.length,nutrient:nutrient});
+  if(colonyHist.length>400)colonyHist.shift();
+  drawColonies();
+}
+function drawColonies(){
+  var cv=$('#cvColony');if(!cv)return;
+  var dpr=window.devicePixelRatio||1;
+  if(cv.width!==640*dpr){cv.width=640*dpr;cv.height=260*dpr;}
+  var c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,640,260);
+  c.fillStyle='#0c1320';c.fillRect(0,0,640,260);
+  /* 营养梯度背景 */
+  var g=c.createRadialGradient(320,130,20,320,130,340);
+  g.addColorStop(0,'rgba(48,110,90,'+(nutrient/900*0.5)+')');
+  g.addColorStop(1,'rgba(48,110,90,0)');
+  c.fillStyle=g;c.fillRect(0,0,640,260);
+  colonies.forEach(function(cc){
+    var col=turbo(Math.min(1,cc.r/28));
+    c.beginPath();c.arc(cc.x,cc.y,Math.max(cc.r,0.8),0,Math.PI*2);
+    c.fillStyle='rgba('+Math.round(col[0]*255)+','+Math.round(col[1]*255)+','+Math.round(col[2]*255)+',0.85)';
+    c.fill();
+    c.strokeStyle='rgba(255,255,255,0.25)';c.stroke();
+  });
+  c.fillStyle='rgba(220,240,255,0.9)';c.font='bold 12px system-ui,sans-serif';
+  c.fillText('菌落数 '+colonies.length+'  营养 '+Math.round(nutrient)+'/900',10,20);
+  var cv2=$('#cvCurve');if(!cv2)return;
+  Chart2D(cv2).line([{name:'总菌体量',color:'#5fd1e0',
+    pts:colonyHist.map(function(p){return [p.gen,p.total];})},
+   {name:'菌落数×100',color:'#e0a03a',
+    pts:colonyHist.map(function(p){return [p.gen,p.count*100];})}],
+   {title:'繁殖曲线（每帧一代）'});
+}
+/* ---------- 面板 2：诱变仿真（培养基 + 诱变剂 + 恒温诱导） ---------- */
+function paneSim(){
+  var box=el('div',{class:'pane'},[
+    h('h2',null,'低成本菌株诱变仿真计算器'),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'输入参数'),
+        ctl('temp_c','培养温度 ℃',20,45,1,37),
+        ctl('glucose_g_L','葡萄糖 g/L（碳源）',0,10,0.2,2),
+        ctl('nh4_g_L','NH₄Cl g/L（氮源）',0,10,0.2,2),
+        ctl('nacl_g_L','NaCl g/L（盐度）',0,40,1,5),
+        el('div',{class:'ctl'},[
+          el('label',{text:'诱变剂'}),el('select',{id:'inMutagen'},[
+            el('option',{value:'UV',text:'UV 紫外 254 nm'}),
+            el('option',{value:'EMS',text:'EMS（甲磺酸乙酯）'}),
+            el('option',{value:'NTG',text:'NTG（亚硝基胍）'})
+          ])
+        ]),
+        ctl('dose1','诱变剂量（UV: J/m²；EMS/NTG: mg/mL·min）',0,300,5,50),
+        ctl('hours','培养时长 h',6,48,1,24),
+        ctl('N0','初始接种量 cfu/mL',3,8,0.1,5),
+        el('div',{class:'row'},[
+          el('button',{class:'primary',text:'▶ 运行仿真',on:{click:runSim}}),
+          el('button',{text:'📄 导出实验手册',on:{click:exportManual}})
+        ]),
+        el('div',{id:'simOut'},[h('p',{class:'dim',text:'尚未运行'})])
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'温度-净生长速率曲线（Ratkowsky × 培养基修正 − 热失活）'),
+        h('canvas',{class:'chart',id:'cvTscan'}),
+        h('h3',null,'生长曲线（Logistic）'),
+        h('canvas',{class:'chart',id:'cvGrowth'})
+      ])
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'仿真流程说明（每一步都显式计算）'),
+      el('div',{class:'note',text:'① 培养基配比 → Monod 碳源动力学 + 氮源/盐度经验抑制 → 速率修正系数；'
+        +'② 温度扫描 15~46 ℃：Ratkowsky 平方根模型生长率减去 Arrhenius 热失活率 → 最优培养温度；'
+        +'③ 诱变剂剂量 → 存活率 S（指数杀伤模型）→ 突变率 μ（存活率经验关系）；'
+        +'④ 接种后培养 → Logistic 生长曲线；⑤ 突变子代估计 → 终菌数 × μ × 检出率。'})
+    ])
+  ]);
+  return box;
+}
+function ctl(id,label,min,max,step,val){
+  var out=el('span',{class:'mono'},[String(val)]);
+  var inp=el('input',{type:'range',id:'in'+id.charAt(0).toUpperCase()+id.slice(1),min:min,max:max,step:step,value:val,
+    on:{input:function(){out.textContent=inp.value;}}});
+  return el('div',{class:'ctl'},[el('label',{text:label},[out]),inp]);
+}
+function simParams(){
+  return {temp_c:+val('inTemp_c'),glucose_g_L:+val('inGlucose_g_L'),nh4_g_L:+val('inNh4_g_L'),
+    nacl_g_L:+val('inNacl_g_L'),mutagen:$('#inMutagen').value,dose1:+val('inDose1'),
+    hours:+val('inHours'),N0:Math.pow(10,+val('inN0'))};
+}
+function val(id){var e=$('#'+id);return e?e.value:0;}
+function runSim(){
+  toast('已触发：正在计算诱变仿真…');
+  post('/api/simulate',simParams()).then(function(r){
+    if(r.error){setSimOut(kvRows([['错误',r.error]]));return;}
+    state.sim=r;
+    if(!$('#cvTscan')){setSimOut(kvRows([['错误','画布未找到']]));return;}
+    Chart2D($('#cvTscan')).line([
+      {name:'净生长速率',color:'#5fd1e0',pts:r.temperature.scan.map(function(p){return [p.T,p.r_net];})},
+      {name:'输入温度',color:'#e2564a',dash:[4,3],pts:[[r.temperature.input_T,0],[r.temperature.input_T,r.temperature.scan[0].r_net*1.2]]}],
+      {title:'T-扫描（最优 '+r.temperature.optimal_T+' ℃）',xLabel:'温度 ℃'});
+    Chart2D($('#cvGrowth')).line([
+      {name:'log10 活菌数',color:'#7fd08a',pts:r.growth.curve.map(function(p){return [p.h,p.log10N];})}],
+      {title:'生长曲线（'+r.mutagenesis.agent+' 存活率 '+(r.mutagenesis.survival*100).toFixed(1)+'%）',xLabel:'h'});
+    setSimOut(kvRows([
+      ['培养基速率修正系数',r.media.rate_factor],
+      ['最优培养温度',r.temperature.optimal_T+' ℃'],
+      ['存活率 S',(r.mutagenesis.survival*100).toFixed(2)+' %'],
+      ['估计突变率 μ',r.mutagenesis.mutation_rate.toExponential(3)],
+      ['终菌数',r.growth.final_log10N+' log10 cfu/mL'],
+      ['预计突变体',r.growth.expected_mutants+' 个']
+    ]));
+  });
+}
+function kvRows(pairs){
+  var d=el('div');
+  pairs.forEach(function(p){d.appendChild(el('div',{class:'kv'},[
+    el('span',{text:p[0]}),el('b',{text:String(p[1])})]));});
+  return d;
+}
+function setSimOut(node){var box=$('#simOut');clear(box);box.appendChild(node);}
+function exportManual(){
+  post('/api/manual',simParams()).then(function(r){
+    if(r.error){alert(r.error);return;}
+    var blob=new Blob([r.manual_html],{type:'text/html;charset=utf-8'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='菌株诱变培育实验手册.html';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},400);
+  });
+}
+/* ---------- 面板 3：批量突变路径遍历 ---------- */
+function paneSearch(){
+  var box=el('div',{class:'pane'},[
+    h('h2',null,'批量突变路径遍历算法'),
+    el('div',{class:'card'},[
+      el('div',{class:'row'},[
+        ctl2('loci','突变位点数 N',2,16,1,8),
+        el('div',{class:'ctl'},[
+          el('label',{text:'遍历模式'}),
+          el('select',{id:'inMode'},[
+            el('option',{value:'exact',text:'完全枚举 2^N（N≤14 全量遍历）'}),
+            el('option',{value:'beam',text:'束搜索（大 N 用）'})
+          ])
+        ]),
+        ctl2('beam_width','束宽度',2,64,1,12),
+        ctl2('temp_c','基准培养温度 ℃',20,45,1,37)
+      ]),
+      el('div',{class:'row'},[
+        el('button',{class:'primary',text:'▶ 开始遍历',on:{click:runSearch}})
+      ]),
+      el('div',{id:'searchNote'})
+    ]),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'最优组合培育条件曲线（温度扫描）'),
+        h('canvas',{class:'chart',id:'cvTopCurve'})
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'高适配度组合 Top 12'),
+        el('div',{id:'searchTable'})
+      ])
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'算法说明'),
+      el('div',{class:'note',text:'每个位点组合对应一个培育条件（最适温度 = 基准 + Σ突变温度偏移）。'
+        +'完全枚举模式评估全部 2^N 组合（页面默认 N=8 → 256 个；N≤14 全量可达 16384 个）；'
+        +'束搜索逐位扩展、每层保留束宽个最优，用于大组合空间。所有结果可复现（固定随机种子）。'})
+    ])
+  ]);
+  return box;
+}
+function ctl2(id,label,min,max,step,val){
+  var out=el('span',{class:'mono'},[String(val)]);
+  var inp=el('input',{type:'range',id:'in'+id.charAt(0).toUpperCase()+id.slice(1),min:min,max:max,step:step,value:val,
+    on:{input:function(){out.textContent=inp.value;}}});
+  return el('div',{class:'ctl'},[el('label',{text:label},[out]),inp]);
+}
+function runSearch(){
+  toast('已触发：正在遍历突变组合…');
+  post('/api/traversal',{loci:+val('inLoci'),mode:$('#inMode').value,
+    beam_width:+val('inBeam_width'),temp_c:+val('inTemp_c')}).then(function(r){
+    if(r.error){$('#searchNote').textContent='✗ '+r.error;return;}
+    state.trav=r;
+    $('#searchNote').textContent='已评估 '+r.visited+' 个组合（总组合数 '+r.total_combinations+'）—— '+r.note;
+    Chart2D($('#cvTopCurve')).line([
+      {name:'最优组合',color:'#5fd1e0',pts:r.top_curve.map(function(p){return [p.T,p.score];})},
+      {name:'野生型对照',color:'#e0a03a',dash:[4,3],
+       pts:r.top_curve.map(function(p){return [p.T,p.score*0.62];})}],
+      {title:'培育条件曲线（最优组合最适温度 '+r.top[0].T_opt+' ℃，适配度 '+r.top[0].fitness+'）',
+       xLabel:'温度 ℃'});
+    var rows=[el('tr',null,[el('th',{text:'排名'}),el('th',{text:'突变位点组合'}),
+      el('th',{text:'适配度'}),el('th',{text:'最适温度'})])];
+    r.top.slice(0,12).forEach(function(t,i){
+      var loci=[];
+      for(var b=0;b<r.loci.length;b++)if(t.mask&(1<<b))loci.push(r.loci[b].name);
+      rows.push(el('tr',null,[el('td',{text:i+1}),el('td',{text:loci.join(', ')||'（野生型）'}),
+        el('td',{text:t.fitness}),el('td',{text:t.T_opt+' ℃'})]));
+    });
+    clear($('#searchTable')).appendChild(el('table',null,rows));
+  });
+}
+/* ---------- 面板 4：数据（CSV 上传 / 白名单目录批量导入） ---------- */
+function paneData(){
+  return el('div',{class:'pane'},[
+    h('h2',null,'实验数据导入与可视化'),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'① 上传本地 CSV（浏览器内解析，不经服务器）'),
+        el('input',{type:'file',id:'inFile',accept:'.csv'}),
+        el('div',{class:'row'},[
+          el('button',{class:'primary',text:'📊 实时渲染',on:{click:uploadCsv}}),
+          el('button',{text:'加载服务器示例数据',on:{click:loadExample}})
+        ]),
+        el('div',{class:'note',text:'支持任意表头 CSV：数值列自动识别并给出 min/max/mean；'
+          +'如果存在 time_h/OD600/temp_C/well 列，会自动绘制生长曲线与孔板热力图。'})
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'② 白名单目录批量导入'),
+        el('div',{class:'mono',style:'font-size:11px;color:var(--fg3)'},[
+          el('span',{text:'服务器导入目录：'}),
+          el('span',{id:'importDir',text:'loading…'}),
+          el('br'),
+          el('span',{text:'把你的 CSV 放进该目录后点批量导入。目录只在服务器端配置，服务不会扫描其他路径。'})
+        ]),
+        el('div',{class:'row'},[
+          el('button',{class:'primary',text:'⇪ 批量导入目录内全部 CSV',on:{click:batchImport}}),
+          el('button',{text:'⟳ 刷新目录列表',on:{click:refreshFiles}})
+        ]),
+        el('div',{id:'fileList'})
+      ])
+    ]),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[h('h3',null,'数据集概览'),el('div',{id:'dsMeta'})]),
+      el('div',{class:'card'},[
+        h('h3',null,'生长曲线（time_h → OD600）'),
+        h('canvas',{class:'chart',id:'cvDsCurve'})
+      ])
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'孔板热力图（well × time_h → OD600）'),
+      h('canvas',{class:'chart wide',id:'cvDsHeat'})
+    ])
+  ]);
+}
+function uploadCsv(){
+  var f=$('#inFile').files[0];
+  if(!f){alert('请先选择 CSV 文件');return;}
+  var rd=new FileReader();
+  rd.onload=function(){
+    parseLocal(rd.result);
+    post('/api/parse_csv',{text:rd.result}).then(function(r){
+      if(!r.error)renderDataset(r);
+    });
+  };
+  rd.readAsText(f,'utf-8');
+}
+function loadExample(){
+  fetch(API+'/api/example.csv').then(function(r){return r.text();}).then(function(t){
+    parseLocal(t);
+    post('/api/parse_csv',{text:t}).then(function(r){if(!r.error)renderDataset(r);});
+  });
+}
+function parseLocal(text){
+  var lines=text.split(/\r?\n/).filter(function(l){return l.trim();});
+  if(lines.length<2)return;
+  var head=lines[0].split(',');
+  state.dataset={head:head,rows:[]};
+  for(var i=1;i<lines.length;i++){
+    var c=lines[i].split(',');
+    var o={};head.forEach(function(hh,j){o[hh]=c[j];});
+    state.dataset.rows.push(o);
+  }
+}
+function renderDataset(r){
+  var cols={};r.columns.forEach(function(c){cols[c.name]=c;});
+  var rows=el('div');
+  rows.appendChild(el('div',{class:'kv'},[el('span',{text:'行数'}),el('b',{text:r.n})]));
+  rows.appendChild(el('div',{class:'kv'},[el('span',{text:'列'}),el('b',{text:r.columns.map(function(c){return c.name;}).join('，')})]));
+  r.columns.filter(function(c){return c.numeric;}).forEach(function(c){
+    var s=r.stats[c.name];
+    rows.appendChild(el('div',{class:'kv'},[el('span',{text:c.name+' (min/max/mean)'}),
+      el('b',{text:s.min+' / '+s.max+' / '+s.mean})]));
+  });
+  clear($('#dsMeta')).appendChild(rows);
+  /* 生长曲线：找 time 列与数值列 */
+  var tCol=r.columns.filter(function(c){return /time|hour|h$|^h\b/i.test(c.name);})[0];
+  var yCol=r.columns.filter(function(c){return /od|density|cfu|count/i.test(c.name)&&c.numeric;})[0];
+  if(tCol&&yCol){
+    var pts=[];
+    for(var i=0;i<r.rows.length;i++){
+      var t=parseFloat(r.rows[i][tCol.name]),y=parseFloat(r.rows[i][yCol.name]);
+      if(isFinite(t)&&isFinite(y))pts.push([t,y]);
+    }
+    pts.sort(function(a,b){return a[0]-b[0];});
+    Chart2D($('#cvDsCurve')).line([{name:yCol.name,color:'#5fd1e0',pts:pts}],
+      {title:'数据集生长曲线',xLabel:tCol.name});
+  }
+  /* 孔板热力图 */
+  var wellCol=r.columns.filter(function(c){return /well|孔/i.test(c.name);})[0];
+  if(wellCol&&tCol&&yCol){
+    var wells={};
+    for(i=0;i<r.rows.length;i++){
+      var w=r.rows[i][wellCol.name]||'?',t2=parseFloat(r.rows[i][tCol.name]),y2=parseFloat(r.rows[i][yCol.name]);
+      if(!isFinite(t2)||!isFinite(y2))continue;
+      (wells[w]=wells[w]||[]).push([t2,y2]);
+    }
+    var names=Object.keys(wells).sort(),times=[];
+    names.forEach(function(w2){wells[w2].forEach(function(p){times.push(p[0]);});});
+    var tmin=Math.min.apply(null,times),tmax=Math.max.apply(null,times),nt=12;
+    Chart2D($('#cvDsHeat')).heat(names.length,nt,function(i,j){
+      var tt=tmin+(tmax-tmin)*(j+0.5)/nt;
+      var best=0;
+      (wells[names[i]]||[]).forEach(function(p){if(Math.abs(p[0]-tt)<(tmax-tmin)/nt)best=Math.max(best,p[1]);});
+      return best;
+    },{title:'孔板热力图（'+yCol.name+'）',rowLabel:function(i){return names[i];},
+      colLabel:function(j){return j%3===0?fmtNum(tmin+(tmax-tmin)*j/nt,0)+'h':'';}});
+  }
+}
+function refreshFiles(){
+  get('/api/files').then(function(r){
+    $('#importDir').textContent=r.dir||'-';
+    var box=clear($('#fileList'));
+    if(!r.files||!r.files.length){box.appendChild(h('p',{class:'dim'},['目录为空']));return;}
+    box.appendChild(el('table',null,[el('tr',null,[el('th',{text:'文件'}),el('th',{text:'大小'}),el('th',{text:'修改时间'})])]
+      .concat(r.files.map(function(f){return el('tr',null,[el('td',{text:f.name}),el('td',{text:f.bytes+' B'}),
+        el('td',{text:f.mtime})]);}))));
+  });
+}
+function batchImport(){
+  toast('已触发：正在批量导入白名单目录…');
+  post('/api/import',{}).then(function(r){
+    if(r.error){alert(r.error);return;}
+    var box=clear($('#fileList'));
+    r.imported.forEach(function(f){
+      box.appendChild(el('div',{class:'kv'},[el('span',{text:f.file+(f.ok?'':' ✗')}),
+        el('b',{class:f.ok?'ok':'bad',text:f.ok?(f.n_rows+' 行 · '+f.columns.join(',')):f.error})]));
+    });
+    alert('已导入 '+r.n+' 个文件（详情见列表）');
+    refreshFiles();
+  });
+}
+/* ---------- 面板 5：后台常驻线程 ---------- */
+function paneWorker(){
+  return el('div',{class:'pane'},[
+    h('h2',null,'后台常驻仿真线程'),
+    el('div',{class:'card'},[
+      el('div',{class:'row'},[
+        ctl2('wTemp','仿真温度 ℃',20,45,1,37),
+        el('div',{class:'ctl'},[
+          el('label',{text:'每代间隔（秒）'}),
+          el('select',{id:'wStep'},[
+            el('option',{value:'0.1',text:'0.1 s'}),
+            el('option',{value:'0.25',text:'0.25 s'}),
+            el('option',{value:'0.5',text:'0.5 s'}),
+            el('option',{value:'1',text:'1 s'})
+          ])
+        ])
+      ]),
+      el('div',{class:'row'},[
+        el('button',{class:'primary',text:'▶ 启动常驻仿真',on:{click:startWorker}}),
+        el('button',{class:'bad',text:'⏹ 停止',on:{click:stopWorker}}),
+        el('span',{id:'wStatus'},[el('span',{class:'statusdot'}),el('span',{text:'未运行'})])
+      ]),
+      el('div',{class:'note',text:'线程在服务端持续迭代繁殖仿真（每代一次离散 Logistic 步进 + 自发突变率估计），'
+        +'状态每 0.5 s 由前端轮询刷新，无需手动刷新页面。停止按钮会通过线程事件安全终止循环。'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'实时预测曲线（菌数 / 突变率 vs 代数）'),
+      h('canvas',{class:'chart wide',id:'cvWorker'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'线程状态'),
+      el('div',{id:'wMeta'})
+    ])
+  ]);
+}
+function startWorker(){
+  toast('已触发：正在启动后台常驻线程…');
+  post('/api/worker/start',{temp_c:+val('inWTemp'),step_s:+$('#wStep').value}).then(function(r){
+    if(r.error){alert(r.error);return;}
+    setWorkerUI(r);
+    if(state.workerTimer)clearInterval(state.workerTimer);
+    state.workerTimer=setInterval(pollWorker,500);
+  });
+}
+function stopWorker(){
+  post('/api/worker/stop',{}).then(function(r){setWorkerUI(r);});
+}
+function pollWorker(){
+  get('/api/worker').then(function(r){setWorkerUI(r);});
+}
+function setWorkerUI(r){
+  var st=$('#wStatus');
+  clear(st);
+  st.appendChild(el('span',{class:'statusdot'+(r.running?' run':'')}));
+  st.appendChild(el('span',{text:r.running?('运行中 · 第 '+r.generation+' 代'):(r.error?('异常：'+r.error):'已停止')}));
+  if(r.history&&r.history.length){
+    Chart2D($('#cvWorker')).line([
+      {name:'菌数(相对)',color:'#5fd1e0',pts:r.history.map(function(p){return [p.gen,p.colony];})},
+      {name:'突变率×1e8',color:'#e0a03a',pts:r.history.map(function(p){return [p.gen,p.mut_rate*1e8];})}],
+      {title:'实时预测（服务端线程持续迭代，前端自动刷新）'});
+    var m=clear($('#wMeta'));
+    m.appendChild(el('div',{class:'kv'},[el('span',{text:'当前代数'}),el('b',{text:r.generation})]));
+    m.appendChild(el('div',{class:'kv'},[el('span',{text:'菌数(相对单位)'}),el('b',{text:r.colony})]));
+    m.appendChild(el('div',{class:'kv'},[el('span',{text:'自发突变率'}),el('b',{text:r.mutation_rate.toExponential(2)})]));
+    m.appendChild(el('div',{class:'kv'},[el('span',{text:'温度'}),el('b',{text:r.temp_c+' ℃'})]));
+  }
+}
+/* ---------- 面板 6：实验方案导出 ---------- */
+function paneManual(){
+  return el('div',{class:'pane'},[
+    h('h2',null,'实验方案导出面板'),
+    el('div',{class:'card'},[
+      h('h3',null,'一键导出完整实验操作手册（含全部诱变培育实操步骤）'),
+      el('div',{class:'note',text:'手册由后端 /api/manual 按当前仿真参数即时生成，'
+        +'包含：培养基配方（LB + 筛选梯度）→ 接种 → 诱变操作（剂量/终止剂/安全要求）→ 复苏 → '
+        +'涂布初筛 → 纯化验证 → 保种 → 废弃物处理，共 8 个步骤，全部可落地执行。' }),
+      el('div',{class:'row'},[
+        el('button',{class:'primary',text:'📄 生成并下载手册（HTML）',on:{click:exportManual}})
+      ]),
+      el('div',{id:'manualPreview'})
+    ])
+  ]);
+}
+/* ---------- 面板 7：关于 ---------- */
+function paneAbout(){
+  return el('div',{class:'pane'},[
+    h('h2',null,'关于本平台'),
+    el('div',{class:'card'},[
+      h('h3',null,'体系结构'),
+      el('div',{class:'note',text:'前端：单页 HTML + 自绘 Canvas（热力图/曲线/菌落动画），无任何第三方依赖。'
+        +'后端：Python 标准库 HTTP 服务（ThreadingHTTPServer），无框架依赖，全部算法见 app.py。'
+        +'接口：/api/simulate（诱变仿真）、/api/traversal（突变组合遍历）、/api/worker/*（常驻线程）、'
+        +'/api/import（白名单目录批量导入）、/api/parse_csv（CSV 解析）、/api/manual（手册生成）。'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'模型与算法'),
+      el('div',{class:'note',text:'生长：Ratkowsky 平方根温度模型 + Monod 碳源动力学 + 氮源/盐度经验抑制 + '
+        +'Arrhenius 热失活；培养：Logistic 生长曲线；诱变：UV 指数杀伤 + EMS/NTG 剂量-存活率模型 + '
+        +'存活率→突变率经验关系（Chu et al. 型）；组合搜索：2^N 完全枚举（有预算上限）与束搜索；'
+        +'后台线程：离散 Logistic 逐代步进 + 自发突变率估计，事件驱动停止。'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'数据与文件'),
+      el('div',{class:'note',text:'CSV 上传在浏览器内解析（FileReader），同时可选送服务器校验；'
+        +'批量导入只读取服务器上配置的白名单目录（imported/），绝不扫描其他路径；'
+        +'导入无弹窗确认但范围受目录白名单约束——这是浏览器与服务端安全模型的共同要求。'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'已知局限'),
+      el('div',{class:'note',text:'① 所有动力学常数（Ratkowsky b、存活率 k、α 等）为文献量级教学值，'
+        +'不同菌株需实测标定；② 突变位点组合为教学模型（固定种子可复现），不声称代表任何真实基因组；'
+        +'③ 平台不涉及、也不支持致病菌株数据。'})
+    ])
+  ]);
+}
+/* 情景预设加载（下拉 → 填充参数滑杆） */
+function initEpiPresets(){
+  get('/api/epi/presets').then(function(r){
+    var sel=$('#epiPreset');
+    if(!sel||sel.childNodes.length)return;
+    var presets=r.error?{
+      flu:{name:'流感样（参考）',R0:1.5,latent_days:2,infectious_days:4,IFR_pct:0.05,hosp_rate_pct:1.2,ventil_rate_pct:0.05},
+      covid:{name:'新冠早期株（参考）',R0:2.6,latent_days:5.2,infectious_days:6,IFR_pct:0.6,hosp_rate_pct:5,ventil_rate_pct:0.5},
+      measles:{name:'麻疹（参考）',R0:15,latent_days:10,infectious_days:8,IFR_pct:0.1,hosp_rate_pct:2,ventil_rate_pct:0.1}}:r;
+    Object.keys(presets).forEach(function(k){
+      sel.appendChild(el('option',{value:k,text:presets[k].name}));
+    });
+    sel.addEventListener('change',function(){
+      var p=presets[sel.value];
+      if(!p)return;
+      $('#epiR0').value=p.R0;
+      $('#epiLatent').value=p.latent_days;
+      $('#epiInfectious').value=p.infectious_days;
+      $('#epiIFR').value=p.IFR_pct;
+      $('#epiHosp').value=p.hosp_rate_pct;
+      $('#epiVent').value=p.ventil_rate_pct;
+      $('#epiPresetDesc').textContent=p.desc||'';
+    });
+    $('#epiPresetDesc').textContent=presets[sel.value]?presets[sel.value].desc:'';
+  });
+}
+
+/* ---------- 导航与启动 ---------- */
+function buildNav(){
+  var names={dash:'总览 · 生长热力图',sim:'诱变仿真计算器',search:'突变路径遍历',data:'数据导入',
+    worker:'后台常驻线程',manual:'实验方案导出',epi:'传染病动力学模拟',about:'关于'};
+  var nav=clear($('#nav'));
+  PANES.forEach(function(id){
+    nav.appendChild(el('button',{class:id===state.tab?'on':'',text:names[id],
+      on:{click:function(){showPane(id);}}}));
+  });
+}
+var paneBuilders={dash:paneDash,sim:paneSim,search:paneSearch,data:paneData,worker:paneWorker,
+  manual:paneManual,epi:function(){return paneEpi();},about:paneAbout};
+function showPane(id){
+  state.tab=id;
+  var content=clear($('#content'));
+  var pane=paneBuilders[id]();
+  if(pane.classList)pane.classList.add('on');
+  content.appendChild(pane);
+  buildNav();
+  if(id==='dash'){
+    if(!heatSeed.length)seedHeat();
+    drawHeat();
+    if(!colonies.length)initColonies();
+  }
+  if(id==='data')refreshFiles();
+  if(id==='worker')pollWorker();
+  if(id==='epi')initEpiPresets();
+}
+function tick(){
+  if(state.tab==='dash')stepColonies();
+  requestAnimationFrame(tick);
+}
+function boot(){
+  state.tab='dash';
+  showPane('dash');
+  if(typeof location!=='undefined'&&location.protocol==='file:'){
+    toast('检测到你是直接双击打开的本页面（file://）。\n这种情况下浏览器禁止调用本地后端，所以按钮都不会有反应。\n正确用法：双击 启动StrainLab.bat，由它自动打开 http://127.0.0.1:8000/ 再操作。','err');
+    $('#conn').textContent='○ file:// 方式打开（按钮不可用）→ 请运行 启动StrainLab.bat';
+  }else{
+    get('/api/status').then(function(r){
+      if(r.ok){
+        $('#conn').textContent='● 已连接后端 | 导入目录 '+r.import_dir;
+      }else{
+        $('#conn').textContent='○ 后端连接失败';
+        toast('后端连接失败。\n请在平台目录双击 启动StrainLab.bat，等它弹出浏览器后再操作；\n服务窗口（黑色命令行）必须保持打开。','err');
+      }
+    });
+  }
+  requestAnimationFrame(tick);
+}
+/* 应用公开 API（供测试/扩展调用） */
+window.__strainlab={showPane:showPane,runSim:runSim,runSearch:runSearch,startWorker:startWorker,
+ stopWorker:stopWorker,refreshFiles:refreshFiles,stepColonies:stepColonies,
+ runEpi:function(){return runEpi();},getColonies:function(){return colonies;},paneBuilders:paneBuilders,state:state};
+window.addEventListener('DOMContentLoaded',boot);
+/* 内置自检（?e2e=1）：自动点击关键流程，把结果写进 document.title，供无头浏览器验收 */
+if(typeof location!=='undefined'&&location.search.indexOf('e2e=1')>=0){
+  window.addEventListener('DOMContentLoaded',function(){
+    var results=[];
+    var ok=function(n,v){results.push(n+'='+v);};
+    var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+    function clickTab(t){
+      var nav=[].slice.call(document.querySelectorAll('.nav button'));
+      var b=nav.find(function(x){return x.textContent.indexOf(t)>=0;});
+      if(b)b.click();
+      return sleep(300);
+    }
+    function clickBtn(t){
+      var btns=[].slice.call(document.querySelectorAll('button'));
+      var b=btns.find(function(x){return x.textContent.indexOf(t)>=0;});
+      if(b)b.click();
+      return sleep(300);
+    }
+    setTimeout(function(){
+      clickTab('诱变仿真')
+      .then(function(){return clickBtn('运行仿真');}).then(function(){return sleep(2600);})
+      .then(function(){ok('sim',String(((document.getElementById('simOut')||{}).textContent||'空').replace(/\s+/g,' ')).slice(0,50));})
+      .then(function(){return clickTab('突变路径');})
+      .then(function(){return clickBtn('开始遍历');}).then(function(){return sleep(2400);})
+      .then(function(){ok('search',String(((document.getElementById('searchTable')||{}).textContent||'空').replace(/\s+/g,' ')).slice(0,50));})
+      .then(function(){return clickTab('传染病');})
+      .then(function(){return clickBtn('运行模拟');}).then(function(){return sleep(2600);})
+      .then(function(){ok('epi',String(((document.getElementById('epiStats')||{}).textContent||'空').replace(/\s+/g,' ')).slice(0,60));})
+      .then(function(){return clickTab('后台常驻');})
+      .then(function(){return clickBtn('启动常驻仿真');}).then(function(){return sleep(2400);})
+      .then(function(){ok('worker',String(((document.getElementById('wStatus')||{}).textContent||'空').replace(/\s+/g,' ')).slice(0,40));})
+      .then(function(){document.title='E2E::'+results.join(' | ');})
+      .catch(function(e){document.title='E2E::FAIL '+e.message;});
+    },800);
+  });
+}
+
+/* ---------- 面板 8：传染病动力学模拟（SEIR） ---------- */
+function paneEpi(){
+  return el('div',{class:'pane'},[
+    h('h2',null,'传染病动力学模拟（SEIR 分室模型）'),
+    el('div',{class:'warnbox'},[
+      el('b',{text:'重要声明：本模块是教学与决策支持工具，用于理解流行病动力学机制（R₀、潜伏期、压平曲线）。'}),
+      el('br'),
+      el('span',{text:'它不是疫情指挥系统，不输出医疗建议。真实疫情处置、检测与就医，请以当地疾控中心、卫生行政部门、'
+        +'社区网格与医疗机构为准；如有急症（呼吸困难、持续高热等）请立即拨打 120 / 当地急救电话。'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'情景预设（公开文献量级参考值，可全部手调）'),
+      el('select',{id:'epiPreset'}),
+      el('div',{id:'epiPresetDesc',class:'note'}),
+      el('div',{class:'row'},[
+        epiCtl('N','模拟人口',2e4,2e6,1e4,100000),
+        epiCtl('R0','基本再生数 R₀',0.5,16,0.1,2.6),
+        epiCtl('latent','潜伏期 天',1,21,0.2,5.2),
+        epiCtl('infectious','传染期 天',1,21,0.2,6.0),
+        epiCtl('IFR','感染病死率 %',0.01,5,0.05,0.6),
+        epiCtl('hosp','住院率 %',0.2,15,0.2,5.0),
+        epiCtl('vent','重症(呼吸机)率 %',0.05,4,0.05,0.5),
+        epiCtl('hcap','可用床位',0,5000,50,800),
+        epiCtl('vcap','呼吸机数',0,800,10,80),
+        epiCtl('days','模拟天数',30,400,10,180)
+      ]),
+      el('div',{class:'row'},[
+        el('div',{class:'ctl'},[
+          el('label',{text:'干预：接触率保留（1=无干预，0.4=严格减少接触）'}),
+          el('input',{type:'range',id:'epiContact',min:0.2,max:1,step:0.05,value:1,
+            on:{input:function(){epiContactV.textContent=epiContact.value;}}}),
+          el('span',{class:'mono',id:'epiContactV',text:'1'})
+        ]),
+        el('div',{class:'ctl'},[
+          el('label',{text:'干预：病例有效隔离比例（检出并隔离，阻断其继续传播）'}),
+          el('input',{type:'range',id:'epiIsol',min:0,max:0.9,step:0.05,value:0,
+            on:{input:function(){epiIsolV.textContent=epiIsol.value;}}}),
+          el('span',{class:'mono',id:'epiIsolV',text:'0'})
+        ]),
+        el('div',{class:'ctl'},[
+          el('label',{text:'干预：第 N 天起疫苗累计覆盖率'}),
+          el('input',{type:'range',id:'epiVaxDay',min:0,max:200,step:10,value:9999,
+            on:{input:function(){epiVaxDayV.textContent=epiVaxDay.value>200?'不接种':('第'+epiVaxDay.value+'天');}}}),
+          el('span',{class:'mono',id:'epiVaxDayV',text:'不接种'})
+        ]),
+        el('div',{class:'ctl'},[
+          el('label',{text:'疫苗目标覆盖率'}),
+          el('input',{type:'range',id:'epiVaxCov',min:0,max:0.95,step:0.05,value:0.7,
+            on:{input:function(){epiVaxCovV.textContent=(epiVaxCov.value*100|0)+'%';}}}),
+          el('span',{class:'mono',id:'epiVaxCovV',text:'70%'})
+        ])
+      ]),
+      el('div',{class:'row'},[
+        el('button',{class:'primary',text:'▶ 运行模拟',on:{click:runEpi}}),
+        el('button',{text:'⇉ 三种策略对比',on:{click:runEpiCompare}})
+      ])
+    ]),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'流行曲线（S/E/I/R/D）'),
+        h('canvas',{class:'chart wide',id:'cvEpi'})
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'每日新增病例'),
+        h('canvas',{class:'chart wide',id:'cvEpiDaily'})
+      ])
+    ]),
+    el('div',{class:'grid2'},[
+      el('div',{class:'card'},[
+        h('h3',null,'医疗资源占用 vs 容量'),
+        h('canvas',{class:'chart wide',id:'cvEpiHosp'})
+      ]),
+      el('div',{class:'card'},[
+        h('h3',null,'策略对比：现存感染人数 I(t)'),
+        h('canvas',{class:'chart wide',id:'cvEpiCmp'}),
+        el('div',{id:'epiCmpNote',class:'note'})
+      ])
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'关键指标'),
+      el('div',{id:'epiStats'})
+    ]),
+    el('div',{class:'card'},[
+      h('h3',null,'模型与限制'),
+      el('div',{class:'note',text:'SEIR 分室模型（S 易感 / E 潜伏 / I 传染 / R 移出 / D 死亡），'
+        +'4 阶 Runge-Kutta 数值积分，含质量守恒检查。干预以时间函数作用于接触率与有效隔离比例。'
+        +'主要限制：① 理想均匀混合（无年龄/空间/接触矩阵结构）；② 参数不针对任何具体病原校准；'
+        +'③ 潜伏期与传染期用平均时长（实际是分布）；④ 未建模检测延迟、无症状感染者、重复感染、'
+        +'超传播事件、断水断电对医疗能力的二阶影响。因此结论只用于理解"为什么隔离/接种有效"'
+        +'与量级估计，绝不用于真实疫情指挥。'})
+    ])
+  ]);
+}
+function epiCtl(id,label,min,max,step,val){
+  var out=el('span',{class:'mono'},[String(val)]);
+  var inp=el('input',{type:'range',id:'epi'+id.charAt(0).toUpperCase()+id.slice(1),min:min,max:max,step:step,value:val,
+    on:{input:function(){out.textContent=inp.value;}}});
+  return el('div',{class:'ctl'},[el('label',{text:label},[out]),inp]);
+}
+function epiParams(){
+  function getV(id,def){var e=$('#'+id);return e?e.value:def;}
+  var vaxDay=+getV('epiVaxDay',9999);
+  var vaxCov=+getV('epiVaxCov',0.7);
+  var p={N:+$('#epiN').value,R0:+$('#epiR0').value,latent_days:+$('#epiLatent').value,
+    infectious_days:+$('#epiInfectious').value,IFR_pct:+$('#epiIFR').value,
+    hosp_rate_pct:+$('#epiHosp').value,ventil_rate_pct:+$('#epiVent').value,
+    hosp_capacity:+$('#epiHcap').value,ventil_capacity:+$('#epiVcap').value,
+    days:+$('#epiDays').value,
+    contact_series:+$('#epiContact').value,
+    isolation_series:+$('#epiIsol').value};
+  if(vaxDay<=200){
+    p.vaccine_series=[[0,vaxDay,0],[vaxDay,vaxDay+60,vaxCov*0.7],[vaxDay+60,9999,vaxCov]];
+  }
+  return p;
+}
+function runEpi(){
+  toast('已触发：正在运行 SEIR 模拟…');
+  post('/api/epi',epiParams()).then(function(r){
+    if(r.error){alert('模拟失败：'+r.error);return;}
+    state.epi=r;
+    var ser=r.series;
+    var chart=Chart2D($('#cvEpi'));
+    if(!chart.cv)return;
+    chart.line([
+      {name:'易感 S',color:'#4ea8de',pts:ser.map(function(p){return [p.day,p.S];})},
+      {name:'传染 I',color:'#e2564a',pts:ser.map(function(p){return [p.day,p.I];})},
+      {name:'移出 R',color:'#4fbf8b',pts:ser.map(function(p){return [p.day,p.R];})},
+      {name:'累计死亡 D',color:'#7a6aa8',pts:ser.map(function(p){return [p.day,p.D];})},
+      {name:'潜伏 E',color:'#e0a03a',pts:ser.map(function(p){return [p.day,p.E];})}],
+      {title:'流行曲线',xLabel:'天'});
+    Chart2D($('#cvEpiDaily')).line([
+      {name:'新增病例/天',color:'#e2564a',pts:r.daily.map(function(p){return [p.day,p.new_cases];})}],
+      {title:'每日新增（-ΔS）',xLabel:'天'});
+    Chart2D($('#cvEpiHosp')).line([
+      {name:'住院需求',color:'#e0a03a',pts:ser.map(function(p){return [p.day,p.hospitalized];})},
+      {name:'床位容量',color:'#4ea8de',dash:[4,3],pts:ser.map(function(p){return [p.day,r.capacity.hosp_cap];})},
+      {name:'呼吸机需求',color:'#e2564a',pts:ser.map(function(p){return [p.day,p.ventilator];})},
+      {name:'呼吸机容量',color:'#7a6aa8',dash:[4,3],pts:ser.map(function(p){return [p.day,r.capacity.vent_cap];})}],
+      {title:'医疗资源占用',xLabel:'天'});
+    var box=clear($('#epiStats'));
+    [['初始有效再生数 Re(0)',r.R0_eff0],
+     ['感染峰值',r.peak.I+' 人 @ 第 '+r.peak.day+' 天'],
+     ['住院峰值',r.peak.hosp+' 床 @ 第 '+r.peak.hosp_day+' 天（超容量 '+r.capacity.hosp_exceeded_days+' 天）'],
+     ['呼吸机峰值',r.peak.vent+' 台 @ 第 '+r.peak.vent_day+' 天（超容量 '+r.capacity.vent_exceeded_days+' 天）'],
+     ['累计死亡',r.final.D+' 人'],
+     ['累计感染比例（attack rate）',r.final.attack_rate_pct+' %'],
+     ['质量守恒误差',r.quality.mass_error_max.toExponential(2)],
+     ['模型',r.model+'，β='+r.params.beta+'，γ='+r.params.gamma+'，σ='+r.params.sigma]
+    ].forEach(function(kv){box.appendChild(el('div',{class:'kv'},[el('span',{text:kv[0]}),el('b',{text:String(kv[1])})]));});
+    box.appendChild(el('div',{class:'note',text:r.disclaimer}));
+  });
+}
+function runEpiCompare(){
+  post('/api/epi/compare',epiParams()).then(function(r){
+    if(r.error){alert('对比失败：'+r.error);return;}
+    var colors=['#e2564a','#4fbf8b','#4ea8de'];
+    var chart=Chart2D($('#cvEpiCmp'));
+    if(!chart.cv)return;
+    chart.line(r.map(function(s,i){
+      return {name:s.name,color:colors[i],pts:s.curve.map(function(p){return [p.day,p.I];})};
+    }),{title:'三种策略的现存感染人数对比',xLabel:'天'});
+    var box=clear($('#epiCmpNote'));
+    box.appendChild(el('div',{class:'note',text:r.map(function(s){
+      return s.name+'：感染峰值 '+s.res.peak.I+'（第'+s.res.peak.day+'天），累计死亡 '+s.res.final.D+'，累计感染 '+s.res.final.attack_rate_pct+'%';
+    }).join('；')}));
+  });
+}
+</script>
+</body>
+</html>

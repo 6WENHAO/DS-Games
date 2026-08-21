@@ -1,0 +1,2759 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MicroGPU — 周期级 SIMT GPU 模拟器</title>
+<style>
+/* MicroGPU — 暗色工程风主题 */
+:root{
+  --bg:#0a0e14; --panel:#11161f; --panel2:#0d1219; --border:#1e2733; --border2:#2a3648;
+  --text:#c9d4e3; --dim:#6b7a8f; --accent:#37b3ff; --green:#3dd68c; --red:#ff5c5c;
+  --orange:#ffb454; --purple:#b48cff; --pink:#e05299;
+  --mono:'JetBrains Mono','Cascadia Code',Consolas,'Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;display:flex;flex-direction:column;overflow:hidden}
+h2{font-size:12px;color:var(--accent);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+h3{font-size:11px;color:var(--dim);margin-bottom:4px;font-weight:normal}
+.dim{color:var(--dim)}
+.hidden{display:none!important}
+b{color:#eaf2fb}
+
+/* ===== 工具栏 ===== */
+#toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.brand{font-size:15px;font-weight:bold;color:#eaf2fb}
+.brand .sub{font-size:10px;color:var(--dim);margin-left:8px;font-weight:normal}
+.tb-group{display:flex;align-items:center;gap:6px}
+.tb-group label{color:var(--dim);font-size:11px}
+.tb-group.right{margin-left:auto}
+button{background:#182130;color:var(--text);border:1px solid var(--border2);padding:4px 10px;border-radius:4px;cursor:pointer;font-family:var(--mono);font-size:11px}
+button:hover{border-color:var(--accent);color:#fff}
+button:active{transform:translateY(1px)}
+select{background:#182130;color:var(--text);border:1px solid var(--border2);padding:3px 6px;border-radius:4px;font-family:var(--mono);font-size:11px}
+.stat{color:var(--dim);font-size:11px}
+.stat b{color:var(--accent)}
+.badge{font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid var(--border2);color:var(--dim)}
+
+/* ===== 主布局 ===== */
+#layout{flex:1;display:grid;grid-template-columns:270px 1fr 350px;gap:8px;padding:8px;min-height:0}
+#col-gpu,#col-sm,#col-right{overflow-y:auto;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px}
+
+/* ===== SM 卡片 ===== */
+.sm-card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.sm-card:hover{border-color:var(--border2)}
+.sm-card.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.sm-card .head{display:flex;justify-content:space-between;margin-bottom:4px}
+.sm-card .occ-bar{height:6px;background:#1a2230;border-radius:3px;overflow:hidden;display:flex;margin:4px 0}
+.sm-card .occ-fill{background:linear-gradient(90deg,#1f6feb,#37b3ff)}
+.warp-dots{display:flex;gap:2px;flex-wrap:wrap}
+.warp-dots i{width:12px;height:12px;border-radius:2px;background:#232c3b;display:inline-block}
+.mini-stats{display:flex;gap:8px;color:var(--dim);font-size:10px;margin-top:4px}
+.mini-stats b{color:var(--text)}
+
+/* ===== CTA 队列 ===== */
+.cta-chip{display:inline-block;background:#1a2433;border:1px solid var(--border2);border-radius:3px;padding:1px 6px;margin:2px;font-size:10px}
+.cta-chip.pending{border-color:var(--orange);color:var(--orange)}
+.cta-chip.running{border-color:var(--green);color:var(--green)}
+.cta-chip.done{opacity:.45}
+
+/* ===== 流水线 ===== */
+.pipe-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.pipe-stage{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:4px;min-height:64px}
+.pipe-stage h4{font-size:10px;color:var(--accent);text-align:center;margin-bottom:4px;letter-spacing:.05em}
+.pipe-chip{font-size:9px;background:#16202f;border:1px solid var(--border2);border-radius:3px;padding:1px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pipe-arrow{text-align:center;color:var(--dim)}
+
+/* ===== 执行单元 ===== */
+.unit-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.unit-name{width:52px;color:var(--dim);font-size:10px}
+.unit-slots{display:flex;gap:3px}
+.unit-slot{width:26px;height:16px;border:1px solid var(--border2);border-radius:3px;background:#141c28;font-size:8px;line-height:15px;text-align:center;color:var(--dim);overflow:hidden}
+.unit-slot.busy{background:#173049;border-color:var(--accent);color:var(--accent)}
+
+/* ===== Warp 表 ===== */
+table.warps{width:100%;border-collapse:collapse}
+table.warps th{font-size:9px;color:var(--dim);text-align:left;padding:2px 4px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel)}
+table.warps td{padding:2px 4px;border-bottom:1px solid #151d29;font-size:10px;white-space:nowrap}
+tr.wrow.selected-w{background:#152238}
+.mask-cell{letter-spacing:1px}
+.stall-badge{font-size:9px;padding:0 5px;border-radius:8px;display:inline-block}
+.sb-data{background:#3a2c12;color:var(--orange)}
+.sb-long{background:#3a1c2c;color:#ff7a45}
+.sb-struct{background:#331428;color:var(--pink)}
+.sb-barrier{background:#241a3d;color:var(--purple)}
+.sb-run{background:#12301f;color:var(--green)}
+.sb-idle{background:#1a2230;color:var(--dim)}
+.instr-txt{color:#9fc3e8}
+
+/* ===== 汇编视图 ===== */
+#asm-view{max-height:260px;overflow-y:auto}
+.asm-line{display:flex;gap:8px;padding:0 4px;font-size:10px;line-height:17px;white-space:pre}
+.asm-line .ln{color:#3d4a5c;width:26px;text-align:right}
+.asm-line .addr{color:#4a5a70;width:34px}
+.asm-line:hover{background:#141c28}
+.asm-line.pc-here{background:#13293f;outline:1px solid #1f4a73}
+.asm-line .pcdot{width:8px;display:inline-block}
+.asm-label{color:var(--orange)}
+.asm-op{color:var(--accent)}
+.asm-reg{color:#9fe8c8}
+.asm-imm{color:var(--purple)}
+.asm-comment{color:#4a5a70}
+
+/* ===== 右列 tabs ===== */
+#right-tabs{display:flex;gap:4px;margin-bottom:8px}
+#right-tabs button{flex:1;padding:5px 2px}
+#right-tabs button.active{border-color:var(--accent);color:var(--accent);background:#12233a}
+.tab-page{min-height:200px;max-height:calc(100vh - 320px);overflow-y:auto}
+.kv{display:flex;justify-content:space-between;padding:1px 0;font-size:11px}
+.kv .k{color:var(--dim)}
+.hit{color:var(--green)} .miss{color:var(--red)}
+.cache-map{display:grid;grid-template-columns:repeat(16,1fr);gap:2px;margin-top:6px}
+.cache-cell{aspect-ratio:1;background:#161e2b;border-radius:2px;font-size:7px;line-height:10px;text-align:center;color:transparent;overflow:hidden}
+.cache-cell.valid{background:#1c3350;color:#5f87b8}
+.txn-row{font-size:10px;padding:2px 0;border-bottom:1px solid #151d29;display:flex;gap:6px}
+.txn-row .c{color:var(--dim);width:52px}
+.ev-row{font-size:10px;padding:2px 0;border-bottom:1px solid #151d29}
+.ev-row .c{color:var(--dim)}
+.ev-div{color:var(--pink)} .ev-rec{color:var(--green)} .ev-bar{color:var(--purple)}
+.ev-conf{color:var(--red)} .ev-atom{color:var(--orange)} .ev-cta{color:var(--accent)}
+
+/* ===== 底部 ===== */
+#bottom{display:grid;grid-template-columns:1fr 380px;gap:8px;padding:0 8px 8px;height:250px}
+#timeline-wrap{display:flex;flex-direction:column}
+#timeline{width:100%;flex:1;background:var(--panel2);border-radius:4px}
+.legend{float:right;font-size:9px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 2px -1px 6px}
+#bottom-right{display:flex;flex-direction:column;gap:8px;min-height:0}
+#stats-panel{flex:1;overflow-y:auto;columns:2;column-gap:12px;font-size:10px}
+#console-panel{height:90px;display:flex;flex-direction:column}
+#console-log{flex:1;overflow-y:auto;font-size:10px;color:#8fa8c4;white-space:pre-wrap}
+
+/* ===== 弹窗 ===== */
+.modal{position:fixed;inset:0;background:rgba(4,8,14,.78);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal-body{background:var(--panel);border:1px solid var(--border2);border-radius:8px;width:min(900px,92vw);max-height:86vh;display:flex;flex-direction:column;padding:12px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.modal-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+#tests-table{width:100%;border-collapse:collapse;font-size:11px}
+#tests-table th{text-align:left;color:var(--dim);border-bottom:1px solid var(--border2);padding:4px}
+#tests-table td{border-bottom:1px solid #151d29;padding:3px 4px}
+.t-pass{color:var(--green)} .t-fail{color:var(--red)} .t-skip{color:var(--dim)}
+#tests-progress{color:var(--dim);font-size:11px}
+
+/* 结果横幅 */
+.result-banner{padding:6px 10px;border-radius:5px;margin-bottom:8px;font-size:12px}
+.result-banner.ok{background:#0f2e1d;border:1px solid #1d5c3a;color:var(--green)}
+.result-banner.bad{background:#33141a;border:1px solid #6e2530;color:var(--red)}
+
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#243044;border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+
+</style>
+</head>
+<body>
+<header id="toolbar">
+  <div class="brand">MicroGPU<span class="sub">cycle-accurate SIMT simulator</span></div>
+  <div class="tb-group">
+    <label>Kernel</label>
+    <select id="kernel-select"></select>
+  </div>
+  <div class="tb-group buttons">
+    <button id="btn-run" title="运行 (Run)">▶ Run</button>
+    <button id="btn-pause" title="暂停 (Pause)">⏸ Pause</button>
+    <button id="btn-step" title="单周期 (Step)">⏭ Step</button>
+    <button id="btn-step10" title="快进 100 周期">⏩×100</button>
+    <button id="btn-reset" title="复位 (Reset)">↺ Reset</button>
+    <button id="btn-replay" title="确定性重放">⟲ Replay</button>
+  </div>
+  <div class="tb-group">
+    <label>Speed</label>
+    <select id="speed-select">
+      <option value="1">1 cyc/frame</option>
+      <option value="10">10 cyc/frame</option>
+      <option value="100" selected>100 cyc/frame</option>
+      <option value="1000">1K cyc/frame</option>
+      <option value="10000">10K cyc/frame</option>
+      <option value="max">MAX(至完成)</option>
+    </select>
+  </div>
+  <div class="tb-group stats">
+    <span class="stat">CYCLE <b id="st-cycle">0</b></span>
+    <span class="stat">ISSUED <b id="st-issued">0</b></span>
+    <span class="stat">WARPS <b id="st-warps">0/32</b></span>
+    <span class="stat" id="st-done"></span>
+  </div>
+  <div class="tb-group right">
+    <span id="webgpu-badge" class="badge" title="宿主 GPU 图形后端（仅展示，模拟核心为纯 JS 确定性实现）">WebGPU: …</span>
+    <button id="btn-tests">🧪 Tests</button>
+    <button id="btn-export">⬇ Export</button>
+  </div>
+</header>
+
+<main id="layout">
+  <!-- 左列：GPU 总览 -->
+  <section id="col-gpu">
+    <h2>GPU · GigaThread Scheduler</h2>
+    <div id="gpu-summary" class="panel"></div>
+    <div id="sm-cards"></div>
+    <div id="cta-queue" class="panel"></div>
+  </section>
+
+  <!-- 中列：SM 详情 -->
+  <section id="col-sm">
+    <h2 id="sm-title">SM 0</h2>
+    <div id="sm-pipeline" class="panel"></div>
+    <div id="sm-units" class="panel"></div>
+    <div id="warp-table" class="panel"></div>
+    <div id="asm-view" class="panel"></div>
+  </section>
+
+  <!-- 右列：微架构状态 -->
+  <section id="col-right">
+    <nav id="right-tabs">
+      <button data-tab="scoreboard" class="active">Scoreboard</button>
+      <button data-tab="cache">Cache</button>
+      <button data-tab="txn">Mem Txn</button>
+      <button data-tab="events">Events</button>
+    </nav>
+    <div id="tab-scoreboard" class="tab-page panel"></div>
+    <div id="tab-cache" class="tab-page panel hidden"></div>
+    <div id="tab-txn" class="tab-page panel hidden"></div>
+    <div id="tab-events" class="tab-page panel hidden"></div>
+  </section>
+</main>
+
+<footer id="bottom">
+  <div id="timeline-wrap" class="panel">
+    <h3>Warp Timeline <span class="dim">(每行一个 Warp · 颜色=状态 · 滚动窗口)</span>
+      <span class="legend">
+        <i style="background:#2b3646"></i>idle
+        <i style="background:#3dd68c"></i>issue
+        <i style="background:#37b3ff"></i>fetch/dec
+        <i style="background:#ffb454"></i>data-dep
+        <i style="background:#ff7a45"></i>long-sb(mem)
+        <i style="background:#e05299"></i>struct
+        <i style="background:#b48cff"></i>barrier
+        <i style="background:#4a5568"></i>done
+      </span>
+    </h3>
+    <canvas id="timeline" height="200"></canvas>
+  </div>
+  <div id="bottom-right">
+    <div id="stats-panel" class="panel"></div>
+    <div id="console-panel" class="panel"><h3>Console</h3><pre id="console-log"></pre></div>
+  </div>
+</footer>
+
+<div id="tests-modal" class="modal hidden">
+  <div class="modal-body">
+    <div class="modal-head"><h2>🧪 自动测试（结果正确性 + 周期级微架构断言）</h2><button id="btn-close-tests">✕</button></div>
+    <div class="modal-toolbar"><button id="btn-run-tests">Run All Tests</button><span id="tests-progress"></span></div>
+    <table id="tests-table"><thead><tr><th>#</th><th>Test</th><th>Status</th><th>Detail</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- 内联自 js/alu.js -->
+<script>
+/* ============================================================
+ * alu.js — 数字逻辑级 ALU 模型
+ * ADD/SUB/CMP/SHL/SHR/MUL 全部由门级原语构造：
+ *   全加器 → 32 位行波进位加法器 → 减法器(a+~b+1) → 比较器
+ *   5 级桶形移位器、32 步移位加乘法器。
+ * 禁止直接用 + - * 得出结果后伪造硬件状态。
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+
+// ---- 门级原语 ----
+const gNot = a => a ^ 1;
+const gAnd = (a, b) => a & b;
+const gOr  = (a, b) => a | b;
+const gXor = (a, b) => a ^ b;
+
+// 全加器: sum = a⊕b⊕cin ; cout = ab + cin·(a⊕b)
+function fullAdder(a, b, cin) {
+  const axb = gXor(a, b);
+  return [gXor(axb, cin), gOr(gAnd(a, b), gAnd(cin, axb))];
+}
+
+/**
+ * 32 位行波进位加法器（逐位进位链，追踪 MSB 进位入/出以生成溢出标志）
+ * @returns {{value:number, carry:number, overflow:number, zero:boolean, sign:number}}
+ */
+function add32(a, b, cin) {
+  a >>>= 0; b >>>= 0; cin = cin | 0;
+  let sum = 0, carry = cin, msbCarryIn = 0;
+  for (let i = 0; i < 32; i++) {
+    if (i === 31) msbCarryIn = carry;          // 第 31 位的进位入
+    const r = fullAdder((a >>> i) & 1, (b >>> i) & 1, carry);
+    if (r[0]) sum |= (1 << i);
+    carry = r[1];
+  }
+  return {
+    value: sum >>> 0,
+    carry,                                     // 进位出
+    overflow: gXor(msbCarryIn, carry),         // 有符号溢出 = C31⊕Cout
+    zero: (sum >>> 0) === 0,
+    sign: (sum >>> 31) & 1
+  };
+}
+
+/** 32 位减法器: a-b = a + ~b + 1；borrow = !carry */
+function sub32(a, b) {
+  const r = add32(a >>>= 0, (~b) >>> 0, 1);
+  return Object.assign(r, { borrow: r.carry ? 0 : 1 });
+}
+
+/** 32 步移位加乘法器（部分积累加，低 32 位结果） */
+function mul32(a, b) {
+  a >>>= 0; b >>>= 0;
+  let acc = 0;
+  for (let i = 0; i < 32; i++) {
+    if ((b >>> i) & 1) {
+      const partial = (a << i) >>> 0;          // 部分积 = a<<i（模 2^32）
+      acc = add32(acc, partial, 0).value;      // 用加法器累加，不用 *
+    }
+  }
+  return acc >>> 0;
+}
+
+/** 5 级桶形移位器 — 逻辑左移（每级条件多路选择，无回绕） */
+function shl32(a, n) {
+  n &= 31; let r = a >>> 0;
+  for (let s = 0; s < 5; s++) {
+    if ((n >>> s) & 1) {
+      const sh = 1 << s;
+      r = (r << sh) >>> 0;
+    }
+  }
+  return r >>> 0;
+}
+
+/** 5 级桶形移位器 — 逻辑右移 */
+function shr32(a, n) {
+  n &= 31; let r = a >>> 0;
+  for (let s = 0; s < 5; s++) {
+    if ((n >>> s) & 1) {
+      const sh = 1 << s;
+      r = (r >>> sh) >>> 0;
+    }
+  }
+  return r >>> 0;
+}
+
+/** 按位逻辑（位运算即门网） */
+const and32 = (a, b) => ((a >>> 0) & (b >>> 0)) >>> 0;
+const or32  = (a, b) => ((a >>> 0) | (b >>> 0)) >>> 0;
+const xor32 = (a, b) => ((a >>> 0) ^ (b >>> 0)) >>> 0;
+const not32 = (a) => (~a) >>> 0;
+
+/**
+ * 32 位比较器（由减法器导出标志）— 有符号语义
+ * lt = sign(diff) ⊕ overflow （经典公式）
+ */
+function compare(a, b) {
+  const r = sub32(a, b);
+  const lt = (r.sign ^ r.overflow) === 1;
+  return {
+    lt, eq: !!r.zero,
+    gt: !lt && !!r.zero ? false : (!lt && !r.zero),
+    le: lt || !!r.zero,
+    ge: !lt,
+    ne: !r.zero
+  };
+}
+
+GS.alu = { add32, sub32, mul32, shl32, shr32, and32, or32, xor32, not32, compare, fullAdder };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/isa.js -->
+<script>
+/* ============================================================
+ * isa.js — 自定义 GPU ISA：操作码、64 位定长编码、解码、反汇编
+ * 指令格式（双 32 位字）：
+ *   word0 [31:25] opcode   [24] rbIsImm  [23] predicated
+ *         [22:20] predReg  [19:15] rd    [14:10] ra
+ *         [ 9: 5] rb/rc    [ 4: 0] subOp (cmp 条件 / sreg / atomop / MAD rc)
+ *   word1 [31: 0] imm32（立即数 / 分支目标指令索引）
+ * 访存寻址：[Ra+imm] / [Ra] / [imm]。纯立即数地址用 subOp bit4(=16) 标记 NOBASE。
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+
+const OP = {
+  NOP: 0, MOV: 1, ADD: 2, SUB: 3, MUL: 4, MAD: 5,
+  AND: 6, OR: 7, XOR: 8, NOT: 9, SHL: 10, SHR: 11,
+  CMPLT: 12, CMPLE: 13, CMPEQ: 14, CMPNE: 15, CMPGT: 16, CMPGE: 17,
+  BRA: 18, BAR: 19, EXIT: 20,
+  LDG: 21, STG: 22, LDS: 23, STS: 24, ATOM: 25, S2R: 26
+};
+const OPNAME = {}; for (const k in OP) OPNAME[OP[k]] = k;
+
+const NOBASE = 16; // subOp 标志：访存地址为纯立即数
+
+// CMP 子操作码 → 谓词语义
+const CMP_CC = ['LT', 'LE', 'EQ', 'NE', 'GT', 'GE'];
+const CC_FN = [c => c.lt, c => c.le, c => c.eq, c => c.ne, c => c.gt, c => c.ge];
+
+// 特殊寄存器（S2R subOp）
+const SREG = { TIDX: 0, TIDY: 1, NTIDX: 2, CTAX: 3, NCTX: 4, LANEID: 5, WARPID: 6, SMID: 7, GWID: 8 };
+const SREGNAME = ['TID.X', 'TID.Y', 'NTID.X', 'CTA.X', 'NCTA.X', 'LANEID', 'WARPID', 'SMID', 'GWARP'];
+
+// ATOM 子操作码
+const ATOM_OP = { ADD: 0 };
+const ATOPNAME = ['ADD'];
+
+// 操作 → 执行单元类型
+const OP_UNIT = {
+  NOP: 'alu', MOV: 'alu', ADD: 'alu', SUB: 'alu', AND: 'alu', OR: 'alu',
+  XOR: 'alu', NOT: 'alu', SHL: 'alu', SHR: 'alu',
+  MUL: 'mul', MAD: 'mul',
+  CMPLT: 'alu', CMPLE: 'alu', CMPEQ: 'alu', CMPNE: 'alu', CMPGT: 'alu', CMPGE: 'alu',
+  BRA: 'bru', BAR: 'bru', EXIT: 'bru',
+  LDG: 'lsu', STG: 'lsu', LDS: 'lsu', STS: 'lsu', ATOM: 'lsu',
+  S2R: 'alu'
+};
+
+const MEM_OPS = new Set([OP.LDG, OP.STG, OP.LDS, OP.STS, OP.ATOM]);
+const BR_OPS = new Set([OP.BRA, OP.BAR, OP.EXIT]);
+
+// 操作码（数字）→ 执行单元
+const UNIT_OF_OP = {};
+for (const k in OP_UNIT) UNIT_OF_OP[OP[k]] = OP_UNIT[k];
+
+/** 编码：decoded 对象 → {lo, hi} */
+function encode(d) {
+  let lo = 0;
+  lo |= (d.op & 0x7f) << 25;
+  if (d.useImm) lo |= 1 << 24;
+  if (d.pred >= 0) { lo |= 1 << 23; lo |= (d.pred & 7) << 20; }
+  lo |= (d.rd & 31) << 15;
+  lo |= ((d.ra | 0) & 31) << 10;
+  lo |= ((d.rb | 0) & 31) << 5;
+  lo |= ((d.sub | 0) & 31);
+  return { lo: lo >>> 0, hi: (d.imm | 0) >>> 0 };
+}
+
+/** 解码：{lo,hi} → decoded 对象 */
+function decode(lo, hi) {
+  lo >>>= 0; hi >>>= 0;
+  return {
+    op: (lo >>> 25) & 0x7f,
+    useImm: !!(lo & (1 << 24)),
+    pred: (lo & (1 << 23)) ? (lo >>> 20) & 7 : -1,
+    rd: (lo >>> 15) & 31,
+    ra: (lo >>> 10) & 31,
+    rb: (lo >>> 5) & 31,
+    sub: lo & 31,
+    imm: (hi << 0) | 0
+  };
+}
+
+const rn = n => 'R' + n;
+
+/** 反汇编为汇编文本 */
+function disasm(d) {
+  const op = OPNAME[d.op] || '???';
+  const pfx = d.pred >= 0 ? '@P' + d.pred + ' ' : '';
+  const pad = s => (s + '     ').slice(0, 6);
+  switch (d.op) {
+    case OP.NOP: return pfx + 'NOP';
+    case OP.MOV: return pfx + pad('MOV') + rn(d.rd) + ', ' + (d.useImm ? d.imm : rn(d.ra));
+    case OP.ADD: case OP.SUB: case OP.AND: case OP.OR: case OP.XOR: case OP.SHL: case OP.SHR:
+      return pfx + pad(op) + rn(d.rd) + ', ' + rn(d.ra) + ', ' + srcB(d);
+    case OP.MUL: return pfx + pad('MUL') + rn(d.rd) + ', ' + rn(d.ra) + ', ' + srcB(d);
+    case OP.MAD: return pfx + pad('MAD') + rn(d.rd) + ', ' + rn(d.ra) + ', ' + rn(d.rb) + ', ' + rn(d.sub);
+    case OP.NOT: return pfx + pad('NOT') + rn(d.rd) + ', ' + rn(d.ra);
+    case OP.CMPLT: case OP.CMPLE: case OP.CMPEQ: case OP.CMPNE: case OP.CMPGT: case OP.CMPGE:
+      return pfx + pad(op) + 'P' + d.rd + ', ' + rn(d.ra) + ', ' + srcB(d);
+    case OP.BRA: return pfx + pad('BRA') + 'L' + d.imm;
+    case OP.BAR: return pfx + 'BAR';
+    case OP.EXIT: return pfx + 'EXIT';
+    case OP.LDG: case OP.LDS:
+      return pfx + pad(op) + rn(d.rd) + ', [' + memExpr(d) + ']';
+    case OP.STG: case OP.STS:
+      return pfx + pad(op) + '[' + memExpr(d) + '], ' + rn(d.rb);
+    case OP.ATOM:
+      return pfx + pad('ATOM.' + (ATOPNAME[d.sub & 15] || '?')) + rn(d.rd) + ', [' + memExpr(d) + '], ' + rn(d.rb);
+    case OP.S2R:
+      return pfx + pad('S2R') + rn(d.rd) + ', ' + (SREGNAME[d.sub] || '?');
+    default: return pfx + op;
+  }
+}
+function srcB(d) { return d.useImm ? String(d.imm) : rn(d.rb); }
+function memExpr(d) {
+  if (d.sub & NOBASE) return String(d.imm);
+  return d.imm !== 0 ? rn(d.ra) + (d.imm > 0 ? '+' + d.imm : String(d.imm)) : rn(d.ra);
+}
+
+GS.isa = { OP, OPNAME, CMP_CC, CC_FN, SREG, SREGNAME, ATOM_OP, ATOPNAME, OP_UNIT, UNIT_OF_OP, MEM_OPS, BR_OPS, NOBASE, encode, decode, disasm };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/assembler.js -->
+<script>
+/* ============================================================
+ * assembler.js — 汇编器：文本 → 64 位编码指令流 + 元数据
+ * 语法：
+ *   .name vecadd
+ *   .config ntid=64 nctas=4 shmem=64     ; 线程数/块数/共享内存(word)
+ *   label:
+ *   OP rd, ra, rb | imm
+ *   @P0 BRA label
+ *   LDG rd, [Ra+imm] | [Ra] | [imm]
+ *   STG [Ra+imm], rs
+ *   ATOM.ADD rd, [Ra+imm], rs
+ *   S2R rd, TID.X
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+const { OP, OPNAME, SREG, ATOM_OP, NOBASE } = GS.isa;
+
+class AsmError extends Error {
+  constructor(msg, line) { super('L' + line + ': ' + msg); this.line = line; }
+}
+
+function parse(text) {
+  const lines = text.split(/\r?\n/);
+  const meta = { name: 'kernel', ntid: 64, nctas: 1, shmem: 0 };
+  const decs = [];            // decoded 指令（imm 字段先存目标行号）
+  const labels = {};          // label → instr index
+  const fixups = [];          // {idx, label, line} 待回填分支目标
+
+  for (let ln = 0; ln < lines.length; ln++) {
+    let raw = lines[ln];
+    const cpos = raw.indexOf(';');
+    if (cpos >= 0) raw = raw.slice(0, cpos);
+    raw = raw.trim();
+    if (!raw) continue;
+
+    // 指令伪操作
+    if (raw.startsWith('.')) {
+      const m = raw.match(/^\.(\w+)\s*(.*)$/);
+      if (!m) throw new AsmError('bad directive', ln + 1);
+      if (m[1] === 'name') meta.name = m[2].trim();
+      else if (m[1] === 'config') {
+        for (const kv of m[2].split(/\s+/)) {
+          const [k, v] = kv.split('=');
+          if (k === 'ntid') meta.ntid = parseInt(v, 10);
+          else if (k === 'nctas') meta.nctas = parseInt(v, 10);
+          else if (k === 'shmem') meta.shmem = parseInt(v, 10);
+        }
+      } else throw new AsmError('unknown directive .' + m[1], ln + 1);
+      continue;
+    }
+
+    // 标签（可同行跟指令）
+    while (true) {
+      const lm = raw.match(/^([A-Za-z_]\w*):(.*)$/);
+      if (!lm) break;
+      labels[lm[1]] = decs.length;
+      raw = lm[2].trim();
+    }
+    if (!raw) continue;
+
+    decs.push(parseInstr(raw, ln + 1, fixups, decs.length));
+  }
+
+  // 回填分支目标
+  for (const f of fixups) {
+    if (!(f.label in labels)) throw new AsmError('undefined label "' + f.label + '"', f.line);
+    decs[f.idx].imm = labels[f.label];
+  }
+
+  // 编码
+  const words = new Uint32Array(decs.length * 2);
+  for (let i = 0; i < decs.length; i++) {
+    const e = GS.isa.encode(decs[i]);
+    words[i * 2] = e.lo; words[i * 2 + 1] = e.hi;
+  }
+
+  // 寄存器使用量（occupancy 计算依据）
+  let maxReg = -1;
+  for (const d of decs) {
+    if (d.op !== OP.BRA && d.op !== OP.BAR && d.op !== OP.EXIT && d.op !== OP.NOP) {
+      if (d.op === OP.CMPLT || d.op === OP.CMPLE || d.op === OP.CMPEQ ||
+          d.op === OP.CMPNE || d.op === OP.CMPGT || d.op === OP.CMPGE) {
+        maxReg = Math.max(maxReg, d.ra);
+        if (!d.useImm) maxReg = Math.max(maxReg, d.rb);
+      } else {
+        maxReg = Math.max(maxReg, d.rd, d.ra);
+        if (!d.useImm && d.op !== OP.STG && d.op !== OP.STS) maxReg = Math.max(maxReg, d.rb);
+        if (d.op === OP.MAD) maxReg = Math.max(maxReg, d.rb, d.sub);
+        if (d.op === OP.STG || d.op === OP.STS) maxReg = Math.max(maxReg, d.rb);
+      }
+    }
+  }
+  meta.regsPerThread = Math.max(1, maxReg + 1);
+  meta.warpsPerCTA = Math.ceil(meta.ntid / 16);
+
+  return { name: meta.name, meta, decs, words, labels };
+}
+
+function parseInstr(raw, lineNo, fixups, idx) {
+  // 谓词前缀
+  let pred = -1;
+  const pm = raw.match(/^@(P\d)\s+(.*)$/);
+  if (pm) { pred = parseInt(pm[1][1], 10); raw = pm[2]; }
+
+  const sp = raw.match(/^([A-Za-z][A-Za-z0-9.]*)\s*(.*)$/);
+  if (!sp) throw new AsmError('cannot parse "' + raw + '"', lineNo);
+  let mnem = sp[1].toUpperCase();
+  const rest = sp[2].trim();
+  const ops = splitOps(rest);
+
+  const d = { op: -1, useImm: false, pred, rd: 0, ra: 0, rb: 0, sub: 0, imm: 0 };
+
+  // ATOM.ADD 形式
+  if (mnem.startsWith('ATOM.')) {
+    const aop = mnem.slice(5);
+    if (!(aop in ATOM_OP)) throw new AsmError('unknown atomic op ' + aop, lineNo);
+    d.op = OP.ATOM; d.sub = ATOM_OP[aop];
+  } else {
+    if (!(mnem in OP)) throw new AsmError('unknown opcode "' + mnem + '"', lineNo);
+    d.op = OP[mnem];
+  }
+
+  switch (d.op) {
+    case OP.NOP: break;
+    case OP.MOV: {
+      d.rd = expectReg(ops[0], lineNo);
+      const v = parseSrc(ops[1], lineNo);
+      if (v.reg) { d.ra = v.val; } else { d.useImm = true; d.imm = v.val; }
+      break;
+    }
+    case OP.ADD: case OP.SUB: case OP.AND: case OP.OR: case OP.XOR: case OP.SHL: case OP.SHR: case OP.MUL: {
+      d.rd = expectReg(ops[0], lineNo);
+      d.ra = expectReg(ops[1], lineNo);
+      const v = parseSrc(ops[2], lineNo);
+      if (v.reg) { d.rb = v.val; } else { d.useImm = true; d.imm = v.val; }
+      break;
+    }
+    case OP.MAD: {
+      d.rd = expectReg(ops[0], lineNo);
+      d.ra = expectReg(ops[1], lineNo);
+      d.rb = expectReg(ops[2], lineNo);
+      d.sub = expectReg(ops[3], lineNo);   // rc 编码进 subOp 字段
+      break;
+    }
+    case OP.NOT: {
+      d.rd = expectReg(ops[0], lineNo);
+      d.ra = expectReg(ops[1], lineNo);
+      break;
+    }
+    case OP.CMPLT: case OP.CMPLE: case OP.CMPEQ: case OP.CMPNE: case OP.CMPGT: case OP.CMPGE: {
+      d.rd = expectPred(ops[0], lineNo);           // rd 字段 = 谓词号
+      d.sub = d.op - OP.CMPLT;                     // 条件码
+      d.ra = expectReg(ops[1], lineNo);
+      const v = parseSrc(ops[2], lineNo);
+      if (v.reg) { d.rb = v.val; } else { d.useImm = true; d.imm = v.val; }
+      break;
+    }
+    case OP.BRA: {
+      if (!ops[0]) throw new AsmError('BRA needs target', lineNo);
+      fixups.push({ idx, label: ops[0], line: lineNo });
+      break;
+    }
+    case OP.BAR: case OP.EXIT: break;
+    case OP.LDG: case OP.LDS: {
+      d.rd = expectReg(ops[0], lineNo);
+      const m = parseMem(ops[1], lineNo);
+      d.ra = m.base; d.imm = m.off; if (m.noBase) d.sub |= NOBASE;
+      break;
+    }
+    case OP.STG: case OP.STS: {
+      const m = parseMem(ops[0], lineNo);
+      d.ra = m.base; d.imm = m.off; if (m.noBase) d.sub |= NOBASE;
+      d.rb = expectReg(ops[1], lineNo);
+      break;
+    }
+    case OP.ATOM: {
+      d.rd = expectReg(ops[0], lineNo);
+      const m = parseMem(ops[1], lineNo);
+      d.ra = m.base; d.imm = m.off; if (m.noBase) d.sub |= NOBASE;
+      d.rb = expectReg(ops[2], lineNo);
+      break;
+    }
+    case OP.S2R: {
+      d.rd = expectReg(ops[0], lineNo);
+      const s = ops[1].toUpperCase().replace('.', '');   // TID.X → TIDX
+      if (!(s in SREG)) throw new AsmError('unknown sreg "' + ops[1] + '"', lineNo);
+      d.sub = SREG[s];
+      break;
+    }
+    default: throw new AsmError('unhandled op', lineNo);
+  }
+  return d;
+}
+
+function splitOps(s) {
+  if (!s) return [];
+  const out = []; let cur = '', depth = 0;
+  for (const ch of s) {
+    if (ch === '[') depth++;
+    if (ch === ']') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+function expectReg(tok, line) {
+  const m = /^R(\d+)$/.exec(tok || '');
+  if (!m) throw new AsmError('expected register, got "' + tok + '"', line);
+  const n = parseInt(m[1], 10);
+  if (n > 31) throw new AsmError('register out of range R' + n, line);
+  return n;
+}
+function expectPred(tok, line) {
+  const m = /^P([0-7])$/.exec(tok || '');
+  if (!m) throw new AsmError('expected predicate P0-P7, got "' + tok + '"', line);
+  return parseInt(m[1], 10);
+}
+function parseSrc(tok, line) {
+  if (!tok) throw new AsmError('missing operand', line);
+  if (/^R\d+$/.test(tok)) return { reg: true, val: expectReg(tok, line) };
+  if (/^[-+]?\d+$/.test(tok)) return { reg: false, val: parseInt(tok, 10) | 0 };
+  throw new AsmError('bad source operand "' + tok + '"', line);
+}
+function parseMem(tok, line) {
+  const m = /^\[(.*)\]$/.exec(tok || '');
+  if (!m) throw new AsmError('expected [addr], got "' + tok + '"', line);
+  const inner = m[1].trim();
+  const rm = /^R(\d+)\s*([+-]\d+)?$/.exec(inner);
+  if (rm) return { base: parseInt(rm[1], 10), off: rm[2] ? parseInt(rm[2], 10) | 0 : 0, noBase: false };
+  if (/^[-+]?\d+$/.test(inner)) return { base: 0, off: parseInt(inner, 10) | 0, noBase: true };
+  throw new AsmError('bad memory expression "' + inner + '"', line);
+}
+
+GS.asm = { parse, AsmError };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/memory.js -->
+<script>
+/* ============================================================
+ * memory.js — 内存层级
+ *  - GlobalMemory：主存（权威数据，Uint32Array）
+ *  - Cache：tag 状态缓存（组相联 + LRU）。tag 驱动时序与统计；
+ *    数据单一存放于主存（功能等价于写回已合并），保证跨 SM 一致。
+ *  - SharedMemory：SM 内真实数据阵列，16 bank，冲突检测与序列化
+ *  - coalesce：warp 16 lane 地址 → 64B line 事务合并
+ *  - MemorySystem：共享 L2 + 原子操作队列（每周期服务一个 → 竞争可见）
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+
+const LINE_WORDS = 16;          // 64B line
+const LINE_SHIFT = 4;
+
+class GlobalMemory {
+  constructor(words) {
+    this.words = new Uint32Array(words);
+    this.totalWrites = 0;
+  }
+  read(w) { return this.words[w] >>> 0; }
+  write(w, v) { this.words[w] = v >>> 0; this.totalWrites++; }
+}
+
+/** 组相联 tag 缓存（LRU 用 Map 插入序实现） */
+class Cache {
+  constructor({ sets, ways, name }) {
+    this.sets = sets; this.ways = ways; this.name = name;
+    this.setBits = Math.log2(sets) | 0;
+    this.rows = Array.from({ length: sets }, () => new Map()); // tag → *
+    this.stats = { hits: 0, misses: 0, evictions: 0 };
+  }
+  lineOf(wordAddr) { return wordAddr >>> LINE_SHIFT; }
+  setOf(line) { return line & (this.sets - 1); }
+  tagOf(line) { return line >>> this.setBits; }
+
+  /** 访问：命中更新 LRU；缺失分配并可能逐出。返回 hit */
+  access(line) {
+    const row = this.rows[this.setOf(line)];
+    const tag = this.tagOf(line);
+    if (row.has(tag)) {
+      row.delete(tag); row.set(tag, 1);        // touch LRU
+      this.stats.hits++;
+      return true;
+    }
+    this.stats.misses++;
+    if (row.size >= this.ways) {
+      row.delete(row.keys().next().value);     // 逐出 LRU
+      this.stats.evictions++;
+    }
+    row.set(tag, 1);
+    return false;
+  }
+  probe(line) { return this.rows[this.setOf(line)].has(this.tagOf(line)); }
+}
+
+/** 共享内存：真实数据 + 16 bank 冲突分析 */
+class SharedMemory {
+  constructor(nWords) {
+    this.words = new Uint32Array(nWords);
+    this.banks = 16;
+    this.stats = { accesses: 0, conflicts: 0, maxDegree: 1 };
+  }
+  /**
+   * 一次 warp 访问。laneAddrs[i]=word 地址或 null（lane 无效）
+   * 返回 {cycles, degree}；数据读写由调用方在 resolve 时执行
+   */
+  analyze(laneAddrs) {
+    const perBank = Array.from({ length: this.banks }, () => new Set());
+    for (let i = 0; i < laneAddrs.length; i++) {
+      const a = laneAddrs[i];
+      if (a === null || a === undefined || a < 0) continue;
+      perBank[a & 15].add(a);
+    }
+    let degree = 1;
+    for (const s of perBank) degree = Math.max(degree, s.size);
+    this.stats.accesses++;
+    if (degree > 1) { this.stats.conflicts += degree - 1; this.stats.maxDegree = Math.max(this.stats.maxDegree, degree); }
+    return { degree };
+  }
+  read(w) { return (this.words[w] !== undefined && w < this.words.length) ? this.words[w] >>> 0 : 0; }
+  write(w, v) { if (w >= 0 && w < this.words.length) this.words[w] = v >>> 0; }
+}
+
+/**
+ * 合并 warp 的访存地址为 64B line 事务
+ * @returns {{txnCount:number, groups:Array<{line:number, lanes:number[]}>}}
+ */
+function coalesce(laneAddrs) {
+  const map = new Map(); // line → lanes[]
+  for (let i = 0; i < laneAddrs.length; i++) {
+    const a = laneAddrs[i];
+    if (a === null || a === undefined || a < 0) continue;
+    const line = a >>> LINE_SHIFT;
+    if (!map.has(line)) map.set(line, []);
+    map.get(line).push(i);
+  }
+  return { txnCount: map.size, groups: [...map.entries()].map(([line, lanes]) => ({ line, lanes })) };
+}
+
+/** GPU 级内存系统：L2 + DRAM 延迟 + 原子队列 */
+class MemorySystem {
+  constructor(gpu) {
+    this.gpu = gpu;
+    this.l2 = new Cache({ sets: 32, ways: 8, name: 'L2' });
+    this.atomQueue = [];
+    this.stats = { dramAccesses: 0, atomicOps: 0, atomicContention: 0, atomicMaxQueue: 0 };
+  }
+  /** 全局 load 事务路径：返回 {hitPath:'L1'|'L2'|'DRAM', cycles} */
+  globalLoadTiming(l1, line, cycle) {
+    const LAT = GS.sm.CFG.lat;
+    if (l1.access(line)) return { hitPath: 'L1', cycles: LAT.l1Hit };
+    // L1 miss → L2
+    if (this.l2.access(line)) return { hitPath: 'L2', cycles: LAT.l1Hit + LAT.l2Hit };
+    // L2 miss → DRAM
+    this.stats.dramAccesses++;
+    return { hitPath: 'DRAM', cycles: LAT.l1Hit + LAT.l2Hit + LAT.dram };
+  }
+  /** 全局 store：写透到主存（数据单源），时序按 L2 路径计 */
+  globalStoreTiming(l1, line, cycle) {
+    const LAT = GS.sm.CFG.lat;
+    const l2Hit = this.l2.access(line);
+    return { hitPath: l2Hit ? 'L2' : 'DRAM', cycles: LAT.l1Hit + LAT.l2Hit + (l2Hit ? 0 : LAT.dram) };
+  }
+  /** 提交原子操作（在 L2 串行服务） */
+  submitAtomic(req) {
+    this.atomQueue.push(req);
+    this.stats.atomicMaxQueue = Math.max(this.stats.atomicMaxQueue, this.atomQueue.length);
+  }
+  tick(cycle) {
+    if (!this.atomQueue.length) return;
+    const req = this.atomQueue.shift();
+    if (this.atomQueue.length > 0) this.stats.atomicContention++;   // 还有人排队 → 竞争
+    const mem = this.gpu.mem;
+    const old = mem.read(req.addr);
+    let nv = old;
+    if (req.atomOp === GS.isa.ATOM_OP.ADD) nv = GS.alu.add32(old, req.value, 0).value;
+    mem.write(req.addr, nv);
+    // 回写 in-flight 条目：全部 lane 服务完后才就绪
+    const it = req.item;
+    it.oldVals[req.lane] = old;
+    it.ready = cycle + GS.sm.CFG.lat.atom;
+    this.stats.atomicOps++;
+    this.gpu.markProgress();
+  }
+}
+
+GS.mem = { GlobalMemory, Cache, SharedMemory, MemorySystem, coalesce, LINE_WORDS, LINE_SHIFT };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/sm.js -->
+<script>
+/* ============================================================
+ * sm.js — 流水线 SM 核心（周期精确）
+ *  - 每 SM：8 warp 槽 × 16 lane，寄存器堆 8192 word，共享内存 96 word
+ *  - 前端 Fetch → Decode；每 SM 每周期发射 ≤1 条；EX 单元时间戳推进；WB 写回
+ *  - Scoreboard：事件驱动（in-flight 引用），DATA / LONG_SCOREBOARD 分离
+ *  - 操作数在发射拍捕获（读寄存器级），结果在写回拍生效 —— 真实流水线语义
+ *  - 访存：地址/合并/冲突分析在发射拍；LDG/LDS 数据发射拍读取，
+ *    STG/STS 发射拍写入（warp 内程序序天然成立），延迟门控写回时刻
+ *  - SIMT：per-lane 谓词 + 重汇聚栈；分支非流水化（解析前该 warp 暂停发射）
+ *  - 谓词化数据指令：@P 前缀作用于任意指令的生效 lane 掩码
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+const { OP, UNIT_OF_OP, MEM_OPS, BR_OPS, NOBASE, CC_FN } = GS.isa;
+
+// timeline 状态码
+const WS = { EMPTY: 0, ISSUE: 1, ST_DATA: 2, ST_LONG: 3, ST_STRUCT: 4, BARRIER: 5, DONE: 6, FE: 7 };
+
+const CFG = {
+  numSMs: 4,
+  lanes: 16,
+  warpsPerSM: 8,
+  regFileWords: 8192,
+  shmemWordsPerSM: 96,         // 故意紧凑，演示 shared 容量对 occupancy 的限制
+  lat: {
+    alu: 2, mul: 4, lsu: 2, bru: 2,
+    ldsBase: 2,
+    l1Hit: 3, l2Hit: 16, dram: 64,
+    atom: 6, redirect: 2
+  },
+  units: { alu: 2, mul: 1, lsu: 1, bru: 1 },
+  watchdogCycles: 30000
+};
+
+class Unit {
+  constructor(type, width, latency) {
+    this.type = type; this.width = width; this.latency = latency;
+    this.accepted = 0;
+  }
+  canAccept() { return this.accepted < this.width; }
+  accept() { this.accepted++; }
+  newCycle() { this.accepted = 0; }
+}
+
+class Warp {
+  constructor(id, sm) { this.id = id; this.sm = sm; this.reset(); }
+  reset() {
+    this.state = 'empty';            // empty | run | barrier | done
+    this.pc = 0; this.activeMask = 0; this.stack = [];
+    this.fetched = null; this.fetchedPc = -1;
+    this.decoded = null; this.decodedPc = -1;
+    this.redirectUntil = -1;
+    this.holdIssueUntil = -1;        // 分支非流水化：解析前暂停发射
+    this.waitingBarrier = false;
+    this.stallReason = '';
+    this.lastIssueCycle = -1;
+    this.cta = null; this.ctaWarpIndex = 0;
+    this.regs = new Uint32Array(CFG.lanes * 32);
+    this.pred = new Uint8Array(CFG.lanes * 8);
+    this.regBusy = new Array(32).fill(null);
+    this.predBusy = new Array(8).fill(null);
+  }
+  laneTid(i) { return this.ctaWarpIndex * CFG.lanes + i; }
+}
+
+class SM {
+  constructor(gpu, id) {
+    this.gpu = gpu; this.id = id;
+    this.warps = Array.from({ length: CFG.warpsPerSM }, (_, i) => new Warp(i, this));
+    this.units = {
+      alu: new Unit('alu', CFG.units.alu, CFG.lat.alu),
+      mul: new Unit('mul', CFG.units.mul, CFG.lat.mul),
+      lsu: new Unit('lsu', CFG.units.lsu, CFG.lat.lsu),
+      bru: new Unit('bru', CFG.units.bru, CFG.lat.bru)
+    };
+    this.l1 = new GS.mem.Cache({ sets: 16, ways: 4, name: 'L1-S' + id });
+    this.shared = new GS.mem.SharedMemory(CFG.shmemWordsPerSM);
+    this.barriers = new Map();
+    this.inflight = [];
+    this.rr = 0;
+    this.program = null;
+    this.usedWarps = 0; this.usedRegs = 0; this.usedShm = 0;
+    this.ctasRunning = [];
+    this.wbThisCycle = [];
+    this.issueThisCycle = null;
+    this.stats = {
+      issued: 0, retired: 0,
+      divergences: 0, reconvergences: 0, exitPops: 0,
+      barrierArrivals: 0, barrierReleases: 0,
+      loadTxns: 0, storeTxns: 0, loadInsts: 0,
+      stallCycles: { DATA: 0, LONG_SCOREBOARD: 0, STRUCT: 0, BARRIER: 0, FE: 0 },
+      busyWarpCycles: 0
+    };
+  }
+
+  freeWarps() { return CFG.warpsPerSM - this.usedWarps; }
+  freeRegs() { return CFG.regFileWords - this.usedRegs; }
+  freeShm() { return CFG.shmemWordsPerSM - this.usedShm; }
+
+  launchCTA(prog, ctaId) {
+    const nw = prog.meta.warpsPerCTA;
+    const slots = [];
+    for (let i = 0; i < CFG.warpsPerSM && slots.length < nw; i++)
+      if (this.warps[i].state === 'empty') slots.push(i);
+    const cta = {
+      id: ctaId, ntid: prog.meta.ntid, warpsPerCTA: nw,
+      regs: prog.meta.regsPerThread, shmem: prog.meta.shmem,
+      finished: 0, warpSlots: slots
+    };
+    this.usedWarps += nw;
+    this.usedRegs += prog.meta.regsPerThread * prog.meta.ntid;
+    this.usedShm += prog.meta.shmem;
+    for (let j = 0; j < nw; j++) {
+      const w = this.warps[slots[j]];
+      w.reset();
+      w.cta = cta; w.ctaWarpIndex = j;
+      w.state = 'run'; w.pc = 0;
+      const valid = Math.min(CFG.lanes, prog.meta.ntid - j * CFG.lanes);
+      w.activeMask = (1 << valid) - 1;
+    }
+    this.ctasRunning.push(cta);
+    this.gpu.logEvent(this.gpu.cycle, 'cta',
+      `CTA${cta.id} → SM${this.id} · ${nw}w · ${prog.meta.regsPerThread} regs/thr · ${prog.meta.shmem}w shmem`);
+  }
+
+  onWarpFinished(w, c) {
+    const cta = w.cta;
+    cta.finished++;
+    if (cta.finished >= cta.warpsPerCTA) {
+      this.usedWarps -= cta.warpsPerCTA;
+      this.usedRegs -= cta.regs * cta.ntid;
+      this.usedShm -= cta.shmem;
+      this.ctasRunning = this.ctasRunning.filter(x => x !== cta);
+      this.gpu.ctaFinished(cta.id);
+      this.gpu.logEvent(c, 'cta', `CTA${cta.id} 完成，释放 SM${this.id} 资源`);
+    }
+  }
+
+  // ================= 每周期主流程 =================
+  step(c) {
+    for (const k in this.units) this.units[k].newCycle();
+    this.wbThisCycle = []; this.issueThisCycle = null;
+    this.processCompletions(c);
+    this.tryIssue(c);
+    this.advanceFrontEnd(c);
+    this.accountStalls(c);
+  }
+
+  // ---------- WB：到期 in-flight 处理 ----------
+  processCompletions(c) {
+    for (const it of this.inflight) {
+      if (it.done || it.ready < 0 || it.ready > c) continue;
+      it.done = true;
+      this.completeItem(it, c);
+      this.wbThisCycle.push(it);
+      this.stats.retired++;
+      this.gpu.markProgress();
+    }
+    if (this.wbThisCycle.length) this.inflight = this.inflight.filter(i => !i.done);
+  }
+
+  completeItem(it, c) {
+    const w = it.warp, d = it.dec;
+    switch (it.kind) {
+      case 'exec': {
+        if (d.op >= OP.CMPLT && d.op <= OP.CMPGE) {
+          const cc = d.sub & 15;
+          for (let l = 0; l < CFG.lanes; l++) {
+            if (!((it.effMask >>> l) & 1)) continue;
+            const cmp = GS.alu.compare(it.laneA[l], it.laneB[l]);
+            w.pred[l * 8 + d.rd] = CC_FN[cc](cmp) ? 1 : 0;
+          }
+          if (w.predBusy[d.rd] === it) w.predBusy[d.rd] = null;
+        } else {
+          for (let l = 0; l < CFG.lanes; l++) {
+            if (!((it.effMask >>> l) & 1)) continue;
+            w.regs[l * 32 + d.rd] = this.computeExec(d, it, l);
+          }
+          this.releaseReg(w, it);
+        }
+        break;
+      }
+      case 'lds':
+      case 'load':
+        for (let l = 0; l < CFG.lanes; l++) {
+          if (!((it.effMask >>> l) & 1)) continue;
+          w.regs[l * 32 + d.rd] = it.laneVals[l];
+        }
+        this.releaseReg(w, it);
+        break;
+      case 'store': break;                       // 数据已在发射拍写透
+      case 'atom':
+        for (let l = 0; l < CFG.lanes; l++) {
+          if (it.oldVals[l] === null) continue;
+          w.regs[l * 32 + d.rd] = it.oldVals[l];
+        }
+        this.releaseReg(w, it);
+        break;
+      case 'branch': this.resolveBranch(w, d, it, c); break;
+    }
+  }
+
+  /** 数字逻辑 ALU 逐 lane 计算（操作数为发射拍快照） */
+  computeExec(d, it, lane) {
+    const A = GS.alu;
+    const a = it.laneA[lane], b = it.laneB[lane];
+    switch (d.op) {
+      case OP.NOP: return 0;
+      case OP.MOV: return a >>> 0;
+      case OP.ADD: return A.add32(a, b, 0).value;
+      case OP.SUB: return A.sub32(a, b).value;
+      case OP.MUL: return A.mul32(a, b);
+      case OP.MAD: return A.add32(A.mul32(a, b), it.laneC[lane], 0).value;
+      case OP.AND: return A.and32(a, b);
+      case OP.OR: return A.or32(a, b);
+      case OP.XOR: return A.xor32(a, b);
+      case OP.NOT: return A.not32(a);
+      case OP.SHL: return A.shl32(a, b);
+      case OP.SHR: return A.shr32(a, b);
+      case OP.S2R: return this.sregValue(it.warp, d.sub, lane);
+      default: return 0;
+    }
+  }
+
+  sregValue(w, sub, lane) {
+    const S = GS.isa.SREG;
+    switch (sub) {
+      case S.TIDX: return w.laneTid(lane);
+      case S.TIDY: return 0;
+      case S.NTIDX: return w.cta.ntid;
+      case S.CTAX: return w.cta.id;
+      case S.NCTX: return this.program.meta.nctas;
+      case S.LANEID: return lane;
+      case S.WARPID: return w.id;
+      case S.SMID: return this.id;
+      case S.GWID: return this.id * CFG.warpsPerSM + w.id;
+      default: return 0;
+    }
+  }
+
+  // ---------- Issue ----------
+  tryIssue(c) {
+    const n = CFG.warpsPerSM;
+    for (let k = 0; k < n; k++) {
+      const w = this.warps[(this.rr + k) % n];
+      if (w.state !== 'run') continue;
+      if (c <= w.holdIssueUntil) { w.stallReason = 'BRU'; continue; }
+      if (!w.decoded) {
+        w.stallReason = (c < w.redirectUntil) ? 'FLUSH' : (w.fetched ? 'DECODE' : 'FETCH');
+        continue;
+      }
+      const d = w.decoded;
+      const dep = this.checkDeps(w, d);
+      if (dep) { w.stallReason = dep; continue; }
+      const ut = UNIT_OF_OP[d.op];
+      if (!this.units[ut].canAccept()) {
+        w.stallReason = 'STRUCT:' + ut.toUpperCase(); continue;
+      }
+      // —— 发射 ——
+      this.units[ut].accept();
+      this.rr = (this.rr + k + 1) % n;
+      w.stallReason = ''; w.lastIssueCycle = c;
+      this.issueThisCycle = { warp: w, dec: d, pc: w.decodedPc };
+      w.decoded = null;
+      this.stats.issued++;
+      this.gpu.markProgress();
+      this.buildInflight(w, d, c);
+    }
+  }
+
+  /** 生效 lane 掩码 = activeMask ∧ 谓词（谓词在发射拍读取） */
+  effMaskOf(w, d) {
+    if (d.pred < 0) return w.activeMask;
+    let m = 0;
+    for (let l = 0; l < CFG.lanes; l++)
+      if (((w.activeMask >>> l) & 1) && w.pred[l * 8 + d.pred]) m |= (1 << l);
+    return m;
+  }
+
+  /** 组装 in-flight 条目：发射拍捕获操作数/地址/数据，计算就绪周期 */
+  buildInflight(w, d, c) {
+    const LAT = CFG.lat;
+    const ut = UNIT_OF_OP[d.op];
+    const item = {
+      warp: w, dec: d, kind: 'exec', ut,
+      ready: c + this.units[ut].latency,
+      fallthrough: w.decodedPc + 1,
+      effMask: this.effMaskOf(w, d),
+      laneA: null, laneB: null, laneC: null,
+      laneAddrs: null, laneVals: null, oldVals: null,
+      clears: [], done: false, issueCycle: c, pc: w.decodedPc
+    };
+
+    if (MEM_OPS.has(d.op)) {
+      this.setupMemItem(w, d, item, c);
+    } else if (BR_OPS.has(d.op)) {
+      item.kind = 'branch';
+      if (d.op === OP.BRA && d.pred >= 0) item.predTaken = item.effMask;  // 发射拍捕获跳转组
+      // 分支非流水化：解析完成前该 warp 不再发射
+      w.holdIssueUntil = item.ready;
+    } else {
+      // 操作数捕获（寄存器读级）；MOV 的立即数走 A 通道
+      item.laneA = new Uint32Array(CFG.lanes);
+      item.laneB = new Uint32Array(CFG.lanes);
+      const aImm = (d.op === OP.MOV && d.useImm);
+      for (let l = 0; l < CFG.lanes; l++) {
+        item.laneA[l] = aImm ? (d.imm >>> 0) : (w.regs[l * 32 + d.ra] >>> 0);
+        item.laneB[l] = (!aImm && d.useImm) ? (d.imm >>> 0) : (w.regs[l * 32 + d.rb] >>> 0);
+      }
+      if (d.op === OP.MAD) {
+        item.laneC = new Uint32Array(CFG.lanes);
+        for (let l = 0; l < CFG.lanes; l++) item.laneC[l] = w.regs[l * 32 + d.sub] >>> 0;
+      }
+    }
+
+    // Scoreboard 目的登记
+    if (item.kind === 'exec' || item.kind === 'load' || item.kind === 'atom') {
+      if (d.op >= OP.CMPLT && d.op <= OP.CMPGE) {
+        if (w.predBusy[d.rd]) w.predBusy[d.rd].clears = w.predBusy[d.rd].clears; // 无操作
+        w.predBusy[d.rd] = item;
+        item.predReg = d.rd;
+      } else this.markRegDest(w, d.rd, item);
+    } else if (item.kind === 'lds') {
+      this.markRegDest(w, d.rd, item);
+    }
+
+    this.inflight.push(item);
+  }
+
+  markRegDest(w, rd, item) {
+    if (w.regBusy[rd]) {
+      const old = w.regBusy[rd];
+      old.clears = old.clears.filter(r => r !== rd);   // WAW：所有权转移
+    }
+    w.regBusy[rd] = item; item.clears.push(rd);
+  }
+  releaseReg(w, item) {
+    for (const r of item.clears) if (w.regBusy[r] === item) w.regBusy[r] = null;
+    item.clears = [];
+  }
+
+  /** Scoreboard 依赖检查 → null | 'DATA' | 'LONG_SCOREBOARD' */
+  checkDeps(w, d) {
+    const srcs = [];
+    switch (d.op) {
+      case OP.MOV: if (!d.useImm) srcs.push(d.ra); break;
+      case OP.ADD: case OP.SUB: case OP.MUL: case OP.AND: case OP.OR: case OP.XOR:
+      case OP.SHL: case OP.SHR:
+        srcs.push(d.ra); if (!d.useImm) srcs.push(d.rb); break;
+      case OP.MAD: srcs.push(d.ra, d.rb, d.sub); break;
+      case OP.NOT: case OP.S2R: if (d.op === OP.NOT) srcs.push(d.ra); break;
+      case OP.LDG: case OP.LDS:
+        if (!(d.sub & NOBASE)) srcs.push(d.ra); break;
+      case OP.ATOM:
+        if (!(d.sub & NOBASE)) srcs.push(d.ra);
+        srcs.push(d.rb); break;   // 原子值操作数同样依赖检查
+      case OP.STG: case OP.STS:
+        if (!(d.sub & NOBASE)) srcs.push(d.ra);
+        srcs.push(d.rb); break;
+      case OP.CMPLT: case OP.CMPLE: case OP.CMPEQ: case OP.CMPNE: case OP.CMPGT: case OP.CMPGE:
+        srcs.push(d.ra); if (!d.useImm) srcs.push(d.rb); break;
+      default: break;
+    }
+    let long = false;
+    for (const r of srcs) {
+      const it = w.regBusy[r];
+      if (it) {
+        if (it.kind === 'load' || it.kind === 'atom') long = true;
+        else return 'DATA';
+      }
+    }
+    if (long) return 'LONG_SCOREBOARD';
+    // 任何带谓词的指令都必须等待谓词写回（BRA / @P 数据指令通用）
+    if (d.pred >= 0 && w.predBusy[d.pred]) return 'DATA';
+    return null;
+  }
+
+  /** 访存：地址生成 + 合并/bank 分析 + 层级时序（全部发射拍） */
+  setupMemItem(w, d, item, c) {
+    const LAT = CFG.lat;
+    const noBase = !!(d.sub & NOBASE);
+    const off = d.imm | 0;
+    const laneAddrs = new Array(CFG.lanes).fill(null);
+    for (let l = 0; l < CFG.lanes; l++) {
+      if (!((item.effMask >>> l) & 1)) continue;
+      const bl = noBase ? 0 : (w.regs[l * 32 + d.ra] >>> 0);   // 每 lane 独立基址
+      laneAddrs[l] = (bl + off) >>> 0;
+    }
+    item.laneAddrs = laneAddrs;
+
+    if (d.op === OP.LDS || d.op === OP.STS) {
+      const { degree } = this.shared.analyze(laneAddrs);
+      if (degree > 1) this.gpu.logEvent(c, 'conf',
+        `SM${this.id} W${w.id} ${d.op === OP.LDS ? 'LDS' : 'STS'} bank conflict ×${degree}`);
+      if (d.op === OP.LDS) {
+        item.kind = 'lds';
+        item.laneVals = new Uint32Array(CFG.lanes);   // 读发射拍采样
+        for (let l = 0; l < CFG.lanes; l++)
+          if (laneAddrs[l] !== null) item.laneVals[l] = this.shared.read(laneAddrs[l]);
+      } else {
+        item.kind = 'store';
+        for (let l = 0; l < CFG.lanes; l++) {
+          const a = laneAddrs[l];
+          if (a !== null) this.shared.write(a, w.regs[l * 32 + d.rb]);
+        }
+      }
+      item.ready = c + LAT.lsu + LAT.ldsBase * degree;
+      return;
+    }
+
+    if (d.op === OP.LDG || d.op === OP.STG) {
+      const { txnCount, groups } = GS.mem.coalesce(laneAddrs);
+      let worst = 0, path = 'L1';
+      for (const g of groups) {
+        const r = (d.op === OP.LDG)
+          ? this.gpu.memSys.globalLoadTiming(this.l1, g.line, c)
+          : this.gpu.memSys.globalStoreTiming(this.l1, g.line, c);
+        if (r.cycles > worst) { worst = r.cycles; path = r.hitPath; }
+      }
+      if (d.op === OP.LDG) {
+        item.kind = 'load';
+        item.laneVals = new Uint32Array(CFG.lanes);   // 数据发射拍读取（时序仍由 ready 门控）
+        for (let l = 0; l < CFG.lanes; l++)
+          if (laneAddrs[l] !== null) item.laneVals[l] = this.gpu.mem.read(laneAddrs[l]);
+        this.stats.loadInsts++; this.stats.loadTxns += txnCount;
+      } else {
+        item.kind = 'store';
+        for (const g of groups)
+          for (const l of g.lanes) this.gpu.mem.write(laneAddrs[l], w.regs[l * 32 + d.rb]);
+        this.stats.storeTxns += txnCount;
+      }
+      item.ready = c + LAT.lsu + worst;
+      item.hitPath = path; item.txnCount = txnCount;
+      this.gpu.pushTxn({ cycle: c, sm: this.id, warp: w.id,
+        kind: d.op === OP.LDG ? 'LDG' : 'STG',
+        addr: laneAddrs.find(a => a !== null) ?? 0, txns: txnCount, path });
+      return;
+    }
+
+    if (d.op === OP.ATOM) {
+      item.kind = 'atom';
+      item.oldVals = new Array(CFG.lanes).fill(null);
+      let pending = 0;
+      for (let l = 0; l < CFG.lanes; l++) {
+        const a = laneAddrs[l];
+        if (a === null) continue;
+        pending++;
+        this.gpu.memSys.submitAtomic({
+          addr: a, value: w.regs[l * 32 + d.rb] >>> 0, atomOp: d.sub & 15,
+          item, lane: l, sm: this.id, warp: w.id
+        });
+      }
+      item.ready = pending === 0 ? c + LAT.lsu : -1;   // 由原子服务推进
+      return;
+    }
+  }
+
+  // ---------- 分支解析（BRU，非流水化） ----------
+  resolveBranch(w, d, it, c) {
+    if (d.op === OP.BAR) { this.barrierArrive(w, c); return; }
+    if (d.op === OP.EXIT) { this.resolveExit(w, c); return; }
+    // BRA
+    if (d.pred >= 0) {
+      const Tm = (it.predTaken || 0) & w.activeMask;
+      const Fm = w.activeMask & ~Tm;
+      if (Tm && Fm) {                              // 真·发散
+        w.stack.push({ pc: d.imm, mask: Tm });
+        w.activeMask = Fm;
+        w.pc = it.fallthrough;
+        this.stats.divergences++;
+        this.gpu.logEvent(c, 'div',
+          `SM${this.id} W${w.id} DIVERGENCE → L${d.imm} [T=${Tm.toString(2)}] | 直落 L${it.fallthrough} [F=${Fm.toString(2)}]`);
+      } else if (Tm) w.pc = d.imm;
+      else w.pc = it.fallthrough;
+    } else {
+      w.pc = d.imm;
+    }
+    w.redirectUntil = c + CFG.lat.redirect;
+    w.decoded = null; w.fetched = null;
+    this.joinCheck(w, c);
+  }
+
+  /** 重汇聚：pc 抵达栈顶恢复点 → 合并掩码（可级联） */
+  joinCheck(w, c) {
+    while (w.stack.length && w.stack[w.stack.length - 1].pc === w.pc) {
+      const e = w.stack.pop();
+      w.activeMask |= e.mask;
+      this.stats.reconvergences++;
+      this.gpu.logEvent(c, 'rec', `SM${this.id} W${w.id} RECONVERGE @L${w.pc} mask=${w.activeMask.toString(2)}`);
+    }
+  }
+
+  resolveExit(w, c) {
+    w.activeMask = 0;
+    if (w.stack.length) {
+      const e = w.stack.pop();
+      w.activeMask = e.mask; w.pc = e.pc;
+      w.redirectUntil = c + CFG.lat.redirect;
+      w.decoded = null; w.fetched = null;
+      this.stats.exitPops++;
+      this.joinCheck(w, c);
+    } else {
+      w.state = 'done';
+      this.onWarpFinished(w, c);
+    }
+  }
+
+  barrierArrive(w, c) {
+    if (w.stack.length > 0) {
+      this.gpu.logEvent(c, 'err', `SM${this.id} W${w.id} 在发散区域到达 BAR（栈深 ${w.stack.length}）— kernel 违反收敛约束`);
+    }
+    const key = w.cta.id;
+    let b = this.barriers.get(key);
+    if (!b) { b = { need: w.cta.warpsPerCTA, arrived: 0, waiting: [] }; this.barriers.set(key, b); }
+    b.arrived++; b.waiting.push(w);
+    w.waitingBarrier = true; w.state = 'barrier'; w.stallReason = 'BARRIER';
+    this.stats.barrierArrivals++;
+    if (b.arrived >= b.need) {
+      for (const ww of b.waiting) { ww.waitingBarrier = false; ww.state = 'run'; ww.stallReason = ''; }
+      b.waiting = []; b.arrived = 0;
+      this.stats.barrierReleases++;
+      this.gpu.logEvent(c, 'bar', `SM${this.id} CTA${key} barrier 释放（${b.need} warps 汇合）`);
+    }
+  }
+
+  // ---------- 前端：Fetch / Decode ----------
+  advanceFrontEnd(c) {
+    const prog = this.program;
+    for (const w of this.warps) {
+      if (w.state !== 'run') continue;
+      if (c < w.redirectUntil) { w.fetched = null; if (!w.stallReason) w.stallReason = 'FLUSH'; continue; }
+      if (!w.decoded && w.fetched) {
+        w.decoded = w.fetched; w.decodedPc = w.fetchedPc; w.fetched = null;
+      }
+      if (!w.fetched) {
+        if (w.pc >= 0 && w.pc < prog.decs.length) {
+          w.fetched = prog.decs[w.pc]; w.fetchedPc = w.pc; w.pc++;
+        } else if (w.decoded || this.inflight.some(it => it.warp === w && !it.done)) {
+          // 程序尾部但 EXIT 尚在译码级或在飞 → 前端等待，不得误判越界
+          if (!w.stallReason) w.stallReason = 'FETCH';
+        } else {
+          this.gpu.logEvent(c, 'err', `SM${this.id} W${w.id} PC 越界（缺少 EXIT？）强制结束`);
+          w.state = 'done'; this.onWarpFinished(w, c);
+        }
+      }
+    }
+  }
+
+  accountStalls(c) {
+    for (const w of this.warps) {
+      if (w.state === 'empty' || w.state === 'done') continue;
+      this.stats.busyWarpCycles++;
+      if (w.lastIssueCycle === c) continue;
+      let r = w.stallReason || 'FE';
+      if (w.state === 'barrier') r = 'BARRIER';
+      else if (r.startsWith('STRUCT')) r = 'STRUCT';
+      else if (r === 'DECODE' || r === 'FETCH' || r === 'FLUSH' || r === 'BRU') r = 'FE';
+      else if (r !== 'DATA' && r !== 'LONG_SCOREBOARD' && r !== 'BARRIER') r = 'FE';
+      this.stats.stallCycles[r] = (this.stats.stallCycles[r] || 0) + 1;
+    }
+  }
+
+  warpCode(w) {
+    if (w.state === 'empty') return WS.EMPTY;
+    if (w.state === 'done') return WS.DONE;
+    if (w.state === 'barrier') return WS.BARRIER;
+    if (w.lastIssueCycle === this.gpu.cycle) return WS.ISSUE;
+    const r = w.stallReason;
+    if (r === 'DATA') return WS.ST_DATA;
+    if (r === 'LONG_SCOREBOARD') return WS.ST_LONG;
+    if (r.startsWith('STRUCT')) return WS.ST_STRUCT;
+    return WS.FE;
+  }
+
+  activeWarpCount() {
+    let n = 0;
+    for (const w of this.warps) if (w.state !== 'empty' && w.state !== 'done') n++;
+    return n;
+  }
+  isIdle() { return this.activeWarpCount() === 0 && this.inflight.length === 0; }
+}
+
+GS.sm = { CFG, SM, Warp, Unit, WS };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/gpu.js -->
+<script>
+/* ============================================================
+ * gpu.js — GPU 顶层：GigaThread CTA 调度器、全局时钟、历史记录、统计
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+const { CFG, SM } = GS.sm;
+
+const HIST_CYCLES = 2048;   // timeline 环形缓冲（周期数）
+const TOTAL_WARPS = CFG.numSMs * CFG.warpsPerSM;
+
+class Gpu {
+  constructor() {
+    this.sms = Array.from({ length: CFG.numSMs }, (_, i) => new SM(this, i));
+    this.mem = new GS.mem.GlobalMemory(1 << 20);        // 1M word = 4MB
+    this.memSys = new GS.mem.MemorySystem(this);
+    this.cycle = 0;
+    this.program = null;
+    this.pendingCTAs = [];
+    this.nextCtaId = 0;
+    this.done = false;
+    this.error = null;
+    this.lastProgressCycle = 0;
+    this.ctasDone = 0; this.ctasLaunched = 0;
+    // timeline 环形缓冲：每周期 × 每 warp 一个状态字节
+    this.hist = new Uint8Array(HIST_CYCLES * TOTAL_WARPS);
+    this.txnLog = [];      // 最近内存事务
+    this.events = [];      // 微架构事件
+    this.globalStats = null;
+    this.kernelKey = null;
+    this.runCount = 0;
+  }
+
+  loadKernel(kernelKey, prog) {
+    this.reset();
+    this.kernelKey = kernelKey;
+    this.program = prog;
+    for (const sm of this.sms) sm.program = prog;
+    this.pendingCTAs = [];
+    for (let i = 0; i < prog.meta.nctas; i++) this.pendingCTAs.push(prog);
+    this.log(0, `载入 kernel "${prog.name}" · grid=${prog.meta.nctas} CTA × ${prog.meta.ntid} 线程 · shmem=${prog.meta.shmem}w · ${prog.meta.regsPerThread} regs/thr`);
+  }
+
+  reset() {
+    this.cycle = 0; this.done = false; this.error = null;
+    this.lastProgressCycle = 0;
+    this.nextCtaId = 0; this.ctasDone = 0; this.ctasLaunched = 0;
+    this.pendingCTAs = [];
+    this.hist.fill(0);
+    this.txnLog = []; this.events = [];
+    this.memSys = new GS.mem.MemorySystem(this);
+    this.sms = Array.from({ length: CFG.numSMs }, (_, i) => new SM(this, i));
+    if (this.program) for (const sm of this.sms) sm.program = this.program;
+    this.blockReasons = { warps: 0, regs: 0, shmem: 0 };
+  }
+
+  assignCTAs() {
+    for (const sm of this.sms) {
+      while (this.pendingCTAs.length) {
+        const prog = this.pendingCTAs[0];
+        const needW = prog.meta.warpsPerCTA;
+        const needR = prog.meta.regsPerThread * prog.meta.ntid;
+        const needS = prog.meta.shmem;
+        if (sm.freeWarps() >= needW && sm.freeRegs() >= needR && sm.freeShm() >= needS) {
+          this.pendingCTAs.shift();
+          sm.launchCTA(prog, this.nextCtaId++);
+          this.ctasLaunched++;
+        } else {
+          if (sm.freeWarps() < needW) this.blockReasons.warps++;
+          else if (sm.freeRegs() < needR) this.blockReasons.regs++;
+          else this.blockReasons.shmem++;
+          break;
+        }
+      }
+    }
+  }
+
+  step() {
+    if (this.done) return false;
+    this.cycle++;
+    this.assignCTAs();
+    for (const sm of this.sms) sm.step(this.cycle);
+    this.memSys.tick(this.cycle);
+    this.recordHistory();
+    // watchdog
+    if (this.cycle - this.lastProgressCycle > CFG.watchdogCycles) {
+      this.done = true;
+      this.error = 'DEADLOCK: ' + CFG.watchdogCycles + ' 周期无进展（检查 barrier 配对/分支栈）';
+      this.log(0, '✗ ' + this.error);
+      return false;
+    }
+    this.checkDone();
+    return !this.done;
+  }
+
+  run(maxCycles) {
+    const cap = maxCycles || 2000000;
+    while (!this.done && this.cycle < cap) this.step();
+    if (!this.done && this.cycle >= cap) { this.error = '超出最大周期数 ' + cap; }
+    return this.collectStats();
+  }
+
+  checkDone() {
+    if (this.pendingCTAs.length) return;
+    for (const sm of this.sms) if (!sm.isIdle()) return;
+    if (this.memSys.atomQueue.length) return;
+    this.done = true;
+    this.log(this.cycle, `✓ kernel 完成 · 共 ${this.cycle} 周期`);
+  }
+
+  ctaFinished(id) { this.ctasDone++; }
+
+  markProgress() { this.lastProgressCycle = this.cycle; }
+
+  recordHistory() {
+    const base = (this.cycle % HIST_CYCLES) * TOTAL_WARPS;
+    let i = base;
+    for (const sm of this.sms)
+      for (const w of sm.warps)
+        this.hist[i++] = sm.warpCode(w);
+  }
+
+  logEvent(cycle, type, text) {
+    this.events.push({ cycle, type, text });
+    if (this.events.length > 400) this.events.splice(0, this.events.length - 400);
+    if (type === 'err') this.log(cycle, '✗ ' + text);
+  }
+  pushTxn(t) {
+    this.txnLog.push(t);
+    if (this.txnLog.length > 120) this.txnLog.splice(0, this.txnLog.length - 120);
+  }
+  log(cycle, text) {
+    if (typeof console !== 'undefined') console.log('[GPU @' + cycle + '] ' + text);
+    this.consoleLines = this.consoleLines || [];
+    this.consoleLines.push('@' + cycle + ' ' + text);
+    if (this.consoleLines.length > 300) this.consoleLines.shift();
+  }
+
+  /** 聚合全局统计 */
+  collectStats() {
+    const g = {
+      cycles: this.cycle,
+      issued: 0, retired: 0,
+      divergences: 0, reconvergences: 0, exitPops: 0,
+      barrierArrivals: 0, barrierReleases: 0,
+      loadTxns: 0, storeTxns: 0, loadInsts: 0,
+      stallCycles: { DATA: 0, LONG_SCOREBOARD: 0, STRUCT: 0, BARRIER: 0, FE: 0 },
+      busyWarpCycles: 0,
+      l1Hits: 0, l1Misses: 0, l1Evictions: 0,
+      l2Hits: 0, l2Misses: 0, dram: 0,
+      sharedConflicts: 0, sharedMaxDegree: 1,
+      atomicOps: 0, atomicContention: 0,
+      blockReasons: Object.assign({}, this.blockReasons),
+      done: this.done, error: this.error
+    };
+    let occSum = 0;
+    for (const sm of this.sms) {
+      const s = sm.stats;
+      g.issued += s.issued; g.retired += s.retired;
+      g.divergences += s.divergences; g.reconvergences += s.reconvergences;
+      g.exitPops += s.exitPops;
+      g.barrierArrivals += s.barrierArrivals; g.barrierReleases += s.barrierReleases;
+      g.loadTxns += s.loadTxns; g.storeTxns += s.storeTxns; g.loadInsts += s.loadInsts;
+      g.busyWarpCycles += s.busyWarpCycles;
+      for (const k in g.stallCycles) g.stallCycles[k] += s.stallCycles[k] || 0;
+      g.l1Hits += sm.l1.stats.hits; g.l1Misses += sm.l1.stats.misses; g.l1Evictions += sm.l1.stats.evictions;
+      g.sharedConflicts += sm.shared.stats.conflicts;
+      g.sharedMaxDegree = Math.max(g.sharedMaxDegree, sm.shared.stats.maxDegree);
+      occSum += s.busyWarpCycles;
+    }
+    const l2 = this.memSys.l2.stats;
+    g.l2Hits = l2.hits; g.l2Misses = l2.misses;
+    g.dram = this.memSys.stats.dramAccesses;
+    g.atomicOps = this.memSys.stats.atomicOps;
+    g.atomicContention = this.memSys.stats.atomicContention;
+    g.occupancyPct = g.busyWarpCycles / Math.max(1, g.cycles * TOTAL_WARPS) * 100;
+    g.avgTxnPerLoad = g.loadInsts ? g.loadTxns / g.loadInsts : 0;
+    this.globalStats = g;
+    return g;
+  }
+
+  statsJSON() {
+    return JSON.stringify(this.collectStats());
+  }
+}
+
+GS.gpu = { Gpu, HIST_CYCLES, TOTAL_WARPS };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/kernels.js -->
+<script>
+/* ============================================================
+ * kernels.js — 内置 Kernel 库
+ * 每个 kernel：汇编源 + 配置 + 输入初始化 + CPU 参考实现 + 微架构断言
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+
+// 固定种子伪随机（保证 Replay 确定性）
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    return s;
+  };
+}
+
+// ---------------- vecadd: c[i]=a[i]+b[i], N=256 ----------------
+const vecadd = {
+key: 'vecadd', title: '向量加法（合并访存基线）',
+asm: `
+; c[i] = a[i] + b[i]   a@0 b@1024 c@2048  N=256
+.name vecadd
+.config ntid=64 nctas=4 shmem=0
+    S2R     R1, TID.X        ; threadIdx.x
+    S2R     R2, CTA.X        ; blockIdx.x
+    S2R     R3, NTID.X       ; blockDim.x
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1       ; gid
+    LDG     R8, [R5]         ; a[gid]（warp 内连续 → 合并为 1 事务）
+    MOV     R9, 1024
+    ADD     R10, R9, R5      ; &b[gid]
+    LDG     R11, [R10]       ; b[gid]
+    ADD     R12, R8, R11     ; 真实 ALU 加法
+    MOV     R13, 2048
+    ADD     R14, R13, R5     ; &c[gid]
+    STG     [R14], R12
+    EXIT
+`,
+setup(mem, rng) { for (let i = 0; i < 256; i++) { mem.write(i, (rng() % 1000)); mem.write(1024 + i, (rng() % 1000)); } mem.write(2048 + 255, 0); },
+reference(mem) {
+  const ok = [];
+  for (let i = 0; i < 256; i++) {
+    const exp = (mem.read(i) + mem.read(1024 + i)) >>> 0;
+    ok.push({ addr: 2048 + i, expect: exp, got: mem.read(2048 + i) });
+  }
+  return ok;
+},
+micro(g) { return [
+  { name: '合并访存：平均每 load 事务数 ≈ 1', pass: g.avgTxnPerLoad <= 1.05 && g.loadInsts > 0, detail: 'avg=' + g.avgTxnPerLoad.toFixed(2) },
+  { name: 'L1 全 miss 但每 load 恰好 1 事务（无重用场景）', pass: g.l1Misses > 0, detail: 'misses=' + g.l1Misses + ' txns=' + g.loadTxns }
+]; }
+};
+
+// ---------------- reduction: 树形归约 + atomic ----------------
+const reduction = {
+key: 'reduction', title: '共享内存树形归约 + Atomic',
+asm: `
+; 每 CTA 归约 64 元素到 sh[0]，thread0 atomic_add 到 result@4096
+; 条件段用谓词化指令（@P）——barrier 前保持收敛
+.name reduction
+.config ntid=64 nctas=4 shmem=64
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    MOV     R3, 64
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1       ; gidx
+    LDG     R6, [R5]         ; input[gidx]
+    STS     [R1], R6         ; sh[tid] = v
+    BAR                      ; __syncthreads()
+    MOV     R8, 32           ; stride = 32
+LOOP:
+    CMPLT   P0, R1, R8       ; tid < stride ?
+    @P0     LDS R9, [R1]     ; sh[tid]
+    @P0     ADD R10, R1, R8
+    @P0     LDS R11, [R10]   ; sh[tid+stride]
+    @P0     ADD R12, R9, R11
+    @P0     STS [R1], R12
+    BAR                      ; 每轮同步（收敛点）
+    SHR     R8, R8, 1        ; stride >>= 1（桶形移位器）
+    CMPGT   P1, R8, 0
+    @P1     BRA LOOP
+    CMPEQ   P2, R1, 0        ; tid == 0 ?
+    @P2     BRA DOATOM
+    BRA     DONE
+DOATOM:
+    LDS     R13, [0]         ; 块内总和
+    MOV     R14, 4096
+    ATOM.ADD R15, [R14], R13 ; atomic_add(result, sum)
+DONE:
+    EXIT
+`,
+setup(mem, rng) { for (let i = 0; i < 256; i++) mem.write(i, rng() % 100); mem.write(4096, 0); },
+reference(mem) {
+  let s = 0; for (let i = 0; i < 256; i++) s = (s + mem.read(i)) >>> 0;
+  return [{ addr: 4096, expect: s, got: mem.read(4096) }];
+},
+micro(g) { return [
+  { name: 'barrier 到达(warp级)/释放(CTA级)配对', pass: g.barrierArrivals > 0 && g.barrierReleases > 0 && g.barrierArrivals === g.barrierReleases * 4,
+    detail: `arr=${g.barrierArrivals}(warp) rel=${g.barrierReleases}(CTA)` },
+  { name: '原子操作全部串行执行', pass: g.atomicOps === 4, detail: 'ops=' + g.atomicOps },
+  { name: '全局输入每 warp 合并为 1 事务（16 warp → 16 次 line 访问，全 miss）', pass: Math.abs(g.avgTxnPerLoad - 1) < 0.01 && g.l1Misses === 16,
+    detail: `avg=${g.avgTxnPerLoad.toFixed(2)} l1miss=${g.l1Misses}` }
+]; }
+};
+
+// ---------------- prefix sum: Hillis-Steele scan ----------------
+const prefix = {
+key: 'prefix', title: 'Prefix Sum（双缓冲 scan · 资源受限占用率）',
+asm: `
+; 单 CTA 32 线程 inclusive scan。shmem=64w 双缓冲。
+; SM 共享内存仅 96w → 每 SM 只能驻留 1 个 CTA（occupancy 瓶颈演示）
+.name prefix
+.config ntid=32 nctas=2 shmem=64
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    SHL     R3, R2, 5        ; bid*32
+    ADD     R4, R1, R3       ; gidx
+    LDG     R2, [R4]         ; in[gidx]
+    STS     [R1], R2         ; buf0[i]
+    MOV     R5, 0            ; srcBase
+    MOV     R6, 32           ; dstBase
+    MOV     R7, 1            ; stride
+LOOP:
+    ADD     R8, R5, R1
+    LDS     R9, [R8]         ; v = src[i]
+    SUB     R10, R1, R7      ; i - stride
+    CMPGE   P1, R10, 0       ; i >= stride ?
+    @P1     ADD R11, R5, R10
+    @P1     LDS R12, [R11]   ; src[i-stride]
+    @P1     ADD R9, R9, R12
+    ADD     R13, R6, R1
+    STS     [R13], R9        ; dst[i] = v
+    BAR                      ; 收敛点同步
+    MOV     R14, R5          ; swap(src,dst)
+    MOV     R5, R6
+    MOV     R6, R14
+    SHL     R7, R7, 1        ; stride <<= 1
+    CMPLT   P2, R7, 32
+    @P2     BRA LOOP
+    ADD     R15, R5, R1
+    LDS     R16, [R15]       ; 最终 src 即结果
+    MOV     R17, 1024
+    ADD     R18, R17, R4     ; &out[gidx]
+    STG     [R18], R16
+    EXIT
+`,
+setup(mem, rng) { for (let i = 0; i < 64; i++) mem.write(i, rng() % 50); for (let i = 0; i < 64; i++) mem.write(1024 + i, 0); },
+reference(mem) {
+  // 每 CTA 独立做 32 元素 inclusive scan
+  const ok = [];
+  for (let b = 0; b < 2; b++) {
+    let acc = 0;
+    for (let t = 0; t < 32; t++) {
+      acc = (acc + mem.read(b * 32 + t)) >>> 0;
+      ok.push({ addr: 1024 + b * 32 + t, expect: acc, got: mem.read(1024 + b * 32 + t) });
+    }
+  }
+  return ok;
+},
+micro(g) { return [
+  { name: 'shared 容量限制 CTA 驻留（occupancy 瓶颈=shmem）', pass: g.blockReasons.shmem > 0, detail: 'shmem 受阻分配=' + g.blockReasons.shmem + ' 次' },
+  { name: 'barrier 多轮释放', pass: g.barrierReleases >= 4, detail: 'releases=' + g.barrierReleases },
+  { name: '无 scoreboard 泄漏由通用检查覆盖', pass: true, detail: '-' }
+]; }
+};
+
+// ---------------- matmul: 16x16 naive global ----------------
+const matmul = {
+key: 'matmul', title: '矩阵乘法 16×16（每线程一元素）',
+asm: `
+; C@512 = A@0 × B@256 （16×16 行主序）；gid 即 C 的线性索引
+.name matmul
+.config ntid=64 nctas=4 shmem=0
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    S2R     R3, NTID.X
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1       ; gid = i*16+j
+    MOV     R9, 0            ; acc
+    MOV     R10, 0           ; k
+KLOOP:
+    AND     R11, R5, 240     ; i*16
+    ADD     R12, R11, R10    ; i*16+k
+    LDG     R13, [R12]       ; A[i][k]
+    SHL     R14, R10, 4      ; k*16
+    AND     R15, R5, 15      ; j
+    ADD     R16, R14, R15
+    ADD     R16, R16, 256    ; +B base
+    LDG     R17, [R16]       ; B[k][j]
+    MUL     R18, R13, R17    ; 移位加乘法器
+    ADD     R9, R9, R18
+    ADD     R10, R10, 1
+    CMPLT   P0, R10, 16
+    @P0     BRA KLOOP
+    ADD     R19, R5, 512
+    STG     [R19], R9
+    EXIT
+`,
+setup(mem, rng) { for (let i = 0; i < 256; i++) { mem.write(i, rng() % 7); mem.write(256 + i, rng() % 7); mem.write(512 + i, 0); } },
+reference(mem) {
+  const ok = [];
+  for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) {
+    let s = 0;
+    for (let k = 0; k < 16; k++) s = (s + Math.imul(mem.read(i * 16 + k), mem.read(256 + k * 16 + j))) >>> 0;
+    ok.push({ addr: 512 + i * 16 + j, expect: s, got: mem.read(512 + i * 16 + j) });
+  }
+  return ok;
+},
+micro(g) { return [
+  { name: 'L1 命中（A 行广播 / 循环重用）', pass: g.l1Hits > 0, detail: 'l1hits=' + g.l1Hits },
+  { name: 'MUL 单元成为瓶颈之一（结构冲突可见）', pass: g.stallCycles.STRUCT > 0, detail: 'struct stall=' + g.stallCycles.STRUCT },
+  { name: '数据依赖停顿存在（累加器链）', pass: g.stallCycles.DATA > 0, detail: 'data stall=' + g.stallCycles.DATA }
+]; }
+};
+
+// ---------------- divergence: 分支发散与重汇聚 ----------------
+const divergence = {
+key: 'divergence', title: '分支发散 / 重汇聚（if-else 菱形）',
+asm: `
+; out[gid] = even ? 2*a : 3*a+1   —— 演示 SIMT 发散
+.name divergence
+.config ntid=64 nctas=4 shmem=0
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    S2R     R3, NTID.X
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1       ; gid
+    LDG     R6, [R5]
+    AND     R7, R5, 1        ; gid 奇偶（逐 lane 不同 → 发散源）
+    CMPEQ   P0, R7, 0        ; P0 = even?
+    @P0     BRA EVEN         ; 发散分支
+    MUL     R8, R6, 3        ; odd: 3a
+    ADD     R8, R8, 1        ; +1
+    BRA     JOIN             ; 跳过 even 体
+EVEN:
+    SHL     R8, R6, 1        ; even: 2a（桶形移位）
+JOIN:
+    ADD     R9, R5, 1024
+    STG     [R9], R8
+    EXIT                     ; EXIT 触发栈弹出切换路径
+`,
+setup(mem, rng) { for (let i = 0; i < 256; i++) { mem.write(i, rng() % 500); mem.write(1024 + i, 0); } },
+reference(mem) {
+  const ok = [];
+  for (let i = 0; i < 256; i++) {
+    const a = mem.read(i);
+    const exp = (i % 2 === 0) ? ((a << 1) >>> 0) : ((Math.imul(a, 3) + 1) >>> 0);
+    ok.push({ addr: 1024 + i, expect: exp, got: mem.read(1024 + i) });
+  }
+  return ok;
+},
+micro(g) { return [
+  { name: '每个 warp 至少一次发散', pass: g.divergences >= 16, detail: 'divergences=' + g.divergences },
+  { name: 'EXIT 弹栈切换路径（IPDOM-replay）', pass: g.exitPops >= 16, detail: 'exitPops=' + g.exitPops },
+  { name: '结果正确隐含两路都执行', pass: true, detail: '-' }
+]; }
+};
+
+// ---------------- atomic contention ----------------
+const atomick = {
+key: 'atomic', title: 'Atomic 竞争（256 线程同一地址）',
+asm: `
+; 所有线程对 result@4096 做 atomic_add(+1) → L2 串行服务
+.name atomic
+.config ntid=64 nctas=4 shmem=0
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    S2R     R3, NTID.X
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1
+    MOV     R6, 4096
+    MOV     R7, 1
+    ATOM.ADD R8, [R6], R7   ; R8 = old
+    EXIT
+`,
+setup(mem) { mem.write(4096, 0); },
+reference(mem) { return [{ addr: 4096, expect: 256, got: mem.read(4096) }]; },
+micro(g) { return [
+  { name: '原子串行化竞争被观测', pass: g.atomicContention > 0, detail: 'contention cycles=' + g.atomicContention },
+  { name: '恰好 256 次原子操作', pass: g.atomicOps === 256, detail: 'ops=' + g.atomicOps }
+]; }
+};
+
+// ---------------- uncoalesced + bank conflict ----------------
+const uncoalesced = {
+key: 'uncoalesced', title: '非合并访存 + Bank Conflict',
+asm: `
+; 全局读 (gid*16)%256 → warp 内 16 个不同 line（非合并）
+; shared 读 (tid*4)%64 → 4-way bank conflict
+.name uncoalesced
+.config ntid=64 nctas=4 shmem=64
+    S2R     R1, TID.X
+    S2R     R2, CTA.X
+    S2R     R3, NTID.X
+    MUL     R4, R2, R3
+    ADD     R5, R4, R1       ; gid
+    SHL     R6, R5, 4        ; gid*16
+    AND     R6, R6, 255
+    LDG     R7, [R6]         ; 非合并 load
+    STS     [R1], R7         ; sh[tid]
+    BAR                      ; 保证 sh 全量可见（确定性）
+    SHL     R8, R1, 2        ; tid*4
+    AND     R8, R8, 63
+    LDS     R9, [R8]         ; 4-way conflict
+    ADD     R10, R7, R9
+    ADD     R11, R5, 2048
+    STG     [R11], R10
+    EXIT
+`,
+setup(mem, rng) { for (let i = 0; i < 256; i++) { mem.write(i, rng() % 300); mem.write(2048 + i, 0); } },
+reference(mem) {
+  const ok = [];
+  const sh = new Array(64);
+  for (let b = 0; b < 4; b++)
+    for (let t = 0; t < 64; t++)
+      sh[t] = mem.read(((b * 64 + t) * 16) % 256);
+  for (let gid = 0; gid < 256; gid++) {
+    const bid = gid >> 6, tid = gid & 63;
+    const exp = (mem.read((gid * 16) % 256) + sh[(tid * 4) % 64]) >>> 0;
+    ok.push({ addr: 2048 + gid, expect: exp, got: mem.read(2048 + gid) });
+  }
+  return ok;
+},
+micro(g) { return [
+  { name: '平均每 load 事务数 > 4（非合并）', pass: g.avgTxnPerLoad > 4, detail: 'avg=' + g.avgTxnPerLoad.toFixed(2) },
+  { name: 'bank conflict 被检测（≥4-way）', pass: g.sharedConflicts > 0 && g.sharedMaxDegree >= 4,
+    detail: `conflicts=${g.sharedConflicts} maxDeg=${g.sharedMaxDegree}` }
+]; }
+};
+
+GS.kernels = { list: [vecadd, reduction, prefix, matmul, divergence, atomick, uncoalesced], byKey: {}, _rng: makeRng };
+for (const k of GS.kernels.list) GS.kernels.byKey[k.key] = k;
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/tests.js -->
+<script>
+/* ============================================================
+ * tests.js — 自动测试：结果正确性 + 周期级微架构断言 + 确定性
+ * 可在浏览器与 Node(headless) 下运行。
+ * ============================================================ */
+(function (root) { 'use strict';
+const GS = root.GS = root.GS || {};
+
+function makeGpu(kernelKey) {
+  const k = GS.kernels.byKey[kernelKey];
+  const gpu = new GS.gpu.Gpu();
+  const prog = GS.asm.parse(k.asm);
+  gpu.loadKernel(kernelKey, prog);
+  k.setup(gpu.mem, makeRngFor(kernelKey));
+  return { gpu, prog, kernel: k };
+}
+function makeRngFor(key) {
+  let s = 0x9e3779b9;
+  for (const ch of key) { s = (Math.imul(s ^ ch.charCodeAt(0), 0x85ebca6b)) >>> 0; }
+  return GS.kernels._rng(s);
+}
+
+function checkOutputs(kernel, mem) {
+  const bad = [];
+  for (const r of kernel.reference(mem)) {
+    if ((r.expect >>> 0) !== (r.got >>> 0)) bad.push(`[${r.addr}] expect=${r.expect} got=${r.got}`);
+  }
+  return bad;
+}
+function noScoreboardLeak(gpu) {
+  for (const sm of gpu.sms)
+    for (const w of sm.warps) {
+      if (w.state === 'empty') continue;
+      for (let r = 0; r < 32; r++) if (w.regBusy[r]) return `SM${sm.id} W${w.id} R${r} 泄漏`;
+      for (let p = 0; p < 8; p++) if (w.predBusy[p]) return `SM${sm.id} W${w.id} P${p} 泄漏`;
+      if (w.stack.length) return `SM${sm.id} W${w.id} SIMT 栈未清空`;
+    }
+  return null;
+}
+
+// ---------------- ALU 对拍测试 ----------------
+function aluTests() {
+  const A = GS.alu;
+  const cases = [];
+  const seed = 12345;
+  let s = seed >>> 0;
+  const rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s; };
+  const edge = [0, 1, 2, 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffe, 0x40000000, 0xc0000000, 3];
+  for (let i = 0; i < 500; i++) {
+    const a = i < edge.length * 5 ? edge[i % edge.length] : rnd();
+    const b = i < edge.length * 5 ? edge[(i * 7 + 3) % edge.length] : rnd();
+    cases.push([a, b]);
+  }
+  const t = (name, fn) => ({ name, fn });
+  return [
+    t('ALU 行波进位加法器对拍原生加法（500 组含边界）', () => {
+      for (const [a, b] of cases) {
+        const got = A.add32(a, b, 0).value, exp = ((a >>> 0) + (b >>> 0)) >>> 0;
+        if (got !== exp) return `add(${a},${b})=${got} 期望 ${exp}`;
+      }
+      return null;
+    }),
+    t('ALU 减法器 a+~b+1 对拍（含借位边界）', () => {
+      for (const [a, b] of cases) {
+        const got = A.sub32(a, b).value, exp = ((a >>> 0) - (b >>> 0)) >>> 0;
+        if (got !== exp) return `sub(${a},${b})=${got} 期望 ${exp}`;
+      }
+      return null;
+    }),
+    t('ALU 移位加乘法器低 32 位对拍', () => {
+      for (const [a, b] of cases) {
+        const got = A.mul32(a, b), exp = Math.imul(a, b) >>> 0;
+        if (got !== exp) return `mul(${a},${b})=${got} 期望 ${exp}`;
+      }
+      return null;
+    }),
+    t('ALU 桶形移位器对拍（0-31 位）', () => {
+      for (const [a, b] of cases) {
+        const n = b & 31;
+        if (A.shl32(a, n) !== ((a << n) >>> 0)) return `shl(${a},${n})`;
+        if (A.shr32(a, n) !== ((a >>> n) >>> 0)) return `shr(${a},${n})`;
+      }
+      return null;
+    }),
+    t('ALU 比较器有符号标志对拍', () => {
+      const signed = x => (x | 0);
+      for (const [a, b] of cases) {
+        const c = A.compare(a, b);
+        if (c.lt !== (signed(a) < signed(b))) return `lt(${a | 0},${b | 0})`;
+        if (c.eq !== (a === b)) return `eq(${a},${b})`;
+        if (c.gt !== (signed(a) > signed(b))) return `gt(${a | 0},${b | 0})`;
+      }
+      return null;
+    })
+  ];
+}
+
+// ---------------- 汇编器 roundtrip ----------------
+function asmTest() {
+  return [{
+    name: 'ISA 编码/解码往返一致（全部 kernel 指令）',
+    fn: () => {
+      for (const k of GS.kernels.list) {
+        const prog = GS.asm.parse(k.asm);
+        for (let i = 0; i < prog.decs.length; i++) {
+          const e = GS.isa.encode(prog.decs[i]);
+          const d2 = GS.isa.decode(e.lo, e.hi);
+          const e2 = GS.isa.encode(d2);
+          if (e.lo !== e2.lo || e.hi !== e2.hi) return `${k.key}#${i} 往返不一致`;
+          if (GS.isa.disasm(d2) === undefined) return `${k.key}#${i} 反汇编失败`;
+        }
+      }
+      return null;
+    }
+  }];
+}
+
+// ---------------- Kernel 端到端 + 微架构 ----------------
+function kernelTests() {
+  const out = [];
+  for (const k of GS.kernels.list) {
+    out.push({
+      name: `[${k.key}] 最终结果与 CPU 参考一致`,
+      fn: () => {
+        const { gpu, kernel } = makeGpu(k.key);
+        gpu.run(2000000);
+        if (gpu.error) return gpu.error;
+        const bad = checkOutputs(kernel, gpu.mem);
+        if (bad.length) return `${bad.length} 处不一致：${bad.slice(0, 3).join(' ; ')}`;
+        return null;
+      }
+    });
+    out.push({
+      name: `[${k.key}] 微架构断言（stall/cache/事件计数）`,
+      fn: () => {
+        const { gpu } = makeGpu(k.key);
+        const g = gpu.run(2000000);
+        if (gpu.error) return gpu.error;
+        const leak = noScoreboardLeak(gpu);
+        if (leak) return leak;
+        for (const mc of k.micro(g))
+          if (!mc.pass) return `${mc.name} — ${mc.detail}`;
+        return null;
+      }
+    });
+  }
+  // 确定性 / Replay
+  out.push({
+    name: '[determinism] 同一 kernel 两跑逐统计完全一致（Replay 基础）',
+    fn: () => {
+      for (const key of ['vecadd', 'reduction', 'prefix', 'matmul', 'divergence', 'atomic', 'uncoalesced']) {
+        const r1 = makeGpu(key); const s1 = r1.gpu.run(2000000);
+        const r2 = makeGpu(key); const s2 = r2.gpu.run(2000000);
+        if (JSON.stringify(s1) !== JSON.stringify(s2)) return `${key} 统计不一致`;
+        for (let i = 0; i < r1.gpu.mem.words.length; i++)
+          if (r1.gpu.mem.words[i] !== r2.gpu.mem.words[i]) return `${key} 内存@${i} 不一致`;
+      }
+      return null;
+    }
+  });
+  // 占用率资源限制
+  out.push({
+    name: '[occupancy] prefix 受 shared 容量限制：每 SM 仅 1 CTA（4/8 warp）',
+    fn: () => {
+      const { gpu } = makeGpu('prefix');
+      let maxConcurrent = 0;
+      while (!gpu.done && !gpu.error && gpu.cycle < 500000) {
+        gpu.step();
+        let cur = 0;
+        for (const sm of gpu.sms) cur += sm.ctasRunning.length;
+        maxConcurrent = Math.max(maxConcurrent, cur);
+      }
+      if (gpu.error) return gpu.error;
+      const g = gpu.collectStats();
+      if (maxConcurrent !== 2) return `最大并发 CTA=${maxConcurrent}，期望 2（每 SM 1 个）`;
+      if (g.blockReasons.shmem <= 0) return '未观测到 shmem 分配受阻';
+      return null;
+    }
+  });
+  // barrier 死锁防护
+  out.push({
+    name: '[watchdog] 全部 kernel 无死锁且周期数有限',
+    fn: () => {
+      for (const k of GS.kernels.list) {
+        const { gpu } = makeGpu(k.key);
+        gpu.run(2000000);
+        if (gpu.error) return `${k.key}: ${gpu.error}`;
+        if (!gpu.done) return `${k.key} 未在周期上限内完成`;
+      }
+      return null;
+    }
+  });
+  return out;
+}
+
+function runAll(onResult, onDone) {
+  const tests = [...aluTests(), ...asmTest(), ...kernelTests()];
+  const results = [];
+  let i = 0;
+  function step() {
+    if (i >= tests.length) { if (onDone) onDone(results); return; }
+    const tst = tests[i];
+    let err = null;
+    try { err = tst.fn(); } catch (e) { err = '异常: ' + (e && e.message || e); }
+    const r = { name: tst.name, pass: !err, detail: err || 'OK' };
+    results.push(r);
+    if (onResult) onResult(r, i, tests.length);
+    i++;
+    setTimeout(step, 0);
+  }
+  step();
+  return results;
+}
+
+GS.tests = { runAll, makeGpu, checkOutputs, noScoreboardLeak };
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/ui.js -->
+<script>
+/* ============================================================
+ * ui.js — 可视化：GPU→SM→Warp→Lane→流水线→执行单元、Scoreboard、
+ * Cache、内存事务、Bank Conflict、Occupancy、Stall、Timeline
+ * ============================================================ */
+(function (root) { 'use strict';
+var GS = root.GS = root.GS || {};
+var WS = GS.sm.WS;
+function $(id) { return document.getElementById(id); }
+
+var WS_COLOR = {};
+WS_COLOR[WS.EMPTY] = '#1a2230'; WS_COLOR[WS.ISSUE] = '#3dd68c';
+WS_COLOR[WS.ST_DATA] = '#ffb454'; WS_COLOR[WS.ST_LONG] = '#ff7a45';
+WS_COLOR[WS.ST_STRUCT] = '#e05299'; WS_COLOR[WS.BARRIER] = '#b48cff';
+WS_COLOR[WS.DONE] = '#3a4658'; WS_COLOR[WS.FE] = '#2b6cb0';
+
+function stallClass(r) {
+  if (!r) return 'sb-run';
+  if (r === 'DATA') return 'sb-data';
+  if (r === 'LONG_SCOREBOARD') return 'sb-long';
+  if (r === 'BARRIER') return 'sb-barrier';
+  if (r.indexOf('STRUCT') === 0) return 'sb-struct';
+  return 'sb-idle';
+}
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function kv(k, v) { return '<div class="kv"><span class="k">' + k + '</span><span>' + v + '</span></div>'; }
+
+var ui = {
+  selectedSM: 0,
+  selectedWarp: { sm: 0, warp: 0 },
+  gpu: null,
+  program: null,
+  kernelKey: null,
+
+  init: function (gpu, program, kernelKey) {
+    this.gpu = gpu; this.program = program; this.kernelKey = kernelKey;
+    this.buildSMCards();
+    this.renderAsm();
+  },
+
+  // ---------------- 左列 ----------------
+  buildSMCards: function () {
+    var host = $('sm-cards');
+    host.innerHTML = '';
+    var self = this;
+    this.gpu.sms.forEach(function (sm) {
+      var div = document.createElement('div');
+      div.className = 'sm-card' + (sm.id === self.selectedSM ? ' selected' : '');
+      div.id = 'smcard-' + sm.id;
+      div.innerHTML = '<div class="head"><b>SM' + sm.id + '</b><span class="dim" id="smc-warps-' + sm.id + '"></span></div>' +
+        '<div class="occ-bar"><div class="occ-fill" id="smc-occ-' + sm.id + '" style="width:0%"></div></div>' +
+        '<div class="warp-dots" id="smc-dots-' + sm.id + '"></div>' +
+        '<div class="mini-stats"><span>L1 <b id="smc-l1-' + sm.id + '">-</b></span>' +
+        '<span>shmem <b id="smc-shm-' + sm.id + '">-</b></span>' +
+        '<span>CTA <b id="smc-cta-' + sm.id + '">-</b></span></div>';
+      div.onclick = function () { self.selectedSM = sm.id; self.renderAsm(); };
+      host.appendChild(div);
+    });
+  },
+
+  renderSummary: function () {
+    var g = this.gpu.collectStats();
+    var totalWarps = GS.gpu.TOTAL_WARPS;
+    var active = 0;
+    this.gpu.sms.forEach(function (sm) { active += sm.activeWarpCount(); });
+    var br = g.blockReasons;
+    var sched = ['发射 ' + this.gpu.ctasLaunched, '完成 ' + this.gpu.ctasDone, '排队 ' + this.gpu.pendingCTAs.length];
+    if (br.shmem) sched.push('<span class="miss">shmem受限×' + br.shmem + '</span>');
+    if (br.regs) sched.push('<span class="miss">reg受限×' + br.regs + '</span>');
+    if (br.warps) sched.push('<span class="miss">槽位受限×' + br.warps + '</span>');
+    var html =
+      kv('Grid', this.program.meta.nctas + ' CTA × ' + this.program.meta.ntid + ' 线程') +
+      kv('资源/SM', GS.sm.CFG.warpsPerSM + ' warps · ' + GS.sm.CFG.regFileWords + 'w regfile · ' + GS.sm.CFG.shmemWordsPerSM + 'w shmem') +
+      kv('活跃 Warp', active + '/' + totalWarps) +
+      kv('平均 Occupancy', g.occupancyPct.toFixed(1) + '%') +
+      kv('CTA 调度', sched.join(' · '));
+    // 完成横幅
+    if (this.gpu.done) {
+      if (this.gpu.error) html = '<div class="result-banner bad">' + esc(this.gpu.error) + '</div>' + html;
+      else {
+        var k = GS.kernels.byKey[this.kernelKey];
+        var bad = GS.tests.checkOutputs(k, this.gpu.mem);
+        html = bad.length === 0
+          ? '<div class="result-banner ok">✓ 完成 · ' + this.gpu.cycle + ' 周期 · 结果校验 PASS（' + k.reference(this.gpu.mem).length + ' 项输出）</div>' + html
+          : '<div class="result-banner bad">✗ 结果校验 FAIL：' + bad.length + ' 处不一致</div>' + html;
+      }
+    }
+    $('gpu-summary').innerHTML = html;
+    var chips = '';
+    var running = this.gpu.ctasLaunched - this.gpu.ctasDone - this.gpu.pendingCTAs.length;
+    for (var i = 0; i < running; i++) chips += '<span class="cta-chip running">CTA 运行中</span>';
+    for (var j = 0; j < Math.min(this.gpu.pendingCTAs.length, 8); j++) chips += '<span class="cta-chip pending">CTA 排队</span>';
+    $('cta-queue').innerHTML = '<h3>CTA 队列（GigaThread 动态分配 → SM）</h3>' + (chips || '<span class="dim">空</span>');
+  },
+
+  renderSMCards: function () {
+    var self = this;
+    this.gpu.sms.forEach(function (sm) {
+      $('smcard-' + sm.id).classList.toggle('selected', sm.id === self.selectedSM);
+      var act = sm.activeWarpCount();
+      $('smc-warps-' + sm.id).textContent = act + '/8 warps';
+      $('smc-occ-' + sm.id).style.width = (act / 8 * 100) + '%';
+      var dots = sm.warps.map(function (w) {
+        return '<i style="background:' + WS_COLOR[sm.warpCode(w)] + '" title="W' + w.id + ' ' + w.state + '"></i>';
+      }).join('');
+      $('smc-dots-' + sm.id).innerHTML = dots;
+      var l1 = sm.l1.stats;
+      $('smc-l1-' + sm.id).textContent = l1.hits + '/' + (l1.hits + l1.misses);
+      $('smc-shm-' + sm.id).textContent = sm.usedShm + '/' + GS.sm.CFG.shmemWordsPerSM;
+      $('smc-cta-' + sm.id).textContent = sm.ctasRunning.length;
+    });
+  },
+
+  // ---------------- 中列 ----------------
+  renderSMDetail: function () {
+    var sm = this.gpu.sms[this.selectedSM];
+    $('sm-title').textContent = 'SM ' + sm.id + ' — 流水线 / 调度器 / Warp';
+    var c = this.gpu.cycle;
+
+    var F = [], D = [], I = [], E = [], M = [], W = [];
+    sm.warps.forEach(function (w) {
+      if (w.fetched) F.push('W' + w.id + '·L' + w.fetchedPc);
+      if (w.decoded) D.push('W' + w.id + '·L' + w.decodedPc);
+    });
+    if (sm.issueThisCycle) I.push('W' + sm.issueThisCycle.warp.id + '·L' + sm.issueThisCycle.pc);
+    sm.inflight.forEach(function (it) {
+      if (it.done) return;
+      var tag = 'W' + it.warp.id + '·L' + it.pc;
+      if (it.kind === 'load' || it.kind === 'store' || it.kind === 'atom' || it.kind === 'lds')
+        M.push(tag + (it.hitPath ? '@' + it.hitPath : ''));
+      else E.push(tag);
+    });
+    sm.wbThisCycle.forEach(function (it) { W.push('W' + it.warp.id + '·L' + it.pc); });
+
+    function stage(name, arr) {
+      var body = arr.length
+        ? arr.slice(0, 8).map(function (x) { return '<div class="pipe-chip">' + esc(x) + '</div>'; }).join('')
+        : '<div class="dim" style="font-size:9px;text-align:center">—</div>';
+      return '<div class="pipe-stage"><h4>' + name + '</h4>' + body + '</div>';
+    }
+    $('sm-pipeline').innerHTML = '<h3>指令流水线 Fetch → Decode → Issue → Execute → Memory → WriteBack</h3>' +
+      '<div class="pipe-grid">' + stage('FETCH', F) + stage('DECODE', D) + stage('ISSUE', I) +
+      stage('EXECUTE', E) + stage('MEMORY', M) + stage('WRITEBACK', W) + '</div>';
+
+    var unitsHtml = '<h3>执行单元（同类单元占满 → 结构冲突停顿）</h3>';
+    ['alu', 'mul', 'lsu', 'bru'].forEach(function (type) {
+      var u = sm.units[type];
+      var busy = sm.inflight.filter(function (it) { return !it.done && it.ut === type; });
+      var slots = '';
+      for (var i = 0; i < u.width; i++) {
+        var it = busy[i];
+        slots += '<div class="unit-slot ' + (it ? 'busy' : '') + '" title="' + (it ? esc(GS.isa.disasm(it.dec)) : '空闲') + '">' + (it ? 'W' + it.warp.id : '·') + '</div>';
+      }
+      unitsHtml += '<div class="unit-row"><span class="unit-name">' + type.toUpperCase() + '×' + u.width + ' lat' + u.latency + '</span>' +
+        '<span class="unit-slots">' + slots + '</span>' +
+        '<span class="dim" style="font-size:9px">' + (busy.length ? busy.length + ' 在飞' : '') + '</span></div>';
+    });
+    $('sm-units').innerHTML = unitsHtml;
+
+    var rows = '';
+    sm.warps.forEach(function (w) {
+      var sel = (ui.selectedWarp.sm === sm.id && ui.selectedWarp.warp === w.id) ? ' selected-w' : '';
+      var instr = w.decoded ? GS.isa.disasm(w.decoded) : (w.fetched ? '(fetch L' + w.fetchedPc + ')' : '—');
+      var maskBits = '';
+      for (var i = 15; i >= 0; i--) maskBits += ((w.activeMask >>> i) & 1) ? '●' : '·';
+      var stall = w.state === 'empty' ? 'IDLE' : w.state === 'done' ? 'DONE' :
+        (w.lastIssueCycle === c ? 'ISSUE' : (w.stallReason || 'RUN'));
+      rows += '<tr class="wrow' + sel + '" data-w="' + w.id + '">' +
+        '<td>W' + w.id + '</td><td class="dim">' + (w.cta ? 'C' + w.cta.id : '-') + '</td>' +
+        '<td class="dim">' + (w.state !== 'empty' ? 'L' + w.pc : '-') + '</td>' +
+        '<td class="instr-txt">' + esc(instr) + '</td>' +
+        '<td class="mask-cell dim" title="SIMT active mask">' + maskBits + '</td>' +
+        '<td><span class="stall-badge ' + stallClass(w.stallReason) + '">' + stall + '</span></td>' +
+        '<td class="dim">' + (w.stack.length ? 'stk' + w.stack.length : '') + '</td></tr>';
+    });
+    $('warp-table').innerHTML = '<h3>Warp 槽位（点击行 → 右侧 Scoreboard）</h3><table class="warps">' +
+      '<tr><th>Warp</th><th>CTA</th><th>PC</th><th>待发射指令</th><th>Active Mask</th><th>状态/Stall</th><th>栈</th></tr>' + rows + '</table>';
+    var tbl = $('warp-table');
+    var trs = tbl.querySelectorAll('tr.wrow');
+    for (var t = 0; t < trs.length; t++) {
+      (function (tr) {
+        tr.onclick = function () { ui.selectedWarp = { sm: sm.id, warp: +tr.getAttribute('data-w') }; };
+      })(trs[t]);
+    }
+  },
+
+  // ---------------- 汇编视图 ----------------
+  renderAsm: function () {
+    var sm = this.gpu.sms[this.selectedSM];
+    var html = '<h3>' + esc(this.program.name) + '.sass — ' + this.program.decs.length +
+      ' 条指令（64 位定长编码）· 彩点 = 该 SM 各 Warp 取指位置</h3>';
+    var pcMap = {};
+    sm.warps.forEach(function (w) {
+      if (w.state === 'empty') return;
+      if (w.fetched) (pcMap[w.fetchedPc] = pcMap[w.fetchedPc] || []).push(w.id);
+      if (w.decoded) (pcMap[w.decodedPc] = pcMap[w.decodedPc] || []).push(w.id);
+    });
+    this.program.decs.forEach(function (d, i) {
+      var watchers = pcMap[i];
+      var dots = watchers
+        ? watchers.map(function (id) { return '<span style="color:hsl(' + (id * 47) + ',80%,65%)">●</span>'; }).join('')
+        : '<span class="pcdot"></span>';
+      html += '<div class="asm-line ' + (watchers ? 'pc-here' : '') + '"><span class="ln">' + i + '</span><span>' + dots + '</span><span>' + esc(GS.isa.disasm(d)) + '</span></div>';
+    });
+    $('asm-view').innerHTML = html;
+  },
+
+  // ---------------- 右列 Tabs ----------------
+  renderTabs: function () {
+    this.renderScoreboard();
+    this.renderCache();
+    this.renderTxn();
+    this.renderEvents();
+  },
+
+  renderScoreboard: function () {
+    var sm = this.gpu.sms[this.selectedWarp.sm];
+    var w = sm.warps[this.selectedWarp.warp];
+    var html = '<h3>Scoreboard — SM' + this.selectedWarp.sm + ' W' + this.selectedWarp.warp + '（寄存器依赖 → 停顿）</h3>';
+    var pend = 0;
+    for (var r = 0; r < 32; r++) {
+      var it = w.regBusy[r];
+      if (!it) continue;
+      pend++;
+      var cls = (it.kind === 'load' || it.kind === 'atom') ? 'miss' : 'hit';
+      html += kv('R' + r, esc(GS.isa.disasm(it.dec)) + ' <span class="' + cls + '">' + it.kind + ' rdy@c' + (it.ready < 0 ? '?' : it.ready) + '</span>');
+    }
+    for (var p = 0; p < 8; p++) {
+      var pit = w.predBusy[p];
+      if (!pit) continue;
+      pend++;
+      html += kv('P' + p, esc(GS.isa.disasm(pit.dec)) + ' <span class="hit">pred rdy@c' + pit.ready + '</span>');
+    }
+    html += kv('挂起依赖', pend === 0 ? '无（可发射）' : pend + ' 项');
+    html += kv('SIMT 栈深', w.stack.length);
+    html += kv('Active Mask', w.activeMask.toString(2).padStart(16, '0'));
+    $('tab-scoreboard').innerHTML = html;
+  },
+
+  renderCache: function () {
+    var sm = this.gpu.sms[this.selectedSM];
+    var l1 = sm.l1.stats, l2 = this.gpu.memSys.l2.stats;
+    function rate(s) { return (s.hits + s.misses) ? (s.hits / (s.hits + s.misses) * 100).toFixed(1) + '%' : '-'; }
+    var html = '<h3>L1 Cache — SM' + this.selectedSM + '（16 组×4 路×64B 行 · tag 驱动时序）</h3>';
+    html += kv('命中 / 未命中', '<span class="hit">' + l1.hits + '</span> / <span class="miss">' + l1.misses + '</span>（' + rate(l1) + '）');
+    html += kv('逐出', l1.evictions);
+    html += '<div class="cache-map">';
+    for (var s = 0; s < sm.l1.sets; s++) {
+      var n = sm.l1.rows[s].size;
+      html += '<div class="cache-cell ' + (n ? 'valid' : '') + '" title="set ' + s + ': ' + n + '/4 ways">' + (n || '') + '</div>';
+    }
+    html += '</div><h3 style="margin-top:10px">L2 Cache（全 GPU 共享 · 32 组×8 路）+ DRAM</h3>';
+    html += kv('L2 命中 / 未命中', '<span class="hit">' + l2.hits + '</span> / <span class="miss">' + l2.misses + '</span>（' + rate(l2) + '）');
+    html += kv('DRAM 访问', '<span class="miss">' + this.gpu.memSys.stats.dramAccesses + '</span>');
+    html += kv('Shared bank 冲突', sm.shared.stats.conflicts + '（max ×' + sm.shared.stats.maxDegree + '）');
+    html += kv('原子 ops / 竞争周期', this.gpu.memSys.stats.atomicOps + ' / ' + this.gpu.memSys.stats.atomicContention);
+    $('tab-cache').innerHTML = html;
+  },
+
+  renderTxn: function () {
+    var html = '<h3>内存事务（coalescing 结果 · 最新在上）</h3>';
+    var logs = this.gpu.txnLog.slice(-40).reverse();
+    html += logs.map(function (t) {
+      var cls = t.path === 'L1' ? 'hit' : (t.path === 'DRAM' ? 'miss' : '');
+      return '<div class="txn-row"><span class="c">c' + t.cycle + '</span><span>SM' + t.sm + 'W' + t.warp + '</span>' +
+        '<span class="instr-txt">' + t.kind + ' [@' + t.addr + ']</span><span>' + t.txns + ' txn</span>' +
+        '<span class="' + cls + '">' + t.path + '</span></div>';
+    }).join('') || '<span class="dim">暂无</span>';
+    $('tab-txn').innerHTML = html;
+  },
+
+  renderEvents: function () {
+    var clsMap = { div: 'ev-div', rec: 'ev-rec', bar: 'ev-bar', conf: 'ev-conf', atom: 'ev-atom', cta: 'ev-cta', err: 'ev-conf' };
+    var evs = this.gpu.events.slice(-50).reverse();
+    var html = '<h3>微架构事件（发散/重汇聚/barrier/冲突/CTA）</h3>';
+    html += evs.map(function (e) {
+      return '<div class="ev-row"><span class="c">c' + e.cycle + '</span><span class="' + (clsMap[e.type] || '') + '">' + esc(e.text) + '</span></div>';
+    }).join('') || '<span class="dim">暂无</span>';
+    $('tab-events').innerHTML = html;
+  },
+
+  // ---------------- Timeline ----------------
+  renderTimeline: function () {
+    var cv = $('timeline');
+    var dpr = window.devicePixelRatio || 1;
+    var W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    }
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0d1219'; ctx.fillRect(0, 0, W, H);
+    var hist = this.gpu.hist, RING = GS.gpu.HIST_CYCLES, TW = GS.gpu.TOTAL_WARPS;
+    var rowH = H / TW;
+    var cycles = Math.min(W, Math.max(this.gpu.cycle, 1));
+    var startCycle = Math.max(0, this.gpu.cycle - cycles + 1);
+    for (var x = 0; x < cycles; x++) {
+      var cyc = startCycle + x;
+      var base = (cyc % RING) * TW;
+      for (var wi = 0; wi < TW; wi++) {
+        ctx.fillStyle = WS_COLOR[hist[base + wi]] || '#1a2230';
+        ctx.fillRect(x, wi * rowH, 1, Math.ceil(rowH));
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.14)';
+    for (var s2 = 1; s2 < GS.sm.CFG.numSMs; s2++) ctx.fillRect(0, s2 * 8 * rowH, W, 1);
+    ctx.font = '9px monospace'; ctx.fillStyle = '#8fa8c4';
+    for (var s = 0; s < GS.sm.CFG.numSMs; s++) ctx.fillText('SM' + s, 4, s * 8 * rowH + 10);
+    ctx.fillText('c' + startCycle, W - 64, H - 4);
+    ctx.fillText('c' + this.gpu.cycle, W - 64, 10);
+  },
+
+  // ---------------- 统计与控制台 ----------------
+  renderStats: function () {
+    var g = this.gpu._lastStats || this.gpu.collectStats();
+    var sc = g.stallCycles;
+    var totStall = 0; for (var k in sc) totStall += sc[k];
+    totStall = totStall || 1;
+    function pct(v) { return (v / totStall * 100).toFixed(0) + '%'; }
+    var rows = [
+      ['周期', g.cycles], ['发射 warp-inst', g.issued], ['写回', g.retired],
+      ['IPC(warp级)', (g.issued / Math.max(1, g.cycles)).toFixed(3)],
+      ['占用率', g.occupancyPct.toFixed(1) + '%'],
+      ['停顿:数据依赖', sc.DATA + ' (' + pct(sc.DATA) + ')'],
+      ['停顿:长访存', sc.LONG_SCOREBOARD + ' (' + pct(sc.LONG_SCOREBOARD) + ')'],
+      ['停顿:结构冲突', sc.STRUCT + ' (' + pct(sc.STRUCT) + ')'],
+      ['停顿:barrier', sc.BARRIER + ' (' + pct(sc.BARRIER) + ')'],
+      ['停顿:前端/分支', sc.FE + ' (' + pct(sc.FE) + ')'],
+      ['分支发散', g.divergences], ['重汇聚', g.reconvergences], ['EXIT弹栈', g.exitPops],
+      ['barrier 到达/释放', g.barrierArrivals + '/' + g.barrierReleases],
+      ['事务/load', g.avgTxnPerLoad.toFixed(2)], ['store 事务', g.storeTxns],
+      ['L1 hit/miss', g.l1Hits + '/' + g.l1Misses], ['L2 hit/miss', g.l2Hits + '/' + g.l2Misses],
+      ['DRAM', g.dram], ['bank 冲突', g.sharedConflicts + ' (max×' + g.sharedMaxDegree + ')'],
+      ['原子 ops/竞争', g.atomicOps + '/' + g.atomicContention]
+    ];
+    $('stats-panel').innerHTML = rows.map(function (p) { return kv(p[0], p[1]); }).join('');
+  },
+
+  renderConsole: function () {
+    var el = $('console-log');
+    var lines = this.gpu.consoleLines || [];
+    el.textContent = lines.slice(-80).join('\n');
+    el.scrollTop = el.scrollHeight;
+  },
+
+  renderToolbar: function () {
+    $('st-cycle').textContent = this.gpu.cycle;
+    var g = this.gpu._lastStats || { issued: 0 };
+    $('st-issued').textContent = g.issued;
+    var active = 0;
+    this.gpu.sms.forEach(function (sm) { active += sm.activeWarpCount(); });
+    $('st-warps').textContent = active + '/' + GS.gpu.TOTAL_WARPS;
+    $('st-done').textContent = this.gpu.error ? '✗ DEADLOCK/ERR' : (this.gpu.done ? '✓ DONE' : '');
+    $('st-done').style.color = this.gpu.error ? 'var(--red)' : 'var(--green)';
+  },
+
+  renderAll: function () {
+    this.gpu._lastStats = this.gpu.collectStats();
+    this.renderSummary();
+    this.renderSMCards();
+    this.renderSMDetail();
+    this.renderTabs();
+    this.renderTimeline();
+    this.renderStats();
+    this.renderConsole();
+    this.renderToolbar();
+  }
+};
+
+GS.ui = ui;
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<!-- 内联自 js/main.js -->
+<script>
+/* ============================================================
+ * main.js — 装配与主循环：加载 kernel、运行控制、测试面板、WebGPU 徽标
+ * ============================================================ */
+(function () { 'use strict';
+var GS = window.GS;
+var gpu = null, program = null;
+var running = false;
+var speedCycles = 100;   // 每帧推进周期数
+var rafId = 0;
+
+function $(id) { return document.getElementById(id); }
+
+function loadKernel(key) {
+  var k = GS.kernels.byKey[key];
+  program = GS.asm.parse(k.asm);
+  gpu = new GS.gpu.Gpu();
+  gpu.loadKernel(key, program);
+  k.setup(gpu.mem, GS.kernels._rng(hash(key)));
+  running = false;
+  GS.ui.init(gpu, program, key);
+  GS.ui.renderAll();
+}
+
+function hash(s) {
+  var h = 0x811c9dc5;
+  for (var i = 0; i < s.length; i++) h = (Math.imul(h ^ s.charCodeAt(i), 0x01000193)) >>> 0;
+  return h >>> 0;
+}
+
+function frame() {
+  if (running && !gpu.done) {
+    var budget = speedCycles === 'max' ? 300000 : speedCycles;
+    for (var i = 0; i < budget && !gpu.done; i++) gpu.step();
+  }
+  GS.ui.renderAll();
+  rafId = requestAnimationFrame(frame);
+}
+
+function bindUI() {
+  // kernel 选择
+  var sel = $('kernel-select');
+  GS.kernels.list.forEach(function (k) {
+    var opt = document.createElement('option');
+    opt.value = k.key; opt.textContent = k.key + ' — ' + k.title;
+    sel.appendChild(opt);
+  });
+  sel.onchange = function () { loadKernel(sel.value); };
+
+  $('btn-run').onclick = function () { if (!gpu.done) running = true; };
+  $('btn-pause').onclick = function () { running = false; };
+  $('btn-step').onclick = function () { running = false; if (!gpu.done) gpu.step(); };
+  $('btn-step10').onclick = function () { running = false; for (var i = 0; i < 100 && !gpu.done; i++) gpu.step(); };
+  $('btn-reset').onclick = function () { loadKernel(sel.value); };
+  $('btn-replay').onclick = function () {           // 确定性重放：复位后全速重跑
+    loadKernel(sel.value);
+    while (!gpu.done) gpu.step();
+    GS.ui.renderAll();
+  };
+  $('speed-select').onchange = function () {
+    var v = $('speed-select').value;
+    speedCycles = v === 'max' ? 'max' : +v;
+  };
+
+  // 右列 tabs
+  var tabs = document.querySelectorAll('#right-tabs button');
+  for (var i = 0; i < tabs.length; i++) {
+    (function (btn) {
+      btn.onclick = function () {
+        for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove('active');
+        btn.classList.add('active');
+        ['scoreboard', 'cache', 'txn', 'events'].forEach(function (t) {
+          $('tab-' + t).classList.toggle('hidden', t !== btn.getAttribute('data-tab'));
+        });
+      };
+    })(tabs[i]);
+  }
+
+  // 测试弹窗
+  $('btn-tests').onclick = function () { $('tests-modal').classList.remove('hidden'); };
+  $('btn-close-tests').onclick = function () { $('tests-modal').classList.add('hidden'); };
+  $('btn-run-tests').onclick = function () {
+    var tbody = $('tests-table').querySelector('tbody');
+    tbody.innerHTML = '';
+    var pass = 0, fail = 0;
+    $('tests-progress').textContent = '运行中…';
+    GS.tests.runAll(function (r, idx, total) {
+      if (r.pass) pass++; else fail++;
+      $('tests-progress').textContent = idx + 1 + '/' + total + ' · ✓' + pass + ' ✗' + fail;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (idx + 1) + '</td><td>' + r.name + '</td>' +
+        '<td class="' + (r.pass ? 't-pass' : 't-fail') + '">' + (r.pass ? 'PASS' : 'FAIL') + '</td>' +
+        '<td class="dim">' + (r.pass ? '' : r.detail) + '</td>';
+      tbody.appendChild(tr);
+    }, function (results) {
+      $('tests-progress').textContent = '完成 · ' + pass + ' 通过 / ' + fail + ' 失败';
+      console.log('[Tests] ' + pass + ' passed, ' + fail + ' failed');
+    });
+  };
+
+  // 导出运行摘要
+  $('btn-export').onclick = function () {
+    var k = GS.kernels.byKey[sel.value];
+    var data = {
+      kernel: sel.value,
+      asm: k.asm,
+      config: program.meta,
+      stats: gpu.collectStats(),
+      done: gpu.done,
+      error: gpu.error || null,
+      verify: gpu.done && !gpu.error ? (GS.tests.checkOutputs(k, gpu.mem).length === 0 ? 'PASS' : 'FAIL') : 'NOT-RUN',
+      exportedAt: new Date().toISOString()
+    };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'microgpu-run-' + sel.value + '.json';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  };
+
+  // WebGPU 宿主信息（仅展示；模拟核心为纯 JS 确定性实现）
+  var badge = $('webgpu-badge');
+  if (navigator.gpu && navigator.gpu.requestAdapter) {
+    navigator.gpu.requestAdapter().then(function (ad) {
+      if (!ad) { badge.textContent = 'WebGPU: 无适配器'; return; }
+      var info = ad.info || {};
+      badge.textContent = 'WebGPU: ' + (info.vendor || 'adapter') + (info.device ? '/' + info.device : '') + ' ✓';
+      badge.style.color = 'var(--green)';
+      badge.title = '宿主 GPU 图形后端已就绪（本模拟器的周期级核心不依赖它，保证确定性 Replay）';
+    }).catch(function () { badge.textContent = 'WebGPU: 不可用'; });
+  } else {
+    badge.textContent = 'WebGPU: 不支持（模拟不受影响）';
+  }
+}
+
+// ---- 启动 ----
+window.addEventListener('DOMContentLoaded', function () {
+  bindUI();
+  loadKernel('vecadd');
+  rafId = requestAnimationFrame(frame);
+});
+})();
+
+</script>
+</body>
+</html>

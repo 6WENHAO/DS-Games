@@ -1,0 +1,2750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0b0d">
+<title>沃尔特的房车 · 三维模型与内部实验室场景（致敬《绝命毒师》）</title>
+<style>
+/* ============================================================================
+ * 界面样式 —— 新墨西哥沙漠色调 + 深色仪表面板
+ * ==========================================================================*/
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: #0a0b0d; color: #e7e3d8;
+  font: 13px/1.55 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  user-select: none;
+}
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#view:active { cursor: grabbing; }
+.fatal { padding: 40px; font-size: 17px; }
+#labels { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+
+/* 标签 */
+.lb {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px;
+  pointer-events: auto; cursor: pointer; white-space: nowrap;
+  padding: 2px 8px 2px 4px; border-radius: 12px; font-size: 11px; font-weight: 700;
+  background: rgba(12, 13, 15, .78); border: 1px solid rgba(226, 178, 90, .5); color: #f0e2c4;
+  text-shadow: 0 1px 3px #000; backdrop-filter: blur(3px);
+}
+.lb i { width: 7px; height: 7px; border-radius: 50%; background: #e2b25a; box-shadow: 0 0 8px #e2b25a; }
+.lb:hover, .lb.sel { background: rgba(226, 178, 90, .92); color: #16130c; border-color: #fff3d6; }
+.lb:hover i, .lb.sel i { background: #16130c; box-shadow: none; }
+
+/* 顶栏 */
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 12; display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; background: linear-gradient(180deg, rgba(8, 9, 11, .94), rgba(8, 9, 11, .45) 70%, transparent);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .ic {
+  width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center;
+  background: linear-gradient(150deg, #cbb98f, #8c7a52); border: 2px solid #14150f; font-size: 17px;
+  box-shadow: 0 3px 0 #14150f;
+}
+.brand h1 { margin: 0; font-size: 15px; letter-spacing: .05em; }
+.brand span { display: block; font-size: 10.5px; color: #9a9484; letter-spacing: .08em; }
+#meta { font-size: 11.5px; color: #a9a293; }
+.top .sp { margin-left: auto; }
+button {
+  font: inherit; font-weight: 700; font-size: 12px; color: #e9e4d6;
+  background: linear-gradient(180deg, #26262a, #17171a); border: 1px solid #45443c; border-radius: 7px;
+  padding: 7px 11px; cursor: pointer; letter-spacing: .02em;
+}
+button:hover { border-color: #8b8471; background: linear-gradient(180deg, #2f2f33, #1d1d20); }
+button:active { transform: translateY(1px); }
+button.on { background: linear-gradient(180deg, #e2b25a, #c08e34); color: #17130a; border-color: #7a5c1e; }
+.vb { padding: 6px 10px; font-size: 11.5px; }
+#views { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 左侧控制 */
+.panelL {
+  position: fixed; left: 12px; top: 60px; z-index: 10; width: 216px;
+  background: rgba(10, 11, 13, .86); border: 1px solid rgba(150, 140, 110, .28); border-radius: 10px;
+  backdrop-filter: blur(8px); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); overflow: hidden;
+}
+.panelL h3, .panelR h3 {
+  margin: 0; padding: 8px 11px; font-size: 10.5px; letter-spacing: .16em; color: #9d9583; border-bottom: 1px solid rgba(150, 140, 110, .22);
+}
+.ctrls { padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row button { flex: 1; min-width: 62px; }
+.slider { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #a9a293; }
+.slider input { flex: 1; accent-color: #e2b25a; }
+#groups { padding: 4px 8px 9px; display: flex; flex-direction: column; gap: 3px; border-top: 1px dashed rgba(150, 140, 110, .22); }
+.grp { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #8f897a; cursor: pointer; padding: 2px 3px; border-radius: 5px; }
+.grp.on { color: #e7e3d8; }
+.grp:hover { background: rgba(226, 178, 90, .12); }
+.grp input { accent-color: #e2b25a; }
+.grp .gt { margin-left: auto; font-size: 10px; color: #7d776a; font-variant-numeric: tabular-nums; }
+
+/* 右侧部件表 */
+.panelR {
+  position: fixed; right: 12px; top: 60px; bottom: 58px; z-index: 10; width: 250px; display: flex; flex-direction: column;
+  background: rgba(10, 11, 13, .86); border: 1px solid rgba(150, 140, 110, .28); border-radius: 10px;
+  backdrop-filter: blur(8px); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); overflow: hidden;
+}
+#parts { flex: 1; overflow-y: auto; padding: 6px 8px 10px; }
+.pg { margin-bottom: 7px; }
+.pgh { font-size: 10px; letter-spacing: .1em; color: #9d9583; padding: 4px 2px; display: flex; }
+.pgh i { margin-left: auto; font-style: normal; color: #6f6a5e; }
+.pi {
+  display: flex; gap: 8px; align-items: center; padding: 3px 7px; border-radius: 5px; cursor: pointer;
+  font-size: 11px; color: #b9b3a4; border: 1px solid transparent;
+}
+.pi:hover { background: rgba(226, 178, 90, .14); border-color: rgba(226, 178, 90, .4); color: #f0e6d2; }
+.pi.hot { color: #e7dcc2; }
+.pi.hot .pn::before { content: "◆ "; color: #e2b25a; font-size: 9px; }
+.pi .pt { margin-left: auto; font-size: 10px; color: #74705f; font-variant-numeric: tabular-nums; }
+
+/* 信息卡 / HUD */
+#info {
+  position: fixed; left: 12px; bottom: 14px; z-index: 11; width: 260px; padding: 10px 12px;
+  background: rgba(10, 11, 13, .9); border: 1px solid rgba(226, 178, 90, .45); border-radius: 10px;
+  display: none;
+}
+#info.show { display: block; }
+#info b { color: #f0dcae; font-size: 13px; }
+#info .ir { font-size: 11px; color: #a9a293; margin-top: 3px; }
+#hud {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 11;
+  font-size: 11px; color: #a9a293; background: rgba(10, 11, 13, .7); padding: 5px 12px;
+  border-radius: 20px; border: 1px solid rgba(150, 140, 110, .25); font-variant-numeric: tabular-nums;
+}
+#tip {
+  position: fixed; right: 274px; bottom: 16px; z-index: 8; font-size: 10.5px; color: #8b8676;
+  background: rgba(10, 11, 13, .6); padding: 4px 9px; border-radius: 6px;
+}
+#loading {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+  background: #0a0b0d; color: #cbb98f; font-size: 15px; letter-spacing: .1em;
+}
+/* 帮助弹窗 */
+.modal { position: fixed; inset: 0; z-index: 30; display: none; place-items: center; background: rgba(4, 5, 7, .84); }
+.modal.show { display: grid; }
+.mbox {
+  width: min(640px, 92vw); max-height: 84vh; overflow-y: auto; padding: 22px 24px; line-height: 1.85;
+  background: linear-gradient(180deg, #14151a, #0d0e11); border: 1px solid rgba(150, 140, 110, .4); border-radius: 14px;
+}
+.mbox h2 { margin: 0 0 8px; font-size: 18px; color: #f0dcae; }
+.mbox p { margin: 0 0 10px; font-size: 12.5px; color: #c9c3b4; }
+.mbox kbd {
+  background: #26262a; border: 1px solid #45443c; border-radius: 4px; padding: 1px 6px; font-size: 11px; color: #e9e4d6;
+}
+.mbox .note { font-size: 11.5px; color: #928c7d; border-top: 1px dashed rgba(150, 140, 110, .3); padding-top: 10px; }
+@media (max-width: 1120px) {
+  .panelR { width: 200px; } .panelL { width: 186px; } #tip { display: none; }
+}
+@media (max-width: 820px) {
+  .panelL, .panelR { display: none; }
+  body.panel-open .panelL, body.panel-open .panelR { display: flex; flex-direction: column; }
+  body.panel-open .panelR { bottom: 12px; top: auto; height: 42vh; }
+  #info { width: calc(100% - 24px); }
+}
+
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="labels"></div>
+
+<header class="top">
+  <div class="brand">
+    <span class="ic">🚐</span>
+    <div><h1>沃尔特的房车 · Fleetwood Bounder</h1><span id="meta"></span></div>
+  </div>
+  <div id="views"></div>
+  <div class="sp"></div>
+  <button id="btnPanel">面板</button>
+  <button id="btnHelp">说明</button>
+</header>
+
+<section class="panelL">
+  <h3>显示控制</h3>
+  <div class="ctrls">
+    <div class="row">
+      <button id="btnCut">剖切</button>
+      <button id="btnRot">自转</button>
+      <button id="btnLbl">标签</button>
+    </div>
+    <div class="row">
+      <button id="btnShadow">阴影</button>
+      <button id="btnDust">落尘</button>
+      <button id="btnWire">线框</button>
+      <button id="btnFlat">素模</button>
+    </div>
+    <div class="slider">夜间 <input id="night" type="range" min="0" max="1" step="0.02" value="0"><b id="nightVal">0%</b></div>
+  </div>
+  <h3>分组可见性</h3>
+  <div id="groups"></div>
+</section>
+
+<section class="panelR">
+  <h3>部件清单（点击定位）</h3>
+  <div id="parts"></div>
+</section>
+
+<div id="info"></div>
+<div id="hud">加载中…</div>
+<div id="tip">左键拖动旋转 · 右键/Shift 拖动平移 · 滚轮缩放 · 点击部件查看信息</div>
+<div id="loading">正在生成三维几何…</div>
+
+<div id="modal" class="modal">
+  <div class="mbox">
+    <h2>关于这个场景</h2>
+    <p>这是一辆按《绝命毒师》里那辆 <b>1986 Fleetwood Bounder</b> 气质建模的房车：米白车身 + 棕色飘带条纹、
+    做旧凹陷、六只轮胎（后轮双胎）、顶置空调与排风管、车尾爬梯，以及<b>完整的车内场景</b> ——
+    驾驶室（船长椅、方向盘、仪表台）、实验台（圆底烧瓶 + 蛇形冷凝管 + 加热套 + 支架夹具 + 玻璃器皿）、
+    厨房（水槽、灶台、冰箱、吊柜）、餐桌长椅、化学桶、防毒面具、灭火器、防化服、货架试剂瓶等。</p>
+    <p>全部几何都是<b>程序化生成</b>的：旋成体、沿路径挤出的管路、螺旋盘管、圆角轮廓挤出的车壳、
+    圆角盒与球锥柱环 —— 所以曲面占比约 90%，不是方块堆砌。</p>
+    <p>操作：<kbd>1</kbd>–<kbd>8</kbd> 切换视角预设，<kbd>C</kbd> 剖切，<kbd>L</kbd> 标签，
+    <kbd>R</kbd> 自转，<kbd>W</kbd> 线框，<kbd>N</kbd> 夜间，<kbd>H</kbd> 本说明。
+    右侧部件清单可点击定位；点击模型任意部位可查看该部件信息。</p>
+    <p class="note">本页是对影视美术的致敬性三维还原，仅呈现器材外形与场景布置，不包含任何工艺信息。</p>
+    <div class="row" style="margin-top:12px"><button id="modalOk">开始查看</button></div>
+  </div>
+</div>
+
+<script>
+/* ===== mesh.js ===== */
+/* ============================================================================
+ * mesh.js —— 程序化几何构建库（零依赖）
+ *   变换栈 + 真曲面图元：旋成体(lathe)、沿路径管(tube)、螺旋管(helix)、
+ *   圆角盒(roundedBox)、球/锥/柱/环、轮廓挤出(extrudeProfile)、多边形挤出
+ *   顶点属性：位置 / 法线 / 颜色 / 材质(粗糙度, 金属度, 自发光)
+ *   支持"部件(part)"与"分组(group)"登记，便于剖切显示、标签与统计
+ * ==========================================================================*/
+(function (root, factory) {
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (root) root.MESH = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  /* ------------------------------ 矩阵 ------------------------------ */
+  const M = {
+    ident: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    mul(a, b) {                              // a*b（列主序）
+      const o = new Array(16);
+      for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+        let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+        o[c * 4 + r] = s;
+      } return o;
+    },
+    trans: (x, y, z) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1],
+    scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
+    rotX(a) { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]; },
+    rotY(a) { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]; },
+    rotZ(a) { const c = Math.cos(a), s = Math.sin(a); return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; },
+    apply(m, p) {
+      return [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+    },
+    // 法线矩阵（逆转置的 3x3），支持非均匀缩放
+    normalMat(m) {
+      const a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+      const A = e * i - f * h, B = f * g - d * i, C = d * h - e * g;
+      let det = a * A + b * B + c * C;
+      if (Math.abs(det) < 1e-12) det = 1e-12;
+      const id = 1 / det;
+      return [A * id, B * id, C * id,
+        (c * h - b * i) * id, (a * i - c * g) * id, (b * g - a * h) * id,
+        (b * f - c * e) * id, (c * d - a * f) * id, (a * e - b * d) * id];
+    },
+    applyN(n, v) {
+      const x = n[0] * v[0] + n[3] * v[1] + n[6] * v[2];
+      const y = n[1] * v[0] + n[4] * v[1] + n[7] * v[2];
+      const z = n[2] * v[0] + n[5] * v[1] + n[8] * v[2];
+      const l = Math.hypot(x, y, z) || 1;
+      return [x / l, y / l, z / l];
+    }
+  };
+  const V = {
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+    mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    norm(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+    len: a => Math.hypot(a[0], a[1], a[2])
+  };
+  const TAU = Math.PI * 2;
+
+  /* ------------------------------ 构建器 ------------------------------ */
+  function createBuilder() {
+    const pos = [], nrm = [], col = [], mat = [];    // mat = [rough, metal, emissive]
+    let stack = [M.ident()], cur = M.ident();
+    let curCol = [0.8, 0.8, 0.8], curMat = [0.6, 0.0, 0.0];
+    const triG = [];                                 // 每个三角形所属分组（写入时记录）
+    const triP = [];                                 // 每个三角形所属部件名
+    const parts = [];                                // {name, group, start, count, bbox, kind}
+    let curGroup = 'default', partOpen = null;
+    let curvedTris = 0, flatTris = 0;                // 曲面/平面三角形统计（用于"避免方块堆砌"的自检）
+    let curvedFlag = false;
+
+    const api = {
+      /* --- 状态 --- */
+      push() { stack.push(cur.slice()); return api; },
+      pop() { cur = stack.pop() || M.ident(); return api; },
+      translate(x, y, z) { cur = M.mul(cur, M.trans(x, y, z)); return api; },
+      rotateX(a) { cur = M.mul(cur, M.rotX(a)); return api; },
+      rotateY(a) { cur = M.mul(cur, M.rotY(a)); return api; },
+      rotateZ(a) { cur = M.mul(cur, M.rotZ(a)); return api; },
+      scale(x, y, z) { cur = M.mul(cur, M.scale(x, y === undefined ? x : y, z === undefined ? x : z)); return api; },
+      color(c) { curCol = c.slice(); return api; },
+      material(rough, metal, emis) { curMat = [rough, metal || 0, emis || 0]; return api; },
+      group(g) { curGroup = g; return api; },
+      /* --- 部件登记 --- */
+      part(name, kind) {
+        if (partOpen) api.endPart();
+        partOpen = { name, kind: kind || 'misc', group: curGroup, start: pos.length / 3, bbox: [1e9, 1e9, 1e9, -1e9, -1e9, -1e9] };
+        return api;
+      },
+      endPart() {
+        if (!partOpen) return api;
+        partOpen.count = pos.length / 3 - partOpen.start;
+        if (partOpen.count > 0) parts.push(partOpen);
+        partOpen = null;
+        return api;
+      },
+      /* --- 底层写入 --- */
+      vert(p, n) {
+        const P = M.apply(cur, p), N = M.applyN(M.normalMat(cur), n);
+        pos.push(P[0], P[1], P[2]); nrm.push(N[0], N[1], N[2]);
+        col.push(curCol[0], curCol[1], curCol[2]);
+        mat.push(curMat[0], curMat[1], curMat[2]);
+        if (partOpen) {
+          const b = partOpen.bbox;
+          b[0] = Math.min(b[0], P[0]); b[1] = Math.min(b[1], P[1]); b[2] = Math.min(b[2], P[2]);
+          b[3] = Math.max(b[3], P[0]); b[4] = Math.max(b[4], P[1]); b[5] = Math.max(b[5], P[2]);
+        }
+        return api;
+      },
+      tri(a, b, c, na, nb, nc) {
+        api.vert(a, na); api.vert(b, nb || na); api.vert(c, nc || na);
+        if (curvedFlag) curvedTris++; else flatTris++;
+        triG.push(curGroup);
+        triP.push(partOpen ? partOpen.name : null);
+        return api;
+      },
+      quad(a, b, c, d, na, nb, nc, nd) {
+        api.tri(a, b, c, na, nb, nc);
+        api.tri(a, c, d, na, nc, nd);
+        return api;
+      },
+
+      /* ==================== 图元 ==================== */
+      // 平面（细分，便于顶点扰动）
+      plane(w, d, sx, sy, up) {
+        curvedFlag = false;
+        sx = sx || 1; sy = sy || 1;
+        const n = up || [0, 1, 0];
+        for (let i = 0; i < sx; i++) for (let j = 0; j < sy; j++) {
+          const x0 = -w / 2 + w * i / sx, x1 = -w / 2 + w * (i + 1) / sx;
+          const z0 = -d / 2 + d * j / sy, z1 = -d / 2 + d * (j + 1) / sy;
+          api.quad([x0, 0, z0], [x0, 0, z1], [x1, 0, z1], [x1, 0, z0], n, n, n, n);
+        }
+        return api;
+      },
+      box(w, h, d) {
+        curvedFlag = false;
+        const x = w / 2, y = h / 2, z = d / 2;
+        const P = [[-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z], [-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]];
+        const F = [[4, 5, 6, 7, [0, 0, 1]], [1, 0, 3, 2, [0, 0, -1]], [5, 1, 2, 6, [1, 0, 0]],
+          [0, 4, 7, 3, [-1, 0, 0]], [3, 7, 6, 2, [0, 1, 0]], [4, 0, 1, 5, [0, -1, 0]]];
+        F.forEach(f => api.quad(P[f[0]], P[f[1]], P[f[2]], P[f[3]], f[4], f[4], f[4], f[4]));
+        return api;
+      },
+      // 圆角盒：用球面拐角 + 圆柱棱 + 平面，是"不像方块"的主力
+      roundedBox(w, h, d, r, seg) {
+        seg = Math.max(2, seg || 4);
+        r = Math.min(r, Math.min(w, h, d) / 2 - 1e-4);
+        const hx = w / 2 - r, hy = h / 2 - r, hz = d / 2 - r;
+        curvedFlag = true;
+        // 8 个球角
+        for (let sx = -1; sx <= 1; sx += 2) for (let sy = -1; sy <= 1; sy += 2) for (let sz = -1; sz <= 1; sz += 2) {
+          for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++) {
+            const a0 = (i / seg) * Math.PI / 2, a1 = ((i + 1) / seg) * Math.PI / 2;
+            const b0 = (j / seg) * Math.PI / 2, b1 = ((j + 1) / seg) * Math.PI / 2;
+            const P = (a, b) => {
+              const n = [Math.cos(a) * Math.cos(b) * sx, Math.sin(b) * sy, Math.cos(a) * Math.sin(b) * sz];
+              void n;
+              const nn = V.norm([Math.cos(b) * Math.cos(a) * sx, Math.sin(b) * sy, Math.cos(b) * Math.sin(a) * sz]);
+              return { p: [hx * sx + nn[0] * r, hy * sy + nn[1] * r, hz * sz + nn[2] * r], n: nn };
+            };
+            const A = P(a0, b0), B = P(a1, b0), C = P(a1, b1), D = P(a0, b1);
+            if (sx * sy * sz > 0) api.quad(A.p, B.p, C.p, D.p, A.n, B.n, C.n, D.n);
+            else api.quad(A.p, D.p, C.p, B.p, A.n, D.n, C.n, B.n);
+          }
+        }
+        // 12 条圆柱棱
+        const edge = (axis, sa, sb) => {
+          for (let i = 0; i < seg; i++) {
+            const a0 = (i / seg) * Math.PI / 2, a1 = ((i + 1) / seg) * Math.PI / 2;
+            const mk = (a, t) => {
+              const cx = Math.cos(a) * r, cy = Math.sin(a) * r;
+              if (axis === 0) return { p: [t, hy * sa + cx * sa, hz * sb + cy * sb], n: V.norm([0, cx * sa, cy * sb]) };
+              if (axis === 1) return { p: [hx * sa + cx * sa, t, hz * sb + cy * sb], n: V.norm([cx * sa, 0, cy * sb]) };
+              return { p: [hx * sa + cx * sa, hy * sb + cy * sb, t], n: V.norm([cx * sa, cy * sb, 0]) };
+            };
+            const L = axis === 0 ? hx : axis === 1 ? hy : hz;
+            const A = mk(a0, -L), B = mk(a0, L), C = mk(a1, L), D = mk(a1, -L);
+            if (sa * sb > 0) api.quad(A.p, B.p, C.p, D.p, A.n, B.n, C.n, D.n);
+            else api.quad(A.p, D.p, C.p, B.p, A.n, D.n, C.n, B.n);
+          }
+        };
+        for (let sa = -1; sa <= 1; sa += 2) for (let sb = -1; sb <= 1; sb += 2) { edge(0, sa, sb); edge(1, sa, sb); edge(2, sa, sb); }
+        // 6 个平面
+        const face = (n, u, v, off) => {
+          const A = V.add(V.mul(n, off), V.add(V.mul(u, -1), V.mul(v, -1)));
+          const B = V.add(V.mul(n, off), V.add(V.mul(u, 1), V.mul(v, -1)));
+          const C = V.add(V.mul(n, off), V.add(V.mul(u, 1), V.mul(v, 1)));
+          const D = V.add(V.mul(n, off), V.add(V.mul(u, -1), V.mul(v, 1)));
+          api.quad(A, B, C, D, n, n, n, n);
+        };
+        curvedFlag = false;
+        face([1, 0, 0], [0, hy, 0], [0, 0, hz], w / 2); face([-1, 0, 0], [0, 0, hz], [0, hy, 0], w / 2);
+        face([0, 1, 0], [0, 0, hz], [hx, 0, 0], h / 2); face([0, -1, 0], [hx, 0, 0], [0, 0, hz], h / 2);
+        face([0, 0, 1], [hx, 0, 0], [0, hy, 0], d / 2); face([0, 0, -1], [0, hy, 0], [hx, 0, 0], d / 2);
+        return api;
+      },
+      // 圆柱/圆锥/圆台（沿 Y 轴），可选端盖
+      cylinder(r0, r1, h, seg, opts) {
+        opts = opts || {}; seg = Math.max(3, seg || 20);
+        curvedFlag = true;
+        const y0 = opts.center === false ? 0 : -h / 2, y1 = y0 + h;
+        const slope = (r0 - r1) / h;
+        for (let i = 0; i < seg; i++) {
+          const a0 = (i / seg) * TAU, a1 = ((i + 1) / seg) * TAU;
+          const P = (a, r, y) => [Math.cos(a) * r, y, Math.sin(a) * r];
+          const N = a => V.norm([Math.cos(a), slope, Math.sin(a)]);
+          api.quad(P(a0, r0, y0), P(a1, r0, y0), P(a1, r1, y1), P(a0, r1, y1), N(a0), N(a1), N(a1), N(a0));
+        }
+        if (opts.caps !== false) {
+          for (let i = 0; i < seg; i++) {
+            const a0 = (i / seg) * TAU, a1 = ((i + 1) / seg) * TAU;
+            if (r0 > 1e-6) api.tri([0, y0, 0], [Math.cos(a1) * r0, y0, Math.sin(a1) * r0], [Math.cos(a0) * r0, y0, Math.sin(a0) * r0], [0, -1, 0]);
+            if (r1 > 1e-6) api.tri([0, y1, 0], [Math.cos(a0) * r1, y1, Math.sin(a0) * r1], [Math.cos(a1) * r1, y1, Math.sin(a1) * r1], [0, 1, 0]);
+          }
+        }
+        return api;
+      },
+      sphere(r, seg, rings, opts) {
+        opts = opts || {}; seg = Math.max(4, seg || 24); rings = Math.max(2, rings || 16);
+        const t0 = opts.t0 === undefined ? 0 : opts.t0, t1 = opts.t1 === undefined ? Math.PI : opts.t1;
+        curvedFlag = true;
+        for (let i = 0; i < rings; i++) for (let j = 0; j < seg; j++) {
+          const p0 = t0 + (t1 - t0) * i / rings, p1 = t0 + (t1 - t0) * (i + 1) / rings;
+          const a0 = (j / seg) * TAU, a1 = ((j + 1) / seg) * TAU;
+          const S = (p, a) => V.norm([Math.sin(p) * Math.cos(a), Math.cos(p), Math.sin(p) * Math.sin(a)]);
+          const A = S(p0, a0), B = S(p0, a1), C = S(p1, a1), D = S(p1, a0);
+          api.quad(V.mul(A, r), V.mul(B, r), V.mul(C, r), V.mul(D, r), A, B, C, D);
+        }
+        return api;
+      },
+      torus(R, r, segU, segV, arc) {
+        segU = segU || 32; segV = segV || 12; arc = arc === undefined ? TAU : arc;
+        curvedFlag = true;
+        for (let i = 0; i < segU; i++) for (let j = 0; j < segV; j++) {
+          const u0 = arc * i / segU, u1 = arc * (i + 1) / segU;
+          const v0 = TAU * j / segV, v1 = TAU * (j + 1) / segV;
+          const P = (u, v) => {
+            const cu = Math.cos(u), su = Math.sin(u), cv = Math.cos(v), sv = Math.sin(v);
+            return { p: [(R + r * cv) * cu, r * sv, (R + r * cv) * su], n: [cv * cu, sv, cv * su] };
+          };
+          const A = P(u0, v0), B = P(u1, v0), C = P(u1, v1), D = P(u0, v1);
+          api.quad(A.p, B.p, C.p, D.p, A.n, B.n, C.n, D.n);
+        }
+        return api;
+      },
+      capsule(r, h, seg) {
+        seg = seg || 20;
+        api.cylinder(r, r, h, seg, { caps: false });
+        api.push(); api.translate(0, h / 2, 0); api.sphere(r, seg, 8, { t0: 0, t1: Math.PI / 2 }); api.pop();
+        api.push(); api.translate(0, -h / 2, 0); api.sphere(r, seg, 8, { t0: Math.PI / 2, t1: Math.PI }); api.pop();
+        return api;
+      },
+      // 旋成体：profile = [[r,y],...]（绕 Y 轴），可选平滑法线
+      lathe(profile, seg, opts) {
+        opts = opts || {}; seg = Math.max(4, seg || 24);
+        curvedFlag = true;
+        const arc = opts.arc === undefined ? TAU : opts.arc;
+        for (let k = 0; k < profile.length - 1; k++) {
+          const [r0, y0] = profile[k], [r1, y1] = profile[k + 1];
+          const dr = r1 - r0, dy = y1 - y0;
+          const nl = Math.hypot(dr, dy);
+          if (nl < 1e-9) continue;                        // 退化段：跳过，避免零长法线
+          const nr = dy / nl, ny = -dr / nl;                 // 轮廓法线（向外）
+          for (let i = 0; i < seg; i++) {
+            const a0 = arc * i / seg, a1 = arc * (i + 1) / seg;
+            const P = (a, r, y) => [Math.cos(a) * r, y, Math.sin(a) * r];
+            const N = a => V.norm([Math.cos(a) * nr, ny, Math.sin(a) * nr]);
+            if (r0 < 1e-6 && r1 < 1e-6) continue;
+            api.quad(P(a0, r0, y0), P(a1, r0, y0), P(a1, r1, y1), P(a0, r1, y1), N(a0), N(a1), N(a1), N(a0));
+          }
+        }
+        return api;
+      },
+      // 沿路径挤出圆截面（平行传输坐标架，避免扭曲）
+      tube(path, radius, seg, opts) {
+        opts = opts || {}; seg = Math.max(3, seg || 10);
+        if (path.length < 2) return api;
+        curvedFlag = true;
+        const radFn = typeof radius === 'function' ? radius : () => radius;
+        let up = opts.up || [0, 1, 0];
+        const frames = [];
+        for (let i = 0; i < path.length; i++) {
+          const t = V.norm(i === 0 ? V.sub(path[1], path[0])
+            : i === path.length - 1 ? V.sub(path[i], path[i - 1]) : V.sub(path[i + 1], path[i - 1]));
+          let n = V.cross(up, t);
+          if (V.len(n) < 1e-5) { up = Math.abs(t[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]; n = V.cross(up, t); }
+          n = V.norm(n);
+          const b = V.norm(V.cross(t, n));
+          up = b;
+          frames.push({ p: path[i], n, b });
+        }
+        for (let i = 0; i < frames.length - 1; i++) {
+          const f0 = frames[i], f1 = frames[i + 1];
+          const r0 = radFn(i / (frames.length - 1)), r1 = radFn((i + 1) / (frames.length - 1));
+          for (let j = 0; j < seg; j++) {
+            const a0 = TAU * j / seg, a1 = TAU * (j + 1) / seg;
+            const ring = (f, a, r) => {
+              const d = V.add(V.mul(f.n, Math.cos(a)), V.mul(f.b, Math.sin(a)));
+              return { p: V.add(f.p, V.mul(d, r)), n: d };
+            };
+            const A = ring(f0, a0, r0), B = ring(f1, a0, r1), C = ring(f1, a1, r1), D = ring(f0, a1, r0);
+            api.quad(A.p, B.p, C.p, D.p, A.n, B.n, C.n, D.n);
+          }
+        }
+        if (opts.caps) {
+          [0, frames.length - 1].forEach((idx, k) => {
+            const f = frames[idx], r = radFn(k), sgn = k === 0 ? -1 : 1;
+            const t = V.norm(V.cross(f.n, f.b));
+            for (let j = 0; j < seg; j++) {
+              const a0 = TAU * j / seg, a1 = TAU * (j + 1) / seg;
+              const q = a => V.add(f.p, V.add(V.mul(f.n, Math.cos(a) * r), V.mul(f.b, Math.sin(a) * r)));
+              if (sgn > 0) api.tri(f.p, q(a0), q(a1), V.mul(t, sgn));
+              else api.tri(f.p, q(a1), q(a0), V.mul(t, sgn));
+            }
+          });
+        }
+        return api;
+      },
+      helixTube(R, r, turns, height, segU, segV) {
+        const path = [];
+        const n = Math.max(8, Math.round(segU || 24) * turns);
+        for (let i = 0; i <= n; i++) {
+          const t = i / n, a = t * TAU * turns;
+          path.push([Math.cos(a) * R, -height / 2 + height * t, Math.sin(a) * R]);
+        }
+        return api.tube(path, r, segV || 8);
+      },
+      // 沿 X 轴挤出 2D 轮廓（轮廓点为 [z,y]），可分段着色/分组
+      extrudeProfile(profile, x0, x1, opts) {
+        opts = opts || {};
+        const steps = opts.steps || 1;
+        const scaleFn = opts.scaleFn || (() => [1, 1]);
+        const groupFn = opts.groupFn || null;
+        const closed = opts.closed !== false;
+        const n = profile.length;
+        curvedFlag = true;
+        const ptAt = (k, t) => {
+          const s = scaleFn(t);
+          const x = x0 + (x1 - x0) * t;
+          return [x, profile[k][1] * s[1] + (opts.yOff ? opts.yOff(t) : 0), profile[k][0] * s[0]];
+        };
+        const segCount = closed ? n : n - 1;
+        for (let k = 0; k < segCount; k++) {
+          const k1 = (k + 1) % n;
+          const gname = groupFn ? groupFn(profile[k], profile[k1], k) : null;
+          const prevG = curGroup;
+          if (gname) curGroup = gname;
+          for (let i = 0; i < steps; i++) {
+            const t0 = i / steps, t1 = (i + 1) / steps;
+            const A = ptAt(k, t0), B = ptAt(k1, t0), C = ptAt(k1, t1), D = ptAt(k, t1);
+            // 外法线：轮廓切向 x 挤出方向
+            const dz = profile[k1][0] - profile[k][0], dy = profile[k1][1] - profile[k][1];
+            const nl = Math.hypot(dz, dy);
+            if (nl < 1e-9) continue;                      // 退化段：跳过
+            const nn = [0, dz / nl, -dy / nl];
+            const flip = opts.flip ? -1 : 1;
+            const N = [nn[0] * flip, nn[1] * flip, nn[2] * flip];
+            if (flip > 0) api.quad(A, B, C, D, N, N, N, N);
+            else api.quad(A, D, C, B, N, N, N, N);
+          }
+          if (gname) curGroup = prevG;
+        }
+        // 端盖（三角扇，轮廓需为凸或近凸）
+        if (opts.capStart || opts.capEnd) {
+          const cap = (t, dir) => {
+            const c = [x0 + (x1 - x0) * t, 0, 0];
+            let cy = 0, cz = 0;
+            profile.forEach(p => { cy += p[1]; cz += p[0]; });
+            const s = scaleFn(t);
+            c[1] = (cy / n) * s[1] + (opts.yOff ? opts.yOff(t) : 0); c[2] = (cz / n) * s[0];
+            for (let k = 0; k < n; k++) {
+              const k1 = (k + 1) % n;
+              const A = ptAt(k, t), B = ptAt(k1, t);
+              if (dir > 0) api.tri(c, B, A, [dir, 0, 0]); else api.tri(c, A, B, [dir, 0, 0]);
+            }
+          };
+          if (opts.capStart) cap(0, -1);
+          if (opts.capEnd) cap(1, 1);
+        }
+        return api;
+      },
+      // 多边形沿 Y 挤出（带上下盖）
+      extrudePoly(poly, h, opts) {
+        opts = opts || {};
+        curvedFlag = false;
+        const n = poly.length;
+        for (let i = 0; i < n; i++) {
+          const a = poly[i], b = poly[(i + 1) % n];
+          const nn = V.norm([b[1] - a[1], 0, -(b[0] - a[0])]);
+          api.quad([a[0], 0, a[1]], [b[0], 0, b[1]], [b[0], h, b[1]], [a[0], h, a[1]], nn, nn, nn, nn);
+        }
+        if (opts.caps !== false) {
+          let cx = 0, cz = 0; poly.forEach(p => { cx += p[0]; cz += p[1]; });
+          cx /= n; cz /= n;
+          for (let i = 0; i < n; i++) {
+            const a = poly[i], b = poly[(i + 1) % n];
+            api.tri([cx, h, cz], [a[0], h, a[1]], [b[0], h, b[1]], [0, 1, 0]);
+            api.tri([cx, 0, cz], [b[0], 0, b[1]], [a[0], 0, a[1]], [0, -1, 0]);
+          }
+        }
+        return api;
+      },
+
+      /* --- 顶点扰动（做旧/凹陷）：对最近写入的 count 个顶点施加噪声位移 --- */
+      distortLast(count, amp, freq, seed) {
+        const start = pos.length / 3 - count;
+        const h = (x, y, z) => {
+          const s = Math.sin(x * freq + seed) * Math.cos(y * freq * 1.3 + seed * 1.7) * Math.sin(z * freq * 0.8 + seed * 2.3);
+          return s;
+        };
+        for (let i = start; i < pos.length / 3; i++) {
+          const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+          const d = h(x, y, z) * amp;
+          pos[i * 3] += nrm[i * 3] * d; pos[i * 3 + 1] += nrm[i * 3 + 1] * d; pos[i * 3 + 2] += nrm[i * 3 + 2] * d;
+        }
+        return api;
+      },
+      vertexCount: () => pos.length / 3,
+      /* --- 导出 --- */
+      build() {
+        api.endPart();
+        // 按分组把三角形重排为连续区间，便于剖切时按组绘制
+        const triCount = pos.length / 9;
+        const triGroup = triG.slice();
+        for (let t = 0; t < triCount; t++) if (!triGroup[t]) triGroup[t] = 'default';
+        const order = [];
+        const groupRanges = {};
+        const names = [...new Set(triGroup)];
+        names.forEach(g => {
+          const start = order.length;
+          for (let t = 0; t < triCount; t++) if (triGroup[t] === g) order.push(t);
+          groupRanges[g] = { start: start * 3, count: (order.length - start) * 3 };
+        });
+        const P = new Float32Array(triCount * 9), N = new Float32Array(triCount * 9),
+          C = new Float32Array(triCount * 9), Mt = new Float32Array(triCount * 9);
+        const outParts = parts.map(p => p.name);
+        const nameToIdx = new Map(outParts.map((n, i) => [n, i]));
+        const triPart = new Int32Array(triCount).fill(-1);
+        order.forEach((t, i) => {
+          const nm = triP[t];
+          triPart[i] = nm !== null && nameToIdx.has(nm) ? nameToIdx.get(nm) : -1;
+        });
+        order.forEach((t, i) => {
+          for (let k = 0; k < 9; k++) {
+            P[i * 9 + k] = pos[t * 9 + k]; N[i * 9 + k] = nrm[t * 9 + k];
+            C[i * 9 + k] = col[t * 9 + k]; Mt[i * 9 + k] = mat[t * 9 + k];
+          }
+        });
+        return {
+          pos: P, nrm: N, col: C, mat: Mt, triCount, groupRanges, triPart,
+          parts: parts.map(p => ({ name: p.name, kind: p.kind, group: p.group, tris: p.count / 3, bbox: p.bbox })),
+          stats: { curvedTris, flatTris, curvedRatio: curvedTris / Math.max(1, curvedTris + flatTris) }
+        };
+      }
+    };
+    return api;
+  }
+
+  /* ------------------------------ 曲线工具 ------------------------------ */
+  // Catmull-Rom 采样，用于管路/条纹路径
+  function spline(points, samples, closed) {
+    const out = [];
+    const n = points.length;
+    const get = i => points[closed ? (i + n) % n : Math.max(0, Math.min(n - 1, i))];
+    const segs = closed ? n : n - 1;
+    for (let s = 0; s < segs; s++) {
+      const p0 = get(s - 1), p1 = get(s), p2 = get(s + 1), p3 = get(s + 2);
+      for (let i = 0; i < samples; i++) {
+        const t = i / samples, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1, 2].map(k =>
+          0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
+            (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+      }
+    }
+    out.push(get(closed ? 0 : n - 1).slice());
+    return out;
+  }
+  // 生成圆角矩形轮廓（返回 [z,y] 序列，逆时针）
+  function roundRectProfile(w, h, r, seg, cy) {
+    const pts = [];
+    const hz = w / 2 - r, hy = h / 2 - r, y0 = cy || 0;
+    const corner = (cz, cyy, a0) => {
+      for (let i = 0; i <= seg; i++) {
+        const a = a0 + (i / seg) * Math.PI / 2;
+        pts.push([cz + Math.cos(a) * r, y0 + cyy + Math.sin(a) * r]);
+      }
+    };
+    corner(hz, -hy, -Math.PI / 2);
+    corner(hz, hy, 0);
+    corner(-hz, hy, Math.PI / 2);
+    corner(-hz, -hy, Math.PI);
+    return pts;
+  }
+
+  return { createBuilder, spline, roundRectProfile, M, V, TAU };
+});
+
+/* ===== rv.js ===== */
+/* ============================================================================
+ * rv.js —— 沃尔特的房车（Fleetwood Bounder 风格 C 型/A 型房车）三维模型
+ *   坐标：+X 车头 / +Y 上 / +Z 右侧（车门侧）；单位：米
+ *   分组：ground chassis shellNear shellFar roof front rear glass
+ *        interior lab cab props emissive
+ *   剖切视图 = 隐藏 shellNear + roof（+ 近侧玻璃），露出内部实验室场景
+ * ==========================================================================*/
+(function (root, factory) {
+  const MESH = (typeof module !== 'undefined' && typeof require === 'function') ? require('./mesh.js') : root.MESH;
+  const api = factory(MESH);
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (root) root.RVMODEL = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (MESH) {
+  'use strict';
+  const TAU = Math.PI * 2, PI = Math.PI;
+
+  /* ------------------------------- 配色 ------------------------------- */
+  const C = {
+    bodyCream: [0.82, 0.78, 0.68],     // 车身米白（做旧发黄）
+    bodyDirty: [0.66, 0.62, 0.52],
+    stripeBrown: [0.42, 0.28, 0.18],
+    stripeTan: [0.68, 0.50, 0.30],
+    roofWhite: [0.80, 0.79, 0.74],
+    metalDark: [0.24, 0.24, 0.26],
+    metalMid: [0.55, 0.56, 0.58],
+    chrome: [0.78, 0.80, 0.84],
+    rubber: [0.10, 0.10, 0.11],
+    glassBlue: [0.30, 0.42, 0.48],
+    glassClear: [0.72, 0.82, 0.86],
+    interiorWall: [0.74, 0.70, 0.60],
+    woodCab: [0.40, 0.27, 0.17],
+    counterTop: [0.52, 0.50, 0.46],
+    floorLino: [0.44, 0.40, 0.34],
+    seatBrown: [0.36, 0.26, 0.19],
+    cushionTan: [0.55, 0.45, 0.34],
+    barrelBlue: [0.14, 0.30, 0.52],
+    barrelWhite: [0.80, 0.80, 0.78],
+    glassLab: [0.80, 0.90, 0.92],
+    liquidAmber: [0.72, 0.45, 0.12],
+    crystalBlue: [0.45, 0.72, 0.88],
+    flameBlue: [0.35, 0.62, 1.0],
+    plasticRed: [0.62, 0.10, 0.08],
+    sand: [0.70, 0.60, 0.44],
+    sandDark: [0.52, 0.44, 0.33],
+    rock: [0.42, 0.38, 0.34],
+    scrub: [0.34, 0.36, 0.22],
+    lampWarm: [1.0, 0.86, 0.62]
+  };
+  const jitter = (c, a, rnd) => [
+    Math.max(0, Math.min(1, c[0] + (rnd() - 0.5) * a)),
+    Math.max(0, Math.min(1, c[1] + (rnd() - 0.5) * a)),
+    Math.max(0, Math.min(1, c[2] + (rnd() - 0.5) * a))];
+  function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+  /* ------------------------------- 尺寸 ------------------------------- */
+  const D = {
+    xRear: -3.95, xFront: 3.55, xNose: 3.98,
+    halfW: 1.22, floorY: 0.74, wallTop: 2.42, roofY: 2.62,
+    wheelR: 0.42, wheelW: 0.24,
+    axleFront: 2.45, axleRear: -2.05
+  };
+
+  /* --------------------- 车身横截面（顺时针 => 外法线朝外）--------------------- */
+  function bodyProfile(inset) {
+    const p = [];
+    const hz = D.halfW - inset, top = D.wallTop - inset * 0.4, roof = D.roofY - inset * 0.5;
+    const bot = D.floorY + inset * 0.6;
+    const rc = 0.30 - inset * 0.3;                 // 车顶圆角
+    const seg = 6;
+    // 车顶：中间 -> 右上圆角
+    p.push([0, roof]);
+    p.push([hz - rc - 0.24, roof]);
+    for (let i = 0; i <= seg; i++) {
+      const a = (i / seg) * (PI / 2);
+      p.push([hz - rc + Math.sin(a) * rc, top - 0.02 + Math.cos(a) * (roof - top + 0.02)]);
+    }
+    // 右墙（略外凸）
+    for (let i = 1; i <= 5; i++) {
+      const t = i / 5, y = top - 0.02 - t * (top - 0.02 - (bot + 0.34));
+      const bulge = Math.sin(t * PI) * 0.022;
+      p.push([hz + bulge, y]);
+    }
+    // 右下裙边圆角
+    for (let i = 0; i <= 4; i++) {
+      const a = (i / 4) * (PI / 2);
+      p.push([hz - 0.16 + Math.cos(a) * 0.16, bot + 0.18 - Math.sin(a) * 0.18]);
+    }
+    // 底面
+    p.push([0.5, bot]);
+    p.push([-0.5, bot]);
+    // 左下裙边圆角
+    for (let i = 0; i <= 4; i++) {
+      const a = (i / 4) * (PI / 2);
+      p.push([-(hz - 0.16) - Math.sin(a) * 0.16, bot + 0.18 * (1 - Math.cos(a))]);
+    }
+    // 左墙
+    for (let i = 1; i <= 5; i++) {
+      const t = 1 - i / 5, y = bot + 0.34 + (1 - t) * (top - 0.02 - (bot + 0.34));
+      const bulge = Math.sin((1 - t) * PI) * 0.022;
+      void t;
+      p.push([-(hz + bulge), y]);
+    }
+    // 左上圆角 -> 车顶
+    for (let i = 0; i <= seg; i++) {
+      const a = (PI / 2) * (1 - i / seg);
+      p.push([-(hz - rc) - Math.sin(a) * rc, top - 0.02 + Math.cos(a) * (roof - top + 0.02)]);
+    }
+    p.push([-(hz - rc - 0.24), roof]);
+    return p;
+  }
+
+  /* ============================ 组件构建函数 ============================ */
+  // 车轮：胎面用旋成体+胎块，轮辋用旋成体+螺母
+  function wheel(b, dual, rnd) {
+    const R = D.wheelR, W = D.wheelW;
+    b.group('chassis');
+    b.color(C.rubber).material(0.85, 0.0);
+    // 轮胎断面（旋成体，绕 Y；随后整体旋转到绕 Z）
+    const tp = [];
+    tp.push([R - 0.13, -W / 2]);
+    tp.push([R - 0.02, -W / 2 + 0.03]);
+    tp.push([R, -W / 2 + 0.07]);
+    tp.push([R, W / 2 - 0.07]);
+    tp.push([R - 0.02, W / 2 - 0.03]);
+    tp.push([R - 0.13, W / 2]);
+    b.push(); b.rotateX(PI / 2);
+    b.lathe(tp, 44);
+    b.pop();
+    // 胎面花纹块
+    b.color([0.13, 0.13, 0.14]);
+    const blocks = 30;
+    for (let i = 0; i < blocks; i++) {
+      const a = (i / blocks) * TAU;
+      b.push();
+      b.rotateZ(a); b.translate(R + 0.005, 0, 0); b.rotateY(0.1 * ((i % 2) ? 1 : -1));
+      b.roundedBox(0.035, 0.09, W - 0.09, 0.012, 2);
+      b.pop();
+    }
+    // 轮辋
+    b.color(C.metalMid).material(0.35, 0.85);
+    b.push(); b.rotateX(PI / 2);
+    b.lathe([[0.05, -W / 2 + 0.02], [R - 0.14, -W / 2 + 0.03], [R - 0.11, -0.02], [R - 0.11, 0.04],
+      [R - 0.15, W / 2 - 0.02], [0.06, W / 2 - 0.02], [0.05, -W / 2 + 0.02]], 26);
+    b.pop();
+    // 轮毂盖 + 螺母
+    b.color(C.chrome).material(0.2, 0.95);
+    b.push(); b.rotateX(PI / 2); b.translate(0, dual ? -W / 2 - 0.01 : W / 2 + 0.01, 0);
+    b.lathe([[0, 0.03], [0.06, 0.035], [0.10, 0.02], [0.115, -0.01], [0.05, -0.02], [0, -0.02]], 20);
+    b.pop();
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU;
+      b.push();
+      b.translate(Math.cos(a) * 0.17, Math.sin(a) * 0.17, (dual ? -1 : 1) * (W / 2 - 0.01));
+      b.rotateX(PI / 2);
+      b.cylinder(0.022, 0.02, 0.035, 6);
+      b.pop();
+    }
+    void rnd;
+  }
+
+  // 车灯：透镜（旋成体）+ 灯壳 + 自发光
+  function lamp(b, r, depth, colr, emis) {
+    b.color(colr).material(0.25, 0.1, emis);
+    b.push(); b.rotateZ(-PI / 2);
+    b.lathe([[0, 0], [r * 0.7, 0.004], [r, depth * 0.35], [r * 0.98, depth], [r * 0.6, depth * 1.05], [0, depth * 1.02]], 18);
+    b.pop();
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.rotateZ(-PI / 2); b.translate(0, depth * 1.02, 0);
+    b.lathe([[r * 0.6, 0], [r * 1.06, 0.01], [r * 1.06, 0.05], [r * 0.9, 0.05]], 18);
+    b.pop();
+  }
+
+  // 座椅（船长椅）：底座 + 坐垫 + 靠背 + 头枕 + 扶手，全圆角
+  function seat(b, rnd) {
+    b.color(C.metalDark).material(0.5, 0.6);
+    b.push(); b.translate(0, 0.10, 0); b.cylinder(0.16, 0.10, 0.20, 16); b.pop();
+    b.push(); b.translate(0, 0.02, 0); b.cylinder(0.22, 0.20, 0.04, 18); b.pop();
+    b.push(); b.translate(0, 0.28, 0); b.cylinder(0.07, 0.07, 0.30, 12); b.pop();
+    b.color(jitter(C.seatBrown, 0.06, rnd)).material(0.85, 0.0);
+    b.push(); b.translate(0, 0.46, 0); b.roundedBox(0.52, 0.14, 0.50, 0.06, 3); b.pop();       // 坐垫
+    b.push(); b.translate(-0.20, 0.76, 0); b.rotateZ(0.12); b.roundedBox(0.14, 0.56, 0.48, 0.06, 3); b.pop(); // 靠背
+    b.push(); b.translate(-0.24, 1.10, 0); b.rotateZ(0.16); b.roundedBox(0.13, 0.20, 0.30, 0.06, 3); b.pop(); // 头枕
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(-0.02, 0.62, s * 0.28); b.rotateX(0);
+      b.roundedBox(0.30, 0.08, 0.09, 0.035, 3); b.pop();
+    }
+  }
+
+  // 圆底烧瓶（球体+瓶颈+磨口）
+  function flask(b, r) {
+    b.color(C.glassLab).material(0.08, 0.0);
+    b.group('glass');
+    b.push(); b.translate(0, r, 0); b.sphere(r, 32, 22); b.pop();
+    b.push(); b.translate(0, r * 2, 0); b.cylinder(r * 0.30, r * 0.32, r * 0.85, 18, { caps: false }); b.pop();
+    b.push(); b.translate(0, r * 2.45, 0); b.lathe([[r * 0.32, 0], [r * 0.40, 0.01], [r * 0.40, 0.05], [r * 0.30, 0.055]], 18); b.pop();
+    b.group('lab');
+    // 瓶内液体
+    b.color(C.liquidAmber).material(0.15, 0.0, 0.05);
+    b.push(); b.translate(0, r * 0.92, 0); b.sphere(r * 0.86, 22, 14, { t0: PI * 0.42, t1: PI }); b.pop();
+    b.push(); b.translate(0, r * 0.92 - r * 0.86 * Math.cos(PI * 0.42), 0);
+    b.cylinder(r * 0.86 * Math.sin(PI * 0.42), r * 0.86 * Math.sin(PI * 0.42), 0.001, 22); b.pop();
+  }
+
+  // 锥形瓶
+  function erlenmeyer(b, r, h) {
+    b.group('glass'); b.color(C.glassLab).material(0.08, 0.0);
+    b.lathe([[0, 0], [r, 0.004], [r, 0.02], [r * 0.30, h * 0.72], [r * 0.30, h], [r * 0.36, h + 0.012], [r * 0.30, h + 0.02]], 22);
+    b.group('lab');
+  }
+
+  // 烧杯
+  function beaker(b, r, h) {
+    b.group('glass'); b.color(C.glassLab).material(0.08, 0.0);
+    b.lathe([[0, 0], [r, 0.003], [r, h], [r * 1.06, h + 0.006], [r * 0.96, h + 0.008], [r * 0.96, 0.01]], 20);
+    b.group('lab');
+  }
+
+  // 冷凝管：外玻璃管 + 内螺旋盘管 + 两个接管嘴
+  function condenser(b, len) {
+    b.group('glass'); b.color(C.glassLab).material(0.06, 0.0);
+    b.push(); b.cylinder(0.055, 0.055, len, 20, { caps: false }); b.pop();
+    b.push(); b.translate(0, len / 2, 0); b.lathe([[0.055, 0], [0.062, 0.006], [0.03, 0.03], [0.03, 0.08]], 18); b.pop();
+    b.push(); b.translate(0, -len / 2, 0); b.lathe([[0.03, -0.08], [0.03, -0.03], [0.062, -0.006], [0.055, 0]], 18); b.pop();
+    // 内盘管
+    b.color([0.86, 0.94, 0.96]).material(0.05, 0.0);
+    b.push(); b.helixTube(0.030, 0.009, 7, len * 0.86, 26, 7); b.pop();
+    // 接管嘴
+    b.color(C.glassLab);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(0, s * len * 0.32, 0); b.rotateZ(PI / 2 * s * 0.0); b.rotateX(PI / 2);
+      b.cylinder(0.013, 0.011, 0.07, 10); b.pop();
+    }
+    b.group('lab');
+  }
+
+  // 化学桶（带箍圈与盖）
+  function barrel(b, r, h, colr, rnd) {
+    b.color(jitter(colr, 0.05, rnd)).material(0.55, 0.0);
+    b.lathe([[0, 0], [r * 0.92, 0], [r * 0.96, 0.03], [r, 0.09],
+      [r, h - 0.09], [r * 0.96, h - 0.03], [r * 0.92, h], [0, h]], 26);
+    b.color([colr[0] * 0.8, colr[1] * 0.8, colr[2] * 0.8]);
+    [0.28, 0.55, 0.82].forEach(t => {
+      b.push(); b.translate(0, h * t, 0); b.rotateX(PI / 2); b.torus(r + 0.005, 0.018, 26, 8); b.pop();
+    });
+    b.color(C.metalMid).material(0.4, 0.7);
+    b.push(); b.translate(r * 0.45, h + 0.005, 0); b.cylinder(0.05, 0.05, 0.02, 12); b.pop();
+    b.push(); b.translate(-r * 0.4, h + 0.005, r * 0.2); b.cylinder(0.035, 0.035, 0.018, 10); b.pop();
+    b.color(C.barrelWhite).material(0.6, 0.0);
+    b.push(); b.translate(0, h * 0.55, r + 0.008); b.rotateX(-PI / 2);
+    b.plane(r * 1.1, h * 0.34, 1, 1); b.pop();
+  }
+
+  // 防毒面具（面罩 + 滤罐 + 背带）
+  function gasMask(b) {
+    b.color([0.20, 0.22, 0.20]).material(0.7, 0.0);
+    b.push(); b.scale(1, 1.15, 0.8); b.sphere(0.115, 20, 14); b.pop();
+    b.color(C.glassClear).material(0.1, 0.0);
+    b.push(); b.translate(0.075, 0.02, 0); b.rotateZ(-PI / 2); b.scale(1, 1, 0.85);
+    b.lathe([[0, 0], [0.062, 0.004], [0.066, 0.02], [0.05, 0.028]], 18); b.pop();
+    b.color([0.16, 0.17, 0.16]).material(0.75, 0.0);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(0.02, -0.07, s * 0.085); b.rotateX(PI / 2 * 0.15 * s);
+      b.cylinder(0.048, 0.05, 0.075, 16); b.pop();
+    }
+    // 背带
+    b.color([0.22, 0.20, 0.17]).material(0.9, 0.0);
+    const strap = MESH.spline([[-0.09, 0.06, 0.08], [-0.16, 0.16, 0.05], [-0.14, 0.26, 0], [-0.16, 0.16, -0.05], [-0.09, 0.06, -0.08]], 6);
+    b.tube(strap, 0.012, 6);
+  }
+
+  // 灭火器
+  function extinguisher(b) {
+    b.color(C.plasticRed).material(0.45, 0.2);
+    b.lathe([[0, 0], [0.085, 0.01], [0.09, 0.05], [0.09, 0.42], [0.07, 0.47], [0.035, 0.49], [0.035, 0.52], [0, 0.52]], 20);
+    b.color(C.metalMid).material(0.35, 0.8);
+    b.push(); b.translate(0, 0.545, 0); b.cylinder(0.028, 0.026, 0.06, 12); b.pop();
+    b.push(); b.translate(0.03, 0.575, 0); b.rotateZ(0.2); b.roundedBox(0.10, 0.02, 0.03, 0.008, 2); b.pop();
+    b.color([0.12, 0.12, 0.12]).material(0.8, 0.0);
+    b.tube(MESH.spline([[0.02, 0.55, 0.02], [0.14, 0.44, 0.08], [0.12, 0.22, 0.02], [0.05, 0.12, -0.02]], 6), 0.014, 8);
+    b.color([0.92, 0.90, 0.86]).material(0.6, 0.0);
+    b.push(); b.translate(0.0, 0.3, 0.091); b.rotateX(-PI / 2); b.plane(0.09, 0.12, 1, 1); b.pop();
+  }
+
+  // 塑料桶/试剂瓶
+  function jug(b, h, colr) {
+    b.color(colr).material(0.4, 0.0);
+    b.lathe([[0, 0], [0.085, 0.005], [0.09, 0.03], [0.088, h * 0.72], [0.06, h * 0.86], [0.032, h * 0.9],
+      [0.032, h], [0.04, h + 0.012], [0.03, h + 0.02]], 18);
+    b.color([0.9, 0.9, 0.88]).material(0.5, 0.0);
+    b.push(); b.translate(0, h * 0.45, 0.091); b.rotateX(-PI / 2); b.plane(0.09, h * 0.4, 1, 1); b.pop();
+  }
+
+  // 柜门（带把手与门缝）
+  function cabinetDoors(b, w, h, d, n, colr) {
+    b.color(colr).material(0.55, 0.05);
+    const gap = 0.012, dw = (w - gap * (n + 1)) / n;
+    for (let i = 0; i < n; i++) {
+      const z = -w / 2 + gap * (i + 1) + dw * (i + 0.5);
+      b.push(); b.translate(d / 2, 0, z); b.roundedBox(0.022, h - gap * 2, dw, 0.008, 2); b.pop();
+      b.color(C.chrome).material(0.3, 0.9);
+      b.push(); b.translate(d / 2 + 0.02, -h * 0.28, z + dw * 0.32); b.rotateZ(PI / 2);
+      b.tube([[0, 0, 0], [0.03, 0, 0], [0.03, 0.07, 0], [0, 0.07, 0]].map(p => [p[0], p[1], p[2]]), 0.007, 8);
+      b.pop();
+      b.color(colr).material(0.55, 0.05);
+    }
+  }
+
+  /* ============================ 主构建 ============================ */
+  function build() {
+    const b = MESH.createBuilder();
+    const rnd = rng(20080120);
+
+    /* ---------------- 环境：沙地、石块、灌木 ---------------- */
+    b.group('ground').part('desert', 'env');
+    b.color(C.sand).material(0.95, 0.0);
+    b.push(); b.translate(0, 0, 0);
+    const GS = 46, GN = 52;
+    for (let i = 0; i < GN; i++) for (let j = 0; j < GN; j++) {
+      const x0 = -GS / 2 + GS * i / GN, x1 = -GS / 2 + GS * (i + 1) / GN;
+      const z0 = -GS / 2 + GS * j / GN, z1 = -GS / 2 + GS * (j + 1) / GN;
+      const hAt = (x, z) => Math.sin(x * 0.22) * 0.10 + Math.cos(z * 0.19) * 0.09 + Math.sin((x + z) * 0.07) * 0.16;
+      const near = Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) < 6.5;
+      const shade = near ? 0.0 : 0.08;
+      b.color(jitter([C.sand[0] - shade, C.sand[1] - shade, C.sand[2] - shade], 0.07, rnd));
+      const A = [x0, hAt(x0, z0) * (near ? 0.25 : 1), z0], B = [x0, hAt(x0, z1) * (near ? 0.25 : 1), z1];
+      const Cc = [x1, hAt(x1, z1) * (near ? 0.25 : 1), z1], Dd = [x1, hAt(x1, z0) * (near ? 0.25 : 1), z0];
+      const n = [0, 1, 0];
+      b.quad(A, B, Cc, Dd, n, n, n, n);
+    }
+    b.pop();
+    b.endPart();
+    b.part('rocks', 'env');
+    for (let i = 0; i < 16; i++) {
+      const a = rnd() * TAU, r = 7 + rnd() * 13;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r, s = 0.20 + rnd() * 0.55;
+      b.color(jitter(C.rock, 0.10, rnd)).material(0.9, 0.0);
+      b.push(); b.translate(x, s * 0.35, z); b.rotateY(rnd() * TAU); b.scale(s, s * 0.7, s * 0.85);
+      const before = b.vertexCount();
+      b.sphere(1, 9, 6);
+      b.distortLast(b.vertexCount() - before, 0.22, 3.5 + rnd() * 3, rnd() * 10);
+      b.pop();
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = rnd() * TAU, r = 6 + rnd() * 14;
+      b.color(jitter(C.scrub, 0.12, rnd)).material(0.9, 0.0);
+      b.push(); b.translate(Math.cos(a) * r, 0.16, Math.sin(a) * r); b.scale(1, 0.8, 1);
+      const before = b.vertexCount();
+      b.sphere(0.35 + rnd() * 0.3, 8, 5);
+      b.distortLast(b.vertexCount() - before, 0.35, 9, rnd() * 8);
+      b.pop();
+    }
+    b.endPart();
+    // 轮胎压痕
+    b.part('tracks', 'env').color(C.sandDark).material(0.95, 0);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(-14, 0.012, s * 1.05); b.rotateY(0.02 * s);
+      b.plane(20, 0.30, 20, 1); b.pop();
+    }
+    b.endPart();
+
+    /* ---------------- 底盘 ---------------- */
+    b.group('chassis').part('chassisFrame', 'struct');
+    b.color(C.metalDark).material(0.7, 0.5);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(-0.1, 0.52, s * 0.62); b.roundedBox(7.4, 0.16, 0.12, 0.03, 2); b.pop();
+    }
+    for (let i = 0; i < 7; i++) {
+      b.push(); b.translate(-3.3 + i * 1.15, 0.50, 0); b.roundedBox(0.10, 0.10, 1.28, 0.025, 2); b.pop();
+    }
+    // 前后保险杠支架 + 拖车钩
+    b.push(); b.translate(D.xRear + 0.05, 0.42, 0); b.roundedBox(0.20, 0.12, 1.4, 0.03, 2); b.pop();
+    b.endPart();
+    b.part('axles', 'struct');
+    b.color(C.metalMid).material(0.6, 0.7);
+    for (const ax of [D.axleFront, D.axleRear]) {
+      b.push(); b.translate(ax, D.wheelR, 0); b.rotateX(PI / 2); b.cylinder(0.055, 0.055, 2.30, 14); b.pop();
+    }
+    b.push(); b.translate(D.axleRear, D.wheelR, 0); b.sphere(0.17, 16, 10); b.pop();
+    b.push(); b.translate(0.4, D.wheelR + 0.02, 0); b.rotateZ(PI / 2); b.cylinder(0.045, 0.045, 3.6, 12); b.pop();
+    // 钢板弹簧（弯曲管）
+    b.color(C.metalDark).material(0.75, 0.4);
+    for (const ax of [D.axleFront, D.axleRear]) for (const s of [-1, 1]) {
+      const sp = MESH.spline([[ax - 0.75, 0.50, s * 0.66], [ax - 0.3, 0.44, s * 0.66], [ax, 0.42, s * 0.66], [ax + 0.3, 0.44, s * 0.66], [ax + 0.75, 0.50, s * 0.66]], 5);
+      b.tube(sp, 0.030, 6);
+    }
+    b.endPart();
+    b.part('exhaust', 'struct');
+    b.color(C.metalMid).material(0.5, 0.8);
+    b.push(); b.translate(0.9, 0.40, -0.45); b.rotateZ(PI / 2); b.cylinder(0.09, 0.09, 0.55, 14); b.pop();
+    b.tube(MESH.spline([[1.7, 0.42, -0.42], [0.9, 0.40, -0.45], [-0.6, 0.38, -0.52], [-2.2, 0.36, -0.62], [-3.6, 0.34, -0.75], [-4.05, 0.33, -0.78]], 6), 0.035, 10, { caps: true });
+    b.endPart();
+    b.part('fuelTank', 'struct').color([0.30, 0.30, 0.32]).material(0.7, 0.3);
+    b.push(); b.translate(-0.9, 0.42, 0.55); b.roundedBox(1.5, 0.28, 0.75, 0.08, 3); b.pop();
+    b.endPart();
+    b.part('propaneTank', 'struct').color([0.86, 0.86, 0.84]).material(0.5, 0.2);
+    b.push(); b.translate(1.5, 0.42, 0.62); b.rotateZ(PI / 2); b.capsule(0.19, 0.62, 18); b.pop();
+    b.color(C.metalMid).material(0.4, 0.8);
+    b.push(); b.translate(1.86, 0.42, 0.62); b.rotateZ(PI / 2); b.cylinder(0.05, 0.05, 0.07, 10); b.pop();
+    b.endPart();
+    b.part('spare', 'struct').color(C.rubber).material(0.85, 0);
+    b.push(); b.translate(-3.55, 0.62, 0.0); b.rotateY(PI / 2); b.rotateX(PI / 2); b.torus(0.33, 0.11, 22, 10); b.pop();
+    b.endPart();
+
+    /* ---------------- 车轮 ×6 ---------------- */
+    const wheels = [
+      [D.axleFront, 1.10, false], [D.axleFront, -1.10, false],
+      [D.axleRear, 0.86, true], [D.axleRear, 1.14, false],
+      [D.axleRear, -0.86, true], [D.axleRear, -1.14, false]
+    ];
+    wheels.forEach((w, i) => {
+      b.part('wheel' + (i + 1), i === 0 ? 'hot' : 'part');
+      b.push(); b.translate(w[0], D.wheelR, w[1]); b.rotateY(w[1] > 0 ? 0 : PI); b.rotateX(rnd() * 0.4);
+      wheel(b, w[2], rnd);
+      b.pop();
+      b.endPart();
+    });
+
+    /* ---------------- 车身外壳（圆角轮廓沿 X 挤出）---------------- */
+    b.part('bodyShell', 'body');
+    b.color(C.bodyCream).material(0.62, 0.08);
+    const prof = bodyProfile(0);
+    const shellStartV = b.vertexCount();
+    b.extrudeProfile(prof, D.xRear, D.xFront, {
+      steps: 58,
+      scaleFn: t => {                                   // 车头略收窄、车顶略前倾
+        const s = 1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 2) * 0.035;
+        return [s, 1 - Math.pow(Math.max(0, t - 0.80) / 0.20, 2) * 0.02];
+      },
+      groupFn: (a, c) => {
+        const y = (a[1] + c[1]) / 2, z = (a[0] + c[0]) / 2;
+        if (y > D.wallTop - 0.03) return 'roof';
+        if (y < D.floorY + 0.30 && Math.abs(z) < 1.0) return 'chassis';
+        return z > 0 ? 'shellNear' : 'shellFar';
+      }
+    });
+    // 做旧：轻微凹陷与起皱
+    b.distortLast(b.vertexCount() - shellStartV, 0.012, 2.2, 3.7);
+    b.endPart();
+
+    // 内壁（同轮廓内缩、法线翻转）
+    b.group('interior').part('interiorShell', 'body');
+    b.color(C.interiorWall).material(0.75, 0.0);
+    b.extrudeProfile(bodyProfile(0.055), D.xRear + 0.06, D.xFront - 0.02, {
+      steps: 36, flip: true,
+      scaleFn: t => [1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 2) * 0.035, 1],
+      groupFn: (a, c) => {                        // 与外壳同样分段，剖切时一并移除
+        const y = (a[1] + c[1]) / 2, z = (a[0] + c[0]) / 2;
+        if (y > D.wallTop - 0.10) return 'roof';
+        if (y < D.floorY + 0.35 && Math.abs(z) < 1.05) return 'interior';
+        return z > 0 ? 'shellNear' : 'interior';
+      }
+    });
+    b.endPart();
+    // 地板
+    b.part('floor', 'body').color(C.floorLino).material(0.55, 0.0);
+    b.push(); b.translate(-0.2, D.floorY + 0.015, 0);
+    for (let i = 0; i < 24; i++) for (let j = 0; j < 8; j++) {
+      const w = 7.0 / 24, d = 2.24 / 8;
+      b.color(jitter(C.floorLino, 0.05, rnd));
+      b.push(); b.translate(-3.5 + w * (i + 0.5), 0, -1.12 + d * (j + 0.5)); b.plane(w * 0.97, d * 0.97, 1, 1); b.pop();
+    }
+    b.pop();
+    b.endPart();
+
+    /* ---------------- 车头：挡风玻璃、前脸、灯 ---------------- */
+    b.group('front').part('noseCap', 'body');
+    b.color(C.bodyCream).material(0.6, 0.08);
+    // 前脸：挡风玻璃区域留空，只做下半段围板与车顶前唇（否则会挡住驾驶室视线）
+    const fullProf = bodyProfile(0.02);
+    const lower = fullProf.filter(p => p[1] < 1.62);          // 腰线以下（含底部）
+    const upper = fullProf.filter(p => p[1] > D.wallTop - 0.12); // 车顶前唇
+    b.extrudeProfile(lower, D.xFront - 0.02, D.xNose, {
+      steps: 8, closed: false,
+      scaleFn: t => [1 - t * t * 0.10, 1 - t * 0.06]
+    });
+    b.extrudeProfile(upper, D.xFront - 0.02, D.xNose - 0.16, {
+      steps: 5, closed: false,
+      scaleFn: t => [1 - t * t * 0.10, 1 - t * 0.03]
+    });
+    // 前脸下缘封板
+    b.push(); b.translate(D.xNose - 0.01, 1.18, 0); b.rotateY(PI / 2);
+    b.roundedBox(2.26, 0.86, 0.06, 0.05, 3); b.pop();
+    // A 柱
+    for (const s2 of [-1, 1]) {
+      b.push(); b.translate(D.xNose - 0.22, 1.94, s2 * 1.16); b.rotateZ(-0.26); b.rotateY(s2 * 0.12);
+      b.roundedBox(0.14, 1.05, 0.13, 0.05, 3); b.pop();
+    }
+    b.endPart();
+    // 挡风玻璃（两片，带中柱与倾斜）
+    b.group('glass').part('windshield', 'glass');
+    b.color(C.glassBlue).material(0.06, 0.1);
+    for (const s of [-1, 1]) {
+      b.push();
+      b.translate(D.xNose - 0.30, 1.90, s * 0.60);
+      b.rotateZ(-0.30); b.rotateY(s * 0.10);
+      b.roundedBox(0.03, 0.86, 1.05, 0.03, 2);
+      b.pop();
+    }
+    b.endPart();
+    b.group('front').part('windshieldFrame', 'body');
+    b.color(C.bodyDirty).material(0.5, 0.3);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(D.xNose - 0.30, 1.90, s * 0.60); b.rotateZ(-0.30); b.rotateY(s * 0.10);
+      b.push(); b.translate(0.01, 0.46, 0); b.roundedBox(0.07, 0.06, 1.12, 0.02, 2); b.pop();
+      b.push(); b.translate(0.01, -0.46, 0); b.roundedBox(0.07, 0.06, 1.12, 0.02, 2); b.pop();
+      b.push(); b.translate(0.01, 0, s * 0.55); b.roundedBox(0.07, 0.92, 0.06, 0.02, 2); b.pop();
+      b.pop();
+    }
+    b.push(); b.translate(D.xNose - 0.36, 1.90, 0); b.rotateZ(-0.30); b.roundedBox(0.08, 0.92, 0.07, 0.025, 2); b.pop();
+    // 雨刷
+    b.color(C.metalDark).material(0.6, 0.4);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(D.xNose - 0.16, 1.44, s * 0.55);
+      b.tube(MESH.spline([[0, 0, -0.22], [0.02, 0.05, 0], [0, 0.02, 0.26]], 5), 0.012, 6);
+      b.pop();
+    }
+    b.endPart();
+    b.part('headlights', 'hot');
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(D.xNose + 0.02, 1.02, s * 0.82); lamp(b, 0.14, 0.06, [0.92, 0.93, 0.88], 0.55); b.pop();
+      b.push(); b.translate(D.xNose + 0.02, 0.98, s * 0.52); lamp(b, 0.075, 0.05, [0.95, 0.62, 0.18], 0.25); b.pop();
+    }
+    b.endPart();
+    b.part('grille', 'body').color(C.metalDark).material(0.55, 0.4);
+    for (let i = 0; i < 7; i++) {
+      b.push(); b.translate(D.xNose - 0.02, 0.86 + i * 0.045, 0); b.roundedBox(0.05, 0.022, 1.05, 0.008, 2); b.pop();
+    }
+    b.endPart();
+    b.part('frontBumper', 'body').color(C.metalMid).material(0.45, 0.6);
+    b.push(); b.translate(D.xNose - 0.04, 0.66, 0);
+    b.tube(MESH.spline([[0, 0, -1.18], [0.10, 0.0, -0.9], [0.14, 0, 0], [0.10, 0.0, 0.9], [0, 0, 1.18]], 7),
+      0.085, 10, { caps: true });
+    b.pop();
+    b.color([0.80, 0.78, 0.72]).material(0.7, 0.1);
+    b.push(); b.translate(D.xNose + 0.06, 0.86, 0.0); b.roundedBox(0.03, 0.10, 0.34, 0.01, 2); b.pop();
+    b.endPart();
+
+    /* ---------------- 车尾 ---------------- */
+    b.group('rear').part('rearWall', 'body');
+    b.color(C.bodyCream).material(0.62, 0.08);
+    b.extrudeProfile(bodyProfile(0.01), D.xRear - 0.10, D.xRear, { steps: 3, capStart: true });
+    b.endPart();
+    b.group('glass').part('rearWindow', 'glass').color(C.glassBlue).material(0.06, 0.1);
+    b.push(); b.translate(D.xRear - 0.115, 1.92, 0); b.roundedBox(0.03, 0.62, 1.40, 0.05, 3); b.pop();
+    b.endPart();
+    b.group('rear').part('taillights', 'part');
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const cols = [[0.85, 0.12, 0.10], [0.9, 0.45, 0.10], [0.9, 0.9, 0.85]];
+        b.push(); b.translate(D.xRear - 0.12, 1.02 - i * 0.15, s * 0.96); b.rotateZ(PI);
+        lamp(b, 0.072, 0.045, cols[i], i === 0 ? 0.5 : 0.2); b.pop();
+      }
+    }
+    b.endPart();
+    b.part('rearLadder', 'hot').color(C.metalMid).material(0.4, 0.85);
+    for (const s of [-1, 1]) {
+      b.tube([[D.xRear - 0.07, 0.95, s * 0.42], [D.xRear - 0.07, 2.62, s * 0.42], [D.xRear + 0.10, 2.80, s * 0.42]], 0.022, 8);
+    }
+    for (let i = 0; i < 6; i++) {
+      b.push(); b.translate(D.xRear - 0.07, 1.06 + i * 0.30, 0); b.rotateX(PI / 2); b.cylinder(0.018, 0.018, 0.84, 8); b.pop();
+    }
+    b.endPart();
+    b.part('rearBumper', 'body').color(C.metalMid).material(0.45, 0.6);
+    b.push(); b.translate(D.xRear - 0.06, 0.62, 0);
+    b.tube(MESH.spline([[0, 0, -1.16], [-0.08, 0, -0.85], [-0.11, 0, 0], [-0.08, 0, 0.85], [0, 0, 1.16]], 7), 0.075, 10, { caps: true });
+    b.pop();
+    b.color([0.85, 0.85, 0.80]).material(0.7, 0.1);
+    b.push(); b.translate(D.xRear - 0.17, 0.86, -0.55); b.roundedBox(0.02, 0.14, 0.28, 0.01, 2); b.pop();
+    b.endPart();
+
+    /* ---------------- 侧面细节：车窗、车门、条纹、后视镜 ---------------- */
+    const sideWindow = (x, z, w, h, y) => {
+      const s = Math.sign(z);
+      b.group('glass').part('win' + x.toFixed(1) + (s > 0 ? 'N' : 'F'), 'glass');
+      b.color(C.glassBlue).material(0.06, 0.1);
+      b.push(); b.translate(x, y, z + s * 0.006); b.roundedBox(w, h, 0.03, 0.05, 3); b.pop();
+      b.endPart();
+      b.group(s > 0 ? 'shellNear' : 'shellFar').part('winFrame' + x.toFixed(1) + (s > 0 ? 'N' : 'F'), 'body');
+      b.color(C.bodyDirty).material(0.5, 0.25);
+      b.push(); b.translate(x, y, z + s * 0.012);
+      b.push(); b.translate(0, h / 2, 0); b.roundedBox(w + 0.06, 0.05, 0.035, 0.014, 2); b.pop();
+      b.push(); b.translate(0, -h / 2, 0); b.roundedBox(w + 0.06, 0.05, 0.035, 0.014, 2); b.pop();
+      b.push(); b.translate(w / 2, 0, 0); b.roundedBox(0.05, h, 0.035, 0.014, 2); b.pop();
+      b.push(); b.translate(-w / 2, 0, 0); b.roundedBox(0.05, h, 0.035, 0.014, 2); b.pop();
+      b.pop();
+      b.endPart();
+      // 车内侧亮面（从内部看像透光的窗）
+      b.group('interior').part('winIn' + x.toFixed(1) + (s > 0 ? 'N' : 'F'), 'glass');
+      b.color([0.62, 0.72, 0.82]).material(0.3, 0.0, 0.35);
+      b.push(); b.translate(x, y, z - s * 0.055); b.rotateY(s > 0 ? 0 : PI); b.rotateX(PI / 2);
+      b.plane(w - 0.05, h - 0.05, 1, 1, [0, 1, 0]); b.pop();
+      b.endPart();
+    };
+    // 驾驶室侧窗 + 生活区侧窗
+    sideWindow(2.62, D.halfW, 0.72, 0.60, 1.86);
+    sideWindow(2.62, -D.halfW, 0.72, 0.60, 1.86);
+    sideWindow(0.55, -D.halfW, 1.55, 0.72, 1.92);
+    sideWindow(-1.35, -D.halfW, 1.05, 0.66, 1.92);
+    sideWindow(-2.85, -D.halfW, 0.80, 0.60, 1.92);
+    sideWindow(-0.30, D.halfW, 1.25, 0.70, 1.92);
+    sideWindow(-2.60, D.halfW, 0.95, 0.60, 1.92);
+
+    // 车门（近侧，驾驶室后方）
+    b.group('shellNear').part('entryDoor', 'hot');
+    b.color([C.bodyCream[0] * 0.97, C.bodyCream[1] * 0.97, C.bodyCream[2] * 0.97]).material(0.6, 0.08);
+    b.push(); b.translate(1.62, 1.52, D.halfW + 0.02); b.roundedBox(0.86, 1.72, 0.06, 0.05, 3); b.pop();
+    b.color(C.bodyDirty).material(0.5, 0.2);
+    b.push(); b.translate(1.62, 1.52, D.halfW + 0.052); b.roundedBox(0.80, 1.66, 0.02, 0.04, 2); b.pop();
+    b.group('glass').color(C.glassBlue).material(0.06, 0.1);
+    b.push(); b.translate(1.62, 1.98, D.halfW + 0.062); b.roundedBox(0.62, 0.52, 0.02, 0.04, 3); b.pop();
+    b.group('shellNear');
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.translate(1.28, 1.50, D.halfW + 0.08); b.rotateY(PI / 2);
+    b.tube([[0, 0, 0], [0.06, 0, 0], [0.06, 0.16, 0], [0, 0.16, 0]], 0.012, 8); b.pop();
+    b.push(); b.translate(1.28, 1.34, D.halfW + 0.07); b.rotateX(PI / 2); b.cylinder(0.025, 0.025, 0.03, 10); b.pop();
+    b.endPart();
+    // 折叠踏步
+    b.part('doorStep', 'part').color(C.metalDark).material(0.6, 0.5);
+    b.push(); b.translate(1.62, 0.52, D.halfW + 0.20); b.roundedBox(0.72, 0.05, 0.30, 0.02, 2); b.pop();
+    b.push(); b.translate(1.62, 0.30, D.halfW + 0.26); b.roundedBox(0.72, 0.05, 0.30, 0.02, 2); b.pop();
+    for (const s of [-1, 1]) {
+      b.tube([[1.62 + s * 0.30, 0.66, D.halfW + 0.02], [1.62 + s * 0.32, 0.52, D.halfW + 0.20], [1.62 + s * 0.34, 0.30, D.halfW + 0.26]], 0.016, 6);
+    }
+    b.endPart();
+    // 行李舱门
+    ['shellNear', 'shellFar'].forEach((g, gi) => {
+      const s = gi === 0 ? 1 : -1;
+      b.group(g).part('bay' + gi, 'part');
+      b.color([C.bodyCream[0] * 0.93, C.bodyCream[1] * 0.93, C.bodyCream[2] * 0.93]).material(0.6, 0.1);
+      b.push(); b.translate(-0.65, 1.00, s * (D.halfW + 0.015)); b.roundedBox(1.30, 0.44, 0.04, 0.04, 2); b.pop();
+      b.color(C.chrome).material(0.3, 0.9);
+      b.push(); b.translate(-0.65, 1.00, s * (D.halfW + 0.05)); b.rotateX(PI / 2); b.cylinder(0.028, 0.028, 0.03, 10); b.pop();
+      b.endPart();
+    });
+    // 轮眉（环面片段）
+    for (const w of [[D.axleFront, 1], [D.axleFront, -1], [D.axleRear, 1], [D.axleRear, -1]]) {
+      b.group(w[1] > 0 ? 'shellNear' : 'shellFar').part('arch' + w[0].toFixed(1) + w[1], 'body');
+      b.color(C.bodyDirty).material(0.65, 0.05);
+      b.push(); b.translate(w[0], D.wheelR + 0.10, w[1] * (D.halfW - 0.02));
+      b.rotateX(PI / 2); b.rotateY(-PI / 2); b.rotateZ(0);
+      b.push(); b.rotateY(0); b.torus(0.62, 0.055, 22, 8, PI); b.pop();
+      b.pop();
+      b.endPart();
+    }
+    // 车身条纹（沿车身的两条棕色飘带）
+    b.part('stripes', 'body');
+    [[1.42, C.stripeBrown, 0.085], [1.24, C.stripeTan, 0.055], [1.08, C.stripeBrown, 0.035]].forEach((st, k) => {
+      b.color(st[1]).material(0.55, 0.05);
+      for (const s of [-1, 1]) {
+        b.group(s > 0 ? 'shellNear' : 'shellFar');
+        const path = MESH.spline([
+          [D.xRear + 0.02, st[0] + 0.30, s * (D.halfW + 0.006)],
+          [-2.2, st[0] + 0.16 + k * 0.02, s * (D.halfW + 0.014)],
+          [-0.2, st[0], s * (D.halfW + 0.016)],
+          [1.8, st[0] - 0.10, s * (D.halfW + 0.014)],
+          [3.2, st[0] + 0.06, s * (D.halfW + 0.010)],
+          [D.xNose - 0.10, st[0] + 0.30, s * (D.halfW - 0.06)]
+        ], 8);
+        b.tube(path, st[2] / 2, 5);
+      }
+    });
+    b.endPart();
+    // 后视镜
+    b.group('front').part('mirrors', 'part');
+    for (const s of [-1, 1]) {
+      b.color(C.metalDark).material(0.5, 0.5);
+      b.push();
+      b.tube([[D.xNose - 0.34, 1.78, s * 1.16], [D.xNose - 0.30, 1.86, s * 1.34], [D.xNose - 0.26, 1.80, s * 1.44]], 0.022, 8);
+      b.tube([[D.xNose - 0.34, 1.50, s * 1.16], [D.xNose - 0.28, 1.60, s * 1.40]], 0.020, 8);
+      b.pop();
+      b.push(); b.translate(D.xNose - 0.24, 1.72, s * 1.46); b.rotateY(s * 0.25);
+      b.color([0.18, 0.18, 0.19]).material(0.6, 0.2); b.roundedBox(0.06, 0.34, 0.20, 0.03, 3);
+      b.color(C.chrome).material(0.08, 1.0);
+      b.push(); b.translate(0.035, 0, 0); b.roundedBox(0.01, 0.29, 0.16, 0.01, 2); b.pop();
+      b.pop();
+    }
+    b.endPart();
+
+    /* ---------------- 车顶设备 ---------------- */
+    b.group('roof').part('roofAC', 'hot');
+    b.color([0.86, 0.85, 0.80]).material(0.55, 0.05);
+    b.push(); b.translate(-1.55, D.roofY + 0.10, 0); b.roundedBox(1.05, 0.26, 0.80, 0.10, 4); b.pop();
+    b.color([0.72, 0.71, 0.67]).material(0.6, 0.05);
+    for (let i = 0; i < 6; i++) {
+      b.push(); b.translate(-1.55 + (i - 2.5) * 0.14, D.roofY + 0.14, 0.40); b.rotateX(0.4);
+      b.roundedBox(0.10, 0.02, 0.06, 0.006, 2); b.pop();
+    }
+    b.endPart();
+    b.part('roofVents', 'part');
+    [[0.35, 0], [-3.0, 0.3]].forEach(v => {
+      b.color([0.80, 0.79, 0.75]).material(0.6, 0.05);
+      b.push(); b.translate(v[0], D.roofY + 0.03, v[1]); b.roundedBox(0.44, 0.10, 0.44, 0.03, 2); b.pop();
+      b.color([0.86, 0.88, 0.86]).material(0.35, 0.0);
+      b.push(); b.translate(v[0] - 0.02, D.roofY + 0.14, v[1]); b.rotateZ(-0.28); b.roundedBox(0.46, 0.03, 0.46, 0.02, 2); b.pop();
+    });
+    b.endPart();
+    b.part('roofPipes', 'part').color(C.metalMid).material(0.5, 0.6);
+    b.push(); b.translate(-2.4, D.roofY + 0.14, -0.55); b.cylinder(0.05, 0.045, 0.30, 12); b.pop();
+    b.push(); b.translate(-2.4, D.roofY + 0.30, -0.55); b.lathe([[0.06, 0], [0.075, 0.01], [0.075, 0.04], [0.02, 0.05]], 12); b.pop();
+    // 实验室排风管（从车内穿出）
+    b.color([0.55, 0.55, 0.52]).material(0.7, 0.3);
+    b.tube(MESH.spline([[-0.9, D.roofY - 0.02, -0.75], [-0.9, D.roofY + 0.16, -0.72], [-1.05, D.roofY + 0.30, -0.60], [-1.30, D.roofY + 0.34, -0.55]], 6), 0.055, 12, { caps: true });
+    b.endPart();
+    b.part('antenna', 'part').color(C.metalDark).material(0.4, 0.7);
+    b.push(); b.translate(2.6, D.roofY + 0.02, -0.85); b.cylinder(0.03, 0.02, 0.10, 8); b.pop();
+    b.push(); b.translate(2.6, D.roofY + 0.35, -0.85); b.rotateZ(0.12); b.cylinder(0.008, 0.005, 0.62, 6); b.pop();
+    b.push(); b.translate(2.68, D.roofY + 0.66, -0.85); b.sphere(0.018, 10, 6); b.pop();
+    b.endPart();
+    // 车顶脏污带（深色薄片）
+    b.part('roofGrime', 'body').color([0.62, 0.60, 0.55]).material(0.9, 0.0);
+    b.push(); b.translate(-0.4, D.roofY + 0.012, 0.55); b.plane(5.6, 0.5, 12, 2); b.pop();
+    b.push(); b.translate(0.6, D.roofY + 0.012, -0.62); b.plane(4.2, 0.4, 10, 2); b.pop();
+    b.endPart();
+
+    /* ================= 内部：驾驶室 ================= */
+    b.group('cab').part('driverSeat', 'hot');
+    b.push(); b.translate(2.92, D.floorY, 0.62); b.rotateY(-PI / 2 + 0.25); seat(b, rnd); b.pop();
+    b.endPart();
+    b.part('passengerSeat', 'part');
+    b.push(); b.translate(2.92, D.floorY, -0.62); b.rotateY(-PI / 2 - 0.25); seat(b, rnd); b.pop();
+    b.endPart();
+    b.part('dashboard', 'hot');
+    b.color([0.22, 0.20, 0.19]).material(0.7, 0.05);
+    b.push(); b.translate(D.xNose - 0.52, 1.36, 0);
+    b.push(); b.rotateZ(-0.06); b.roundedBox(0.42, 0.22, 2.10, 0.07, 3); b.pop();
+    b.push(); b.translate(-0.06, -0.22, 0); b.roundedBox(0.30, 0.30, 2.06, 0.05, 3); b.pop();
+    b.pop();
+    // 仪表盘
+    b.color([0.10, 0.10, 0.11]).material(0.5, 0.1);
+    b.push(); b.translate(D.xNose - 0.60, 1.50, 0.62); b.rotateZ(-0.25); b.roundedBox(0.24, 0.20, 0.46, 0.05, 3); b.pop();
+    b.color([0.70, 0.72, 0.68]).material(0.3, 0.1, 0.18);
+    for (let i = 0; i < 3; i++) {
+      b.push(); b.translate(D.xNose - 0.70, 1.53, 0.46 + i * 0.16); b.rotateZ(-PI / 2 - 0.25);
+      b.cylinder(0.055 - (i === 1 ? 0 : 0.015), 0.055 - (i === 1 ? 0 : 0.015), 0.01, 14); b.pop();
+    }
+    // 中控与收音机
+    b.color([0.15, 0.15, 0.16]).material(0.5, 0.2);
+    b.push(); b.translate(D.xNose - 0.62, 1.30, -0.02); b.rotateZ(-0.2); b.roundedBox(0.20, 0.16, 0.26, 0.02, 2); b.pop();
+    b.color([0.35, 0.55, 0.40]).material(0.3, 0.0, 0.4);
+    b.push(); b.translate(D.xNose - 0.70, 1.34, -0.02); b.rotateZ(-PI / 2 - 0.2); b.plane(0.14, 0.05, 1, 1); b.pop();
+    b.color([0.6, 0.6, 0.6]).material(0.4, 0.5);
+    for (let i = 0; i < 4; i++) {
+      b.push(); b.translate(D.xNose - 0.72, 1.24, -0.10 + i * 0.055); b.rotateZ(-PI / 2 - 0.2); b.cylinder(0.014, 0.014, 0.015, 8); b.pop();
+    }
+    b.endPart();
+    b.part('steeringWheel', 'hot');
+    b.color([0.12, 0.12, 0.13]).material(0.55, 0.1);
+    b.push(); b.translate(D.xNose - 0.78, 1.58, 0.62); b.rotateZ(0.38); b.rotateY(PI / 2);
+    b.push(); b.rotateX(PI / 2); b.torus(0.185, 0.020, 30, 10); b.pop();
+    for (let i = 0; i < 3; i++) {
+      const a = i * TAU / 3 + 0.4;
+      b.push(); b.rotateZ(a); b.translate(0.09, 0, 0); b.rotateZ(PI / 2); b.roundedBox(0.022, 0.19, 0.04, 0.008, 2); b.pop();
+    }
+    b.color([0.25, 0.25, 0.26]).material(0.5, 0.2);
+    b.cylinder(0.05, 0.045, 0.05, 14);
+    b.pop();
+    // 转向柱
+    b.color([0.18, 0.18, 0.19]).material(0.6, 0.2);
+    b.push(); b.translate(D.xNose - 0.62, 1.42, 0.62); b.rotateZ(-PI / 2 + 0.38); b.rotateY(PI / 2); b.cylinder(0.045, 0.05, 0.30, 12); b.pop();
+    b.endPart();
+    b.part('cabDetails', 'part');
+    // 变速杆
+    b.color([0.2, 0.2, 0.2]).material(0.5, 0.3);
+    b.push(); b.translate(D.xNose - 0.66, 1.20, 0.30); b.rotateZ(-0.35); b.cylinder(0.016, 0.014, 0.26, 8); b.pop();
+    b.color([0.10, 0.09, 0.09]);
+    b.push(); b.translate(D.xNose - 0.72, 1.34, 0.28); b.sphere(0.032, 12, 8); b.pop();
+    // 遮阳板 + 后视镜
+    b.color([0.55, 0.52, 0.46]).material(0.8, 0.0);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(D.xNose - 0.52, 2.30, s * 0.58); b.rotateZ(0.18); b.roundedBox(0.30, 0.02, 0.62, 0.01, 2); b.pop();
+    }
+    b.color([0.12, 0.12, 0.13]).material(0.5, 0.1);
+    b.push(); b.translate(D.xNose - 0.46, 2.24, 0); b.roundedBox(0.05, 0.10, 0.34, 0.02, 2); b.pop();
+    // 引擎盖（A 型房车驾驶室之间）
+    b.color([0.30, 0.29, 0.27]).material(0.7, 0.1);
+    b.push(); b.translate(3.06, 0.98, 0); b.roundedBox(0.9, 0.34, 0.72, 0.06, 3); b.pop();
+    // 踏板
+    b.color(C.metalDark).material(0.5, 0.4);
+    for (let i = 0; i < 2; i++) {
+      b.push(); b.translate(D.xNose - 0.66, 0.86, 0.50 + i * 0.18); b.rotateZ(-0.4); b.roundedBox(0.16, 0.02, 0.09, 0.01, 2); b.pop();
+    }
+    b.endPart();
+
+    /* ================= 内部：实验台（远侧）================= */
+    b.group('lab').part('labBench', 'part');
+    b.color(C.counterTop).material(0.5, 0.1);
+    b.push(); b.translate(-0.75, 1.62, -0.86); b.roundedBox(3.0, 0.06, 0.66, 0.02, 2); b.pop();
+    b.color([0.58, 0.54, 0.46]).material(0.6, 0.05);
+    b.push(); b.translate(-0.75, 1.14, -0.92); b.roundedBox(2.96, 0.90, 0.54, 0.03, 2); b.pop();
+    b.push(); b.translate(-0.75, 1.16, -0.62);
+    cabinetDoors(b, 2.9, 0.86, 0.04, 4, [0.50, 0.42, 0.33]);
+    b.pop();
+    b.endPart();
+
+    // 加热套 + 圆底烧瓶 + 支架 + 冷凝管 + 管路
+    b.part('heatingMantle', 'hot');
+    b.color([0.24, 0.24, 0.26]).material(0.6, 0.2);
+    b.push(); b.translate(-0.10, 1.65, -0.86);
+    b.lathe([[0, 0], [0.155, 0.005], [0.16, 0.03], [0.16, 0.11], [0.125, 0.13], [0.10, 0.10], [0.10, 0.02], [0, 0.015]], 22);
+    b.color([0.75, 0.32, 0.18]).material(0.4, 0.0, 0.35);
+    b.push(); b.translate(0, 0.105, 0); b.cylinder(0.098, 0.098, 0.004, 20); b.pop();
+    b.color([0.30, 0.30, 0.32]).material(0.5, 0.3);
+    b.push(); b.translate(0.13, 0.05, 0.10); b.rotateX(PI / 2); b.cylinder(0.026, 0.026, 0.02, 12); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('roundFlask', 'hot');
+    b.push(); b.translate(-0.10, 1.78, -0.86); flask(b, 0.145); b.pop();
+    b.endPart();
+    b.part('labStand', 'part');
+    b.color(C.metalDark).material(0.45, 0.6);
+    b.push(); b.translate(-0.42, 1.66, -0.86); b.roundedBox(0.20, 0.02, 0.30, 0.01, 2); b.pop();
+    b.push(); b.translate(-0.42, 2.06, -0.86); b.cylinder(0.014, 0.014, 0.80, 10); b.pop();
+    // 夹具
+    for (const yy of [1.92, 2.22]) {
+      b.color(C.metalMid).material(0.4, 0.7);
+      b.push(); b.translate(-0.42, yy, -0.86); b.rotateY(0.2);
+      b.roundedBox(0.035, 0.03, 0.16, 0.008, 2);
+      b.push(); b.translate(0, 0, 0.12); b.rotateX(PI / 2); b.torus(0.045, 0.010, 14, 6, PI * 1.2); b.pop();
+      b.pop();
+      b.push(); b.translate(-0.40, yy, -0.86); b.rotateZ(PI / 2); b.cylinder(0.010, 0.010, 0.05, 8); b.pop();
+    }
+    b.endPart();
+    b.part('condenser', 'hot');
+    b.push(); b.translate(-0.24, 2.06, -0.80); b.rotateZ(0.30); condenser(b, 0.62); b.pop();
+    b.endPart();
+    b.part('labTubing', 'part');
+    b.color([0.85, 0.86, 0.84]).material(0.35, 0.0);
+    // 烧瓶 -> 冷凝管
+    b.tube(MESH.spline([[-0.10, 2.16, -0.86], [-0.14, 2.30, -0.84], [-0.20, 2.34, -0.80], [-0.29, 2.30, -0.76]], 7), 0.014, 8);
+    // 冷凝管 -> 接收瓶
+    b.tube(MESH.spline([[-0.13, 1.80, -0.72], [-0.02, 1.76, -0.70], [0.10, 1.72, -0.74], [0.18, 1.70, -0.80]], 7), 0.014, 8);
+    // 冷却水循环 -> 桶
+    b.color([0.30, 0.42, 0.72]).material(0.4, 0.0);
+    b.tube(MESH.spline([[-0.36, 2.24, -0.74], [-0.60, 2.10, -0.66], [-0.90, 1.80, -0.60], [-1.05, 1.40, -0.66], [-1.05, 1.05, -0.72]], 8), 0.013, 8);
+    b.tube(MESH.spline([[-0.16, 1.90, -0.70], [-0.50, 1.86, -0.55], [-0.95, 1.60, -0.52], [-1.10, 1.20, -0.60]], 8), 0.013, 8);
+    // 排风软管 -> 车顶
+    b.color([0.62, 0.62, 0.58]).material(0.75, 0.1);
+    b.tube(MESH.spline([[-0.10, 2.30, -0.90], [-0.35, 2.44, -0.92], [-0.65, 2.52, -0.86], [-0.90, 2.56, -0.78]], 8), 0.052, 12);
+    b.endPart();
+    b.part('glassware', 'part');
+    b.push(); b.translate(0.20, 1.65, -0.82); erlenmeyer(b, 0.085, 0.20); b.pop();
+    b.push(); b.translate(0.46, 1.65, -0.90); beaker(b, 0.068, 0.13); b.pop();
+    b.push(); b.translate(0.62, 1.65, -0.78); beaker(b, 0.052, 0.10); b.pop();
+    // 量筒
+    b.group('glass').color(C.glassLab).material(0.07, 0);
+    b.push(); b.translate(0.80, 1.65, -0.88);
+    b.lathe([[0, 0], [0.06, 0.004], [0.06, 0.02], [0.028, 0.03], [0.028, 0.30], [0.034, 0.31], [0.026, 0.315]], 18);
+    b.pop();
+    b.group('lab');
+    // 温度计
+    b.color([0.88, 0.92, 0.94]).material(0.1, 0.0);
+    b.push(); b.translate(-0.02, 2.02, -0.82); b.rotateZ(0.12); b.cylinder(0.008, 0.008, 0.34, 8); b.pop();
+    b.color([0.85, 0.15, 0.10]).material(0.2, 0.0);
+    b.push(); b.translate(-0.04, 1.86, -0.82); b.sphere(0.013, 10, 6); b.pop();
+    b.endPart();
+    b.part('burner', 'part');
+    b.color([0.35, 0.35, 0.37]).material(0.5, 0.5);
+    b.push(); b.translate(-0.62, 1.65, -0.78);
+    b.lathe([[0, 0], [0.075, 0.004], [0.075, 0.02], [0.022, 0.04], [0.022, 0.20], [0.030, 0.21]], 16);
+    b.color(C.flameBlue).material(0.1, 0.0, 1.6);
+    b.push(); b.translate(0, 0.23, 0); b.lathe([[0.022, 0], [0.016, 0.05], [0.006, 0.11], [0, 0.14]], 12); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('crystalTray', 'hot');
+    b.color([0.70, 0.72, 0.74]).material(0.35, 0.7);
+    b.push(); b.translate(-1.30, 1.66, -0.84); b.roundedBox(0.44, 0.035, 0.30, 0.012, 2); b.pop();
+    for (let i = 0; i < 26; i++) {
+      const x = -1.30 + (rnd() - 0.5) * 0.36, z = -0.84 + (rnd() - 0.5) * 0.22;
+      const s = 0.018 + rnd() * 0.030;
+      b.color(jitter(C.crystalBlue, 0.10, rnd)).material(0.12, 0.0, 0.06);
+      b.push(); b.translate(x, 1.69 + s * 0.4, z); b.rotateY(rnd() * TAU); b.rotateX(rnd() * 0.6); b.rotateZ(rnd() * 0.6);
+      b.scale(s, s * (0.7 + rnd() * 0.9), s * (0.6 + rnd() * 0.8));
+      b.lathe([[0, -1], [0.8, -0.2], [0.9, 0.3], [0.35, 0.85], [0, 1]], 5);
+      b.pop();
+    }
+    b.endPart();
+    b.part('hotplate', 'part');
+    b.color([0.82, 0.82, 0.80]).material(0.4, 0.3);
+    b.push(); b.translate(-0.92, 1.68, -0.86); b.roundedBox(0.28, 0.07, 0.26, 0.02, 2); b.pop();
+    b.color([0.20, 0.20, 0.20]).material(0.5, 0.2);
+    b.push(); b.translate(-0.92, 1.72, -0.88); b.cylinder(0.095, 0.095, 0.012, 18); b.pop();
+    b.color([0.85, 0.30, 0.20]).material(0.3, 0.0, 0.5);
+    b.push(); b.translate(-1.03, 1.70, -0.74); b.rotateX(PI / 2); b.cylinder(0.014, 0.014, 0.012, 10); b.pop();
+    b.endPart();
+
+    /* ================= 内部：厨房区（近侧）================= */
+    b.group('lab').part('kitchen', 'part');
+    b.color(C.counterTop).material(0.5, 0.1);
+    b.push(); b.translate(0.30, 1.62, 0.88); b.roundedBox(1.60, 0.06, 0.62, 0.02, 2); b.pop();
+    b.color([0.52, 0.44, 0.34]).material(0.6, 0.05);
+    b.push(); b.translate(0.30, 1.14, 0.94); b.roundedBox(1.56, 0.90, 0.50, 0.03, 2); b.pop();
+    b.push(); b.translate(0.30, 1.16, 0.64); b.rotateY(PI);
+    cabinetDoors(b, 1.5, 0.86, 0.04, 2, [0.46, 0.38, 0.29]);
+    b.pop();
+    // 水槽 + 龙头
+    b.color([0.75, 0.76, 0.78]).material(0.3, 0.85);
+    b.push(); b.translate(-0.10, 1.60, 0.88);
+    b.lathe([[0.19, 0.04], [0.19, 0.0], [0.17, -0.10], [0.06, -0.13], [0, -0.13]], 18);
+    b.pop();
+    b.push(); b.translate(-0.10, 1.66, 1.06); b.cylinder(0.020, 0.018, 0.14, 10);
+    b.tube(MESH.spline([[0, 0.07, 0], [0, 0.13, -0.02], [0, 0.15, -0.10], [0, 0.12, -0.16]], 6), 0.016, 8);
+    b.pop();
+    // 灶台
+    b.color([0.18, 0.18, 0.19]).material(0.45, 0.3);
+    b.push(); b.translate(0.72, 1.66, 0.88); b.roundedBox(0.52, 0.03, 0.46, 0.01, 2); b.pop();
+    b.color(C.metalDark).material(0.5, 0.6);
+    for (const p of [[0.60, 0.78], [0.60, 0.98], [0.86, 0.88]]) {
+      b.push(); b.translate(p[0], 1.685, p[1]); b.rotateX(PI / 2); b.torus(0.055, 0.007, 16, 6); b.pop();
+      b.push(); b.translate(p[0], 1.675, p[1]); b.cylinder(0.030, 0.024, 0.014, 12); b.pop();
+    }
+    b.endPart();
+    b.part('fridge', 'hot');
+    b.color([0.78, 0.76, 0.70]).material(0.5, 0.1);
+    b.push(); b.translate(1.30, 1.28, 0.86); b.roundedBox(0.62, 1.12, 0.60, 0.05, 3); b.pop();
+    b.color([0.70, 0.68, 0.62]).material(0.55, 0.1);
+    b.push(); b.translate(1.30, 1.02, 0.56); b.roundedBox(0.58, 0.56, 0.03, 0.02, 2); b.pop();
+    b.push(); b.translate(1.30, 1.48, 0.56); b.roundedBox(0.58, 0.32, 0.03, 0.02, 2); b.pop();
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.translate(1.05, 1.02, 0.54); b.rotateX(PI / 2); b.cylinder(0.014, 0.014, 0.24, 8); b.pop();
+    b.endPart();
+    b.part('upperCabinets', 'part');
+    b.color([0.48, 0.40, 0.31]).material(0.6, 0.05);
+    b.push(); b.translate(0.30, 2.18, 1.02); b.roundedBox(1.70, 0.52, 0.36, 0.04, 3); b.pop();
+    b.push(); b.translate(0.30, 2.18, 0.84); b.rotateY(PI); cabinetDoors(b, 1.64, 0.48, 0.04, 3, [0.44, 0.36, 0.28]); b.pop();
+    b.push(); b.translate(-1.60, 2.18, -1.00); b.roundedBox(1.30, 0.52, 0.34, 0.04, 3); b.pop();
+    b.push(); b.translate(-1.60, 2.18, -0.83); cabinetDoors(b, 1.24, 0.48, 0.04, 2, [0.44, 0.36, 0.28]); b.pop();
+    b.endPart();
+
+    /* ================= 内部：餐桌区 ================= */
+    b.group('lab').part('dinette', 'hot');
+    b.color([0.55, 0.44, 0.32]).material(0.5, 0.05);
+    b.push(); b.translate(-2.30, 1.42, 0.62); b.roundedBox(0.82, 0.05, 1.05, 0.03, 3); b.pop();
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.translate(-2.30, 1.06, 0.62); b.cylinder(0.045, 0.045, 0.66, 12); b.pop();
+    b.push(); b.translate(-2.30, 0.78, 0.62); b.lathe([[0, 0], [0.22, 0.006], [0.22, 0.02], [0.05, 0.03]], 16); b.pop();
+    // 长椅
+    for (const s of [-1, 1]) {
+      b.color(jitter(C.cushionTan, 0.05, rnd)).material(0.85, 0.0);
+      b.push(); b.translate(-2.30 + s * 0.62, 1.06, 0.66); b.roundedBox(0.42, 0.14, 1.06, 0.05, 3); b.pop();
+      b.push(); b.translate(-2.30 + s * 0.82, 1.44, 0.66); b.rotateZ(s * 0.06); b.roundedBox(0.13, 0.62, 1.02, 0.05, 3); b.pop();
+      b.color([0.42, 0.34, 0.26]).material(0.7, 0.0);
+      b.push(); b.translate(-2.30 + s * 0.62, 0.88, 0.66); b.roundedBox(0.44, 0.28, 1.02, 0.02, 2); b.pop();
+    }
+    b.endPart();
+
+    /* ================= 内部：桶、防护、杂物 ================= */
+    b.group('props').part('barrelBlue1', 'hot');
+    b.push(); b.translate(-3.30, D.floorY + 0.02, -0.60); barrel(b, 0.28, 0.86, C.barrelBlue, rnd); b.pop();
+    b.endPart();
+    b.part('barrelBlue2', 'part');
+    b.push(); b.translate(-3.28, D.floorY + 0.02, 0.02); b.rotateY(0.6); barrel(b, 0.26, 0.80, [0.16, 0.34, 0.55], rnd); b.pop();
+    b.endPart();
+    b.part('barrelWhite', 'part');
+    b.push(); b.translate(-2.62, D.floorY + 0.02, -0.72); b.rotateY(1.2); barrel(b, 0.24, 0.70, [0.78, 0.78, 0.74], rnd); b.pop();
+    b.endPart();
+    b.part('jugs', 'part');
+    b.push(); b.translate(-1.85, 1.68, -0.90); jug(b, 0.28, [0.86, 0.86, 0.82]); b.pop();
+    b.push(); b.translate(-2.05, 1.68, -0.84); jug(b, 0.24, [0.80, 0.74, 0.30]); b.pop();
+    b.push(); b.translate(-3.62, D.floorY + 0.02, 0.62); b.rotateY(0.4); jug(b, 0.34, [0.30, 0.55, 0.35]); b.pop();
+    b.endPart();
+    b.part('bucket', 'part');
+    b.color([0.55, 0.56, 0.58]).material(0.5, 0.2);
+    b.push(); b.translate(-1.15, D.floorY + 0.02, -0.78);
+    b.lathe([[0, 0], [0.14, 0.004], [0.145, 0.02], [0.175, 0.26], [0.185, 0.275], [0.170, 0.28]], 20);
+    b.color(C.metalMid).material(0.35, 0.8);
+    b.push(); b.translate(0, 0.28, 0); b.rotateX(PI / 2); b.torus(0.175, 0.008, 20, 6); b.pop();
+    b.push(); b.rotateY(PI / 2);
+    b.tube(MESH.spline([[0, 0.27, -0.17], [0, 0.44, -0.10], [0, 0.48, 0], [0, 0.44, 0.10], [0, 0.27, 0.17]], 6), 0.007, 6);
+    b.pop();
+    b.color([0.30, 0.45, 0.60]).material(0.2, 0.0, 0.05);
+    b.push(); b.translate(0, 0.20, 0); b.cylinder(0.163, 0.163, 0.005, 20); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('gasMask', 'hot');
+    b.push(); b.translate(-2.05, 2.02, 1.06); b.rotateY(-0.5); b.rotateZ(-0.25); gasMask(b); b.pop();
+    b.color(C.metalMid).material(0.4, 0.7);
+    b.push(); b.translate(-2.05, 2.24, 1.14); b.rotateZ(PI / 2); b.cylinder(0.012, 0.012, 0.06, 8); b.pop();
+    b.endPart();
+    b.part('extinguisher', 'hot');
+    b.push(); b.translate(1.02, D.floorY + 0.02, -1.00); extinguisher(b); b.pop();
+    b.color(C.metalDark).material(0.6, 0.4);
+    b.push(); b.translate(1.02, 1.10, -1.10); b.roundedBox(0.10, 0.03, 0.10, 0.01, 2); b.pop();
+    b.endPart();
+    b.part('hazmatSuit', 'part');
+    b.color([0.86, 0.86, 0.80]).material(0.7, 0.0);
+    b.push(); b.translate(-3.10, 1.20, 1.02); b.rotateY(-0.3);
+    b.lathe([[0.20, 0], [0.24, 0.30], [0.22, 0.68], [0.14, 0.90], [0.10, 0.98]], 16);
+    b.push(); b.translate(0, 0.72, 0); b.rotateZ(0.7); b.cylinder(0.055, 0.045, 0.44, 10); b.pop();
+    b.push(); b.translate(0, 0.72, 0); b.rotateZ(-0.7); b.cylinder(0.055, 0.045, 0.44, 10); b.pop();
+    b.color(C.metalMid).material(0.4, 0.7);
+    b.push(); b.translate(0, 1.02, 0); b.rotateZ(PI / 2); b.cylinder(0.010, 0.010, 0.30, 8); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('duffel', 'part');
+    b.color([0.30, 0.28, 0.24]).material(0.85, 0.0);
+    b.push(); b.translate(-2.90, D.floorY + 0.16, 0.72); b.rotateY(0.5); b.scale(1, 0.72, 0.62);
+    const dv = b.vertexCount();
+    b.sphere(0.34, 18, 12);
+    b.distortLast(b.vertexCount() - dv, 0.03, 6, 2.2);
+    b.pop();
+    b.color([0.20, 0.19, 0.17]);
+    b.push(); b.translate(-2.90, D.floorY + 0.34, 0.72); b.rotateY(0.5); b.rotateX(PI / 2); b.torus(0.10, 0.014, 14, 6); b.pop();
+    b.endPart();
+    b.part('hoseCoil', 'part');
+    b.color([0.20, 0.22, 0.24]).material(0.7, 0.0);
+    b.push(); b.translate(-3.55, D.floorY + 0.06, -1.05); b.rotateX(PI / 2);
+    b.torus(0.20, 0.022, 24, 8); b.pop();
+    b.push(); b.translate(-3.55, D.floorY + 0.11, -1.05); b.rotateX(PI / 2);
+    b.torus(0.17, 0.022, 24, 8); b.pop();
+    b.endPart();
+    b.part('foldChair', 'part');
+    b.color(C.metalMid).material(0.5, 0.6);
+    b.push(); b.translate(-1.62, D.floorY, 0.86); b.rotateY(-0.8);
+    for (const s of [-1, 1]) {
+      b.tube([[s * 0.16, 0.02, -0.16], [s * 0.16, 0.44, -0.14], [s * 0.15, 0.46, 0.10]], 0.014, 6);
+      b.tube([[s * 0.16, 0.02, 0.16], [s * 0.16, 0.46, 0.12], [s * 0.15, 0.82, 0.06]], 0.014, 6);
+    }
+    b.color([0.30, 0.32, 0.36]).material(0.8, 0.0);
+    b.push(); b.translate(0, 0.46, 0); b.roundedBox(0.34, 0.03, 0.32, 0.01, 2); b.pop();
+    b.push(); b.translate(0, 0.70, 0.06); b.rotateX(0.2); b.roundedBox(0.32, 0.24, 0.03, 0.01, 2); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('battery', 'part');
+    b.color([0.16, 0.18, 0.20]).material(0.6, 0.1);
+    b.push(); b.translate(0.62, D.floorY + 0.12, -1.02); b.roundedBox(0.34, 0.22, 0.20, 0.02, 2); b.pop();
+    b.color([0.75, 0.60, 0.30]).material(0.3, 0.85);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(0.62 + s * 0.10, D.floorY + 0.25, -1.02); b.cylinder(0.022, 0.018, 0.05, 10); b.pop();
+    }
+    b.endPart();
+
+    /* ================= 内部：顶灯与线管 ================= */
+    b.group('interior').part('ceilingLamp', 'part');
+    b.color([0.88, 0.86, 0.80]).material(0.4, 0.0);
+    b.push(); b.translate(-1.10, 2.42, 0.30);
+    b.lathe([[0.19, 0.02], [0.19, 0], [0.14, -0.07], [0.06, -0.09], [0, -0.09]], 20);
+    b.color(C.lampWarm).material(0.2, 0.0, 2.4);
+    b.push(); b.translate(0, -0.05, 0); b.sphere(0.09, 16, 10); b.pop();
+    b.pop();
+    b.push(); b.translate(1.60, 2.42, -0.40);
+    b.color([0.88, 0.86, 0.80]).material(0.4, 0.0);
+    b.lathe([[0.14, 0.02], [0.14, 0], [0.10, -0.05], [0, -0.06]], 16);
+    b.color(C.lampWarm).material(0.2, 0.0, 1.6);
+    b.push(); b.translate(0, -0.04, 0); b.sphere(0.06, 14, 8); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('conduits', 'part').color([0.60, 0.58, 0.54]).material(0.7, 0.1);
+    b.tube(MESH.spline([[3.0, 2.46, -1.06], [1.0, 2.50, -1.08], [-1.0, 2.50, -1.06], [-3.2, 2.46, -1.02]], 6), 0.020, 8);
+    b.tube(MESH.spline([[-0.9, 2.48, -1.04], [-1.0, 2.30, -1.10], [-1.05, 2.10, -1.08]], 5), 0.016, 6);
+    b.endPart();
+    b.part('smokeDetector', 'part').color([0.86, 0.85, 0.82]).material(0.5, 0.0);
+    b.push(); b.translate(0.9, 2.44, 0.55); b.lathe([[0.075, 0], [0.075, -0.02], [0.05, -0.03], [0, -0.03]], 14); b.pop();
+    b.endPart();
+
+    /* ================= 追加细节 A：电气、通风、覆膜 ================= */
+    b.group('interior').part('electricPanel', 'part');
+    b.color([0.86, 0.85, 0.82]).material(0.5, 0.05);
+    b.push(); b.translate(2.05, 1.92, -1.06); b.roundedBox(0.34, 0.44, 0.10, 0.02, 2); b.pop();
+    b.color([0.20, 0.20, 0.22]).material(0.5, 0.1);
+    for (let i = 0; i < 6; i++) {
+      b.push(); b.translate(1.95 + (i % 3) * 0.10, 1.98 + Math.floor(i / 3) * 0.14, -1.00);
+      b.roundedBox(0.06, 0.10, 0.04, 0.01, 2); b.pop();
+    }
+    b.color([0.85, 0.30, 0.20]).material(0.3, 0, 0.5);
+    b.push(); b.translate(2.16, 2.10, -1.00); b.cylinder(0.012, 0.012, 0.02, 8); b.pop();
+    b.endPart();
+    b.part('ventFan', 'part');
+    b.color([0.80, 0.79, 0.76]).material(0.5, 0.05);
+    b.push(); b.translate(0.35, 2.42, 0); b.rotateX(PI); b.lathe([[0.20, 0], [0.21, 0.03], [0.19, 0.06], [0, 0.06]], 18); b.pop();
+    b.color([0.55, 0.55, 0.52]).material(0.5, 0.3);
+    for (let i = 0; i < 5; i++) {
+      b.push(); b.translate(0.35, 2.40, 0); b.rotateY(i * TAU / 5); b.translate(0.09, 0, 0); b.rotateX(0.5);
+      b.roundedBox(0.14, 0.012, 0.07, 0.006, 2); b.pop();
+    }
+    b.endPart();
+    b.part('lampCord', 'part').color([0.20, 0.20, 0.20]).material(0.7, 0.0);
+    b.tube(MESH.spline([[-1.10, 2.50, 0.30], [-1.02, 2.42, 0.34], [-0.95, 2.30, 0.30]], 5), 0.006, 5);
+    b.endPart();
+    b.part('sheeting', 'part').color([0.80, 0.82, 0.80]).material(0.35, 0.0);
+    b.push(); b.translate(-2.55, 2.05, -1.10); b.rotateX(PI / 2);
+    const sv = b.vertexCount();
+    b.plane(1.5, 0.9, 10, 6, [0, 1, 0]);
+    b.distortLast(b.vertexCount() - sv, 0.05, 7, 4.2);
+    b.pop();
+    b.endPart();
+    b.group('lab').part('funnel', 'part');
+    b.color(C.glassLab).material(0.08, 0.0);
+    b.push(); b.translate(0.62, 1.78, -0.92); b.rotateZ(0.1);
+    b.lathe([[0, 0], [0.012, 0.005], [0.012, 0.10], [0.075, 0.20], [0.078, 0.205], [0.070, 0.205]], 18);
+    b.pop();
+    b.endPart();
+    b.part('scale', 'part');
+    b.color([0.86, 0.86, 0.84]).material(0.4, 0.1);
+    b.push(); b.translate(-1.62, 1.68, -0.86); b.roundedBox(0.26, 0.06, 0.22, 0.015, 2); b.pop();
+    b.color([0.70, 0.72, 0.74]).material(0.25, 0.8);
+    b.push(); b.translate(-1.62, 1.72, -0.88); b.cylinder(0.085, 0.085, 0.008, 20); b.pop();
+    b.color([0.25, 0.45, 0.30]).material(0.3, 0.0, 0.45);
+    b.push(); b.translate(-1.62, 1.71, -0.75); b.rotateX(-1.1); b.plane(0.10, 0.04, 1, 1); b.pop();
+    b.endPart();
+
+    /* ================= 追加细节：滴水槽、窗帘、货架、杂物 ================= */
+    // 车顶滴水槽（两侧长条圆管，提升边缘精度）
+    b.group('roof').part('dripRails', 'body').color(C.bodyDirty).material(0.5, 0.25);
+    for (const s of [-1, 1]) {
+      const path = [];
+      for (let i = 0; i <= 30; i++) {
+        const t = i / 30, x = D.xRear + (D.xFront + 0.3 - D.xRear) * t;
+        const shrink = 1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 2) * 0.035;
+        path.push([x, D.wallTop + 0.10, s * (D.halfW - 0.10) * shrink]);
+      }
+      b.tube(path, 0.028, 8);
+    }
+    b.endPart();
+    // 侧裙防擦条
+    b.part('rubRails', 'body').color([0.36, 0.30, 0.24]).material(0.6, 0.1);
+    for (const s of [-1, 1]) {
+      b.group(s > 0 ? 'shellNear' : 'shellFar');
+      const path = [];
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24, x = D.xRear + 0.05 + (D.xFront - D.xRear - 0.1) * t;
+        path.push([x, 0.92, s * (D.halfW + 0.02)]);
+      }
+      b.tube(path, 0.030, 6);
+    }
+    b.endPart();
+    // 泥挡板
+    b.group('chassis').part('mudFlaps', 'part').color([0.14, 0.14, 0.15]).material(0.85, 0.0);
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(D.axleRear - 0.66, 0.30, s * 1.02); b.rotateZ(0.08);
+      b.roundedBox(0.03, 0.44, 0.42, 0.02, 2); b.pop();
+    }
+    b.endPart();
+    // 外接电源口 / 加油口
+    b.group('shellNear').part('hookups', 'part');
+    b.color(C.metalDark).material(0.5, 0.4);
+    b.push(); b.translate(2.05, 1.06, D.halfW + 0.02); b.rotateY(PI / 2); b.cylinder(0.075, 0.075, 0.05, 16); b.pop();
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.translate(2.05, 1.06, D.halfW + 0.05); b.rotateY(PI / 2); b.lathe([[0.06, 0], [0.075, 0.008], [0.07, 0.02], [0, 0.022]], 16); b.pop();
+    b.color([0.30, 0.30, 0.32]).material(0.6, 0.3);
+    b.push(); b.translate(-1.05, 1.10, D.halfW + 0.02); b.roundedBox(0.34, 0.30, 0.03, 0.03, 2); b.pop();
+    b.endPart();
+
+    // 车内窗帘（褶皱用旋成体近似）
+    b.group('interior').part('curtains', 'part').color([0.52, 0.44, 0.36]).material(0.9, 0.0);
+    const curtain = (x, z, w, h) => {
+      const s = Math.sign(z);
+      for (let i = 0; i < 7; i++) {
+        const zz = -w / 2 + w * (i + 0.5) / 7;
+        b.push(); b.translate(x + zz, h, z - s * 0.055); b.rotateX(PI);
+        b.lathe([[0.028, 0], [0.036, 0.12], [0.030, 0.30], [0.034, 0.46], [0.026, 0.58]], 7);
+        b.pop();
+      }
+      b.color(C.metalMid).material(0.4, 0.7);
+      b.push(); b.translate(x, h + 0.02, z - s * 0.055); b.rotateY(PI / 2); b.cylinder(0.010, 0.010, w + 0.10, 8); b.pop();
+      b.color([0.52, 0.44, 0.36]).material(0.9, 0.0);
+    };
+    curtain(0.55, -D.halfW, 1.45, 2.30);
+    curtain(-1.35, -D.halfW, 1.00, 2.30);
+    curtain(-0.30, D.halfW, 1.20, 2.30);
+    b.endPart();
+
+    // 后部货架 + 试剂瓶阵列
+    b.group('lab').part('shelf', 'part').color([0.46, 0.38, 0.30]).material(0.6, 0.05);
+    b.push(); b.translate(-3.05, 1.86, -0.98); b.roundedBox(1.30, 0.04, 0.34, 0.015, 2); b.pop();
+    b.push(); b.translate(-3.05, 2.20, -0.98); b.roundedBox(1.30, 0.04, 0.34, 0.015, 2); b.pop();
+    for (const s of [-1, 1]) {
+      b.push(); b.translate(-3.05 + s * 0.64, 2.03, -0.98); b.roundedBox(0.03, 0.40, 0.32, 0.01, 2); b.pop();
+    }
+    b.endPart();
+    b.part('reagents', 'part');
+    for (let i = 0; i < 9; i++) {
+      const x = -3.60 + i * 0.135, y = i < 5 ? 1.88 : 2.22, xx = i < 5 ? x : -3.55 + (i - 5) * 0.16;
+      const cols = [[0.82, 0.78, 0.62], [0.30, 0.48, 0.34], [0.74, 0.72, 0.68], [0.52, 0.30, 0.22], [0.30, 0.42, 0.60]];
+      b.color(jitter(cols[i % 5], 0.06, rnd)).material(0.35, 0.0);
+      b.push(); b.translate(xx, y, -0.98 + (rnd() - 0.5) * 0.12);
+      const hh = 0.14 + rnd() * 0.10;
+      b.lathe([[0, 0], [0.040, 0.004], [0.042, 0.02], [0.040, hh * 0.78], [0.020, hh * 0.9], [0.020, hh], [0.026, hh + 0.012]], 14);
+      b.pop();
+    }
+    b.endPart();
+    // 纸巾卷、马克杯、笔记本、工具箱、储物筐
+    b.part('smallProps', 'part');
+    b.color([0.90, 0.89, 0.86]).material(0.7, 0.0);
+    b.push(); b.translate(0.95, 1.72, 0.94); b.rotateZ(PI / 2); b.lathe([[0.022, -0.11], [0.055, -0.10], [0.055, 0.10], [0.022, 0.11]], 16); b.pop();
+    b.color([0.78, 0.76, 0.70]).material(0.4, 0.05);
+    b.push(); b.translate(-1.95, 1.66, 0.62);
+    b.lathe([[0, 0], [0.042, 0.004], [0.044, 0.02], [0.042, 0.09], [0.046, 0.095], [0.038, 0.098]], 16);
+    b.push(); b.translate(0.055, 0.05, 0); b.rotateY(PI / 2); b.torus(0.030, 0.008, 14, 6, PI * 1.1); b.pop();
+    b.pop();
+    b.color([0.80, 0.78, 0.72]).material(0.8, 0.0);
+    b.push(); b.translate(-2.55, 1.45, 0.42); b.rotateY(0.3); b.roundedBox(0.24, 0.02, 0.32, 0.006, 2); b.pop();
+    b.color([0.20, 0.22, 0.26]).material(0.5, 0.1);
+    b.push(); b.translate(-2.52, 1.47, 0.40); b.rotateY(0.3); b.rotateZ(0.1); b.cylinder(0.006, 0.005, 0.14, 8); b.pop();
+    b.color([0.70, 0.20, 0.12]).material(0.45, 0.15);
+    b.push(); b.translate(0.30, D.floorY + 0.11, -1.02); b.roundedBox(0.42, 0.20, 0.24, 0.03, 3); b.pop();
+    b.color(C.chrome).material(0.3, 0.9);
+    b.push(); b.translate(0.30, D.floorY + 0.23, -1.02); b.rotateY(PI / 2); b.tube([[0, 0, -0.06], [0, 0.03, 0], [0, 0, 0.06]], 0.008, 6); b.pop();
+    b.color([0.32, 0.34, 0.38]).material(0.6, 0.05);
+    b.push(); b.translate(-1.55, D.floorY + 0.13, -1.02);
+    for (let i = 0; i < 8; i++) {
+      b.push(); b.translate(0, -0.13 + i * 0.035, 0); b.rotateX(PI / 2); b.torus(0.19, 0.010, 4, 4); b.pop();
+    }
+    b.pop();
+    b.endPart();
+    // 拖把与扫帚
+    b.part('mop', 'part').color([0.62, 0.52, 0.36]).material(0.8, 0.0);
+    b.push(); b.translate(-3.72, D.floorY, 1.02); b.rotateZ(0.14); b.rotateX(-0.1);
+    b.cylinder(0.016, 0.014, 1.30, 8, { center: false });
+    b.color([0.75, 0.72, 0.62]).material(0.9, 0.0);
+    b.push(); b.translate(0, 0.06, 0); b.lathe([[0.02, 0], [0.09, 0.02], [0.075, 0.16], [0.02, 0.18]], 12); b.pop();
+    b.pop();
+    b.endPart();
+
+    /* ================= 追加细节 B：生活道具与车外装备 ================= */
+    b.group('lab').part('coffeeMaker', 'part');
+    b.color([0.18, 0.18, 0.20]).material(0.5, 0.1);
+    b.push(); b.translate(-0.35, 1.65, 1.02); b.roundedBox(0.20, 0.30, 0.22, 0.03, 3); b.pop();
+    b.color(C.glassLab).material(0.1, 0.0);
+    b.push(); b.translate(-0.35, 1.70, 0.90); b.lathe([[0, 0], [0.055, 0.004], [0.058, 0.10], [0.05, 0.12]], 16); b.pop();
+    b.color([0.35, 0.20, 0.10]).material(0.25, 0.0);
+    b.push(); b.translate(-0.35, 1.72, 0.90); b.cylinder(0.05, 0.05, 0.05, 16); b.pop();
+    b.endPart();
+    b.part('tvSet', 'part');
+    b.color([0.22, 0.22, 0.24]).material(0.5, 0.1);
+    b.push(); b.translate(-2.55, 2.02, 1.02); b.rotateY(-0.35); b.roundedBox(0.36, 0.30, 0.30, 0.03, 3);
+    b.color([0.12, 0.14, 0.16]).material(0.2, 0.1, 0.12);
+    b.push(); b.translate(-0.19, 0.01, 0); b.rotateY(PI / 2); b.roundedBox(0.24, 0.22, 0.02, 0.02, 2); b.pop();
+    b.color(C.metalMid).material(0.4, 0.7);
+    b.push(); b.translate(0.05, 0.17, 0.06); b.rotateZ(0.5); b.cylinder(0.005, 0.003, 0.30, 6); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('wallClock', 'part');
+    b.color([0.85, 0.83, 0.78]).material(0.5, 0.0);
+    b.push(); b.translate(-1.95, 2.24, -1.08); b.rotateX(-PI / 2);
+    b.lathe([[0, 0], [0.085, 0.004], [0.09, 0.02], [0.075, 0.03]], 20);
+    b.color([0.2, 0.2, 0.2]).material(0.4, 0.1);
+    b.push(); b.translate(0, 0.032, 0); b.rotateZ(0.4); b.roundedBox(0.055, 0.004, 0.006, 0.002, 1); b.pop();
+    b.push(); b.translate(0, 0.032, 0); b.rotateZ(-1.1); b.roundedBox(0.038, 0.004, 0.006, 0.002, 1); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('towel', 'part').color([0.70, 0.62, 0.50]).material(0.9, 0.0);
+    b.push(); b.translate(0.95, 1.42, 0.62); b.rotateX(PI / 2); b.rotateZ(0.06);
+    const tv2 = b.vertexCount();
+    b.plane(0.26, 0.40, 5, 6, [0, 1, 0]);
+    b.distortLast(b.vertexCount() - tv2, 0.03, 14, 5.1);
+    b.pop();
+    b.endPart();
+    b.part('spiceRack', 'part');
+    b.color([0.44, 0.36, 0.28]).material(0.6, 0.05);
+    b.push(); b.translate(1.05, 1.98, 1.08); b.roundedBox(0.40, 0.03, 0.14, 0.01, 2); b.pop();
+    for (let i = 0; i < 6; i++) {
+      b.color(jitter([0.62, 0.50, 0.32], 0.22, rnd)).material(0.4, 0.0);
+      b.push(); b.translate(0.90 + i * 0.06, 2.03, 1.06);
+      b.lathe([[0, 0], [0.019, 0.003], [0.020, 0.055], [0.012, 0.065], [0.012, 0.078]], 12); b.pop();
+    }
+    b.endPart();
+    b.part('floorMat', 'part').color([0.28, 0.26, 0.24]).material(0.9, 0.0);
+    b.push(); b.translate(1.62, D.floorY + 0.02, 0.72); b.roundedBox(0.70, 0.02, 0.52, 0.04, 2); b.pop();
+    b.endPart();
+    // 车外：折叠椅、油桶、铁锹、路锥
+    b.group('props').part('campChair', 'part');
+    b.color([0.40, 0.42, 0.46]).material(0.5, 0.5);
+    b.push(); b.translate(2.2, 0, D.halfW + 0.55); b.rotateY(-0.4); b.rotateZ(-0.10);
+    for (const s of [-1, 1]) {
+      b.tube([[s * 0.20, 0.02, -0.18], [s * 0.20, 0.50, -0.14], [s * 0.19, 0.92, -0.06]], 0.016, 6);
+      b.tube([[s * 0.20, 0.02, 0.20], [s * 0.20, 0.48, 0.10]], 0.016, 6);
+    }
+    b.color([0.24, 0.34, 0.42]).material(0.85, 0.0);
+    b.push(); b.translate(0, 0.50, 0.0); b.roundedBox(0.42, 0.03, 0.36, 0.01, 2); b.pop();
+    b.push(); b.translate(0, 0.76, -0.10); b.rotateX(0.25); b.roundedBox(0.40, 0.34, 0.03, 0.01, 2); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('jerryCan', 'part');
+    b.color([0.32, 0.38, 0.28]).material(0.55, 0.1);
+    b.push(); b.translate(-3.2, 0.18, D.halfW + 0.45); b.rotateY(0.3); b.roundedBox(0.36, 0.36, 0.16, 0.03, 3);
+    b.color([0.26, 0.30, 0.22]).material(0.6, 0.1);
+    b.push(); b.translate(0, 0.20, 0); b.rotateX(PI / 2); b.torus(0.07, 0.014, 12, 6, PI); b.pop();
+    b.color(C.metalDark).material(0.5, 0.4);
+    b.push(); b.translate(0.10, 0.19, 0); b.cylinder(0.032, 0.03, 0.04, 10); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('shovel', 'part');
+    b.color([0.55, 0.44, 0.30]).material(0.85, 0.0);
+    b.push(); b.translate(-2.4, 0.02, D.halfW + 0.30); b.rotateZ(1.15); b.rotateY(0.4);
+    b.cylinder(0.018, 0.016, 1.05, 8, { center: false });
+    b.color(C.metalMid).material(0.45, 0.7);
+    b.push(); b.translate(0, -0.02, 0); b.rotateX(PI); b.lathe([[0.02, 0], [0.11, 0.06], [0.10, 0.22], [0.03, 0.26]], 8); b.pop();
+    b.pop();
+    b.endPart();
+    b.part('cones', 'part');
+    for (let i = 0; i < 2; i++) {
+      b.color([0.85, 0.32, 0.10]).material(0.6, 0.0);
+      b.push(); b.translate(3.6 + i * 0.9, 0.0, D.halfW + 0.9 - i * 0.5);
+      b.lathe([[0.18, 0], [0.19, 0.03], [0.10, 0.10], [0.045, 0.36], [0.03, 0.40]], 14);
+      b.color([0.92, 0.92, 0.90]).material(0.6, 0.0);
+      b.push(); b.translate(0, 0.22, 0); b.cylinder(0.062, 0.055, 0.06, 14, { caps: false }); b.pop();
+      b.pop();
+    }
+    b.endPart();
+
+    const geo = b.build();
+    geo.meta = {
+      title: '沃尔特的房车 · Fleetwood Bounder（致敬《绝命毒师》）',
+      dims: { length: D.xNose - (D.xRear - 0.10), width: D.halfW * 2, height: D.roofY + 0.36 },
+      groups: Object.keys(geo.groupRanges)
+    };
+    return geo;
+  }
+
+  /* ------------------------- 热点标签（中文名） ------------------------- */
+  const LABELS = {
+    roundFlask: '圆底烧瓶（反应容器）',
+    condenser: '蛇形冷凝管',
+    heatingMantle: '加热套 / 电热包',
+    crystalTray: '结晶托盘（剧集标志道具）',
+    barrelBlue1: '化学原料桶',
+    gasMask: '防毒面具',
+    extinguisher: '灭火器',
+    driverSeat: '驾驶座',
+    steeringWheel: '方向盘',
+    dashboard: '仪表台',
+    dinette: '餐桌与长椅',
+    fridge: '冰箱',
+    roofAC: '顶置空调',
+    rearLadder: '车尾爬梯',
+    entryDoor: '侧门与折叠踏步',
+    headlights: '前大灯',
+    wheel1: '前轮（含胎面花纹）'
+  };
+
+  return { build, LABELS, D, C };
+});
+
+/* ===== render.js ===== */
+/* ============================================================================
+ * render.js —— WebGL2 渲染器：方向光阴影贴图 + 半球环境光 + 室内点光 + 透明玻璃
+ *   分组可见性用于"剖切视图"；支持线框、昼夜、投影取点（HTML 标签层）
+ * ==========================================================================*/
+(function (root, factory) {
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  if (root) root.RENDER = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  /* ------------------------------ 矩阵 ------------------------------ */
+  const M4 = {
+    ident: () => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    mul(a, b) {
+      const o = new Float32Array(16);
+      for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+        let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+        o[c * 4 + r] = s;
+      } return o;
+    },
+    persp(f, a, n, fa) {
+      const t = 1 / Math.tan(f / 2), nf = 1 / (n - fa);
+      return new Float32Array([t / a, 0, 0, 0, 0, t, 0, 0, 0, 0, (fa + n) * nf, -1, 0, 0, 2 * fa * n * nf, 0]);
+    },
+    ortho(l, r, b, t, n, f) {
+      return new Float32Array([2 / (r - l), 0, 0, 0, 0, 2 / (t - b), 0, 0, 0, 0, -2 / (f - n), 0,
+        -(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1]);
+    },
+    look(e, c, u) {
+      const z = nrm(sub(e, c)), x = nrm(crs(u, z)), y = crs(z, x);
+      return new Float32Array([x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0,
+        -dot(x, e), -dot(y, e), -dot(z, e), 1]);
+    },
+    inv(m) {
+      const a = m, o = new Float32Array(16);
+      const b00 = a[0] * a[5] - a[1] * a[4], b01 = a[0] * a[6] - a[2] * a[4], b02 = a[0] * a[7] - a[3] * a[4];
+      const b03 = a[1] * a[6] - a[2] * a[5], b04 = a[1] * a[7] - a[3] * a[5], b05 = a[2] * a[7] - a[3] * a[6];
+      const b06 = a[8] * a[13] - a[9] * a[12], b07 = a[8] * a[14] - a[10] * a[12], b08 = a[8] * a[15] - a[11] * a[12];
+      const b09 = a[9] * a[14] - a[10] * a[13], b10 = a[9] * a[15] - a[11] * a[13], b11 = a[10] * a[15] - a[11] * a[14];
+      let d = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+      if (!d) return M4.ident(); d = 1 / d;
+      o[0] = (a[5] * b11 - a[6] * b10 + a[7] * b09) * d; o[1] = (a[2] * b10 - a[1] * b11 - a[3] * b09) * d;
+      o[2] = (a[13] * b05 - a[14] * b04 + a[15] * b03) * d; o[3] = (a[10] * b04 - a[9] * b05 - a[11] * b03) * d;
+      o[4] = (a[6] * b08 - a[4] * b11 - a[7] * b07) * d; o[5] = (a[0] * b11 - a[2] * b08 + a[3] * b07) * d;
+      o[6] = (a[14] * b02 - a[12] * b05 - a[15] * b01) * d; o[7] = (a[8] * b05 - a[10] * b02 + a[11] * b01) * d;
+      o[8] = (a[4] * b10 - a[5] * b08 + a[7] * b06) * d; o[9] = (a[1] * b08 - a[0] * b10 - a[3] * b06) * d;
+      o[10] = (a[12] * b04 - a[13] * b02 + a[15] * b00) * d; o[11] = (a[9] * b02 - a[8] * b04 - a[11] * b00) * d;
+      o[12] = (a[5] * b07 - a[4] * b09 - a[6] * b06) * d; o[13] = (a[0] * b09 - a[1] * b07 + a[2] * b06) * d;
+      o[14] = (a[13] * b01 - a[12] * b03 - a[14] * b00) * d; o[15] = (a[8] * b03 - a[9] * b01 + a[10] * b00) * d;
+      return o;
+    }
+  };
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const nrm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+  /* ------------------------------ 着色器 ------------------------------ */
+  const VS = `#version 300 es
+  precision highp float;
+  in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in vec3 a_mat;
+  uniform mat4 u_vp; uniform mat4 u_lightVP;
+  out vec3 v_pos; out vec3 v_nrm; out vec3 v_col; out vec3 v_mat; out vec4 v_lpos;
+  void main() {
+    v_pos = a_pos; v_nrm = a_nrm; v_col = a_col; v_mat = a_mat;
+    v_lpos = u_lightVP * vec4(a_pos, 1.0);
+    gl_Position = u_vp * vec4(a_pos, 1.0);
+  }`;
+  const FS = `#version 300 es
+  precision highp float;
+  in vec3 v_pos; in vec3 v_nrm; in vec3 v_col; in vec3 v_mat; in vec4 v_lpos;
+  uniform vec3 u_eye, u_sunDir, u_sunCol, u_skyCol, u_gndCol, u_fogCol, u_dustCol;
+  uniform float u_ambient, u_alpha, u_dust, u_fogDens, u_night, u_flat;
+  uniform vec3 u_pl0, u_pl1, u_plCol; uniform float u_plPow;
+  uniform sampler2D u_shadow; uniform float u_shadowTexel, u_shadowOn;
+  out vec4 o_col;
+
+  float shadowFactor() {
+    if (u_shadowOn < 0.5) return 1.0;
+    vec3 p = v_lpos.xyz / v_lpos.w;
+    p = p * 0.5 + 0.5;
+    if (p.x < 0.002 || p.x > 0.998 || p.y < 0.002 || p.y > 0.998 || p.z > 1.0) return 1.0;
+    float ndl = max(dot(normalize(v_nrm), u_sunDir), 0.0);
+    float bias = max(0.0016 * (1.0 - ndl), 0.00035);
+    float sum = 0.0;
+    for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) {
+      float d = texture(u_shadow, p.xy + vec2(float(i), float(j)) * u_shadowTexel).r;
+      sum += (p.z - bias > d) ? 0.0 : 1.0;
+    }
+    return sum / 9.0;
+  }
+  vec3 pointLight(vec3 lp, vec3 N, vec3 V, vec3 albedo, float rough) {
+    vec3 d = lp - v_pos; float dist = length(d);
+    vec3 L = d / max(dist, 0.001);
+    float att = u_plPow / (0.35 + dist * dist * 0.55);
+    float ndl = max(dot(N, L), 0.0);
+    vec3 H = normalize(L + V);
+    float sp = pow(max(dot(N, H), 0.0), mix(10.0, 160.0, 1.0 - rough)) * 0.35;
+    return (albedo * ndl + vec3(sp)) * u_plCol * att;
+  }
+  void main() {
+    vec3 N = normalize(v_nrm);
+    vec3 V = normalize(u_eye - v_pos);
+    if (dot(N, V) < 0.0 && u_alpha < 0.99) N = -N;      // 玻璃双面
+    vec3 albedo = v_col;
+    float rough = clamp(v_mat.x, 0.03, 1.0), metal = clamp(v_mat.y, 0.0, 1.0), emis = v_mat.z;
+    // 落尘：朝上且靠近地面的表面积灰
+    float dust = clamp(0.55 - v_pos.y * 0.22, 0.0, 0.45) * max(0.0, N.y) * u_dust;
+    albedo = mix(albedo, u_dustCol, dust);
+    float sh = shadowFactor();
+    float ndl = max(dot(N, u_sunDir), 0.0);
+    vec3 amb = mix(u_gndCol, u_skyCol, N.y * 0.5 + 0.5) * u_ambient;
+    vec3 col = albedo * amb;
+    col += albedo * u_sunCol * ndl * sh;
+    vec3 H = normalize(u_sunDir + V);
+    float spec = pow(max(dot(N, H), 0.0), mix(10.0, 240.0, 1.0 - rough));
+    col += u_sunCol * spec * (0.05 + metal * 0.95) * sh;
+    col += pointLight(u_pl0, N, V, albedo, rough);
+    col += pointLight(u_pl1, N, V, albedo, rough);
+    col += albedo * emis * (1.0 + u_night * 1.6) + vec3(emis * 0.25);
+    // 边缘光（让曲面轮廓更清晰）
+    float fres = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+    col += mix(u_skyCol, u_plCol, u_night) * fres * 0.35;
+    float d = length(u_eye - v_pos);
+    col = mix(col, u_fogCol, clamp((d - 12.0) * u_fogDens, 0.0, 0.85));
+    if (u_flat > 0.5) col = albedo * (0.35 + 0.65 * ndl);
+    col = pow(max(col, vec3(0.0)), vec3(0.86));           // 轻度提亮
+    o_col = vec4(col, u_alpha);
+  }`;
+  const VS_DEPTH = `#version 300 es
+  precision highp float;
+  in vec3 a_pos; uniform mat4 u_lightVP;
+  void main() { gl_Position = u_lightVP * vec4(a_pos, 1.0); }`;
+  const FS_DEPTH = `#version 300 es
+  precision highp float;
+  out vec4 o; void main() { o = vec4(1.0); }`;
+  const VS_SKY = `#version 300 es
+  precision highp float;
+  in vec2 a_p; out vec2 v_uv;
+  void main() { v_uv = a_p * 0.5 + 0.5; gl_Position = vec4(a_p, 0.0, 1.0); }`;
+  const FS_SKY = `#version 300 es
+  precision highp float;
+  in vec2 v_uv; out vec4 o;
+  uniform vec3 u_top, u_bot, u_sunCol; uniform vec2 u_sunUV; uniform float u_night, u_aspect;
+  void main() {
+    vec3 c = mix(u_bot, u_top, pow(clamp(v_uv.y, 0.0, 1.0), 0.85));
+    vec2 d = (v_uv - u_sunUV) * vec2(u_aspect, 1.0);
+    float r = length(d);
+    c += u_sunCol * exp(-r * 9.0) * (1.0 - u_night * 0.75);
+    c += u_sunCol * exp(-r * 2.2) * 0.18 * (1.0 - u_night * 0.8);
+    // 夜空星点
+    if (u_night > 0.4) {
+      float s = fract(sin(dot(floor(v_uv * 420.0), vec2(12.9898, 78.233))) * 43758.5453);
+      c += vec3(step(0.9985, s)) * (u_night - 0.4) * 1.6;
+    }
+    o = vec4(c, 1.0);
+  }`;
+
+  function sh(gl, t, src) {
+    const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + '\n' + src);
+    return s;
+  }
+  function prog(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl, gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl, gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
+
+  /* ------------------------------ 渲染器 ------------------------------ */
+  function createRenderer(canvas, geo) {
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+    if (!gl) throw new Error('需要支持 WebGL2 的浏览器');
+    const pMain = prog(gl, VS, FS), pDepth = prog(gl, VS_DEPTH, FS_DEPTH), pSky = prog(gl, VS_SKY, FS_SKY);
+
+    // 顶点缓冲
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const mk = (data, name, n, program) => {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const l = gl.getAttribLocation(program, name);
+      if (l >= 0) { gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, n, gl.FLOAT, false, 0, 0); }
+      return b;
+    };
+    const bufPos = mk(geo.pos, 'a_pos', 3, pMain);
+    mk(geo.nrm, 'a_nrm', 3, pMain); mk(geo.col, 'a_col', 3, pMain); mk(geo.mat, 'a_mat', 3, pMain);
+    gl.bindVertexArray(null);
+    // 深度通道 VAO
+    const vaoD = gl.createVertexArray();
+    gl.bindVertexArray(vaoD);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufPos);
+    const ld = gl.getAttribLocation(pDepth, 'a_pos');
+    gl.enableVertexAttribArray(ld); gl.vertexAttribPointer(ld, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    // 天空 VAO
+    const vaoS = gl.createVertexArray();
+    gl.bindVertexArray(vaoS);
+    const bs = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bs);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const lsp = gl.getAttribLocation(pSky, 'a_p');
+    gl.enableVertexAttribArray(lsp); gl.vertexAttribPointer(lsp, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    // 阴影贴图
+    const SM = 2048;
+    const shadowTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, SM, SM, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const shadowFB = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFB);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, shadowTex, 0);
+    const shadowOK = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    /* 分组绘制顺序：不透明 -> 玻璃 */
+    const GROUPS = Object.keys(geo.groupRanges);
+    const visible = {};
+    GROUPS.forEach(g => visible[g] = true);
+    const isGlass = g => g === 'glass';
+
+    const cam = { yaw: 0.85, pitch: 0.30, dist: 15.5, tx: 0, ty: 1.5, tz: 0, fov: 0.72 };
+    const opt = { night: 0, dust: 1, wire: 0, flat: 0, shadows: shadowOK, labels: true };
+    let W = 1, H = 1, vp = M4.ident(), ivp = M4.ident(), eye = [0, 3, 15], lightVP = M4.ident();
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = canvas.clientWidth || 960, h = canvas.clientHeight || 600;
+      W = Math.max(1, Math.round(w * dpr)); H = Math.max(1, Math.round(h * dpr));
+      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    }
+    function updateCam() {
+      const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+      const ctr = [cam.tx, cam.ty, cam.tz];
+      eye = [ctr[0] + Math.sin(cam.yaw) * cp * cam.dist, ctr[1] + sp * cam.dist, ctr[2] + Math.cos(cam.yaw) * cp * cam.dist];
+      vp = M4.mul(M4.persp(cam.fov, W / H, 0.05, 160), M4.look(eye, ctr, [0, 1, 0]));
+      ivp = M4.inv(vp);
+    }
+    function sunDir() {
+      const t = opt.night;
+      const el = 0.95 - t * 0.75, az = 0.9 + t * 0.8;
+      return nrm([Math.cos(az) * Math.cos(el * 1.2), Math.max(0.12, Math.sin(el)), Math.sin(az) * Math.cos(el * 1.2)]);
+    }
+    function updateLight() {
+      const L = sunDir(), R = 9.5;
+      const target = [0, 1.4, 0];
+      const lp = [target[0] + L[0] * 22, target[1] + L[1] * 22, target[2] + L[2] * 22];
+      lightVP = M4.mul(M4.ortho(-R, R, -R, R, 1, 46), M4.look(lp, target, [0, 1, 0]));
+    }
+
+    function drawGeometry(program, glassPass) {
+      GROUPS.forEach(g => {
+        if (!visible[g]) return;
+        if (glassPass !== isGlass(g)) return;
+        const r = geo.groupRanges[g];
+        gl.drawArrays(opt.wire ? gl.LINES : gl.TRIANGLES, r.start, r.count);
+      });
+      void program;
+    }
+
+    function draw(nowMs) {
+      resize(); updateCam(); updateLight();
+      const night = opt.night;
+      const sunCol = [1.0 - night * 0.75, 0.94 - night * 0.72, 0.82 - night * 0.62];
+      const skyCol = [0.55 - night * 0.48, 0.68 - night * 0.58, 0.92 - night * 0.72];
+      const gndCol = [0.42 - night * 0.36, 0.36 - night * 0.30, 0.28 - night * 0.22];
+      const fogCol = [0.72 - night * 0.66, 0.76 - night * 0.68, 0.86 - night * 0.74];
+
+      // ---- 阴影通道
+      if (opt.shadows) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFB);
+        gl.viewport(0, 0, SM, SM);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+        gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+        gl.useProgram(pDepth);
+        gl.uniformMatrix4fv(gl.getUniformLocation(pDepth, 'u_lightVP'), false, lightVP);
+        gl.bindVertexArray(vaoD);
+        GROUPS.forEach(g => {
+          if (!visible[g] || isGlass(g)) return;
+          const r = geo.groupRanges[g];
+          gl.drawArrays(gl.TRIANGLES, r.start, r.count);
+        });
+        gl.bindVertexArray(null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
+
+      // ---- 天空
+      gl.viewport(0, 0, W, H);
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+      gl.useProgram(pSky);
+      const L = sunDir();
+      // 把太阳方向投影到屏幕，得到光斑位置
+      const far = [eye[0] + L[0] * 60, eye[1] + L[1] * 60, eye[2] + L[2] * 60];
+      const o = new Float32Array(4);
+      for (let i = 0; i < 4; i++) o[i] = vp[i] * far[0] + vp[4 + i] * far[1] + vp[8 + i] * far[2] + vp[12 + i];
+      const sunUV = o[3] > 0 ? [o[0] / o[3] * 0.5 + 0.5, o[1] / o[3] * 0.5 + 0.5] : [0.5, 1.4];
+      gl.uniform3f(gl.getUniformLocation(pSky, 'u_top'), skyCol[0] * 0.85, skyCol[1] * 0.9, skyCol[2]);
+      gl.uniform3f(gl.getUniformLocation(pSky, 'u_bot'), 0.86 - night * 0.78, 0.78 - night * 0.70, 0.66 - night * 0.56);
+      gl.uniform3f(gl.getUniformLocation(pSky, 'u_sunCol'), sunCol[0], sunCol[1] * 0.9, sunCol[2] * 0.7);
+      gl.uniform2f(gl.getUniformLocation(pSky, 'u_sunUV'), sunUV[0], sunUV[1]);
+      gl.uniform1f(gl.getUniformLocation(pSky, 'u_night'), night);
+      gl.uniform1f(gl.getUniformLocation(pSky, 'u_aspect'), W / H);
+      gl.bindVertexArray(vaoS);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindVertexArray(null);
+
+      // ---- 主通道
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+      gl.disable(gl.CULL_FACE);
+      gl.useProgram(pMain);
+      const U = n => gl.getUniformLocation(pMain, n);
+      gl.uniformMatrix4fv(U('u_vp'), false, vp);
+      gl.uniformMatrix4fv(U('u_lightVP'), false, lightVP);
+      gl.uniform3f(U('u_eye'), eye[0], eye[1], eye[2]);
+      gl.uniform3f(U('u_sunDir'), L[0], L[1], L[2]);
+      gl.uniform3f(U('u_sunCol'), sunCol[0] * 1.15, sunCol[1] * 1.08, sunCol[2] * 0.95);
+      gl.uniform3f(U('u_skyCol'), skyCol[0], skyCol[1], skyCol[2]);
+      gl.uniform3f(U('u_gndCol'), gndCol[0], gndCol[1], gndCol[2]);
+      gl.uniform3f(U('u_fogCol'), fogCol[0], fogCol[1], fogCol[2]);
+      gl.uniform3f(U('u_dustCol'), 0.60, 0.54, 0.42);
+      gl.uniform1f(U('u_ambient'), 0.55 - night * 0.34);
+      gl.uniform1f(U('u_dust'), opt.dust);
+      gl.uniform1f(U('u_fogDens'), 0.010);
+      gl.uniform1f(U('u_night'), night);
+      gl.uniform1f(U('u_flat'), opt.flat);
+      gl.uniform3f(U('u_pl0'), -1.10, 2.30, 0.30);
+      gl.uniform3f(U('u_pl1'), 1.60, 2.32, -0.40);
+      gl.uniform3f(U('u_plCol'), 1.0, 0.82, 0.56);
+      gl.uniform1f(U('u_plPow'), 0.55 + night * 1.5);
+      gl.uniform1f(U('u_shadowTexel'), 1 / SM);
+      gl.uniform1f(U('u_shadowOn'), opt.shadows ? 1 : 0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+      gl.uniform1i(U('u_shadow'), 0);
+      gl.bindVertexArray(vao);
+      gl.uniform1f(U('u_alpha'), 1.0);
+      drawGeometry(pMain, false);
+      // 玻璃（后绘制、混合、不写深度）
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.uniform1f(U('u_alpha'), 0.42);
+      drawGeometry(pMain, true);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+      gl.bindVertexArray(null);
+      void nowMs;
+    }
+
+    /* 世界坐标 -> 屏幕像素 */
+    function project(p) {
+      const o = new Float32Array(4);
+      for (let i = 0; i < 4; i++) o[i] = vp[i] * p[0] + vp[4 + i] * p[1] + vp[8 + i] * p[2] + vp[12 + i];
+      if (o[3] <= 0) return null;
+      return [(o[0] / o[3] * 0.5 + 0.5) * (canvas.clientWidth || 1),
+        (1 - (o[1] / o[3] * 0.5 + 0.5)) * (canvas.clientHeight || 1), o[3]];
+    }
+    /* 屏幕射线（用于点选部件） */
+    function pickPart(px, py) {
+      const x = (px / (canvas.clientWidth || 1)) * 2 - 1, y = 1 - (py / (canvas.clientHeight || 1)) * 2;
+      const un = z => {
+        const v = [x, y, z, 1], o = new Float32Array(4);
+        for (let i = 0; i < 4; i++) o[i] = ivp[i] * v[0] + ivp[4 + i] * v[1] + ivp[8 + i] * v[2] + ivp[12 + i] * v[3];
+        return [o[0] / o[3], o[1] / o[3], o[2] / o[3]];
+      };
+      const a = un(-1), d = nrm(sub(un(1), a));
+      // 精确的三角形级射线求交（Möller–Trumbore），只遍历可见分组
+      const pos = geo.pos, triPart = geo.triPart;
+      let bestT = Infinity, bestTri = -1;
+      for (const g of GROUPS) {
+        if (!visible[g] || isGlass(g)) continue;        // 透明玻璃不参与拾取（可穿窗点选）
+        const r = geo.groupRanges[g];
+        const t0i = r.start / 3, t1i = (r.start + r.count) / 3;
+        for (let t = t0i; t < t1i; t++) {
+          const o = t * 9;
+          const ax = pos[o], ay = pos[o + 1], az = pos[o + 2];
+          const e1x = pos[o + 3] - ax, e1y = pos[o + 4] - ay, e1z = pos[o + 5] - az;
+          const e2x = pos[o + 6] - ax, e2y = pos[o + 7] - ay, e2z = pos[o + 8] - az;
+          const px = d[1] * e2z - d[2] * e2y, py = d[2] * e2x - d[0] * e2z, pz = d[0] * e2y - d[1] * e2x;
+          const det = e1x * px + e1y * py + e1z * pz;
+          if (det > -1e-9 && det < 1e-9) continue;
+          const inv = 1 / det;
+          const tvx = a[0] - ax, tvy = a[1] - ay, tvz = a[2] - az;
+          const u = (tvx * px + tvy * py + tvz * pz) * inv;
+          if (u < -1e-5 || u > 1.00001) continue;
+          const qx = tvy * e1z - tvz * e1y, qy = tvz * e1x - tvx * e1z, qz = tvx * e1y - tvy * e1x;
+          const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
+          if (v < -1e-5 || u + v > 1.00001) continue;
+          const tt = (e2x * qx + e2y * qy + e2z * qz) * inv;
+          if (tt > 0.01 && tt < bestT) { bestT = tt; bestTri = t; }
+        }
+      }
+      if (bestTri < 0) return null;
+      const pi = triPart[bestTri];
+      return pi >= 0 ? geo.parts[pi] : null;
+    }
+
+    return {
+      gl, cam, opt, visible, groups: GROUPS, geo, draw, resize, project, pickPart,
+      shadowOK, sunDir,
+      setVisible(g, v) { if (g in visible) visible[g] = v; },
+      size: () => [canvas.clientWidth, canvas.clientHeight],
+      eyePos: () => eye.slice()
+    };
+  }
+
+  return { createRenderer, M4 };
+});
+
+/* ===== app.js ===== */
+/* ============================================================================
+ * app.js —— 交互：轨道相机 / 视角预设与补间 / 剖切 / 标签 / 部件点选 / 昼夜
+ * ==========================================================================*/
+(function () {
+  'use strict';
+  const RVM = window.RVMODEL, R = window.RENDER;
+  const $ = id => document.getElementById(id);
+  const canvas = $('view');
+
+  /* ---------------------------- 构建几何 ---------------------------- */
+  let geo, rd;
+  try {
+    const t0 = performance.now();
+    geo = RVM.build();
+    rd = R.createRenderer(canvas, geo);
+    console.log('build ms', (performance.now() - t0).toFixed(0));
+  } catch (e) {
+    document.body.innerHTML = '<div class="fatal">初始化失败：' + e.message + '</div>';
+    return;
+  }
+
+  const S = {
+    cutaway: false, autoRotate: true, labels: true, tween: null,
+    hovered: null, selected: null, fps: 0, frames: 0, lastT: performance.now()
+  };
+  const HOT = geo.parts.filter(p => RVM.LABELS[p.name]);
+  const partCenter = p => [(p.bbox[0] + p.bbox[3]) / 2, (p.bbox[1] + p.bbox[4]) / 2, (p.bbox[2] + p.bbox[5]) / 2];
+  const partSize = p => [p.bbox[3] - p.bbox[0], p.bbox[4] - p.bbox[1], p.bbox[5] - p.bbox[2]];
+
+  /* ---------------------------- 视角预设 ---------------------------- */
+  const VIEWS = {
+    outside: { name: '整车外观', cam: { yaw: 0.95, pitch: 0.24, dist: 15.0, tx: 0, ty: 1.5, tz: 0, fov: 0.72 }, cut: false },
+    cutaway: { name: '剖切透视', cam: { yaw: 1.05, pitch: 0.38, dist: 12.0, tx: -0.2, ty: 1.6, tz: 0, fov: 0.72 }, cut: true },
+    lab: { name: '实验台特写', cam: { yaw: 1.85, pitch: 0.16, dist: 2.6, tx: -0.35, ty: 1.86, tz: -0.35, fov: 0.85 }, cut: true },
+    cab: { name: '驾驶室', cam: { yaw: 1.15, pitch: 0.10, dist: 3.1, tx: 2.85, ty: 1.62, tz: 0.15, fov: 0.9 }, cut: true },
+    rear: { name: '车尾与桶区', cam: { yaw: 4.05, pitch: 0.22, dist: 4.6, tx: -2.9, ty: 1.5, tz: 0.1, fov: 0.8 }, cut: true },
+    top: { name: '车顶俯视', cam: { yaw: 0.6, pitch: 1.16, dist: 12.5, tx: -0.3, ty: 1.6, tz: 0, fov: 0.72 }, cut: false },
+    front: { name: '车头正面', cam: { yaw: 1.57, pitch: 0.12, dist: 9.0, tx: 1.2, ty: 1.5, tz: 0, fov: 0.7 }, cut: false },
+    wheel: { name: '底盘与车轮', cam: { yaw: 0.75, pitch: -0.06, dist: 4.4, tx: 2.2, ty: 0.55, tz: 0.4, fov: 0.8 }, cut: false }
+  };
+  function applyCutaway(on) {
+    S.cutaway = on;
+    rd.setVisible('shellNear', !on);
+    rd.setVisible('roof', !on);
+    $('btnCut').classList.toggle('on', on);
+    // 剖切时隐藏近侧玻璃会更通透：用分组细粒度控制
+    renderGroupList();
+  }
+  function tweenTo(target, cut, ms) {
+    if (cut !== undefined) applyCutaway(cut);
+    const from = Object.assign({}, rd.cam);
+    // 角度取最近路径
+    let dy = target.yaw - from.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    S.tween = { from, to: Object.assign({}, target, { yaw: from.yaw + dy }), t0: performance.now(), dur: ms || 850 };
+  }
+  function focusPart(p, extra) {
+    const c = partCenter(p), s = partSize(p);
+    const d = Math.max(0.9, Math.hypot(s[0], s[1], s[2]) * (extra || 2.1));
+    const inside = c[0] > -4.1 && c[0] < 4.1 && c[1] > 0.7 && c[1] < 2.7 && Math.abs(c[2]) < 1.3;
+    // 车内部件从"被剖开的右侧"看进去，保证视线不被家具挡住
+    tweenTo({ yaw: inside ? 0.18 : 0.95, pitch: inside ? 0.22 : 0.28, dist: d, tx: c[0], ty: c[1], tz: c[2], fov: 0.85 },
+      inside ? true : S.cutaway);
+    S.selected = p;
+    renderInfo(p);
+  }
+
+  /* ---------------------------- 面板渲染 ---------------------------- */
+  const GROUP_CN = {
+    ground: '环境地面', chassis: '底盘与车轮', shellNear: '右侧车身（可剖切）', shellFar: '左侧车身',
+    roof: '车顶设备（可剖切）', front: '车头', rear: '车尾', glass: '玻璃',
+    interior: '车厢内壁与顶灯', lab: '实验台与厨房', cab: '驾驶室', props: '桶与杂物', default: '其它'
+  };
+  function renderGroupList() {
+    const box = $('groups');
+    box.innerHTML = rd.groups.map(g => {
+      const tris = geo.groupRanges[g].count / 3;
+      return `<label class="grp${rd.visible[g] ? ' on' : ''}"><input type="checkbox" data-g="${g}" ${rd.visible[g] ? 'checked' : ''}>
+        <span class="gn">${GROUP_CN[g] || g}</span><span class="gt">${(tris / 1000).toFixed(1)}k</span></label>`;
+    }).join('');
+    box.querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => {
+      rd.setVisible(inp.dataset.g, inp.checked);
+      inp.parentElement.classList.toggle('on', inp.checked);
+    }));
+  }
+  function renderPartList() {
+    const byGroup = {};
+    geo.parts.forEach(p => { (byGroup[p.group] = byGroup[p.group] || []).push(p); });
+    $('parts').innerHTML = Object.keys(byGroup).map(g => {
+      const items = byGroup[g].sort((a, b) => b.tris - a.tris).map(p =>
+        `<div class="pi${RVM.LABELS[p.name] ? ' hot' : ''}" data-p="${p.name}">
+           <span class="pn">${RVM.LABELS[p.name] || p.name}</span><span class="pt">${p.tris}</span></div>`).join('');
+      return `<div class="pg"><div class="pgh">${GROUP_CN[g] || g}<i>${byGroup[g].length} 件</i></div>${items}</div>`;
+    }).join('');
+    $('parts').querySelectorAll('.pi').forEach(el => el.addEventListener('click', () => {
+      const p = geo.parts.find(x => x.name === el.dataset.p);
+      if (p) focusPart(p);
+    }));
+  }
+  function renderInfo(p) {
+    if (!p) { $('info').classList.remove('show'); return; }
+    const s = partSize(p), c = partCenter(p);
+    $('info').classList.add('show');
+    $('info').innerHTML = `<b>${RVM.LABELS[p.name] || p.name}</b>
+      <div class="ir">分组：${GROUP_CN[p.group] || p.group}　三角形：${p.tris}</div>
+      <div class="ir">尺寸：${s[0].toFixed(2)} × ${s[1].toFixed(2)} × ${s[2].toFixed(2)} m</div>
+      <div class="ir">中心：(${c[0].toFixed(2)}, ${c[1].toFixed(2)}, ${c[2].toFixed(2)})</div>`;
+  }
+
+  /* ---------------------------- 标签层 ---------------------------- */
+  const labelEls = new Map();
+  (function buildLabels() {
+    const layer = $('labels');
+    HOT.forEach(p => {
+      const d = document.createElement('div');
+      d.className = 'lb';
+      d.innerHTML = `<i></i><span>${RVM.LABELS[p.name]}</span>`;
+      d.addEventListener('click', () => focusPart(p));
+      layer.appendChild(d);
+      labelEls.set(p.name, d);
+    });
+  })();
+  function syncLabels() {
+    const eye = rd.eyePos();
+    HOT.forEach(p => {
+      const el = labelEls.get(p.name);
+      if (!S.labels || !rd.visible[p.group]) { el.style.display = 'none'; return; }
+      const c = partCenter(p);
+      const sp = rd.project([c[0], c[1] + partSize(p)[1] * 0.5 + 0.06, c[2]]);
+      if (!sp || sp[2] < 0.2) { el.style.display = 'none'; return; }
+      const dist = Math.hypot(eye[0] - c[0], eye[1] - c[1], eye[2] - c[2]);
+      if (dist > 26) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      el.style.transform = `translate(-50%,-100%) translate(${sp[0].toFixed(1)}px,${sp[1].toFixed(1)}px)`;
+      el.style.opacity = String(Math.max(0.25, Math.min(1, 1.35 - dist / 22)));
+      el.classList.toggle('sel', S.selected && S.selected.name === p.name);
+    });
+  }
+
+  /* ---------------------------- 交互 ---------------------------- */
+  let drag = null;
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, moved: 0, btn: e.button };
+    S.autoRotate = false; $('btnRot').classList.remove('on');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
+    S.tween = null;
+    if (drag.btn === 2 || e.shiftKey) {
+      const s = rd.cam.dist * 0.0018;
+      const cy = Math.cos(rd.cam.yaw), sy = Math.sin(rd.cam.yaw);
+      rd.cam.tx -= (dx * cy - dy * sy * 0.4) * s;
+      rd.cam.tz -= (-dx * sy - dy * cy * 0.4) * s;
+      rd.cam.ty = Math.max(0.1, rd.cam.ty + dy * s * 0.7);
+    } else {
+      rd.cam.yaw -= dx * 0.006;
+      rd.cam.pitch = Math.max(-0.35, Math.min(1.45, rd.cam.pitch + dy * 0.005));
+    }
+  });
+  window.addEventListener('pointerup', e => {
+    if (!drag) return;
+    const click = drag.moved < 6 && drag.btn === 0;
+    drag = null;
+    if (!click) return;
+    const r = canvas.getBoundingClientRect();
+    const p = rd.pickPart(e.clientX - r.left, e.clientY - r.top);
+    S.selected = p;
+    renderInfo(p);
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault(); S.tween = null;
+    rd.cam.dist = Math.max(1.0, Math.min(40, rd.cam.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+  }, { passive: false });
+  let pinch = null;
+  canvas.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
+  canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinch) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      rd.cam.dist = Math.max(1.0, Math.min(40, rd.cam.dist * (pinch / d)));
+      pinch = d; e.preventDefault();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { pinch = null; }, { passive: true });
+
+  /* ---------------------------- 控件 ---------------------------- */
+  const viewBar = $('views');
+  Object.keys(VIEWS).forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'vb'; b.textContent = VIEWS[k].name; b.dataset.v = k;
+    b.addEventListener('click', () => {
+      viewBar.querySelectorAll('.vb').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      tweenTo(VIEWS[k].cam, VIEWS[k].cut);
+    });
+    viewBar.appendChild(b);
+  });
+  viewBar.querySelector('.vb').classList.add('on');
+  $('btnCut').addEventListener('click', () => applyCutaway(!S.cutaway));
+  $('btnRot').addEventListener('click', () => { S.autoRotate = !S.autoRotate; $('btnRot').classList.toggle('on', S.autoRotate); });
+  $('btnLbl').addEventListener('click', () => { S.labels = !S.labels; $('btnLbl').classList.toggle('on', S.labels); });
+  $('btnWire').addEventListener('click', () => { rd.opt.wire = rd.opt.wire ? 0 : 1; $('btnWire').classList.toggle('on', !!rd.opt.wire); });
+  $('btnFlat').addEventListener('click', () => { rd.opt.flat = rd.opt.flat ? 0 : 1; $('btnFlat').classList.toggle('on', !!rd.opt.flat); });
+  $('btnShadow').addEventListener('click', () => {
+    if (!rd.shadowOK) return;
+    rd.opt.shadows = !rd.opt.shadows; $('btnShadow').classList.toggle('on', rd.opt.shadows);
+  });
+  $('btnDust').addEventListener('click', () => { rd.opt.dust = rd.opt.dust > 0.5 ? 0 : 1; $('btnDust').classList.toggle('on', rd.opt.dust > 0.5); });
+  $('night').addEventListener('input', e => { rd.opt.night = parseFloat(e.target.value); $('nightVal').textContent = Math.round(rd.opt.night * 100) + '%'; });
+  $('btnPanel').addEventListener('click', () => document.body.classList.toggle('panel-open'));
+  $('btnHelp').addEventListener('click', () => $('modal').classList.toggle('show'));
+  $('modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.id === 'modalOk') $('modal').classList.remove('show'); });
+  window.addEventListener('keydown', e => {
+    const keys = Object.keys(VIEWS);
+    if (e.key >= '1' && e.key <= String(Math.min(9, keys.length))) {
+      const k = keys[parseInt(e.key, 10) - 1];
+      viewBar.querySelectorAll('.vb').forEach(x => x.classList.toggle('on', x.dataset.v === k));
+      tweenTo(VIEWS[k].cam, VIEWS[k].cut);
+    } else if (e.key === 'c' || e.key === 'C') applyCutaway(!S.cutaway);
+    else if (e.key === 'l' || e.key === 'L') $('btnLbl').click();
+    else if (e.key === 'r' || e.key === 'R') $('btnRot').click();
+    else if (e.key === 'w' || e.key === 'W') $('btnWire').click();
+    else if (e.key === 'n' || e.key === 'N') { $('night').value = rd.opt.night > 0.5 ? '0' : '0.85'; $('night').dispatchEvent(new Event('input')); }
+    else if (e.key === 'h' || e.key === 'H') $('btnHelp').click();
+  });
+  window.addEventListener('resize', () => rd.resize());
+
+  /* ---------------------------- 主循环 ---------------------------- */
+  function frame(now) {
+    // 补间
+    if (S.tween) {
+      const t = Math.min(1, (now - S.tween.t0) / S.tween.dur);
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      for (const k of ['yaw', 'pitch', 'dist', 'tx', 'ty', 'tz', 'fov']) {
+        if (S.tween.to[k] !== undefined) rd.cam[k] = S.tween.from[k] + (S.tween.to[k] - S.tween.from[k]) * e;
+      }
+      if (t >= 1) S.tween = null;
+    } else if (S.autoRotate) {
+      rd.cam.yaw += 0.0022;
+    }
+    rd.draw(now);
+    syncLabels();
+    S.frames++;
+    if (now - S.lastT > 500) {
+      S.fps = Math.round(S.frames * 1000 / (now - S.lastT));
+      S.frames = 0; S.lastT = now;
+      $('hud').innerHTML = `${S.fps} FPS　·　三角形 ${(geo.triCount / 1000).toFixed(1)}k　·　部件 ${geo.parts.length}　·　` +
+        `曲面占比 ${(geo.stats.curvedRatio * 100).toFixed(0)}%${rd.opt.shadows ? '　·　阴影 开' : ''}`;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  renderGroupList(); renderPartList();
+  $('meta').innerHTML = `车长 ${geo.meta.dims.length.toFixed(2)}m · 车宽 ${geo.meta.dims.width.toFixed(2)}m · 车高 ${geo.meta.dims.height.toFixed(2)}m`;
+  $('btnRot').classList.add('on'); $('btnLbl').classList.add('on');
+  if (rd.opt.shadows) $('btnShadow').classList.add('on');
+  $('btnDust').classList.add('on');
+  $('loading').style.display = 'none';
+  requestAnimationFrame(frame);
+
+  /* 自动化测试挂钩 */
+  window.__RV__ = {
+    geo, rd, S, VIEWS, focusPart, tweenTo, applyCutaway, syncLabels,
+    setView: k => { tweenTo(VIEWS[k].cam, VIEWS[k].cut, 1); },
+    setNight: v => { rd.opt.night = v; },
+    labelCount: () => [...labelEls.values()].filter(e => e.style.display !== 'none').length,
+    pick: (x, y) => rd.pickPart(x, y),
+    ready: true
+  };
+})();
+
+</script>
+</body>
+</html>
